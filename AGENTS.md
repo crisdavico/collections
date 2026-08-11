@@ -14,8 +14,12 @@ Ground truth order: source under this directory →
 - **Models:** `collection.voucher`, `collection.voucher.line`.
 - **Integrations:** `mail.thread` / activities; MuK MCP tool `create_collection_voucher`
   on `muk_mcp.mixin`.
+- **Attachments (in scope):** each `collection.voucher.line` MAY have one optional image
+  or PDF (`fields.Binary` + filename via `ir.attachment`). See OpenSpec change
+  `voucher-line-attachments` and `openspec/specs/collection-vouchers/spec.md`.
 - **Out of scope (do not invent):** WhatsApp, HTTP public API, partner/CRM linkage,
-  attachments, multi-currency UX, agent LLM code inside this addon.
+  multi-file or non-image/non-PDF attachments, multi-currency UX, agent LLM code inside
+  this addon.
 
 ## Skills to load before work
 
@@ -81,13 +85,19 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   only when `state == 'new'` (`@api.ondelete`).
 - **Currency:** company default; no multi-currency UX.
 - **ACL:** internal users only; no extra groups or record rules.
+- **Line attachment:** optional one image/PDF per line (`Binary` + filename,
+  `attachment=True`, `copy=False`); server validates base64 and detected MIME; omit
+  remains valid.
 - **MCP:**
   - Method-discovered `@mcp_tool` (`category=write`, `registry=mcp`).
   - **Never** `sudo()`; never add a DB `muk_mcp.tool` record for this.
   - Require `customer_identification` + non-empty `payments`.
   - Each MCP payment requires non-empty `document_id` and `document_type`.
+  - Optional nested `attachment` per payment (`name`, `mimetype`, base64 `datas`);
+    validate MIME vs content; create atomically inside the existing savepoint.
   - Idempotency: all-new → create; full same-voucher match → replay; in-call duplicate /
     partial / cross-voucher → `UserError`, no writes.
+  - Exact-retry replay MUST NOT add, replace, or compare line attachments.
   - Handle `UniqueViolation` races with invalidate + replay/reject.
 - **UI lines** may omit `document_id`; MCP may not.
 - **Odoo 19:** use `<list>` not `<tree>`; `models.Constraint` not `_sql_constraints`;
