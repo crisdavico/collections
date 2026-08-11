@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+from base64 import b64decode
 from typing import Any
 
 from psycopg2.errors import UniqueViolation
 
 from odoo import _, api, models
 from odoo.exceptions import UserError
+from odoo.tools.mimetypes import guess_mimetype
 
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
@@ -28,6 +30,29 @@ _PAYMENT_OPTIONAL_FIELDS = (
 _DOCUMENT_TYPES = ("bank_transfer", "check", "cash_deposit", "unsupported")
 _CHECK_TYPES = ("common", "deferred")
 
+_ATTACHMENT_NEST_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Optional proof file for this payment. "
+        "Required keys when present: name, mimetype, datas."
+    ),
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "Attachment filename.",
+        },
+        "mimetype": {
+            "type": "string",
+            "description": "Declared MIME type (must match detected content).",
+        },
+        "datas": {
+            "type": "string",
+            "description": "Base64-encoded file contents.",
+        },
+    },
+    "required": ["name", "mimetype", "datas"],
+}
+
 
 class CollectionMcpMixin(models.AbstractModel):
     """MuK MCP write tools for collection vouchers."""
@@ -41,6 +66,8 @@ class CollectionMcpMixin(models.AbstractModel):
             "Create a payment voucher with nested payment lines. "
             "Requires customer_identification and a non-empty payments array. "
             "Each payment must include a non-empty document_id and document_type. "
+            "Each payment may include an optional attachment "
+            "{name, mimetype, datas}. "
             "Does not accept received_date; registration time is automatic."
         ),
         input_schema={
@@ -117,6 +144,7 @@ class CollectionMcpMixin(models.AbstractModel):
                                 "enum": list(_CHECK_TYPES),
                                 "description": "Check type.",
                             },
+                            "attachment": _ATTACHMENT_NEST_SCHEMA,
                         },
                         "required": ["document_id", "document_type"],
                     },
@@ -133,6 +161,9 @@ class CollectionMcpMixin(models.AbstractModel):
         payments: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Validate, resolve document_id idempotency, then create or replay.
+
+        Nested attachments are validated and mapped only on the all-new create
+        path. Exact-retry ignores attachment nests (no add/replace/compare).
 
         :raise UserError: when required fields are missing/invalid or conflicts.
         :raise AccessError: when the caller lacks voucher/payment create rights.
@@ -151,7 +182,13 @@ class CollectionMcpMixin(models.AbstractModel):
         # Caller env only — never sudo(); ORM ACL enforces base.group_user rights.
         existing = self._collection_payments_by_document_ids(document_ids)
         if existing:
+            # Exact-retry / conflict: ignore attachment nests entirely.
             return self._collection_replay_or_reject(existing, document_ids)
+
+        # Create-only: validate nests and map into line vals after all-new.
+        payment_vals_list = self._collection_enrich_payment_attachments(
+            payments, payment_vals_list
+        )
 
         try:
             return self._collection_create_voucher_with_payments(
@@ -160,6 +197,7 @@ class CollectionMcpMixin(models.AbstractModel):
         except UniqueViolation:
             # Race: concurrent create won the unique(document_id) race.
             # Savepoint already rolled back + cleared; refresh ORM caches.
+            # Attachment nests are ignored on the post-race replay path.
             self.env.invalidate_all()
             raced = self._collection_payments_by_document_ids(document_ids)
             if raced:
@@ -216,6 +254,90 @@ class CollectionMcpMixin(models.AbstractModel):
                     vals[field_name] = raw[field_name]
             payment_vals_list.append(vals)
         return payment_vals_list
+
+    @api.model
+    def _collection_enrich_payment_attachments(
+        self,
+        payments: list[dict[str, Any]],
+        payment_vals_list: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Map optional attachment nests into line vals (create path only).
+
+        Declared ``mimetype`` must equal the detected allow-listed MIME from
+        ``datas``. Reuses ``collection.voucher.line._validate_attachment_payload``.
+        """
+        enriched: list[dict[str, Any]] = []
+        for index, (raw, vals) in enumerate(
+            zip(payments, payment_vals_list, strict=True)
+        ):
+            nest = raw.get("attachment") if isinstance(raw, dict) else None
+            if nest in (None, False, ""):
+                enriched.append(vals)
+                continue
+            attachment_vals = self._collection_parse_attachment_nest(nest, index)
+            enriched.append({**vals, **attachment_vals})
+        return enriched
+
+    @api.model
+    def _collection_parse_attachment_nest(
+        self, nest: Any, index: int
+    ) -> dict[str, Any]:
+        """Validate nest shape + MIME/base64; return Binary/filename line vals."""
+        if not isinstance(nest, dict):
+            raise UserError(
+                _(
+                    "Payment attachment at index %(index)s must be an object.",
+                    index=index,
+                )
+            )
+        name = nest.get("name")
+        mimetype = nest.get("mimetype")
+        datas = nest.get("datas")
+        if not isinstance(name, str) or not name.strip():
+            raise UserError(
+                _(
+                    "Payment attachment at index %(index)s requires a non-empty name.",
+                    index=index,
+                )
+            )
+        if not isinstance(mimetype, str) or not mimetype.strip():
+            raise UserError(
+                _(
+                    "Payment attachment at index %(index)s requires a non-empty "
+                    "mimetype.",
+                    index=index,
+                )
+            )
+        if not isinstance(datas, str) or not datas.strip():
+            raise UserError(
+                _(
+                    "Payment attachment at index %(index)s requires non-empty "
+                    "base64 datas.",
+                    index=index,
+                )
+            )
+
+        Line = self.env["collection.voucher.line"]
+        # Reuse model allow-list/base64 gate (image/* or application/pdf).
+        Line._validate_attachment_payload(datas)
+
+        raw = datas.encode() if isinstance(datas, str) else datas
+        detected = guess_mimetype(b64decode(raw, validate=True)) or ""
+        declared = mimetype.strip()
+        if declared != detected:
+            raise UserError(
+                _(
+                    "Payment attachment mimetype at index %(index)s "
+                    "(%(declared)s) does not match detected type (%(detected)s).",
+                    index=index,
+                    declared=declared,
+                    detected=detected or "unknown",
+                )
+            )
+        return {
+            "attachment": datas,
+            "attachment_filename": name.strip(),
+        }
 
     @api.model
     def _collection_payments_by_document_ids(self, document_ids: list[str]):

@@ -1,0 +1,40 @@
+change: voucher-line-attachments
+phase: archive
+artifact_store: openspec
+artifacts:
+  exploration: false
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+  apply: true
+  verify: true
+  archive: true
+phase_status:
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: done
+tasks:
+  total: 14
+  completed: 14
+  in_progress: 0
+delivery:
+  strategy: ask-on-risk
+  decision_needed_before_apply: false
+  chained_prs_recommended: true
+  chain_strategy: stacked-to-main
+  budget_risk: High
+apply:
+  active_work_unit: null
+  completed_work_units:
+    - unit-1-model
+    - unit-2-ui
+    - unit-3-mcp
+    - phase-4-quality-gate
+  next_work_unit: null
+  branch: voucher-line-attachments-unit-3
+last_updated: "2026-08-11"

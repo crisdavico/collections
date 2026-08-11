@@ -10,6 +10,15 @@ from odoo.tools import mute_logger
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
+# Minimal valid payloads (base64) for MCP attachment triangulation.
+PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQ"
+    "DJ/pLvAAAAAElFTkSuQmCC"
+)
+PDF_B64 = "JVBERi0xLjEKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK"
+TXT_B64 = "aGVsbG8gd29ybGQ="
+INVALID_B64 = "!!!not-base64!!!"
+
 
 class TestCollectionMcpTool(TransactionCase):
     """RED/GREEN: create_collection_voucher MCP discover, create, schema, ACL."""
@@ -664,3 +673,396 @@ class TestCollectionMcpTool(TransactionCase):
                 [("document_id", "=", "MCP-DOC-UV-PARTIAL-NEW")]
             ),
         )
+
+
+class TestCollectionMcpAttachment(TransactionCase):
+    """RED/GREEN: optional nested MCP attachment on create; exact-retry ignore."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.tool_model = cls.env["muk_mcp.tool"]
+        cls.internal_user = cls.env.ref("base.user_admin")
+
+    def _call(self, name, arguments, user=None):
+        env = self.env(user=user) if user else self.env(user=self.internal_user)
+        text, _info = self.tool_model._call(name, arguments, env)
+        return json.loads(text)
+
+    def _line_attachments(self, line):
+        return self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "collection.voucher.line"),
+                ("res_id", "=", line.id),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+
+    def _nest(self, name, mimetype, datas):
+        return {"name": name, "mimetype": mimetype, "datas": datas}
+
+    def test_create_with_valid_png_nest_persists_atomically(self):
+        """All-new create with valid nested PNG persists voucher+line+file."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_payments = self.env["collection.voucher.line"].search_count([])
+        before_atts = self.env["ir.attachment"].search_count(
+            [
+                ("res_model", "=", "collection.voucher.line"),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+        result = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-PNG",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-PNG",
+                        "document_type": "bank_transfer",
+                        "amount": 12.0,
+                        "attachment": self._nest("proof.png", "image/png", PNG_B64),
+                    }
+                ],
+            },
+        )
+        self.assertIsInstance(result["id"], int)
+        self.assertEqual(len(result["payments"]), 1)
+        line = self.env["collection.voucher.line"].browse(result["payments"][0]["id"])
+        self.assertTrue(line.exists())
+        self.assertEqual(line.attachment_filename, "proof.png")
+        self.assertTrue(line.attachment)
+        attachments = self._line_attachments(line)
+        self.assertEqual(len(attachments), 1)
+        self.assertEqual(attachments.datas, PNG_B64.encode())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers + 1,
+        )
+        self.assertEqual(
+            self.env["collection.voucher.line"].search_count([]),
+            before_payments + 1,
+        )
+        self.assertEqual(
+            self.env["ir.attachment"].search_count(
+                [
+                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_field", "=", "attachment"),
+                ]
+            ),
+            before_atts + 1,
+        )
+
+    def test_create_with_valid_pdf_nest_persists(self):
+        """Triangulation: valid nested PDF also persists via ir.attachment."""
+        result = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-PDF",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-PDF",
+                        "document_type": "cash_deposit",
+                        "amount": 8.0,
+                        "attachment": self._nest(
+                            "receipt.pdf", "application/pdf", PDF_B64
+                        ),
+                    }
+                ],
+            },
+        )
+        line = self.env["collection.voucher.line"].browse(result["payments"][0]["id"])
+        self.assertEqual(line.attachment_filename, "receipt.pdf")
+        self.assertEqual(len(self._line_attachments(line)), 1)
+        self.assertEqual(self._line_attachments(line).datas, PDF_B64.encode())
+
+    def test_create_omitting_nest_still_creates(self):
+        """Omit nest remains backward-compatible and creates voucher+lines."""
+        result = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-OMIT",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-OMIT",
+                        "document_type": "check",
+                        "amount": 3.0,
+                        "check_type": "common",
+                    }
+                ],
+            },
+        )
+        line = self.env["collection.voucher.line"].browse(result["payments"][0]["id"])
+        self.assertTrue(line.exists())
+        self.assertFalse(line.attachment)
+        self.assertFalse(line.attachment_filename)
+        self.assertFalse(self._line_attachments(line))
+
+    def test_create_mime_mismatch_rejects_no_writes(self):
+        """Declared MIME mismatch / non-allow-list must UserError with no writes."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_payments = self.env["collection.voucher.line"].search_count([])
+        before_atts = self.env["ir.attachment"].search_count(
+            [
+                ("res_model", "=", "collection.voucher.line"),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+        with self.assertRaises(UserError) as err:
+            self._call(
+                "create_collection_voucher",
+                {
+                    "customer_identification": "MCP-ATT-MIME",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-MIME",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                            # PNG bytes but declared as PDF → mismatch.
+                            "attachment": self._nest(
+                                "fake.pdf", "application/pdf", PNG_B64
+                            ),
+                        }
+                    ],
+                },
+            )
+        self.assertNotIn("tool not found", str(err.exception).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertEqual(
+            self.env["collection.voucher.line"].search_count([]),
+            before_payments,
+        )
+        self.assertEqual(
+            self.env["ir.attachment"].search_count(
+                [
+                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_field", "=", "attachment"),
+                ]
+            ),
+            before_atts,
+        )
+        self.assertFalse(
+            self.env["collection.voucher.line"].search(
+                [("document_id", "=", "MCP-DOC-ATT-MIME")]
+            ),
+        )
+
+    def test_create_bad_base64_rejects_no_writes(self):
+        """Triangulation: bad base64 nest must UserError with no writes."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_payments = self.env["collection.voucher.line"].search_count([])
+        with self.assertRaises(UserError) as err:
+            self._call(
+                "create_collection_voucher",
+                {
+                    "customer_identification": "MCP-ATT-B64",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-B64",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                            "attachment": self._nest(
+                                "bad.bin", "image/png", INVALID_B64
+                            ),
+                        }
+                    ],
+                },
+            )
+        self.assertNotIn("tool not found", str(err.exception).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertEqual(
+            self.env["collection.voucher.line"].search_count([]),
+            before_payments,
+        )
+        self.assertFalse(
+            self.env["collection.voucher.line"].search(
+                [("document_id", "=", "MCP-DOC-ATT-B64")]
+            ),
+        )
+
+    def test_create_text_mime_rejects_no_writes(self):
+        """Triangulation: text content with text/plain declared must reject."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._call(
+                "create_collection_voucher",
+                {
+                    "customer_identification": "MCP-ATT-TXT",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-TXT",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                            "attachment": self._nest(
+                                "notes.txt", "text/plain", TXT_B64
+                            ),
+                        }
+                    ],
+                },
+            )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertFalse(
+            self.env["collection.voucher.line"].search(
+                [("document_id", "=", "MCP-DOC-ATT-TXT")]
+            ),
+        )
+
+    def test_exact_retry_with_nest_does_not_replace_attachment(self):
+        """Exact-retry with a different nest must leave stored attachment unchanged."""
+        first = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-RETRY",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY",
+                        "document_type": "bank_transfer",
+                        "amount": 5.0,
+                        "attachment": self._nest("original.png", "image/png", PNG_B64),
+                    }
+                ],
+            },
+        )
+        line = self.env["collection.voucher.line"].browse(first["payments"][0]["id"])
+        original_att_ids = self._line_attachments(line).ids
+        self.assertEqual(len(original_att_ids), 1)
+        self.assertEqual(line.attachment_filename, "original.png")
+        self.assertEqual(line.attachment, PNG_B64.encode())
+        before_atts = self.env["ir.attachment"].search_count(
+            [
+                ("res_model", "=", "collection.voucher.line"),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+
+        second = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-RETRY-OTHER",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY",
+                        "document_type": "bank_transfer",
+                        "amount": 999.0,
+                        "attachment": self._nest(
+                            "replacement.pdf", "application/pdf", PDF_B64
+                        ),
+                    }
+                ],
+            },
+        )
+        self.assertEqual(second["id"], first["id"])
+        line.invalidate_recordset()
+        self.assertEqual(line.attachment_filename, "original.png")
+        self.assertEqual(line.attachment, PNG_B64.encode())
+        self.assertEqual(self._line_attachments(line).ids, original_att_ids)
+        self.assertEqual(
+            self.env["ir.attachment"].search_count(
+                [
+                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_field", "=", "attachment"),
+                ]
+            ),
+            before_atts,
+        )
+
+    def test_exact_retry_with_nest_does_not_add_when_line_has_none(self):
+        """Exact-retry nest MUST NOT add an attachment when the line has none."""
+        first = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-RETRY-EMPTY",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-EMPTY",
+                        "document_type": "cash_deposit",
+                        "amount": 4.0,
+                    }
+                ],
+            },
+        )
+        line = self.env["collection.voucher.line"].browse(first["payments"][0]["id"])
+        self.assertFalse(line.attachment)
+        before_atts = self.env["ir.attachment"].search_count(
+            [
+                ("res_model", "=", "collection.voucher.line"),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+
+        second = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-RETRY-EMPTY-OTHER",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-EMPTY",
+                        "document_type": "cash_deposit",
+                        "amount": 4.0,
+                        "attachment": self._nest("late.png", "image/png", PNG_B64),
+                    }
+                ],
+            },
+        )
+        self.assertEqual(second["id"], first["id"])
+        line.invalidate_recordset()
+        self.assertFalse(line.attachment)
+        self.assertFalse(line.attachment_filename)
+        self.assertFalse(self._line_attachments(line))
+        self.assertEqual(
+            self.env["ir.attachment"].search_count(
+                [
+                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_field", "=", "attachment"),
+                ]
+            ),
+            before_atts,
+        )
+
+    def test_exact_retry_without_nest_leaves_existing_attachment(self):
+        """Triangulation: exact-retry omitting nest must not clear existing file."""
+        first = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-RETRY-OMIT",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-OMIT",
+                        "document_type": "check",
+                        "amount": 6.0,
+                        "check_type": "common",
+                        "attachment": self._nest(
+                            "keep.pdf", "application/pdf", PDF_B64
+                        ),
+                    }
+                ],
+            },
+        )
+        line = self.env["collection.voucher.line"].browse(first["payments"][0]["id"])
+        second = self._call(
+            "create_collection_voucher",
+            {
+                "customer_identification": "MCP-ATT-RETRY-OMIT-OTHER",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-OMIT",
+                        "document_type": "check",
+                        "amount": 6.0,
+                        "check_type": "common",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(second["id"], first["id"])
+        line.invalidate_recordset()
+        self.assertEqual(line.attachment_filename, "keep.pdf")
+        self.assertEqual(line.attachment, PDF_B64.encode())
+        self.assertEqual(len(self._line_attachments(line)), 1)
