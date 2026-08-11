@@ -1,0 +1,67 @@
+change: typed-voucher-line-views
+status: archived
+artifact_store: openspec
+execution_mode: interactive
+delivery_strategy: ask-on-risk
+planning_depth: standard
+created: 2026-08-11
+archived: 2026-08-11
+phases:
+  explore: skipped
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: done
+apply:
+  active_work_unit: null
+  completed_work_units:
+    - unit-1-typed-form-tables
+    - unit-2-payment-lines-menu
+    - phase-3-quality-gate
+  next_work_unit: null
+  branch: null
+  tasks_completed:
+    - "1.1"
+    - "1.2"
+    - "1.3"
+    - "1.4"
+    - "1.5"
+    - "2.1"
+    - "2.2"
+    - "2.3"
+    - "2.4"
+    - "3.1"
+    - "3.2"
+    - "3.3"
+  note: "Verify PASS WITH WARNINGS; archived 2026-08-11"
+context:
+  product_decisions:
+    - stacked_typed_tables_on_voucher_form
+    - types_bank_transfer_check_cash_deposit
+    - exclude_unsupported_form_table
+    - mixed_types_per_voucher_allowed
+    - document_id_visible_ui_optional
+    - auto_default_document_type_per_table
+    - payment_lines_menu_read_only
+    - remove_mono_payment_lines_table
+verify:
+  verdict: pass_with_warnings
+  report: verify-report.md
+  blockers: 0
+  critical_findings: 0
+  requirements: 2/2
+  scenarios: 7/7
+  note: "Manual smoke N/A (odoo exited 137); img-build skipped"
+archive:
+  path: openspec/changes/archive/2026-08-11-typed-voucher-line-views/
+  report: archive-report.md
+  engram: skipped_unavailable
+  specs_synced:
+    - domain: collection-vouchers
+      modified:
+        - Menu and backend UI
+      added:
+        - Unsupported lines remain non-editable on voucher form

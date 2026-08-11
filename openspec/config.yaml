@@ -75,9 +75,8 @@ rules:
     guidelines:
       - Edit owned code only under odoo/custom/src/private/collection/.
       - Do not edit Copier-managed or git-aggregate-managed files directly.
-      - Load exact skills from
-        odoo/custom/src/private/collection/.atl/skill-registry.md before
-        implementation.
+      - Load exact skills from odoo/custom/src/private/collection/.atl/skill-registry.md
+        before implementation.
     tdd: true
     test_command: invoke test -m collection
   verify:
