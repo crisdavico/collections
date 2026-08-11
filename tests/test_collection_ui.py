@@ -556,3 +556,103 @@ class TestCollectionUi(TransactionCase):
             [("document_type", "=", "unsupported"), ("id", "=", unsupported.id)]
         )
         self.assertEqual(found, unsupported)
+
+    # --- Phase 2: Line attachment binary widgets (Unit 2) ---
+
+    ATTACHMENT_ACCEPT = "image/*,.pdf"
+
+    def _assert_attachment_binary_widget(self, list_node, context):
+        """Assert list has one binary attachment widget with filename + accept."""
+        attachment_nodes = list_node.xpath('./field[@name="attachment"]')
+        self.assertEqual(
+            len(attachment_nodes),
+            1,
+            f"{context} must declare exactly one attachment field",
+        )
+        node = attachment_nodes[0]
+        self.assertEqual(
+            node.get("widget"),
+            "binary",
+            f"{context} attachment must use widget=binary",
+        )
+        self.assertEqual(
+            node.get("filename"),
+            "attachment_filename",
+            f"{context} attachment must set filename=attachment_filename",
+        )
+        options = node.get("options") or ""
+        self.assertIn(
+            "accepted_file_extensions",
+            options,
+            f"{context} attachment must set accepted_file_extensions",
+        )
+        self.assertIn(
+            "image/*",
+            options,
+            f"{context} accept must allow image/*",
+        )
+        self.assertIn(
+            ".pdf",
+            options,
+            f"{context} accept must allow PDF (.pdf)",
+        )
+        self.assertIn(
+            self.ATTACHMENT_ACCEPT,
+            options.replace(" ", ""),
+            (
+                f"{context} accepted_file_extensions must be "
+                f"{self.ATTACHMENT_ACCEPT!r} (got {options!r})"
+            ),
+        )
+        filename_nodes = list_node.xpath('./field[@name="attachment_filename"]')
+        self.assertEqual(
+            len(filename_nodes),
+            1,
+            f"{context} must declare attachment_filename field",
+        )
+
+    def test_typed_lists_include_attachment_binary_widgets(self):
+        """Each typed payment list MUST expose Binary attachment + filename widgets."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        typed_lists = self._typed_list_by_document_type(form_root)
+        self.assertEqual(
+            len(typed_lists),
+            3,
+            "typed lists must exist before attachment widget checks",
+        )
+        for doc_type, (_field_node, list_node) in typed_lists.items():
+            self._assert_attachment_binary_widget(list_node, f"typed {doc_type} list")
+
+    def test_payment_lines_list_includes_attachment_binary_widget(self):
+        """Payment Lines list MUST expose Binary attachment + filename widgets."""
+        list_root = self._arch_root("collection.view_collection_voucher_line_list")
+        self.assertEqual(list_root.tag, "list")
+        self._assert_attachment_binary_widget(list_root, "Payment Lines list")
+
+    def test_typed_and_payment_lists_attachment_accept_is_image_and_pdf(self):
+        """Triangulation: accept filter must allow image/* and PDF on all four lists."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        typed_lists = self._typed_list_by_document_type(form_root)
+        payment_list = self._arch_root("collection.view_collection_voucher_line_list")
+        targets = [
+            (f"typed {doc_type}", list_node)
+            for doc_type, (_field_node, list_node) in typed_lists.items()
+        ]
+        targets.append(("Payment Lines list", payment_list))
+        self.assertEqual(len(targets), 4)
+
+        for label, list_node in targets:
+            attachment_nodes = list_node.xpath('./field[@name="attachment"]')
+            self.assertEqual(
+                len(attachment_nodes),
+                1,
+                f"{label} must declare attachment for accept triangulation",
+            )
+            options = attachment_nodes[0].get("options") or ""
+            self.assertIn("image/*", options, f"{label} must accept image/*")
+            self.assertIn(".pdf", options, f"{label} must accept .pdf")
+            self.assertNotIn(
+                ".doc",
+                options,
+                f"{label} must not advertise non-image/PDF extensions",
+            )

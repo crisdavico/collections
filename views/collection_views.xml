@@ -147,6 +147,13 @@
                                     <field name="to_account" />
                                     <field name="voucher_number" />
                                     <field name="voucher_date" />
+                                    <field
+                    name="attachment"
+                    widget="binary"
+                    filename="attachment_filename"
+                    options="{'accepted_file_extensions': 'image/*,.pdf'}"
+                  />
+                                    <field name="attachment_filename" optional="hide" />
                                 </list>
                             </field>
                             <separator string="Checks" />
@@ -164,6 +171,13 @@
                                     <field name="check_type" />
                                     <field name="check_issue_date" />
                                     <field name="check_payment_date" />
+                                    <field
+                    name="attachment"
+                    widget="binary"
+                    filename="attachment_filename"
+                    options="{'accepted_file_extensions': 'image/*,.pdf'}"
+                  />
+                                    <field name="attachment_filename" optional="hide" />
                                 </list>
                             </field>
                             <separator string="Cash Deposits" />
@@ -176,6 +190,13 @@
                                     <field name="document_id" />
                                     <field name="amount" />
                                     <field name="currency_id" column_invisible="1" />
+                                    <field
+                    name="attachment"
+                    widget="binary"
+                    filename="attachment_filename"
+                    options="{'accepted_file_extensions': 'image/*,.pdf'}"
+                  />
+                                    <field name="attachment_filename" optional="hide" />
                                 </list>
                             </field>
                         </page>
@@ -219,6 +240,13 @@
                 <field name="check_type" optional="hide" />
                 <field name="check_issue_date" optional="hide" />
                 <field name="check_payment_date" optional="hide" />
+                <field
+          name="attachment"
+          widget="binary"
+          filename="attachment_filename"
+          options="{'accepted_file_extensions': 'image/*,.pdf'}"
+        />
+                <field name="attachment_filename" optional="hide" />
             </list>
         </field>
     </record>
