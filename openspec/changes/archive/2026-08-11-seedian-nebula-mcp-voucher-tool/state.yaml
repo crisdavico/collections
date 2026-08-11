@@ -1,0 +1,65 @@
+change: seedian-nebula-mcp-voucher-tool
+status: verify_done
+artifact_store: openspec
+execution_mode: interactive
+delivery_strategy: ask-on-risk
+planning_depth: standard
+created: 2026-08-11
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: pending
+apply:
+  active_work_unit: null
+  completed_work_units:
+    - unit-1-received-date-create-date
+    - unit-2-document-id-uniqueness
+    - unit-3-mcp-create-acl
+    - unit-4-idempotency-race
+    - phase-5-quality-gate
+  next_work_unit: null
+  last_acquire_token: sha256:7c21d67a6c0590ff69784f54f1a1c3b5cb7fe7b2e3235a3e6d87510e1c689186
+  last_evidence_goal: phase5-install-precommit-tests-green
+  last_outcome: passed
+  branch: sdd/seedian-nebula-mcp-voucher-tool-pr4
+  tasks_completed:
+    [
+      1.1,
+      1.2,
+      1.3,
+      1.4,
+      1.5,
+      1.6,
+      2.1,
+      2.2,
+      2.3,
+      3.1,
+      3.2,
+      3.3,
+      3.4,
+      3.5,
+      3.6,
+      4.1,
+      4.2,
+      4.3,
+      4.4,
+      4.5,
+      4.6,
+      4.7,
+      5.1,
+      5.2,
+      5.3,
+    ]
+  tasks_remaining: []
+
+verify:
+  verdict: fail
+  authority_only_failure: true
+  evidence_revision: sha256:39805bcd03b528f2b0bc2ca2356bc0266eb6af17246bb072d6b0f689f30d6558
+  observed_authority_revision: sha256:ee4968a9fdc76160f5eb5948a0c5709eb1f6f656061bc2b31fc2807c2d0c586c
+  blockers: 1

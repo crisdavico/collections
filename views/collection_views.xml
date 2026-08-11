@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- List -->
+    <record id="view_collection_voucher_list" model="ir.ui.view">
+        <field name="name">collection.voucher.list</field>
+        <field name="model">collection.voucher</field>
+        <field name="arch" type="xml">
+            <list string="Payment Vouchers">
+                <field name="name" />
+                <field name="customer_identification" />
+                <field name="create_date" readonly="1" />
+                <field name="state" />
+            </list>
+        </field>
+    </record>
+
+    <!-- Search -->
+    <record id="view_collection_voucher_search" model="ir.ui.view">
+        <field name="name">collection.voucher.search</field>
+        <field name="model">collection.voucher</field>
+        <field name="arch" type="xml">
+            <search string="Search Payment Vouchers">
+                <field name="name" />
+                <field name="customer_identification" />
+                <field name="create_date" />
+                <field name="state" />
+                <filter
+                    string="New"
+                    name="filter_new"
+                    domain="[('state', '=', 'new')]"
+                />
+                <filter
+                    string="Validated"
+                    name="filter_validated"
+                    domain="[('state', '=', 'validated')]"
+                />
+                <filter
+                    string="Rejected"
+                    name="filter_rejected"
+                    domain="[('state', '=', 'rejected')]"
+                />
+                <group>
+                    <filter
+                        string="Status"
+                        name="group_state"
+                        context="{'group_by': 'state'}"
+                    />
+                    <filter
+                        string="Created On"
+                        name="group_create_date"
+                        context="{'group_by': 'create_date'}"
+                    />
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Kanban -->
+    <record id="view_collection_voucher_kanban" model="ir.ui.view">
+        <field name="name">collection.voucher.kanban</field>
+        <field name="model">collection.voucher</field>
+        <field name="arch" type="xml">
+            <kanban
+                string="Payment Vouchers"
+                default_group_by="state"
+                records_draggable="1"
+                class="o_kanban_mobile"
+            >
+                <field name="name" />
+                <field name="customer_identification" />
+                <field name="create_date" readonly="1" />
+                <field name="state" />
+                <field name="activity_ids" />
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex align-items-baseline mb-2">
+                            <field name="name" class="fw-bolder fs-5" />
+                        </div>
+                        <field name="customer_identification" />
+                        <footer>
+                            <div class="d-flex flex-wrap gap-1 text-muted text-nowrap">
+                                <field name="create_date" readonly="1" />
+                                <field name="activity_ids" widget="kanban_activity" />
+                            </div>
+                        </footer>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- Form -->
+    <record id="view_collection_voucher_form" model="ir.ui.view">
+        <field name="name">collection.voucher.form</field>
+        <field name="model">collection.voucher</field>
+        <field name="arch" type="xml">
+            <form string="Payment Voucher">
+                <header>
+                    <button
+                        name="action_validate"
+                        string="Validate"
+                        type="object"
+                        class="oe_highlight"
+                        invisible="state != 'new'"
+                    />
+                    <button
+                        name="action_reject"
+                        string="Reject"
+                        type="object"
+                        invisible="state != 'new'"
+                    />
+                    <field
+                        name="state"
+                        widget="statusbar"
+                        statusbar_visible="new,validated,rejected"
+                    />
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" />
+                        <h1>
+                            <field name="name" readonly="1" />
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="customer_identification" />
+                            <field name="create_date" readonly="1" />
+                        </group>
+                        <group>
+                            <field name="currency_id" groups="base.group_no_one" />
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Payment Lines" name="payment_lines">
+                            <field name="payment_ids">
+                                <list editable="bottom">
+                                    <field name="document_type" />
+                                    <field name="amount" />
+                                    <field name="currency_id" column_invisible="1" />
+                                    <field name="from_account" optional="show" />
+                                    <field name="to_account" optional="show" />
+                                    <field name="voucher_number" optional="show" />
+                                    <field name="voucher_date" optional="hide" />
+                                    <field name="check_number" optional="show" />
+                                    <field name="check_bank" optional="hide" />
+                                    <field name="check_issue_date" optional="hide" />
+                                    <field name="check_payment_date" optional="hide" />
+                                    <field name="check_type" optional="show" />
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter />
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_collection_voucher" model="ir.actions.act_window">
+        <field name="name">Payment Vouchers</field>
+        <field name="res_model">collection.voucher</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_collection_voucher_search" />
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a payment voucher
+            </p>
+        </field>
+    </record>
+
+    <!-- Menus: Collections → Payment Vouchers -->
+    <menuitem id="menu_collection_root" name="Collections" sequence="45" />
+    <menuitem
+        id="menu_collection_voucher"
+        name="Payment Vouchers"
+        parent="menu_collection_root"
+        action="action_collection_voucher"
+        sequence="10"
+    />
+</odoo>

@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_collection_voucher_user,collection.voucher.user,model_collection_voucher,base.group_user,1,1,1,1
+access_collection_voucher_line_user,collection.voucher.line.user,model_collection_voucher_line,base.group_user,1,1,1,1

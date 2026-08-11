@@ -1,0 +1,3 @@
+# Local AI runtime cache (skill-registry is tracked)
+.atl/*
+!.atl/skill-registry.md

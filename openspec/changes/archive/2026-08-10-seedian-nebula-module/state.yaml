@@ -1,0 +1,12 @@
+# SDD change state — orchestrator-managed
+change: seedian-nebula-module
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+phase: archived
+updated: 2026-08-10
+notes: |
+  Archived 2026-08-10 after native review allow (review-seedian-nebula-20260810b).
+  Final: PASS WITH WARNINGS; 8/8 reqs, 14/14 scenarios, 24/24 tests; 18/18 tasks.
+  Main spec created: openspec/specs/seedian-nebula-vouchers/spec.md
+  Archive: openspec/changes/archive/2026-08-10-seedian-nebula-module/
