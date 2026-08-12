@@ -61,6 +61,7 @@ class CollectionVoucher(models.Model):
     def action_validate(self):
         if any(voucher.state != "new" for voucher in self):
             raise UserError(_("Only new vouchers can be validated."))
+        self._ensure_no_pending_attached_review()
         # write() so mail.thread field tracking records the state change
         return self.write({"state": "validated"})
 
@@ -68,6 +69,16 @@ class CollectionVoucher(models.Model):
         if any(voucher.state != "new" for voucher in self):
             raise UserError(_("Only new vouchers can be rejected."))
         return self.write({"state": "rejected"})
+
+    @api.private
+    def _ensure_no_pending_attached_review(self):
+        pending = self.mapped("payment_ids").filtered(
+            lambda line: line.review_status == "pending"
+        )
+        if pending._lines_with_attachment():
+            raise UserError(
+                _("Cannot validate while attached payment lines are pending review.")
+            )
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_new(self):

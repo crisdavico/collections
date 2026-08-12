@@ -54,6 +54,37 @@ class CollectionVoucherLine(models.Model):
     )
     attachment = fields.Binary(attachment=True, copy=False)
     attachment_filename = fields.Char(copy=False)
+    review_status = fields.Selection(
+        selection=[
+            ("pending", "Pending"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        default="pending",
+        required=True,
+        copy=False,
+    )
+    reviewed_by = fields.Many2one(
+        comodel_name="res.users",
+        copy=False,
+    )
+    reviewed_at = fields.Datetime(copy=False)
+
+    _REVIEW_EDITABLE_FIELDS = frozenset(
+        {
+            "document_type",
+            "amount",
+            "from_account",
+            "to_account",
+            "voucher_number",
+            "voucher_date",
+            "check_number",
+            "check_bank",
+            "check_type",
+            "check_issue_date",
+            "check_payment_date",
+        }
+    )
 
     _document_id_uniq = models.Constraint(
         "UNIQUE(document_id)",
@@ -98,4 +129,159 @@ class CollectionVoucherLine(models.Model):
     def write(self, vals):
         if "attachment" in vals:
             self._validate_attachment_payload(vals.get("attachment"))
+        vals = self._vals_with_review_reset_on_new_attachment(vals)
         return super().write(vals)
+
+    @api.model
+    def get_review_queue(self):
+        lines = self.search(
+            [
+                ("voucher_id.state", "=", "new"),
+                ("review_status", "=", "pending"),
+                ("attachment", "!=", False),
+            ],
+            order="id",
+        )
+        total = len(lines)
+        return [
+            line._review_queue_payload(position=index, total=total)
+            for index, line in enumerate(lines, start=1)
+        ]
+
+    def action_review_approve(self, vals=None):
+        self.ensure_one()
+        self._lock_and_ensure_review_eligible()
+        self._write_review_decision("approved", self._editable_review_vals(vals))
+        self._validate_voucher_if_all_attached_approved()
+        return True
+
+    def action_review_reject(self):
+        self.ensure_one()
+        self._lock_and_ensure_review_eligible()
+        self._write_review_decision("rejected")
+        if self.voucher_id.state == "new":
+            self.voucher_id.action_reject()
+        return True
+
+    @api.private
+    def _vals_with_review_reset_on_new_attachment(self, vals):
+        if not vals.get("attachment"):
+            return vals
+        vals = dict(vals)
+        vals["review_status"] = "pending"
+        vals["reviewed_by"] = False
+        vals["reviewed_at"] = False
+        return vals
+
+    @api.private
+    def _editable_review_vals(self, vals):
+        if not vals:
+            return {}
+        return {
+            key: value
+            for key, value in vals.items()
+            if key in self._REVIEW_EDITABLE_FIELDS
+        }
+
+    @api.private
+    def _write_review_decision(self, status, extra_vals=None):
+        vals = {
+            "review_status": status,
+            "reviewed_by": self.env.user.id,
+            "reviewed_at": fields.Datetime.now(),
+        }
+        if extra_vals:
+            vals.update(extra_vals)
+        self.write(vals)
+
+    @api.private
+    def _lock_and_ensure_review_eligible(self):
+        self.ensure_one()
+        self.env.cr.execute(
+            """
+            SELECT id FROM collection_voucher_line
+            WHERE id = %s
+            FOR UPDATE
+            """,
+            [self.id],
+        )
+        self.invalidate_recordset()
+        self._ensure_review_eligible()
+
+    @api.private
+    def _ensure_review_eligible(self):
+        self.ensure_one()
+        if not self._is_review_eligible():
+            raise UserError(
+                self.env._("This payment line is not eligible for review.")
+            )
+
+    @api.private
+    def _is_review_eligible(self):
+        self.ensure_one()
+        return bool(
+            self.voucher_id.state == "new"
+            and self.review_status == "pending"
+            and self._lines_with_attachment()
+        )
+
+    @api.private
+    def _lines_with_attachment(self):
+        """Return subset of ``self`` that has stored Binary attachment content."""
+        if not self:
+            return self.browse()
+        attachments = self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", self._name),
+                ("res_id", "in", self.ids),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+        return self.browse(attachments.mapped("res_id"))
+
+    @api.private
+    def _validate_voucher_if_all_attached_approved(self):
+        voucher = self.voucher_id
+        if voucher.state != "new":
+            return
+        attached = voucher.payment_ids._lines_with_attachment()
+        if attached and all(
+            line.review_status == "approved" for line in attached
+        ):
+            voucher.action_validate()
+
+    @api.private
+    def _attachment_content_url(self):
+        self.ensure_one()
+        url = (
+            "/web/content?model=collection.voucher.line"
+            f"&id={self.id}&field=attachment"
+        )
+        if self.attachment_filename:
+            url = f"{url}&filename={self.attachment_filename}"
+        return url
+
+    @api.private
+    def _review_queue_payload(self, position, total):
+        self.ensure_one()
+        return {
+            "id": self.id,
+            "voucher_id": self.voucher_id.id,
+            "voucher_name": self.voucher_id.name,
+            "document_id": self.document_id,
+            "document_type": self.document_type,
+            "amount": self.amount,
+            "from_account": self.from_account,
+            "to_account": self.to_account,
+            "voucher_number": self.voucher_number,
+            "voucher_date": self.voucher_date,
+            "check_number": self.check_number,
+            "check_bank": self.check_bank,
+            "check_type": self.check_type,
+            "check_issue_date": self.check_issue_date,
+            "check_payment_date": self.check_payment_date,
+            "position": position,
+            "total": total,
+            "attachment_filename": self.attachment_filename,
+            "attachment_url": self._attachment_content_url(),
+        }

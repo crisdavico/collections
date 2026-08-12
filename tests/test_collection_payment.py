@@ -222,6 +222,62 @@ class TestCollectionPaymentAttachment(TransactionCase):
         self.assertEqual(len(attachments), 1)
         self.assertEqual(attachments.datas, PDF_B64.encode())
 
+    def test_write_replace_resets_approved_review_to_pending(self):
+        """Replacing Binary content must reopen review and clear audit."""
+        voucher = self._create_voucher(customer_identification="CUST-ATT-RST")
+        line = self.env["collection.voucher.line"].create(
+            self._payment_vals(
+                voucher,
+                document_id="DOC-ATT-RST",
+                attachment=PNG_B64,
+                attachment_filename="old.png",
+            )
+        )
+        line.write(
+            {
+                "review_status": "approved",
+                "reviewed_by": self.env.user.id,
+            }
+        )
+        self.assertEqual(line.review_status, "approved")
+        line.write(
+            {
+                "attachment": PDF_B64,
+                "attachment_filename": "new.pdf",
+            }
+        )
+        self.assertEqual(line.review_status, "pending")
+        self.assertFalse(line.reviewed_by)
+        self.assertFalse(line.reviewed_at)
+        self.assertEqual(line.attachment_filename, "new.pdf")
+
+    def test_write_replace_resets_rejected_review_to_pending(self):
+        """Triangulation: replacing a rejected line's file also reopens review."""
+        voucher = self._create_voucher(customer_identification="CUST-ATT-RST-REJ")
+        line = self.env["collection.voucher.line"].create(
+            self._payment_vals(
+                voucher,
+                document_id="DOC-ATT-RST-REJ",
+                attachment=PNG_B64,
+                attachment_filename="rej.png",
+            )
+        )
+        line.write(
+            {
+                "review_status": "rejected",
+                "reviewed_by": self.env.user.id,
+            }
+        )
+        line.write(
+            {
+                "attachment": PNG_B64,
+                "attachment_filename": "again.png",
+            }
+        )
+        self.assertEqual(line.review_status, "pending")
+        self.assertFalse(line.reviewed_by)
+        self.assertFalse(line.reviewed_at)
+
     def test_clear_attachment_empties_binary_and_filename(self):
         """Clearing attachment empties Binary and filename."""
         voucher = self._create_voucher(customer_identification="CUST-ATT-CLR")

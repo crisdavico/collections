@@ -10,6 +10,8 @@ from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from .test_collection_payment import PNG_B64
+
 
 class TestCollectionVoucher(TransactionCase):
     """RED/GREEN tests for collection.voucher and payment lines."""
@@ -98,6 +100,38 @@ class TestCollectionVoucher(TransactionCase):
 
     def test_action_validate_from_new(self):
         voucher = self._create_voucher()
+        voucher.action_validate()
+        self.assertEqual(voucher.state, "validated")
+
+    def test_action_validate_blocked_when_attached_line_pending(self):
+        """Validate must refuse while an attached line is still pending review."""
+        voucher = self._create_voucher(customer_identification="CUST-VAL-PEND")
+        self.env["collection.voucher.line"].create(
+            {
+                "voucher_id": voucher.id,
+                "document_type": "bank_transfer",
+                "document_id": "DOC-VAL-PEND",
+                "attachment": PNG_B64,
+                "attachment_filename": "pending.png",
+            }
+        )
+        with self.assertRaises(UserError):
+            voucher.action_validate()
+        self.assertEqual(voucher.state, "new")
+
+    def test_action_validate_allows_unattached_pending_line(self):
+        """Triangulation: unattached pending lines must not block validate."""
+        voucher = self._create_voucher(customer_identification="CUST-VAL-UNATT")
+        line = self.env["collection.voucher.line"].create(
+            {
+                "voucher_id": voucher.id,
+                "document_type": "cash_deposit",
+                "document_id": "DOC-VAL-UNATT",
+                "amount": 10.0,
+            }
+        )
+        self.assertEqual(line.review_status, "pending")
+        self.assertFalse(line.attachment)
         voucher.action_validate()
         self.assertEqual(voucher.state, "validated")
 
