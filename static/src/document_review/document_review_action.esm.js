@@ -282,14 +282,14 @@ export class DocumentReviewAction extends Component {
           [this.current.id],
           buildApproveVals(this.current),
         ]),
-      _t("Payment line approved.")
+      _t("Payment voucher approved.")
     );
   }
 
   async reject() {
     await this.runDecision(
       () => this.orm.call(LINE_MODEL, "action_review_reject", [[this.current.id]]),
-      _t("Payment line rejected.")
+      _t("Payment voucher rejected.")
     );
   }
 

@@ -2,7 +2,7 @@
 
 import {_t} from "@web/core/l10n/translation";
 
-export const LINE_MODEL = "collection.voucher.line";
+export const LINE_MODEL = "collection.voucher";
 export const BINARY_KEYS = new Set(["datas", "attachment"]);
 
 export const BANK_TRANSFER_FIELDS = [

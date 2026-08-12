@@ -61,9 +61,9 @@ class CollectionMcpMixin(models.AbstractModel):
 
     @api.model
     @mcp_tool(
-        name="create_collection_voucher",
+        name="create_collection_vouchers",
         description=(
-            "Create a payment voucher with nested payment lines. "
+            "Create one payment voucher per payment. "
             "Requires customer_identification and a non-empty payments array. "
             "Each payment must include a non-empty document_id and document_type. "
             "Each payment may include an optional attachment "
@@ -80,7 +80,7 @@ class CollectionMcpMixin(models.AbstractModel):
                 "payments": {
                     "type": "array",
                     "minItems": 1,
-                    "description": "Payment lines to attach to the voucher.",
+                    "description": "Payments to persist as standalone vouchers.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -155,7 +155,7 @@ class CollectionMcpMixin(models.AbstractModel):
         category="write",
         registry="mcp",
     )
-    def create_collection_voucher(
+    def create_collection_vouchers(
         self,
         customer_identification: str,
         payments: list[dict[str, Any]],
@@ -166,7 +166,7 @@ class CollectionMcpMixin(models.AbstractModel):
         path. Exact-retry ignores attachment nests (no add/replace/compare).
 
         :raise UserError: when required fields are missing/invalid or conflicts.
-        :raise AccessError: when the caller lacks voucher/payment create rights.
+        :raise AccessError: when the caller lacks voucher create rights.
         """
         customer = (customer_identification or "").strip()
         if not customer:
@@ -180,26 +180,24 @@ class CollectionMcpMixin(models.AbstractModel):
             raise UserError(_("Duplicate document_id in the same call is not allowed."))
 
         # Caller env only — never sudo(); ORM ACL enforces base.group_user rights.
-        existing = self._collection_payments_by_document_ids(document_ids)
+        existing = self._collection_vouchers_by_document_ids(document_ids)
         if existing:
             # Exact-retry / conflict: ignore attachment nests entirely.
             return self._collection_replay_or_reject(existing, document_ids)
 
-        # Create-only: validate nests and map into line vals after all-new.
+        # Create-only: validate nests and map into voucher vals after all-new.
         payment_vals_list = self._collection_enrich_payment_attachments(
             payments, payment_vals_list
         )
 
         try:
-            return self._collection_create_voucher_with_payments(
-                customer, payment_vals_list
-            )
+            return self._collection_create_vouchers(customer, payment_vals_list)
         except UniqueViolation:
             # Race: concurrent create won the unique(document_id) race.
             # Savepoint already rolled back + cleared; refresh ORM caches.
             # Attachment nests are ignored on the post-race replay path.
             self.env.invalidate_all()
-            raced = self._collection_payments_by_document_ids(document_ids)
+            raced = self._collection_vouchers_by_document_ids(document_ids)
             if raced:
                 return self._collection_replay_or_reject(raced, document_ids)
             raise UserError(
@@ -213,7 +211,7 @@ class CollectionMcpMixin(models.AbstractModel):
     def _collection_parse_payment_vals(
         self, payments: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Validate payment dicts and return create vals (without voucher_id)."""
+        """Validate payment dicts and return voucher create vals."""
         payment_vals_list: list[dict[str, Any]] = []
         for index, raw in enumerate(payments):
             if not isinstance(raw, dict):
@@ -261,10 +259,10 @@ class CollectionMcpMixin(models.AbstractModel):
         payments: list[dict[str, Any]],
         payment_vals_list: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Map optional attachment nests into line vals (create path only).
+        """Map optional attachment nests into voucher vals (create path only).
 
         Declared ``mimetype`` must equal the detected allow-listed MIME from
-        ``datas``. Reuses ``collection.voucher.line._validate_attachment_payload``.
+        ``datas``. Reuses ``collection.voucher._validate_attachment_payload``.
         """
         enriched: list[dict[str, Any]] = []
         for index, (raw, vals) in enumerate(
@@ -282,7 +280,7 @@ class CollectionMcpMixin(models.AbstractModel):
     def _collection_parse_attachment_nest(
         self, nest: Any, index: int
     ) -> dict[str, Any]:
-        """Validate nest shape + MIME/base64; return Binary/filename line vals."""
+        """Validate nest shape + MIME/base64; return Binary/filename voucher vals."""
         if not isinstance(nest, dict):
             raise UserError(
                 _(
@@ -317,9 +315,9 @@ class CollectionMcpMixin(models.AbstractModel):
                 )
             )
 
-        Line = self.env["collection.voucher.line"]
+        Voucher = self.env["collection.voucher"]
         # Reuse model allow-list/base64 gate (image/* or application/pdf).
-        Line._validate_attachment_payload(datas)
+        Voucher._validate_attachment_payload(datas)
 
         raw = datas.encode() if isinstance(datas, str) else datas
         detected = guess_mimetype(b64decode(raw, validate=True)) or ""
@@ -340,17 +338,36 @@ class CollectionMcpMixin(models.AbstractModel):
         }
 
     @api.model
-    def _collection_payments_by_document_ids(self, document_ids: list[str]):
-        """Return payments matching the submitted document_id set."""
-        return self.env["collection.voucher.line"].search(
+    def _collection_vouchers_by_document_ids(self, document_ids: list[str]):
+        """Return vouchers matching the submitted document_id set."""
+        return self.env["collection.voucher"].search(
             [("document_id", "in", document_ids)]
         )
+
+    @api.model
+    def _collection_vouchers_payload(
+        self, vouchers, document_ids: list[str]
+    ) -> dict[str, Any]:
+        """Build the MCP list response in submitted payment order."""
+        by_doc = {voucher.document_id: voucher for voucher in vouchers}
+        ordered = [by_doc[doc_id] for doc_id in document_ids]
+        return {
+            "vouchers": [
+                {
+                    "id": voucher.id,
+                    "name": voucher.name,
+                    "state": voucher.state,
+                    "document_id": voucher.document_id,
+                }
+                for voucher in ordered
+            ]
+        }
 
     @api.model
     def _collection_replay_or_reject(
         self, existing, document_ids: list[str]
     ) -> dict[str, Any]:
-        """Replay when all docs map to one voucher; otherwise reject with no writes."""
+        """Replay when every submitted document_id exists; otherwise reject."""
         if len(existing) != len(document_ids):
             raise UserError(
                 _(
@@ -358,54 +375,27 @@ class CollectionMcpMixin(models.AbstractModel):
                     "on another voucher."
                 )
             )
-        vouchers = existing.mapped("voucher_id")
-        if len(vouchers) != 1:
-            raise UserError(
-                _(
-                    "Cross-voucher document_id conflict: submitted payments "
-                    "belong to more than one voucher."
-                )
-            )
-        # Customer is ignored on document_id match (idempotent replay).
-        by_doc = {payment.document_id: payment for payment in existing}
-        ordered_payments = [by_doc[doc_id] for doc_id in document_ids]
-        voucher = vouchers
-        return {
-            "id": voucher.id,
-            "name": voucher.name,
-            "state": voucher.state,
-            "payments": [
-                {"id": payment.id, "document_id": payment.document_id}
-                for payment in ordered_payments
-            ],
-        }
+        # Exact set of existing document_ids succeeds even across vouchers.
+        # Customer identification and nested attachments are ignored.
+        return self._collection_vouchers_payload(existing, document_ids)
 
     @api.model
-    def _collection_create_voucher_with_payments(
+    def _collection_create_vouchers(
         self,
         customer: str,
         payment_vals_list: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Atomically create voucher + batched payment lines inside a savepoint."""
+        """Atomically create one voucher per payment inside a savepoint."""
         Voucher = self.env["collection.voucher"]
-        Payment = self.env["collection.voucher.line"]
+        document_ids = [vals["document_id"] for vals in payment_vals_list]
+        create_vals = [
+            {
+                **vals,
+                "customer_identification": customer,
+                "state": "pending",
+            }
+            for vals in payment_vals_list
+        ]
         with self.env.cr.savepoint():
-            voucher = Voucher.create(
-                {
-                    "customer_identification": customer,
-                    "state": "new",
-                }
-            )
-            create_vals = [
-                {**vals, "voucher_id": voucher.id} for vals in payment_vals_list
-            ]
-            payments_rs = Payment.create(create_vals)
-        return {
-            "id": voucher.id,
-            "name": voucher.name,
-            "state": voucher.state,
-            "payments": [
-                {"id": payment.id, "document_id": payment.document_id}
-                for payment in payments_rs
-            ],
-        }
+            vouchers = Voucher.create(create_vals)
+        return self._collection_vouchers_payload(vouchers, document_ids)

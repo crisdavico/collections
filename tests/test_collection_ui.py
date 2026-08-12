@@ -5,37 +5,25 @@ from lxml import etree
 
 from odoo.tests import TransactionCase
 
-TYPED_PAYMENT_LIST_SPECS = (
-    (
-        "bank_transfer",
-        (
-            "document_id",
-            "amount",
-            "from_account",
-            "to_account",
-            "voucher_number",
-            "voucher_date",
-        ),
-    ),
-    (
-        "check",
-        (
-            "document_id",
-            "amount",
-            "check_number",
-            "check_bank",
-            "check_type",
-            "check_issue_date",
-            "check_payment_date",
-        ),
-    ),
-    (
-        "cash_deposit",
-        (
-            "document_id",
-            "amount",
-        ),
-    ),
+BANK_TRANSFER_FIELDS = (
+    "from_account",
+    "to_account",
+    "voucher_number",
+    "voucher_date",
+)
+CHECK_FIELDS = (
+    "check_number",
+    "check_bank",
+    "check_type",
+    "check_issue_date",
+    "check_payment_date",
+)
+SHARED_PAYMENT_FIELDS = ("document_type", "document_id", "amount")
+REMOVED_PAYMENT_LINE_XMLIDS = (
+    "collection.view_collection_voucher_line_list",
+    "collection.view_collection_voucher_line_search",
+    "collection.action_collection_voucher_line",
+    "collection.menu_collection_voucher_line",
 )
 
 
@@ -47,6 +35,8 @@ class TestCollectionUi(TransactionCase):
         "customer_identification",
         "create_date",
         "state",
+        "document_type",
+        "amount",
     )
     VIEW_XMLIDS = (
         "collection.view_collection_voucher_list",
@@ -54,6 +44,7 @@ class TestCollectionUi(TransactionCase):
         "collection.view_collection_voucher_kanban",
         "collection.view_collection_voucher_form",
     )
+    ATTACHMENT_ACCEPT = "image/*,.pdf"
 
     def _arch_root(self, xmlid):
         view = self.env.ref(xmlid)
@@ -64,42 +55,6 @@ class TestCollectionUi(TransactionCase):
 
     def _field_nodes(self, root, field_name):
         return root.xpath(f'//field[@name="{field_name}"]')
-
-    def _typed_payment_field_nodes(self, form_root):
-        """Return payment_ids field nodes that declare a document_type domain."""
-        nodes = []
-        for node in form_root.xpath('//field[@name="payment_ids"]'):
-            domain = node.get("domain") or ""
-            if "document_type" in domain:
-                nodes.append(node)
-        return nodes
-
-    def _typed_list_by_document_type(self, form_root):
-        """Map document_type → (field node, editable list) for typed embeds."""
-        by_type = {}
-        for node in self._typed_payment_field_nodes(form_root):
-            domain = node.get("domain") or ""
-            lists = node.xpath('./list[@editable="bottom"]')
-            self.assertTrue(
-                lists,
-                f"typed payment_ids embed must have editable list (domain={domain!r})",
-            )
-            matched = None
-            for doc_type, _fields in TYPED_PAYMENT_LIST_SPECS:
-                if f"'{doc_type}'" in domain or f'"{doc_type}"' in domain:
-                    matched = doc_type
-                    break
-            self.assertIsNotNone(
-                matched,
-                f"typed payment_ids domain must target a known type: {domain!r}",
-            )
-            self.assertNotIn(
-                matched,
-                by_type,
-                f"duplicate typed list for document_type={matched}",
-            )
-            by_type[matched] = (node, lists[0])
-        return by_type
 
     def _assert_create_date_readonly(self, root, context):
         nodes = self._field_nodes(root, "create_date")
@@ -113,6 +68,83 @@ class TestCollectionUi(TransactionCase):
                     f"(got {node.get('readonly')!r})"
                 ),
             )
+
+    def _assert_create_edit_enabled(self, root, context):
+        self.assertNotEqual(
+            (root.get("create") or "").lower(),
+            "false",
+            f"{context} must keep create enabled",
+        )
+        self.assertNotEqual(
+            (root.get("edit") or "").lower(),
+            "false",
+            f"{context} must keep edit enabled",
+        )
+
+    def _assert_attachment_binary_widget(self, root, context):
+        """Assert arch has Binary attachment + filename with image/PDF accept."""
+        attachment_nodes = root.xpath('.//field[@name="attachment"]')
+        self.assertTrue(
+            attachment_nodes,
+            f"{context} must declare an attachment field",
+        )
+        binary_nodes = [
+            node for node in attachment_nodes if node.get("widget") == "binary"
+        ]
+        self.assertTrue(
+            binary_nodes,
+            f"{context} attachment must use widget=binary",
+        )
+        node = binary_nodes[0]
+        self.assertEqual(
+            node.get("filename"),
+            "attachment_filename",
+            f"{context} attachment must set filename=attachment_filename",
+        )
+        options = node.get("options") or ""
+        self.assertIn(
+            "accepted_file_extensions",
+            options,
+            f"{context} attachment must set accepted_file_extensions",
+        )
+        self.assertIn("image/*", options, f"{context} accept must allow image/*")
+        self.assertIn(".pdf", options, f"{context} accept must allow PDF (.pdf)")
+        self.assertIn(
+            self.ATTACHMENT_ACCEPT,
+            options.replace(" ", ""),
+            (
+                f"{context} accepted_file_extensions must be "
+                f"{self.ATTACHMENT_ACCEPT!r} (got {options!r})"
+            ),
+        )
+        self.assertNotIn(
+            ".doc",
+            options,
+            f"{context} must not advertise non-image/PDF extensions",
+        )
+        filename_nodes = root.xpath('.//field[@name="attachment_filename"]')
+        self.assertTrue(
+            filename_nodes,
+            f"{context} must declare attachment_filename field",
+        )
+
+    def _assert_invisible_for_document_type(self, node, expected_type, field_name):
+        invisible = node.get("invisible") or ""
+        self.assertIn(
+            "document_type",
+            invisible,
+            f"{field_name} must use typed invisible= (got {invisible!r})",
+        )
+        self.assertIn(
+            expected_type,
+            invisible,
+            f"{field_name} invisible= must mention {expected_type}",
+        )
+        self.assertNotIn(
+            "attrs",
+            node.attrib,
+            f"{field_name} must use Odoo 19 invisible=, not attrs",
+        )
 
     def test_menu_and_action_xmlids(self):
         """Collections → Payment Vouchers menu must wire the voucher act_window."""
@@ -135,12 +167,43 @@ class TestCollectionUi(TransactionCase):
         )
         self.assertEqual(action.path, "payment-vouchers")
 
+    def test_payment_line_xmlids_removed(self):
+        """Payment Lines list/search/action/menu xmlids MUST be gone."""
+        for xmlid in REMOVED_PAYMENT_LINE_XMLIDS:
+            self.assertFalse(
+                self.env.ref(xmlid, raise_if_not_found=False),
+                f"{xmlid} must be removed",
+            )
+
+    def test_load_menus_omits_payment_lines(self):
+        """Collections → Payment Lines MUST NOT appear in load_menus."""
+        root_menu = self.env.ref("collection.menu_collection_root")
+        voucher_menu = self.env.ref("collection.menu_collection_voucher")
+        leftover = self.env["ir.ui.menu"].search([("name", "=", "Payment Lines")])
+        self.assertFalse(
+            leftover,
+            "Payment Lines menu record must not exist",
+        )
+        menus = self.env["ir.ui.menu"].load_menus(False)
+        self.assertIn("root", menus)
+        self.assertIn(root_menu.id, menus)
+        self.assertIn(voucher_menu.id, menus)
+        for menu_id, data in menus.items():
+            if menu_id == "root" or not isinstance(data, dict):
+                continue
+            self.assertNotEqual(
+                data.get("name"),
+                "Payment Lines",
+                "load_menus must omit Payment Lines",
+            )
+
     def test_list_and_search_show_required_fields(self):
         """List and search arches must expose reference, ID, create_date, status."""
         list_root = self._arch_root("collection.view_collection_voucher_list")
         search_root = self._arch_root("collection.view_collection_voucher_search")
 
         self.assertEqual(list_root.tag, "list")
+        self.assertNotEqual(list_root.tag, "tree")
         self.assertEqual(search_root.tag, "search")
 
         list_fields = self._field_names(list_root)
@@ -163,6 +226,19 @@ class TestCollectionUi(TransactionCase):
             "search view must offer group_by create_date",
         )
 
+    def test_search_filters_pending_approved_rejected(self):
+        """Payment Vouchers search MUST filter pending, approved, and rejected."""
+        search_root = self._arch_root("collection.view_collection_voucher_search")
+        for value in ("pending", "approved", "rejected"):
+            filters = search_root.xpath(f'//filter[contains(@domain, "{value}")]')
+            matching = [
+                node for node in filters if "state" in (node.get("domain") or "")
+            ]
+            self.assertTrue(
+                matching,
+                f"Payment Vouchers search must filter state={value}",
+            )
+
     def test_kanban_groups_by_state_and_shows_card_fields(self):
         """Kanban must group by state and show reference, ID, and create_date."""
         kanban_root = self._arch_root("collection.view_collection_voucher_kanban")
@@ -176,6 +252,10 @@ class TestCollectionUi(TransactionCase):
 
         card = kanban_root.xpath('//templates/t[@t-name="card"]')
         self.assertTrue(card, "kanban must define a card template")
+        self.assertFalse(
+            kanban_root.xpath('//templates/t[@t-name="kanban-box"]'),
+            "kanban must not use deprecated t-name=kanban-box",
+        )
         card_fields = self._field_names(card[0])
         for field_name in ("name", "customer_identification", "create_date"):
             self.assertIn(
@@ -201,7 +281,7 @@ class TestCollectionUi(TransactionCase):
             )
 
     def test_state_group_expand_shows_all_columns(self):
-        """Kanban grouping must return New/Validated/Rejected even when empty."""
+        """Kanban grouping must return Pending/Approved/Rejected even when empty."""
         Voucher = self.env["collection.voucher"]
         self.assertTrue(
             Voucher._fields["state"].group_expand,
@@ -214,15 +294,18 @@ class TestCollectionUi(TransactionCase):
         )
         self.assertEqual(
             [group["state"] for group in groups],
-            ["new", "validated", "rejected"],
+            ["pending", "approved", "rejected"],
         )
 
-    def test_form_statusbar_buttons_lines_and_chatter(self):
-        """Form must show statusbar, Validate/Reject, typed editable lines, chatter."""
+    def test_form_statusbar_approve_reject_when_pending(self):
+        """Form must show statusbar and Approve/Reject only when pending."""
         voucher = self.env["collection.voucher"].create(
-            {"customer_identification": "UI-MENU-001"}
+            {
+                "customer_identification": "UI-MENU-001",
+                "document_type": "cash_deposit",
+            }
         )
-        self.assertEqual(voucher.state, "new")
+        self.assertEqual(voucher.state, "pending")
 
         form_root = self._arch_root("collection.view_collection_voucher_form")
         self.assertEqual(form_root.tag, "form")
@@ -232,41 +315,28 @@ class TestCollectionUi(TransactionCase):
         )
         self.assertTrue(statusbar, "form must include state statusbar in header")
 
-        validate = form_root.xpath(
-            '//header/button[@name="action_validate" and @type="object"]'
+        approve = form_root.xpath(
+            '//header/button[@name="action_approve" and @type="object"]'
         )
         reject = form_root.xpath(
             '//header/button[@name="action_reject" and @type="object"]'
         )
-        self.assertTrue(validate, "form must include Validate button")
+        self.assertTrue(approve, "form must include Approve button")
         self.assertTrue(reject, "form must include Reject button")
         self.assertIn(
-            "state != 'new'",
-            validate[0].get("invisible", ""),
-            "Validate must be invisible when not new",
+            "state != 'pending'",
+            approve[0].get("invisible", ""),
+            "Approve must be invisible when not pending",
         )
         self.assertIn(
-            "state != 'new'",
+            "state != 'pending'",
             reject[0].get("invisible", ""),
-            "Reject must be invisible when not new",
+            "Reject must be invisible when not pending",
         )
-
-        typed_lists = self._typed_list_by_document_type(form_root)
-        self.assertEqual(
-            list(typed_lists),
-            [doc_type for doc_type, _fields in TYPED_PAYMENT_LIST_SPECS],
-            "form must include three stacked typed editable payment lists",
+        self.assertFalse(
+            form_root.xpath('//header/button[@name="action_validate"]'),
+            "form must not keep action_validate",
         )
-        for _doc_type, (field_node, list_node) in typed_lists.items():
-            line_fields = self._field_names(list_node)
-            self.assertIn("amount", line_fields)
-            self.assertIn("document_id", line_fields)
-            self.assertNotIn("document_type", line_fields)
-            self.assertIn(
-                "default_document_type",
-                field_node.get("context") or "",
-                "typed list must set default_document_type context",
-            )
 
         self._assert_create_date_readonly(form_root, "form")
         form_fields = self._field_names(form_root)
@@ -278,421 +348,111 @@ class TestCollectionUi(TransactionCase):
             chatter, "form must include <chatter/> for messaging/activities"
         )
 
-    def test_form_has_three_stacked_typed_payment_lists(self):
-        """Form MUST expose typed bank/check/cash lists and MUST NOT keep mono list."""
+    def test_form_has_no_typed_payment_ids_tables(self):
+        """Standalone form MUST NOT embed typed payment_ids lists."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
-        typed_lists = self._typed_list_by_document_type(form_root)
-        expected_order = [doc_type for doc_type, _fields in TYPED_PAYMENT_LIST_SPECS]
-
-        self.assertEqual(
-            list(typed_lists),
-            expected_order,
-            "typed lists must appear as bank_transfer, check, cash_deposit",
-        )
-
-        # Mono all-type list: payment_ids without a document_type domain.
-        mono_lists = []
-        for node in form_root.xpath('//field[@name="payment_ids"]'):
-            domain = node.get("domain") or ""
-            if "document_type" not in domain:
-                mono_lists.extend(node.xpath("./list"))
         self.assertFalse(
-            mono_lists,
-            "form must not keep a mono all-type payment_ids list",
-        )
-
-        for doc_type, required_fields in TYPED_PAYMENT_LIST_SPECS:
-            field_node, list_node = typed_lists[doc_type]
-            line_fields = self._field_names(list_node)
-            for field_name in required_fields:
-                self.assertIn(
-                    field_name,
-                    line_fields,
-                    f"{doc_type} list must include field {field_name}",
-                )
-            self.assertNotIn(
-                "document_type",
-                line_fields,
-                f"{doc_type} list must hide document_type column",
-            )
-            context = field_node.get("context") or ""
-            self.assertIn(
-                f"'default_document_type': '{doc_type}'",
-                context.replace('"', "'"),
-                f"{doc_type} list must default document_type via context",
-            )
-            domain = field_node.get("domain") or ""
-            self.assertIn(
-                doc_type,
-                domain,
-                f"{doc_type} list domain must filter document_type",
-            )
-
-    def test_form_typed_lists_field_sets_differ_by_type(self):
-        """Triangulation: each typed list exposes only its type-specific columns."""
-        form_root = self._arch_root("collection.view_collection_voucher_form")
-        typed_lists = self._typed_list_by_document_type(form_root)
-
-        bank_fields = set(self._field_names(typed_lists["bank_transfer"][1]))
-        check_fields = set(self._field_names(typed_lists["check"][1]))
-        cash_fields = set(self._field_names(typed_lists["cash_deposit"][1]))
-
-        self.assertTrue({"from_account", "to_account"} <= bank_fields)
-        self.assertFalse({"from_account", "to_account"} & check_fields)
-        self.assertFalse({"from_account", "to_account"} & cash_fields)
-
-        self.assertTrue({"check_number", "check_bank", "check_type"} <= check_fields)
-        self.assertFalse({"check_number", "check_bank", "check_type"} & bank_fields)
-        self.assertFalse({"check_number", "check_bank", "check_type"} & cash_fields)
-
-        self.assertEqual(
-            cash_fields & {"document_id", "amount"},
-            {"document_id", "amount"},
+            form_root.xpath('//field[@name="payment_ids"]'),
+            "form must not declare payment_ids",
         )
         self.assertFalse(
-            {"voucher_number", "voucher_date", "check_number"} & cash_fields,
-            "cash_deposit list must not show bank/check-only columns",
+            form_root.xpath(".//list"),
+            "form must not embed typed payment-line tables",
         )
 
-    def test_typed_list_default_document_type_persists(self):
-        """Creating a line with each table's arch context MUST set document_type."""
+    def test_form_typed_invisible_payment_fields(self):
+        """Form MUST show type-specific payment fields via invisible=."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
-        typed_lists = self._typed_list_by_document_type(form_root)
-        self.assertEqual(
-            len(typed_lists),
-            3,
-            "typed lists with default_document_type context must exist",
-        )
+        for field_name in SHARED_PAYMENT_FIELDS:
+            nodes = self._field_nodes(form_root, field_name)
+            self.assertTrue(nodes, f"form must include shared field {field_name}")
 
-        voucher = self.env["collection.voucher"].create(
-            {"customer_identification": "UI-TYPED-DEFAULT-001"}
-        )
-        Line = self.env["collection.voucher.line"]
+        amount = self._field_nodes(form_root, "amount")[0]
+        self._assert_invisible_for_document_type(amount, "unsupported", "amount")
 
-        for doc_type, (field_node, _list_node) in typed_lists.items():
-            context = field_node.get("context") or ""
-            self.assertIn(
-                f"'default_document_type': '{doc_type}'",
-                context.replace('"', "'"),
-                f"{doc_type} arch context must declare default_document_type",
-            )
-            line = Line.with_context(default_document_type=doc_type).create(
-                {
-                    "voucher_id": voucher.id,
-                    "amount": 10.0,
-                }
-            )
-            self.assertEqual(
-                line.document_type,
-                doc_type,
-                f"default_document_type={doc_type!r} must persist on create",
+        for field_name in BANK_TRANSFER_FIELDS:
+            nodes = self._field_nodes(form_root, field_name)
+            self.assertTrue(nodes, f"form must include bank field {field_name}")
+            self._assert_invisible_for_document_type(
+                nodes[0], "bank_transfer", field_name
             )
 
-    def test_typed_list_default_document_type_without_document_id(self):
-        """UI-style create may omit document_id and still default type."""
-        form_root = self._arch_root("collection.view_collection_voucher_form")
-        typed_lists = self._typed_list_by_document_type(form_root)
-        self.assertIn("cash_deposit", typed_lists)
+        for field_name in CHECK_FIELDS:
+            nodes = self._field_nodes(form_root, field_name)
+            self.assertTrue(nodes, f"form must include check field {field_name}")
+            self._assert_invisible_for_document_type(nodes[0], "check", field_name)
 
-        voucher = self.env["collection.voucher"].create(
-            {"customer_identification": "UI-TYPED-DEFAULT-002"}
-        )
-        line = (
-            self.env["collection.voucher.line"]
-            .with_context(default_document_type="cash_deposit")
-            .create({"voucher_id": voucher.id})
-        )
-        self.assertEqual(line.document_type, "cash_deposit")
-        self.assertFalse(line.document_id)
+        bank_only = set(BANK_TRANSFER_FIELDS)
+        check_only = set(CHECK_FIELDS)
+        self.assertFalse(bank_only & check_only)
 
-    # --- Phase 2: Payment Lines menu (Unit 2) ---
-
-    PAYMENT_LINE_SEARCH_FIELDS = (
-        "state",
-        "document_type",
-        "document_id",
-        "amount",
-        "voucher_id",
-        "from_account",
-        "to_account",
-        "voucher_number",
-        "voucher_date",
-        "check_number",
-        "check_bank",
-        "check_type",
-        "check_issue_date",
-        "check_payment_date",
-    )
-
-    def test_payment_lines_menu_and_action_read_only(self):
-        """Collections → Payment Lines must open read-only line act_window."""
-        root_menu = self.env.ref("collection.menu_collection_root")
-        lines_menu = self.env.ref("collection.menu_collection_voucher_line")
-        action = self.env.ref("collection.action_collection_voucher_line")
-
-        self.assertEqual(lines_menu.name, "Payment Lines")
-        self.assertEqual(lines_menu.parent_id, root_menu)
-        self.assertEqual(lines_menu.action, action)
-        self.assertEqual(action.res_model, "collection.voucher.line")
-        self.assertIn("list", action.view_mode)
-
-        context = action.context or ""
-        if isinstance(context, dict):
-            context_repr = repr(context)
-            create_disabled = context.get("create") is False
-            edit_disabled = context.get("edit") is False
-        else:
-            context_repr = str(context).replace('"', "'")
-            create_disabled = "'create': False" in context_repr or "'create':False" in (
-                context_repr.replace(" ", "")
-            )
-            edit_disabled = "'edit': False" in context_repr or "'edit':False" in (
-                context_repr.replace(" ", "")
-            )
-        self.assertTrue(
-            create_disabled,
-            f"Payment Lines action must disable create (context={context_repr!r})",
-        )
-        self.assertTrue(
-            edit_disabled,
-            f"Payment Lines action must disable edit (context={context_repr!r})",
-        )
-
-        self.assertEqual(
-            action.search_view_id,
-            self.env.ref("collection.view_collection_voucher_line_search"),
-        )
-        self.assertEqual(action.path, "payment-lines")
-        list_view = self.env.ref("collection.view_collection_voucher_line_list")
-        self.assertEqual(list_view.model, "collection.voucher.line")
-
-    def test_payment_lines_search_exposes_filter_fields(self):
-        """Payment Lines search MUST allow filtering by line and voucher fields."""
-        search_root = self._arch_root("collection.view_collection_voucher_line_search")
-        self.assertEqual(search_root.tag, "search")
-        search_fields = self._field_names(search_root)
-        for field_name in self.PAYMENT_LINE_SEARCH_FIELDS:
-            self.assertIn(
-                field_name,
-                search_fields,
-                f"Payment Lines search must include field {field_name}",
-            )
-
-        list_root = self._arch_root("collection.view_collection_voucher_line_list")
-        self.assertEqual(list_root.tag, "list")
-        list_fields = self._field_names(list_root)
-        for field_name in (
-            "state",
-            "document_type",
-            "document_id",
-            "amount",
-            "voucher_id",
+    def test_payment_vouchers_views_include_attachment_binary_widgets(self):
+        """Form, list, and kanban MUST expose Binary attachment + filename widgets."""
+        for xmlid, label in (
+            ("collection.view_collection_voucher_form", "form"),
+            ("collection.view_collection_voucher_list", "list"),
+            ("collection.view_collection_voucher_kanban", "kanban"),
         ):
-            self.assertIn(
-                field_name,
-                list_fields,
-                f"Payment Lines list must show field {field_name}",
-            )
+            root = self._arch_root(xmlid)
+            self._assert_attachment_binary_widget(root, label)
 
-    def test_payment_lines_list_and_search_expose_line_state(self):
-        """Payment Lines MUST show line state and allow filter/group by state."""
-        Line = self.env["collection.voucher.line"]
-        self.assertIn("state", Line._fields)
-        self.assertNotIn("review_status", Line._fields)
-        self.assertEqual(
-            [value for value, _label in Line._fields["state"].selection],
-            ["pending", "approved", "rejected"],
-        )
+    def test_create_and_edit_enabled_on_payment_vouchers(self):
+        """Payment Vouchers kanban/list/form and action MUST allow create and edit."""
+        action = self.env.ref("collection.action_collection_voucher")
+        context = action.context or {}
+        if isinstance(context, str):
+            context_repr = context.replace('"', "'")
+            self.assertNotIn("'create': False", context_repr)
+            self.assertNotIn("'edit': False", context_repr)
+        else:
+            self.assertIsNot(context.get("create"), False)
+            self.assertIsNot(context.get("edit"), False)
 
-        list_root = self._arch_root("collection.view_collection_voucher_line_list")
-        state_nodes = list_root.xpath('./field[@name="state"]')
-        self.assertTrue(state_nodes, "Payment Lines list must show state")
-        self.assertEqual(state_nodes[0].get("widget"), "badge")
+        for xmlid, label in (
+            ("collection.view_collection_voucher_list", "list"),
+            ("collection.view_collection_voucher_kanban", "kanban"),
+            ("collection.view_collection_voucher_form", "form"),
+        ):
+            self._assert_create_edit_enabled(self._arch_root(xmlid), label)
 
-        search_root = self._arch_root("collection.view_collection_voucher_line_search")
-        for value in ("pending", "approved", "rejected"):
-            filters = search_root.xpath(f'//filter[contains(@domain, "{value}")]')
-            matching = [
-                node for node in filters if "state" in (node.get("domain") or "")
-            ]
-            self.assertTrue(
-                matching,
-                f"Payment Lines search must filter state={value}",
-            )
-        group_state = search_root.xpath('//filter[contains(@context, "state")]')
-        self.assertTrue(
-            group_state,
-            "Payment Lines search must offer group_by state",
-        )
-
-    def test_unsupported_absent_from_typed_form_tables(self):
-        """unsupported lines MUST NOT match any typed form list domain."""
-        form_root = self._arch_root("collection.view_collection_voucher_form")
-        typed_lists = self._typed_list_by_document_type(form_root)
-        self.assertEqual(len(typed_lists), 3)
-        for doc_type, (field_node, _list_node) in typed_lists.items():
-            domain = field_node.get("domain") or ""
-            self.assertNotIn(
-                "unsupported",
-                domain,
-                f"{doc_type} typed list must not include unsupported",
-            )
-
-        voucher = self.env["collection.voucher"].create(
-            {"customer_identification": "UI-UNSUPPORTED-FORM-001"}
-        )
-        unsupported = self.env["collection.voucher.line"].create(
-            {
-                "voucher_id": voucher.id,
-                "document_type": "unsupported",
-                "document_id": "UI-UNSUP-DOC-001",
-                "amount": 1.0,
-            }
-        )
-        for doc_type in ("bank_transfer", "check", "cash_deposit"):
-            matched = self.env["collection.voucher.line"].search(
-                [
-                    ("voucher_id", "=", voucher.id),
-                    ("document_type", "=", doc_type),
-                    ("id", "=", unsupported.id),
-                ]
-            )
-            self.assertFalse(
-                matched,
-                f"unsupported line must not appear under {doc_type} domain",
-            )
-
-    def test_unsupported_findable_via_payment_lines_filter(self):
-        """Payment Lines search MUST offer an unsupported document_type filter."""
-        search_root = self._arch_root("collection.view_collection_voucher_line_search")
+    def test_unsupported_filter_lists_unsupported_vouchers(self):
+        """Payment Vouchers search MUST list unsupported via document_type filter."""
+        search_root = self._arch_root("collection.view_collection_voucher_search")
         unsupported_filters = search_root.xpath(
             '//filter[contains(@domain, "unsupported")]'
         )
         self.assertTrue(
             unsupported_filters,
-            "Payment Lines search must include a filter for document_type=unsupported",
+            "Payment Vouchers search must filter document_type=unsupported",
         )
         domain = unsupported_filters[0].get("domain") or ""
         self.assertIn("document_type", domain)
         self.assertIn("unsupported", domain)
 
         voucher = self.env["collection.voucher"].create(
-            {"customer_identification": "UI-UNSUPPORTED-MENU-001"}
-        )
-        unsupported = self.env["collection.voucher.line"].create(
             {
-                "voucher_id": voucher.id,
+                "customer_identification": "UI-UNSUPPORTED-MENU-001",
                 "document_type": "unsupported",
                 "document_id": "UI-UNSUP-DOC-002",
-                "amount": 2.0,
             }
         )
-        found = self.env["collection.voucher.line"].search(
-            [("document_type", "=", "unsupported"), ("id", "=", unsupported.id)]
+        found = self.env["collection.voucher"].search(
+            [("document_type", "=", "unsupported"), ("id", "=", voucher.id)]
         )
-        self.assertEqual(found, unsupported)
+        self.assertEqual(found, voucher)
 
-    # --- Phase 2: Line attachment binary widgets (Unit 2) ---
+    def test_ui_create_may_omit_document_id(self):
+        """UI-style create may omit document_id on a standalone voucher."""
+        voucher = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "UI-TYPED-DEFAULT-002",
+                "document_type": "cash_deposit",
+            }
+        )
+        self.assertEqual(voucher.document_type, "cash_deposit")
+        self.assertFalse(voucher.document_id)
 
-    ATTACHMENT_ACCEPT = "image/*,.pdf"
-
-    def _assert_attachment_binary_widget(self, list_node, context):
-        """Assert list has one binary attachment widget with filename + accept."""
-        attachment_nodes = list_node.xpath('./field[@name="attachment"]')
-        self.assertEqual(
-            len(attachment_nodes),
-            1,
-            f"{context} must declare exactly one attachment field",
-        )
-        node = attachment_nodes[0]
-        self.assertEqual(
-            node.get("widget"),
-            "binary",
-            f"{context} attachment must use widget=binary",
-        )
-        self.assertEqual(
-            node.get("filename"),
-            "attachment_filename",
-            f"{context} attachment must set filename=attachment_filename",
-        )
-        options = node.get("options") or ""
-        self.assertIn(
-            "accepted_file_extensions",
-            options,
-            f"{context} attachment must set accepted_file_extensions",
-        )
-        self.assertIn(
-            "image/*",
-            options,
-            f"{context} accept must allow image/*",
-        )
-        self.assertIn(
-            ".pdf",
-            options,
-            f"{context} accept must allow PDF (.pdf)",
-        )
-        self.assertIn(
-            self.ATTACHMENT_ACCEPT,
-            options.replace(" ", ""),
-            (
-                f"{context} accepted_file_extensions must be "
-                f"{self.ATTACHMENT_ACCEPT!r} (got {options!r})"
-            ),
-        )
-        filename_nodes = list_node.xpath('./field[@name="attachment_filename"]')
-        self.assertEqual(
-            len(filename_nodes),
-            1,
-            f"{context} must declare attachment_filename field",
-        )
-
-    def test_typed_lists_include_attachment_binary_widgets(self):
-        """Each typed payment list MUST expose Binary attachment + filename widgets."""
-        form_root = self._arch_root("collection.view_collection_voucher_form")
-        typed_lists = self._typed_list_by_document_type(form_root)
-        self.assertEqual(
-            len(typed_lists),
-            3,
-            "typed lists must exist before attachment widget checks",
-        )
-        for doc_type, (_field_node, list_node) in typed_lists.items():
-            self._assert_attachment_binary_widget(list_node, f"typed {doc_type} list")
-
-    def test_payment_lines_list_includes_attachment_binary_widget(self):
-        """Payment Lines list MUST expose Binary attachment + filename widgets."""
-        list_root = self._arch_root("collection.view_collection_voucher_line_list")
-        self.assertEqual(list_root.tag, "list")
-        self._assert_attachment_binary_widget(list_root, "Payment Lines list")
-
-    def test_typed_and_payment_lists_attachment_accept_is_image_and_pdf(self):
-        """Triangulation: accept filter must allow image/* and PDF on all four lists."""
-        form_root = self._arch_root("collection.view_collection_voucher_form")
-        typed_lists = self._typed_list_by_document_type(form_root)
-        payment_list = self._arch_root("collection.view_collection_voucher_line_list")
-        targets = [
-            (f"typed {doc_type}", list_node)
-            for doc_type, (_field_node, list_node) in typed_lists.items()
-        ]
-        targets.append(("Payment Lines list", payment_list))
-        self.assertEqual(len(targets), 4)
-
-        for label, list_node in targets:
-            attachment_nodes = list_node.xpath('./field[@name="attachment"]')
-            self.assertEqual(
-                len(attachment_nodes),
-                1,
-                f"{label} must declare attachment for accept triangulation",
-            )
-            options = attachment_nodes[0].get("options") or ""
-            self.assertIn("image/*", options, f"{label} must accept image/*")
-            self.assertIn(".pdf", options, f"{label} must accept .pdf")
-            self.assertNotIn(
-                ".doc",
-                options,
-                f"{label} must not advertise non-image/PDF extensions",
-            )
-
-    # --- Phase 2: Document Review client action (PR 2) ---
+    # --- Document Review client action (kept; OWL retarget is Phase 3) ---
 
     def test_document_review_menu_and_client_action(self):
         """Collections → Document Review must keep the client action tag."""
@@ -752,12 +512,10 @@ class TestCollectionUi(TransactionCase):
         review_menu = self.env.ref("collection.menu_collection_document_review")
         root_menu = self.env.ref("collection.menu_collection_root")
         voucher_menu = self.env.ref("collection.menu_collection_voucher")
-        line_menu = self.env.ref("collection.menu_collection_voucher_line")
         menus = self.env["ir.ui.menu"].load_menus(False)
         self.assertIn("root", menus)
         self.assertIn(root_menu.id, menus)
         self.assertIn(voucher_menu.id, menus)
-        self.assertIn(line_menu.id, menus)
         self.assertNotIn(
             review_menu.id,
             menus,

@@ -15,12 +15,9 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
     """Company Document Review flag defaults off and Settings persist it."""
 
     def _create_pending_attached(self, customer, document_id):
-        voucher = self.env["collection.voucher"].create(
-            {"customer_identification": customer}
-        )
-        line = self.env["collection.voucher.line"].create(
+        return self.env["collection.voucher"].create(
             {
-                "voucher_id": voucher.id,
+                "customer_identification": customer,
                 "document_type": "bank_transfer",
                 "document_id": document_id,
                 "amount": 100.0,
@@ -28,7 +25,6 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
                 "attachment_filename": "pending.png",
             }
         )
-        return voucher, line
 
     def test_document_review_enabled_defaults_false_on_env_company(self):
         self.assertFalse(
@@ -92,87 +88,105 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         )
         self.assertFalse(self.env.company.document_review_enabled)
 
-    def test_action_validate_succeeds_with_pending_attached_when_review_off(self):
-        """OFF: validate succeeds while attached payment lines are still pending."""
-        self.assertFalse(
-            self.env.company.document_review_enabled,
-            "Document Review must stay OFF for this case",
-        )
-        voucher = self.env["collection.voucher"].create(
-            {"customer_identification": "CUST-FLAG-VAL-OFF"}
-        )
-        line = self.env["collection.voucher.line"].create(
-            {
-                "voucher_id": voucher.id,
-                "document_type": "bank_transfer",
-                "document_id": "DOC-FLAG-VAL-OFF",
-                "amount": 100.0,
-                "attachment": PNG_B64,
-                "attachment_filename": "pending.png",
-            }
-        )
-        self.assertEqual(line.state, "pending")
-        self.assertTrue(line.attachment)
-        voucher.action_validate()
-        self.assertEqual(voucher.state, "validated")
-
     def test_get_review_queue_raises_when_review_off(self):
         """When OFF, get_review_queue must refuse with UserError, not return []."""
         self.assertFalse(self.env.company.document_review_enabled)
         self._create_pending_attached("CUST-FLAG-Q-OFF", "DOC-FLAG-Q-OFF")
         with self.assertRaises(UserError) as error:
-            self.env["collection.voucher.line"].get_review_queue()
+            self.env["collection.voucher"].get_review_queue()
         self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
 
     def test_action_review_approve_does_not_run_when_review_off(self):
-        """When OFF, approve must raise and leave the line pending."""
+        """When OFF, review approve must raise and leave the voucher pending."""
         self.assertFalse(self.env.company.document_review_enabled)
-        voucher, line = self._create_pending_attached(
+        voucher = self._create_pending_attached(
             "CUST-FLAG-APPR-OFF", "DOC-FLAG-APPR-OFF"
         )
         with self.assertRaises(UserError) as error:
-            line.action_review_approve()
+            voucher.action_review_approve({"amount": 1.0})
         self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
-        self.assertEqual(line.state, "pending")
-        self.assertEqual(voucher.state, "new")
+        self.assertEqual(voucher.state, "pending")
+        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
 
     def test_action_review_reject_does_not_run_when_review_off(self):
-        """When OFF, reject must raise and leave the voucher new."""
+        """When OFF, review reject must raise and leave the voucher pending."""
         self.assertFalse(self.env.company.document_review_enabled)
-        voucher, line = self._create_pending_attached(
-            "CUST-FLAG-REJ-OFF", "DOC-FLAG-REJ-OFF"
-        )
+        voucher = self._create_pending_attached("CUST-FLAG-REJ-OFF", "DOC-FLAG-REJ-OFF")
         with self.assertRaises(UserError) as error:
-            line.action_review_reject()
+            voucher.action_review_reject()
         self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
-        self.assertEqual(line.state, "pending")
-        self.assertEqual(voucher.state, "new")
+        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
 
     def test_action_review_set_rotation_raises_when_review_off(self):
         """When OFF, set_rotation must raise and not persist rotation."""
         self.assertFalse(self.env.company.document_review_enabled)
-        _voucher, line = self._create_pending_attached(
-            "CUST-FLAG-ROT-OFF", "DOC-FLAG-ROT-OFF"
-        )
+        voucher = self._create_pending_attached("CUST-FLAG-ROT-OFF", "DOC-FLAG-ROT-OFF")
         with self.assertRaises(UserError) as error:
-            line.action_review_set_rotation(90)
+            voucher.action_review_set_rotation(90)
         self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
-        self.assertEqual(line.attachment_rotation, 0)
+        self.assertEqual(voucher.attachment_rotation, 0)
 
-    def _assert_payment_line_views_keep_state_and_audit(self):
+    def test_form_approve_works_when_review_off(self):
+        """Payment Vouchers Approve must work even when Document Review is OFF."""
+        self.assertFalse(self.env.company.document_review_enabled)
+        voucher = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "CUST-FLAG-FORM-APPR",
+                "document_type": "bank_transfer",
+                "amount": 10.0,
+            }
+        )
+        with self.assertRaises(UserError):
+            self.env["collection.voucher"].get_review_queue()
+        voucher.action_approve()
+        self.assertEqual(voucher.state, "approved")
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertTrue(voucher.reviewed_at)
+
+    def test_form_reject_works_when_review_off(self):
+        """Triangulation: Payment Vouchers Reject must work when the flag is OFF."""
+        self.assertFalse(self.env.company.document_review_enabled)
+        voucher = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "CUST-FLAG-FORM-REJ",
+                "document_type": "check",
+                "amount": 20.0,
+            }
+        )
+        with self.assertRaises(UserError):
+            voucher.action_review_reject()
+        voucher.action_reject()
+        self.assertEqual(voucher.state, "rejected")
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertTrue(voucher.reviewed_at)
+
+    def test_document_review_xmlids_kept(self):
+        action = self.env.ref("collection.action_collection_document_review")
+        menu = self.env.ref("collection.menu_collection_document_review")
+        self.assertEqual(action.tag, "collection.document_review")
+        self.assertEqual(menu.action, action)
+
+    def _assert_payment_voucher_views_keep_state_and_audit(self):
         list_root = etree.fromstring(
-            self.env.ref("collection.view_collection_voucher_line_list").arch
+            self.env.ref("collection.view_collection_voucher_list").arch
         )
         search_root = etree.fromstring(
-            self.env.ref("collection.view_collection_voucher_line_search").arch
+            self.env.ref("collection.view_collection_voucher_search").arch
+        )
+        form_root = etree.fromstring(
+            self.env.ref("collection.view_collection_voucher_form").arch
         )
         self.assertTrue(
             list_root.xpath('./field[@name="state"]'),
-            "Payment Lines list must show state regardless of Document Review flag",
+            "Payment Vouchers list must show state regardless of Document Review flag",
         )
         self.assertTrue(
             search_root.xpath('.//field[@name="state"]'),
-            "Payment Lines search must expose state regardless of Document Review flag",
+            "Payment Vouchers search must expose state regardless of the flag",
         )
         for value in ("pending", "approved", "rejected"):
             matching = [
@@ -182,31 +196,42 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
             ]
             self.assertTrue(
                 matching,
-                f"Payment Lines search must filter state={value}",
+                f"Payment Vouchers search must filter state={value}",
             )
         self.assertTrue(
             search_root.xpath('//filter[contains(@context, "state")]'),
-            "Payment Lines search must offer group_by state",
+            "Payment Vouchers search must offer group_by state",
         )
         for field_name in ("reviewed_by", "reviewed_at"):
-            list_nodes = list_root.xpath(f'.//field[@name="{field_name}"]')
-            search_nodes = search_root.xpath(f'.//field[@name="{field_name}"]')
-            if list_nodes:
-                self.assertEqual(list_nodes[0].get("name"), field_name)
-            if search_nodes:
-                self.assertEqual(search_nodes[0].get("name"), field_name)
+            self.assertTrue(
+                list_root.xpath(f'.//field[@name="{field_name}"]'),
+                f"Payment Vouchers list must show audit column {field_name}",
+            )
+            self.assertTrue(
+                form_root.xpath(f'.//field[@name="{field_name}"]'),
+                f"Payment Vouchers form must show audit field {field_name}",
+            )
         list_xml = etree.tostring(list_root, encoding="unicode")
         search_xml = etree.tostring(search_root, encoding="unicode")
+        form_xml = etree.tostring(form_root, encoding="unicode")
         self.assertNotIn("document_review_enabled", list_xml)
         self.assertNotIn("document_review_enabled", search_xml)
+        self.assertNotIn("document_review_enabled", form_xml)
+        self.assertFalse(
+            self.env.ref(
+                "collection.view_collection_voucher_line_list",
+                raise_if_not_found=False,
+            ),
+            "Payment Lines views must stay removed",
+        )
 
-    def test_payment_line_views_keep_state_when_review_off(self):
-        """When OFF, Payment Lines list/search must still show state (and audit)."""
+    def test_payment_voucher_views_keep_state_when_review_off(self):
+        """When OFF, Payment Vouchers list/form must still show state (and audit)."""
         self.assertFalse(self.env.company.document_review_enabled)
-        self._assert_payment_line_views_keep_state_and_audit()
+        self._assert_payment_voucher_views_keep_state_and_audit()
 
-    def test_payment_line_views_keep_state_when_review_on(self):
-        """Triangulation: Payment Lines state/audit stay visible when the flag is ON."""
+    def test_payment_voucher_views_keep_state_when_review_on(self):
+        """Triangulation: Payment Vouchers state/audit stay visible when ON."""
         self.env.company.write({"document_review_enabled": True})
         self.assertTrue(self.env.company.document_review_enabled)
-        self._assert_payment_line_views_keep_state_and_audit()
+        self._assert_payment_voucher_views_keep_state_and_audit()

@@ -1,7 +1,7 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase
 
 from .test_collection_payment import PNG_B64
@@ -81,7 +81,10 @@ class TestCollectionAcl(TransactionCase):
         )
 
     def _voucher_vals(self, **extra):
-        vals = {"customer_identification": "ACL-CUST"}
+        vals = {
+            "customer_identification": "ACL-CUST",
+            "document_type": "bank_transfer",
+        }
         vals.update(extra)
         return vals
 
@@ -95,26 +98,14 @@ class TestCollectionAcl(TransactionCase):
         voucher.unlink()
         self.assertFalse(Voucher.browse(voucher_id).exists())
 
-    def test_internal_user_payment_crud_allowed(self):
-        voucher = (
-            self.env["collection.voucher"]
-            .with_user(self.internal_user)
-            .create(self._voucher_vals(customer_identification="ACL-PAY"))
+    def test_no_voucher_line_model_or_acl(self):
+        """collection.voucher.line must be gone, including its ACL row."""
+        self.assertNotIn("collection.voucher.line", self.env)
+        self.assertFalse(
+            self.env["ir.model.access"].search(
+                [("model_id.model", "=", "collection.voucher.line")]
+            )
         )
-        Payment = self.env["collection.voucher.line"].with_user(self.internal_user)
-        payment = Payment.create(
-            {
-                "voucher_id": voucher.id,
-                "document_type": "bank_transfer",
-                "from_account": "ACL-FROM",
-            }
-        )
-        self.assertTrue(payment.id)
-        payment.write({"to_account": "ACL-TO"})
-        self.assertEqual(payment.to_account, "ACL-TO")
-        payment_id = payment.id
-        payment.unlink()
-        self.assertFalse(Payment.browse(payment_id).exists())
 
     def test_portal_user_voucher_crud_denied(self):
         Voucher = self.env["collection.voucher"].with_user(self.portal_user)
@@ -130,39 +121,13 @@ class TestCollectionAcl(TransactionCase):
         with self.assertRaises(AccessError):
             Voucher.browse(admin_voucher.id).unlink()
 
-    def test_portal_user_payment_crud_denied(self):
-        voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(customer_identification="PORTAL-PAY")
-        )
-        Payment = self.env["collection.voucher.line"].with_user(self.portal_user)
-        with self.assertRaises(AccessError):
-            Payment.create(
-                {
-                    "voucher_id": voucher.id,
-                    "document_type": "unsupported",
-                }
-            )
-        admin_payment = self.env["collection.voucher.line"].create(
-            {
-                "voucher_id": voucher.id,
-                "document_type": "cash_deposit",
-            }
-        )
-        with self.assertRaises(AccessError):
-            Payment.browse(admin_payment.id).read(["document_type"])
-        with self.assertRaises(AccessError):
-            Payment.browse(admin_payment.id).write({"amount": 1.0})
-        with self.assertRaises(AccessError):
-            Payment.browse(admin_payment.id).unlink()
-
-    def _create_attached_pending_line(self, env, document_id, customer_identification):
+    def _create_attached_pending_voucher(
+        self, env, document_id, customer_identification
+    ):
         self.env.company.write({"document_review_enabled": True})
-        voucher = env["collection.voucher"].create(
-            {"customer_identification": customer_identification}
-        )
-        line = env["collection.voucher.line"].create(
+        return env["collection.voucher"].create(
             {
-                "voucher_id": voucher.id,
+                "customer_identification": customer_identification,
                 "document_type": "bank_transfer",
                 "amount": 100.0,
                 "document_id": document_id,
@@ -170,68 +135,77 @@ class TestCollectionAcl(TransactionCase):
                 "attachment_filename": "acl-proof.png",
             }
         )
-        return voucher, line
 
     def test_portal_user_review_queue_approve_reject_denied(self):
-        """Non-internal users must be denied queue, approve, reject, and line read."""
-        _voucher, admin_line = self._create_attached_pending_line(
+        """Non-internal users must be denied queue, approve, reject, and voucher read."""
+        admin_voucher = self._create_attached_pending_voucher(
             self.env,
             document_id="ACL-REV-PORTAL-DOC",
             customer_identification="ACL-REV-PORTAL",
         )
-        Line = self.env["collection.voucher.line"].with_user(self.portal_user)
+        Voucher = self.env["collection.voucher"].with_user(self.portal_user)
         with self.assertRaises(AccessError):
-            Line.get_review_queue()
+            Voucher.get_review_queue()
         with self.assertRaises(AccessError):
-            Line.browse(admin_line.id).read(["state"])
+            Voucher.browse(admin_voucher.id).read(["state"])
         with self.assertRaises(AccessError):
-            Line.browse(admin_line.id).action_review_approve({"amount": 1.0})
+            Voucher.browse(admin_voucher.id).action_review_approve({"amount": 1.0})
         with self.assertRaises(AccessError):
-            Line.browse(admin_line.id).action_review_reject()
+            Voucher.browse(admin_voucher.id).action_review_reject()
         with self.assertRaises(AccessError):
-            Line.browse(admin_line.id).action_review_set_rotation(90)
+            Voucher.browse(admin_voucher.id).action_review_set_rotation(90)
 
     def test_internal_user_review_queue_and_approve_allowed(self):
-        """Internal users must queue an attached pending line and approve it."""
+        """Internal users must queue an attached pending voucher and approve it."""
         env = self.env(user=self.internal_user)
-        voucher, line = self._create_attached_pending_line(
+        voucher = self._create_attached_pending_voucher(
             env,
             document_id="ACL-REV-INT-APPROVE-DOC",
             customer_identification="ACL-REV-INT-APPROVE",
         )
-        self.assertEqual(line.state, "pending")
-        queue = env["collection.voucher.line"].get_review_queue()
+        self.assertEqual(voucher.state, "pending")
+        queue = env["collection.voucher"].get_review_queue()
         queued_ids = [item["id"] for item in queue]
-        self.assertIn(line.id, queued_ids)
-        line.action_review_approve({"amount": 150.0})
-        self.assertEqual(line.state, "approved")
-        self.assertEqual(line.amount, 150.0)
-        self.assertEqual(line.reviewed_by, self.internal_user)
-        self.assertTrue(line.reviewed_at)
-        self.assertEqual(voucher.state, "validated")
+        self.assertIn(voucher.id, queued_ids)
+        voucher.action_review_approve({"amount": 150.0})
+        self.assertEqual(voucher.state, "approved")
+        self.assertEqual(voucher.amount, 150.0)
+        self.assertEqual(voucher.reviewed_by, self.internal_user)
+        self.assertTrue(voucher.reviewed_at)
 
     def test_internal_user_review_reject_allowed(self):
-        """Triangulation: internal users must reject an attached pending line."""
+        """Triangulation: internal users must reject an attached pending voucher."""
         env = self.env(user=self.internal_user)
-        voucher, line = self._create_attached_pending_line(
+        voucher = self._create_attached_pending_voucher(
             env,
             document_id="ACL-REV-INT-REJECT-DOC",
             customer_identification="ACL-REV-INT-REJECT",
         )
-        self.assertEqual(line.state, "pending")
-        line.action_review_reject()
-        self.assertEqual(line.state, "rejected")
-        self.assertEqual(line.reviewed_by, self.internal_user)
-        self.assertTrue(line.reviewed_at)
+        self.assertEqual(voucher.state, "pending")
+        voucher.action_review_reject()
         self.assertEqual(voucher.state, "rejected")
+        self.assertEqual(voucher.reviewed_by, self.internal_user)
+        self.assertTrue(voucher.reviewed_at)
 
     def test_internal_user_review_set_rotation_allowed(self):
-        """Internal users must persist viewer rotation on an eligible line."""
+        """Internal users must persist viewer rotation on an eligible voucher."""
         env = self.env(user=self.internal_user)
-        _voucher, line = self._create_attached_pending_line(
+        voucher = self._create_attached_pending_voucher(
             env,
             document_id="ACL-REV-INT-ROT-DOC",
             customer_identification="ACL-REV-INT-ROT",
         )
-        line.action_review_set_rotation(90)
-        self.assertEqual(line.attachment_rotation, 90)
+        voucher.action_review_set_rotation(90)
+        self.assertEqual(voucher.attachment_rotation, 90)
+
+    def test_internal_user_form_approve_allowed_when_review_off(self):
+        """Payment Vouchers Approve must work even when Document Review is OFF."""
+        self.env.company.write({"document_review_enabled": False})
+        env = self.env(user=self.internal_user)
+        voucher = env["collection.voucher"].create(
+            self._voucher_vals(customer_identification="ACL-FORM-APPROVE")
+        )
+        with self.assertRaises(UserError):
+            env["collection.voucher"].get_review_queue()
+        voucher.action_approve()
+        self.assertEqual(voucher.state, "approved")

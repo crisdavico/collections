@@ -2,40 +2,44 @@
 
 ## Purpose
 
-Internal-user Document Review client: queue eligible payment-line proofs, correct OCR’d
+Internal-user Document Review client: queue eligible voucher proofs, correct OCR’d
 fields against the attachment, and approve/reject without mock data.
 
 ## Requirements
 
 ### Requirement: Eligible review queue
 
-The system MUST queue only `collection.voucher.line` records where the parent voucher
-`state` is `new`, the line `state` is `pending`, and an attachment is present. Lines
-missing any eligibility criterion MUST NOT appear. Confidence scores, per-field stamps,
-and reviewer-note persistence MUST NOT be required.
+The system MUST queue only `collection.voucher` records where `state` is `pending` and
+an attachment is present. Vouchers missing any eligibility criterion MUST NOT appear.
+Parent-voucher `state == new` MUST NOT be an eligibility criterion. Confidence scores,
+per-field stamps, and reviewer-note persistence MUST NOT be required.
+(Previously: Queued `collection.voucher.line` records whose parent voucher `state` was
+`new`, line `state` was `pending`, and an attachment was present.)
 
 #### Scenario: Queue eligibility
 
-- GIVEN lines on `new` vouchers with pending review and attachment, plus ineligible
-  lines (non-`new`, non-pending, or no attachment)
+- GIVEN pending vouchers with attachment, plus ineligible vouchers (non-pending or no
+  attachment)
 - WHEN an internal user opens Document Review
-- THEN only eligible lines MUST appear in the queue
+- THEN only eligible vouchers MUST appear in the queue
 
 #### Scenario: Empty queue
 
-- GIVEN no eligible pending attached lines on `new` vouchers
+- GIVEN no eligible pending attached vouchers
 - WHEN Document Review opens
 - THEN the client MUST show an empty/no-remaining-work state
 
 ### Requirement: OWL client loads real ORM data
 
-The Document Review OWL client MUST load queue and line data via ORM (no mocks). It MUST
-support typed editable inputs, queue navigation, and advance to the next eligible record
-after a successful approve or reject.
+The Document Review OWL client MUST load queue and voucher data via ORM (no mocks) from
+`collection.voucher`. It MUST support typed editable inputs, queue navigation, and
+advance to the next eligible record after a successful approve or reject.
+(Previously: Loaded `collection.voucher.line`; readonly voucher reference was the parent
+header name.)
 
 #### Scenario: Typed editable fields by document type
 
-- GIVEN a queued `bank_transfer`, `check`, or `cash_deposit` line
+- GIVEN a queued `bank_transfer`, `check`, or `cash_deposit` voucher
 - WHEN shown in Document Review
 - THEN `document_type` and `amount` MUST be editable
 - AND type-specific fields MUST be editable: bank transfer (`from_account`,
@@ -45,40 +49,41 @@ after a successful approve or reject.
 
 #### Scenario: Readonly context fields
 
-- GIVEN a queued line
+- GIVEN a queued voucher
 - WHEN shown in Document Review
 - THEN voucher reference and queue position MUST be readonly
 - AND `document_id` MUST NOT be shown
 
 #### Scenario: Navigate and next record after decision
 
-- GIVEN more than one eligible queued line
-- WHEN the reviewer navigates or successfully approves/rejects the current line
+- GIVEN more than one eligible queued voucher
+- WHEN the reviewer navigates or successfully approves/rejects the current voucher
 - THEN the client MUST move to the requested or next eligible record without mocks
 
 ### Requirement: Authenticated binary attachment viewer
 
-The client MUST render image and PDF proofs via an authenticated binary route. The OWL
-layer MUST NOT embed attachment base64. The viewer MUST present distinct loading, error,
-and empty-attachment states.
+The client MUST render image and PDF proofs via an authenticated binary route whose
+model is `collection.voucher`. The OWL layer MUST NOT embed attachment base64. The
+viewer MUST present distinct loading, error, and empty-attachment states.
+(Previously: Binary URLs used model `collection.voucher.line`.)
 
 #### Scenario: Image via authenticated binary route
 
-- GIVEN an eligible line with an image attachment
+- GIVEN an eligible voucher with an image attachment
 - WHEN Document Review shows the proof
-- THEN the image MUST load from an authenticated binary URL
+- THEN the image MUST load from an authenticated binary URL for `collection.voucher`
 - AND OWL MUST NOT hold the attachment as base64
 
 #### Scenario: PDF via authenticated binary route
 
-- GIVEN an eligible line with a PDF attachment
+- GIVEN an eligible voucher with a PDF attachment
 - WHEN Document Review shows the proof
-- THEN the PDF MUST load from an authenticated binary URL
+- THEN the PDF MUST load from an authenticated binary URL for `collection.voucher`
 - AND OWL MUST NOT hold the attachment as base64
 
 #### Scenario: Viewer loading, error, and empty states
 
-- GIVEN a line whose attachment is loading, fails to load, or is absent/empty
+- GIVEN a voucher whose attachment is loading, fails to load, or is absent/empty
 - WHEN the viewer renders
 - THEN it MUST show the matching loading, error, or empty state
 
@@ -121,10 +126,11 @@ Fit, zoom, and pan MUST reset when the reviewer navigates to another document.
 
 The viewer MUST offer controls that rotate the current image or PDF 90 degrees clockwise
 and counterclockwise. Rotation MUST be a view transform: it MUST NOT rewrite the stored
-attachment bytes. The chosen angle MUST persist on the payment line and MUST be restored
+attachment bytes. The chosen angle MUST persist on the voucher and MUST be restored
 when the reviewer views that same proof again (including after queue navigation or
 reopening Document Review). PDF proofs MUST still load from the authenticated binary
 URL. Replacing or clearing the attachment MUST reset rotation to 0 degrees.
+(Previously: Rotation persisted on the payment line.)
 
 #### Scenario: Rotate clockwise and counterclockwise
 
@@ -132,7 +138,7 @@ URL. Replacing or clearing the attachment MUST reset rotation to 0 degrees.
 - WHEN the reviewer activates rotate-right or rotate-left
 - THEN the proof MUST rotate 90 degrees in that direction
 - AND the stored attachment bytes MUST remain unchanged
-- AND the new angle MUST be saved on the payment line
+- AND the new angle MUST be saved on the voucher
 
 #### Scenario: Restore saved rotation
 
@@ -142,29 +148,31 @@ URL. Replacing or clearing the attachment MUST reset rotation to 0 degrees.
 
 #### Scenario: Attachment replace resets rotation
 
-- GIVEN a line with a saved non-zero rotation
+- GIVEN a voucher with a saved non-zero rotation
 - WHEN its attachment is replaced or cleared
 - THEN rotation MUST reset to 0 degrees
 
 ### Requirement: Approve and reject without mocks
 
 Approve and reject MUST call real server actions (no mock handlers). Approve MUST
-persist field corrections before updating line `state`. Reject and approve outcomes for
-voucher aggregate state are governed by `collection-vouchers`.
+persist field corrections before updating voucher `state`. Reject and approve outcomes
+for voucher `state` are governed by `collection-vouchers`.
+(Previously: Corrections and `state` were persisted on the payment line; aggregate
+header state was also implied.)
 
 #### Scenario: Correction persistence on approve
 
-- GIVEN an eligible pending line with edited payment fields
+- GIVEN an eligible pending voucher with edited payment fields
 - WHEN the reviewer approves
-- THEN corrected field values MUST persist on the line
-- AND line `state` MUST become `approved`
+- THEN corrected field values MUST persist on the voucher
+- AND voucher `state` MUST become `approved`
 
 #### Scenario: Reject invokes real action
 
-- GIVEN an eligible pending line
+- GIVEN an eligible pending voucher
 - WHEN the reviewer rejects
 - THEN the server reject action MUST run (no mock)
-- AND the line `state` MUST become `rejected`
+- AND the voucher `state` MUST become `rejected`
 
 ### Requirement: Document Review authorization
 
@@ -181,8 +189,9 @@ approve/reject actions.
 
 Each company MUST have a boolean Document Review flag defaulting to OFF. Settings
 admins MUST toggle it at `/odoo/settings#collections`. When ON, existing Document
-Review requirements MUST still apply. Line `state` and review audit columns MUST
-remain on payment-line views regardless of the flag.
+Review requirements MUST still apply. Voucher `state` and review audit columns MUST
+remain on Payment Vouchers views regardless of the flag.
+(Previously: Line `state` and review audit columns remained on payment-line views.)
 
 #### Scenario: Default off
 
@@ -196,11 +205,11 @@ remain on payment-line views regardless of the flag.
 - WHEN they change Document Review at `/odoo/settings#collections`
 - THEN the current company's flag MUST persist that value
 
-#### Scenario: Line state and audit remain
+#### Scenario: Voucher state and audit remain
 
 - GIVEN Document Review is OFF
-- WHEN an internal user opens payment-line views
-- THEN line `state` and review audit columns MUST still appear
+- WHEN an internal user opens Payment Vouchers views
+- THEN voucher `state` and review audit columns MUST still appear
 
 ### Requirement: Document Review menu and RPCs when flag is off
 

@@ -1,6 +1,7 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import inspect
 import json
 from unittest.mock import patch
 
@@ -9,6 +10,9 @@ from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
+
+TOOL_NAME = "create_collection_vouchers"
+OLD_TOOL_NAME = "create_collection_voucher"
 
 # Minimal valid payloads (base64) for MCP attachment triangulation.
 PNG_B64 = (
@@ -21,7 +25,7 @@ INVALID_B64 = "!!!not-base64!!!"
 
 
 class TestCollectionMcpTool(TransactionCase):
-    """RED/GREEN: create_collection_voucher MCP discover, create, schema, ACL."""
+    """RED/GREEN: create_collection_vouchers MCP discover, create, replay, ACL."""
 
     @classmethod
     def setUpClass(cls):
@@ -95,10 +99,10 @@ class TestCollectionMcpTool(TransactionCase):
             )
         )
 
-    def _call(self, name, arguments, user=None):
-        """Run an MCP tool in-process and return its decoded JSON result."""
+    def _call(self, arguments, user=None):
+        """Run the N-voucher MCP tool in-process and return decoded JSON."""
         env = self.env(user=user) if user else self.env(user=self.internal_user)
-        text, _info = self.tool_model._call(name, arguments, env)
+        text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
     def _payload(self, customer="MCP-CUST-NEW", payments=None):
@@ -124,24 +128,52 @@ class TestCollectionMcpTool(TransactionCase):
             "payments": payments,
         }
 
-    # --- 3.1 Discover + schema + all-new create ---
+    def _assert_voucher_list(self, result, document_ids, state="pending"):
+        """Assert payment-order list identity for create and exact replay."""
+        self.assertIn("vouchers", result)
+        self.assertEqual(len(result["vouchers"]), len(document_ids))
+        self.assertEqual(
+            [item["document_id"] for item in result["vouchers"]],
+            list(document_ids),
+        )
+        for item in result["vouchers"]:
+            self.assertIsInstance(item["id"], int)
+            self.assertTrue(item["name"])
+            self.assertEqual(item["state"], state)
+            self.assertIn("document_id", item)
+
+    # --- 4.1 Discover + schema + all-new create ---
 
     def test_tool_discovered_with_write_registry_and_schema(self):
-        """Tool discovered via write/mcp; no received_date; document_id required."""
+        """Plural tool is method-discovered write/mcp; no DB row; no received_date."""
         by_name = {
             entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
         }
         self.assertIn(
-            "create_collection_voucher",
+            TOOL_NAME,
             by_name,
-            "create_collection_voucher must appear in MCP registry tools",
+            f"{TOOL_NAME} must appear in MCP registry tools",
         )
-        entry = get_tool_index(self.env, registry="mcp")["create_collection_voucher"]
+        self.assertNotIn(
+            OLD_TOOL_NAME,
+            by_name,
+            "singular create_collection_voucher must not remain registered",
+        )
+        entry = get_tool_index(self.env, registry="mcp")[TOOL_NAME]
         self.assertEqual(entry["category"], "write")
         self.assertEqual(entry["kind"], "method")
         self.assertNotEqual(entry.get("kind"), "db")
 
-        schema = by_name["create_collection_voucher"]["inputSchema"]
+        self.assertFalse(
+            self.env["muk_mcp.tool"].search([("name", "=", TOOL_NAME)]),
+            "create_collection_vouchers must not have a DB muk_mcp.tool row",
+        )
+        self.assertFalse(
+            self.env["muk_mcp.tool"].search([("name", "=", OLD_TOOL_NAME)]),
+            "singular tool must not have a DB muk_mcp.tool row either",
+        )
+
+        schema = by_name[TOOL_NAME]["inputSchema"]
         self.assertEqual(schema["type"], "object")
         self.assertIn("customer_identification", schema["required"])
         self.assertIn("payments", schema["required"])
@@ -158,46 +190,56 @@ class TestCollectionMcpTool(TransactionCase):
             payment_schema.get("properties", {}),
         )
 
-    def test_all_new_create_returns_voucher_and_payments(self):
-        """All-new document_ids create one voucher + lines and return identities."""
-        before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
-        result = self._call("create_collection_voucher", self._payload())
-
-        self.assertIsInstance(result["id"], int)
-        self.assertTrue(result["name"])
-        self.assertEqual(result["state"], "new")
-        self.assertEqual(len(result["payments"]), 2)
-        returned_docs = {p["document_id"] for p in result["payments"]}
-        self.assertEqual(returned_docs, {"MCP-DOC-A", "MCP-DOC-B"})
-        self.assertTrue(all(isinstance(p["id"], int) for p in result["payments"]))
-
-        voucher = self.env["collection.voucher"].browse(result["id"])
-        self.assertTrue(voucher.exists())
-        self.assertEqual(voucher.customer_identification, "MCP-CUST-NEW")
-        self.assertEqual(voucher.state, "new")
-        self.assertEqual(voucher.currency_id, self.env.company.currency_id)
-        self.assertEqual(len(voucher.payment_ids), 2)
-        self.assertEqual(
-            set(voucher.payment_ids.mapped("document_id")),
-            {"MCP-DOC-A", "MCP-DOC-B"},
+    def test_create_collection_vouchers_does_not_use_sudo(self):
+        """Authenticated caller env only — method source must not call sudo()."""
+        mixin = self.env["muk_mcp.mixin"]
+        method = getattr(type(mixin), TOOL_NAME, None)
+        self.assertTrue(
+            callable(method),
+            f"muk_mcp.mixin must expose {TOOL_NAME}",
         )
+        source = inspect.getsource(method)
+        code_lines = [
+            line for line in source.splitlines() if not line.lstrip().startswith("#")
+        ]
+        code = "\n".join(code_lines)
+        self.assertNotIn(".sudo(", code)
+        self.assertNotIn("sudo()", code)
+
+    def test_all_new_create_returns_vouchers_in_payment_order(self):
+        """All-new document_ids create one voucher per payment in payment order."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        result = self._call(self._payload())
+
+        self._assert_voucher_list(result, ["MCP-DOC-A", "MCP-DOC-B"])
         self.assertEqual(
             self.env["collection.voucher"].search_count([]),
-            before_vouchers + 1,
+            before_vouchers + 2,
         )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments + 2,
-        )
+
+        first = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
+        self.assertTrue(first.exists())
+        self.assertTrue(second.exists())
+        self.assertEqual(first.customer_identification, "MCP-CUST-NEW")
+        self.assertEqual(second.customer_identification, "MCP-CUST-NEW")
+        self.assertEqual(first.state, "pending")
+        self.assertEqual(second.state, "pending")
+        self.assertEqual(first.document_id, "MCP-DOC-A")
+        self.assertEqual(second.document_id, "MCP-DOC-B")
+        self.assertEqual(first.document_type, "bank_transfer")
+        self.assertEqual(second.document_type, "check")
+        self.assertEqual(first.currency_id, self.env.company.currency_id)
+        self.assertEqual(first.create_uid, self.internal_user)
+        self.assertEqual(second.create_uid, self.internal_user)
+        self.assertEqual(result["vouchers"][0]["name"], first.name)
+        self.assertEqual(result["vouchers"][1]["name"], second.name)
 
     def test_create_rejects_missing_document_id(self):
         """Triangulation: MCP payments without document_id must be rejected."""
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
         with self.assertRaises(UserError) as err:
             self._call(
-                "create_collection_voucher",
                 self._payload(
                     customer="MCP-CUST-NODOC",
                     payments=[
@@ -214,17 +256,12 @@ class TestCollectionMcpTool(TransactionCase):
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
         )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-        )
 
     def test_create_rejects_empty_document_id(self):
         """Triangulation: empty-string document_id must be rejected with no writes."""
         before_vouchers = self.env["collection.voucher"].search_count([])
         with self.assertRaises(UserError) as err:
             self._call(
-                "create_collection_voucher",
                 self._payload(
                     customer="MCP-CUST-EMPTYDOC",
                     payments=[
@@ -247,7 +284,6 @@ class TestCollectionMcpTool(TransactionCase):
         before_vouchers = self.env["collection.voucher"].search_count([])
         with self.assertRaises(UserError) as err:
             self._call(
-                "create_collection_voucher",
                 {
                     "customer_identification": "MCP-CUST-NOPAY",
                     "payments": [],
@@ -264,49 +300,11 @@ class TestCollectionMcpTool(TransactionCase):
             before_vouchers,
         )
 
-    # --- 3.2 ACL denial ---
+    # --- 4.3 Exact-retry / in-call dup / partial / former cross-voucher ---
 
-    def test_portal_user_denied_no_writes(self):
-        """Non-permitted caller gets AccessError and writes no voucher/payment rows."""
-        before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
-        with self.assertRaises(AccessError):
-            self._call(
-                "create_collection_voucher",
-                self._payload(
-                    customer="MCP-PORTAL-DENY",
-                    payments=[
-                        {
-                            "document_id": "MCP-DOC-PORTAL",
-                            "document_type": "bank_transfer",
-                            "amount": 1.0,
-                        }
-                    ],
-                ),
-                user=self.portal_user,
-            )
-        self.assertEqual(
-            self.env["collection.voucher"].search_count([]),
-            before_vouchers,
-            "ACL denial must not create vouchers",
-        )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-            "ACL denial must not create payments",
-        )
-        self.assertFalse(
-            self.env["collection.voucher.line"].search(
-                [("document_id", "=", "MCP-DOC-PORTAL")]
-            ),
-        )
-
-    # --- 4.1 Exact-retry ---
-
-    def test_exact_retry_returns_same_ids_no_new_rows(self):
-        """Exact same document_id set must replay existing voucher with no new rows."""
+    def test_exact_retry_returns_all_vouchers_ignores_customer(self):
+        """Exact document_id set must replay ALL vouchers and ignore customer."""
         first = self._call(
-            "create_collection_voucher",
             self._payload(
                 customer="MCP-CUST-RETRY",
                 payments=[
@@ -323,12 +321,10 @@ class TestCollectionMcpTool(TransactionCase):
                 ],
             ),
         )
+        self._assert_voucher_list(first, ["MCP-DOC-RETRY-A", "MCP-DOC-RETRY-B"])
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
 
-        # Customer mismatch must be ignored on document_id match (design).
         second = self._call(
-            "create_collection_voucher",
             self._payload(
                 customer="MCP-CUST-RETRY-OTHER",
                 payments=[
@@ -346,33 +342,23 @@ class TestCollectionMcpTool(TransactionCase):
             ),
         )
 
-        self.assertEqual(second["id"], first["id"])
-        self.assertEqual(second["name"], first["name"])
-        self.assertEqual(second["state"], first["state"])
-        self.assertEqual(
-            sorted(second["payments"], key=lambda p: p["document_id"]),
-            sorted(first["payments"], key=lambda p: p["document_id"]),
-        )
+        self.assertEqual(second["vouchers"], first["vouchers"])
         self.assertEqual(
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
         )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-        )
-        voucher = self.env["collection.voucher"].browse(first["id"])
-        self.assertEqual(voucher.customer_identification, "MCP-CUST-RETRY")
-
-    # --- 4.2 In-call duplicate document_id ---
+        voucher_a = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        voucher_b = self.env["collection.voucher"].browse(first["vouchers"][1]["id"])
+        self.assertEqual(voucher_a.customer_identification, "MCP-CUST-RETRY")
+        self.assertEqual(voucher_b.customer_identification, "MCP-CUST-RETRY")
+        self.assertEqual(voucher_a.amount, 10.0)
+        self.assertEqual(voucher_b.amount, 20.0)
 
     def test_in_call_duplicate_document_id_rejects_no_writes(self):
         """Two payments sharing a document_id in one call must reject with no writes."""
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
         with self.assertRaises(UserError) as err:
             self._call(
-                "create_collection_voucher",
                 self._payload(
                     customer="MCP-CUST-INCALL-DUP",
                     payments=[
@@ -398,22 +384,15 @@ class TestCollectionMcpTool(TransactionCase):
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
         )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-        )
         self.assertFalse(
-            self.env["collection.voucher.line"].search(
+            self.env["collection.voucher"].search(
                 [("document_id", "=", "MCP-DOC-DUP-SAME")]
             ),
         )
 
-    # --- 4.3 Partial-conflict ---
-
     def test_partial_conflict_rejects_no_writes(self):
         """Some existing + some new document_ids must reject with no writes."""
         self._call(
-            "create_collection_voucher",
             self._payload(
                 customer="MCP-CUST-PARTIAL-SEED",
                 payments=[
@@ -426,11 +405,9 @@ class TestCollectionMcpTool(TransactionCase):
             ),
         )
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
 
         with self.assertRaises(UserError) as err:
             self._call(
-                "create_collection_voucher",
                 self._payload(
                     customer="MCP-CUST-PARTIAL",
                     payments=[
@@ -452,22 +429,15 @@ class TestCollectionMcpTool(TransactionCase):
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
         )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-        )
         self.assertFalse(
-            self.env["collection.voucher.line"].search(
+            self.env["collection.voucher"].search(
                 [("document_id", "=", "MCP-DOC-PARTIAL-NEW")]
             ),
         )
 
-    # --- 4.4 Cross-voucher-conflict ---
-
-    def test_cross_voucher_conflict_rejects_no_writes(self):
-        """document_ids spanning two vouchers must reject with no writes."""
-        self._call(
-            "create_collection_voucher",
+    def test_existing_document_ids_on_different_vouchers_succeed(self):
+        """Exact set spanning multiple vouchers must replay all (not reject)."""
+        first = self._call(
             self._payload(
                 customer="MCP-CUST-CROSS-A",
                 payments=[
@@ -479,8 +449,7 @@ class TestCollectionMcpTool(TransactionCase):
                 ],
             ),
         )
-        self._call(
-            "create_collection_voucher",
+        second = self._call(
             self._payload(
                 customer="MCP-CUST-CROSS-B",
                 payments=[
@@ -493,44 +462,41 @@ class TestCollectionMcpTool(TransactionCase):
             ),
         )
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
 
-        with self.assertRaises(UserError) as err:
-            self._call(
-                "create_collection_voucher",
-                self._payload(
-                    customer="MCP-CUST-CROSS-MERGE",
-                    payments=[
-                        {
-                            "document_id": "MCP-DOC-CROSS-A",
-                            "document_type": "bank_transfer",
-                            "amount": 1.0,
-                        },
-                        {
-                            "document_id": "MCP-DOC-CROSS-B",
-                            "document_type": "check",
-                            "amount": 2.0,
-                        },
-                    ],
-                ),
-            )
-        self.assertNotIn("tool not found", str(err.exception).lower())
+        replayed = self._call(
+            self._payload(
+                customer="MCP-CUST-CROSS-MERGE",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-CROSS-A",
+                        "document_type": "bank_transfer",
+                        "amount": 1.0,
+                    },
+                    {
+                        "document_id": "MCP-DOC-CROSS-B",
+                        "document_type": "check",
+                        "amount": 2.0,
+                    },
+                ],
+            ),
+        )
+        self._assert_voucher_list(replayed, ["MCP-DOC-CROSS-A", "MCP-DOC-CROSS-B"])
+        self.assertEqual(replayed["vouchers"][0]["id"], first["vouchers"][0]["id"])
+        self.assertEqual(replayed["vouchers"][1]["id"], second["vouchers"][0]["id"])
         self.assertEqual(
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
         )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-        )
+        voucher_a = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        self.assertEqual(voucher_a.customer_identification, "MCP-CUST-CROSS-A")
 
-    # --- 4.5 UniqueViolation → re-lookup replay / reject ---
+    # --- 4.4 UniqueViolation → re-lookup replay / reject ---
 
-    def _patch_payment_search_miss_once(self, document_ids):
+    def _patch_voucher_search_miss_once(self, document_ids):
         """Simulate a race: first document_id lookup misses rows that already exist."""
-        Payment = self.env["collection.voucher.line"]
-        empty = Payment.browse()
-        real_search = type(Payment).search
+        Voucher = self.env["collection.voucher"]
+        empty = Voucher.browse()
+        real_search = type(Voucher).search
         calls = {"n": 0}
 
         def search_proxy(model_self, domain=None, *args, **kwargs):
@@ -543,7 +509,7 @@ class TestCollectionMcpTool(TransactionCase):
                 and set(term[2]) == set(document_ids)
                 for term in domain
             )
-            if model_self._name == "collection.voucher.line" and is_doc_lookup:
+            if model_self._name == "collection.voucher" and is_doc_lookup:
                 calls["n"] += 1
                 if calls["n"] == 1:
                     return empty
@@ -552,9 +518,8 @@ class TestCollectionMcpTool(TransactionCase):
         return patch("odoo.models.Model.search", search_proxy), calls
 
     def test_unique_violation_full_match_replays(self):
-        """Race: UniqueViolation then full same-voucher re-lookup must replay."""
+        """Race: UniqueViolation then exact-set re-lookup must replay all vouchers."""
         first = self._call(
-            "create_collection_voucher",
             self._payload(
                 customer="MCP-CUST-UV-REPLAY",
                 payments=[
@@ -572,13 +537,11 @@ class TestCollectionMcpTool(TransactionCase):
             ),
         )
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
         doc_ids = ["MCP-DOC-UV-A", "MCP-DOC-UV-B"]
-        search_patch, calls = self._patch_payment_search_miss_once(doc_ids)
+        search_patch, calls = self._patch_voucher_search_miss_once(doc_ids)
 
         with mute_logger("odoo.sql_db"), search_patch:
             second = self._call(
-                "create_collection_voucher",
                 self._payload(
                     customer="MCP-CUST-UV-REPLAY-OTHER",
                     payments=[
@@ -601,25 +564,15 @@ class TestCollectionMcpTool(TransactionCase):
             2,
             "Expected initial miss + post-UniqueViolation re-lookup",
         )
-        self.assertEqual(second["id"], first["id"])
-        self.assertEqual(second["name"], first["name"])
-        self.assertEqual(
-            sorted(second["payments"], key=lambda p: p["document_id"]),
-            sorted(first["payments"], key=lambda p: p["document_id"]),
-        )
+        self.assertEqual(second["vouchers"], first["vouchers"])
         self.assertEqual(
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
-        )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
         )
 
     def test_unique_violation_partial_match_rejects(self):
         """Triangulation: UniqueViolation then incomplete re-lookup must UserError."""
         self._call(
-            "create_collection_voucher",
             self._payload(
                 customer="MCP-CUST-UV-PARTIAL",
                 payments=[
@@ -632,9 +585,8 @@ class TestCollectionMcpTool(TransactionCase):
             ),
         )
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
         doc_ids = ["MCP-DOC-UV-PARTIAL-EXIST", "MCP-DOC-UV-PARTIAL-NEW"]
-        search_patch, _calls = self._patch_payment_search_miss_once(doc_ids)
+        search_patch, _calls = self._patch_voucher_search_miss_once(doc_ids)
 
         with (
             mute_logger("odoo.sql_db"),
@@ -642,7 +594,6 @@ class TestCollectionMcpTool(TransactionCase):
             self.assertRaises(UserError) as err,
         ):
             self._call(
-                "create_collection_voucher",
                 self._payload(
                     customer="MCP-CUST-UV-PARTIAL-CALL",
                     payments=[
@@ -664,13 +615,37 @@ class TestCollectionMcpTool(TransactionCase):
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
         )
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-UV-PARTIAL-NEW")]
+            ),
+        )
+
+    def test_portal_user_denied_no_writes(self):
+        """Non-permitted caller gets AccessError and writes no voucher rows."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(AccessError):
+            self._call(
+                self._payload(
+                    customer="MCP-PORTAL-DENY",
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-PORTAL",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                        }
+                    ],
+                ),
+                user=self.portal_user,
+            )
         self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+            "ACL denial must not create vouchers",
         )
         self.assertFalse(
-            self.env["collection.voucher.line"].search(
-                [("document_id", "=", "MCP-DOC-UV-PARTIAL-NEW")]
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-PORTAL")]
             ),
         )
 
@@ -684,16 +659,16 @@ class TestCollectionMcpAttachment(TransactionCase):
         cls.tool_model = cls.env["muk_mcp.tool"]
         cls.internal_user = cls.env.ref("base.user_admin")
 
-    def _call(self, name, arguments, user=None):
+    def _call(self, arguments, user=None):
         env = self.env(user=user) if user else self.env(user=self.internal_user)
-        text, _info = self.tool_model._call(name, arguments, env)
+        text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
-    def _line_attachments(self, line):
+    def _voucher_attachments(self, voucher):
         return self.env["ir.attachment"].search(
             [
-                ("res_model", "=", "collection.voucher.line"),
-                ("res_id", "=", line.id),
+                ("res_model", "=", "collection.voucher"),
+                ("res_id", "=", voucher.id),
                 ("res_field", "=", "attachment"),
             ]
         )
@@ -702,17 +677,15 @@ class TestCollectionMcpAttachment(TransactionCase):
         return {"name": name, "mimetype": mimetype, "datas": datas}
 
     def test_create_with_valid_png_nest_persists_atomically(self):
-        """All-new create with valid nested PNG persists voucher+line+file."""
+        """All-new create with valid nested PNG persists voucher+file."""
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
         before_atts = self.env["ir.attachment"].search_count(
             [
-                ("res_model", "=", "collection.voucher.line"),
+                ("res_model", "=", "collection.voucher"),
                 ("res_field", "=", "attachment"),
             ]
         )
         result = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-PNG",
                 "payments": [
@@ -725,13 +698,13 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        self.assertIsInstance(result["id"], int)
-        self.assertEqual(len(result["payments"]), 1)
-        line = self.env["collection.voucher.line"].browse(result["payments"][0]["id"])
-        self.assertTrue(line.exists())
-        self.assertEqual(line.attachment_filename, "proof.png")
-        self.assertTrue(line.attachment)
-        attachments = self._line_attachments(line)
+        self.assertEqual(len(result["vouchers"]), 1)
+        voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        self.assertTrue(voucher.exists())
+        self.assertEqual(result["vouchers"][0]["document_id"], "MCP-DOC-ATT-PNG")
+        self.assertEqual(voucher.attachment_filename, "proof.png")
+        self.assertTrue(voucher.attachment)
+        attachments = self._voucher_attachments(voucher)
         self.assertEqual(len(attachments), 1)
         self.assertEqual(attachments.datas, PNG_B64.encode())
         self.assertEqual(
@@ -739,13 +712,9 @@ class TestCollectionMcpAttachment(TransactionCase):
             before_vouchers + 1,
         )
         self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments + 1,
-        )
-        self.assertEqual(
             self.env["ir.attachment"].search_count(
                 [
-                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_model", "=", "collection.voucher"),
                     ("res_field", "=", "attachment"),
                 ]
             ),
@@ -755,7 +724,6 @@ class TestCollectionMcpAttachment(TransactionCase):
     def test_create_with_valid_pdf_nest_persists(self):
         """Triangulation: valid nested PDF also persists via ir.attachment."""
         result = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-PDF",
                 "payments": [
@@ -770,15 +738,14 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        line = self.env["collection.voucher.line"].browse(result["payments"][0]["id"])
-        self.assertEqual(line.attachment_filename, "receipt.pdf")
-        self.assertEqual(len(self._line_attachments(line)), 1)
-        self.assertEqual(self._line_attachments(line).datas, PDF_B64.encode())
+        voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        self.assertEqual(voucher.attachment_filename, "receipt.pdf")
+        self.assertEqual(len(self._voucher_attachments(voucher)), 1)
+        self.assertEqual(self._voucher_attachments(voucher).datas, PDF_B64.encode())
 
     def test_create_omitting_nest_still_creates(self):
-        """Omit nest remains backward-compatible and creates voucher+lines."""
+        """Omit nest remains valid and creates a voucher without a file."""
         result = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-OMIT",
                 "payments": [
@@ -791,25 +758,23 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        line = self.env["collection.voucher.line"].browse(result["payments"][0]["id"])
-        self.assertTrue(line.exists())
-        self.assertFalse(line.attachment)
-        self.assertFalse(line.attachment_filename)
-        self.assertFalse(self._line_attachments(line))
+        voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        self.assertTrue(voucher.exists())
+        self.assertFalse(voucher.attachment)
+        self.assertFalse(voucher.attachment_filename)
+        self.assertFalse(self._voucher_attachments(voucher))
 
     def test_create_mime_mismatch_rejects_no_writes(self):
         """Declared MIME mismatch / non-allow-list must UserError with no writes."""
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
         before_atts = self.env["ir.attachment"].search_count(
             [
-                ("res_model", "=", "collection.voucher.line"),
+                ("res_model", "=", "collection.voucher"),
                 ("res_field", "=", "attachment"),
             ]
         )
         with self.assertRaises(UserError) as err:
             self._call(
-                "create_collection_voucher",
                 {
                     "customer_identification": "MCP-ATT-MIME",
                     "payments": [
@@ -831,20 +796,16 @@ class TestCollectionMcpAttachment(TransactionCase):
             before_vouchers,
         )
         self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-        )
-        self.assertEqual(
             self.env["ir.attachment"].search_count(
                 [
-                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_model", "=", "collection.voucher"),
                     ("res_field", "=", "attachment"),
                 ]
             ),
             before_atts,
         )
         self.assertFalse(
-            self.env["collection.voucher.line"].search(
+            self.env["collection.voucher"].search(
                 [("document_id", "=", "MCP-DOC-ATT-MIME")]
             ),
         )
@@ -852,10 +813,8 @@ class TestCollectionMcpAttachment(TransactionCase):
     def test_create_bad_base64_rejects_no_writes(self):
         """Triangulation: bad base64 nest must UserError with no writes."""
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_payments = self.env["collection.voucher.line"].search_count([])
         with self.assertRaises(UserError) as err:
             self._call(
-                "create_collection_voucher",
                 {
                     "customer_identification": "MCP-ATT-B64",
                     "payments": [
@@ -875,12 +834,8 @@ class TestCollectionMcpAttachment(TransactionCase):
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
         )
-        self.assertEqual(
-            self.env["collection.voucher.line"].search_count([]),
-            before_payments,
-        )
         self.assertFalse(
-            self.env["collection.voucher.line"].search(
+            self.env["collection.voucher"].search(
                 [("document_id", "=", "MCP-DOC-ATT-B64")]
             ),
         )
@@ -890,7 +845,6 @@ class TestCollectionMcpAttachment(TransactionCase):
         before_vouchers = self.env["collection.voucher"].search_count([])
         with self.assertRaises(UserError):
             self._call(
-                "create_collection_voucher",
                 {
                     "customer_identification": "MCP-ATT-TXT",
                     "payments": [
@@ -910,7 +864,7 @@ class TestCollectionMcpAttachment(TransactionCase):
             before_vouchers,
         )
         self.assertFalse(
-            self.env["collection.voucher.line"].search(
+            self.env["collection.voucher"].search(
                 [("document_id", "=", "MCP-DOC-ATT-TXT")]
             ),
         )
@@ -918,7 +872,6 @@ class TestCollectionMcpAttachment(TransactionCase):
     def test_exact_retry_with_nest_does_not_replace_attachment(self):
         """Exact-retry with a different nest must leave stored attachment unchanged."""
         first = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-RETRY",
                 "payments": [
@@ -931,20 +884,19 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        line = self.env["collection.voucher.line"].browse(first["payments"][0]["id"])
-        original_att_ids = self._line_attachments(line).ids
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        original_att_ids = self._voucher_attachments(voucher).ids
         self.assertEqual(len(original_att_ids), 1)
-        self.assertEqual(line.attachment_filename, "original.png")
-        self.assertEqual(line.attachment, PNG_B64.encode())
+        self.assertEqual(voucher.attachment_filename, "original.png")
+        self.assertEqual(voucher.attachment, PNG_B64.encode())
         before_atts = self.env["ir.attachment"].search_count(
             [
-                ("res_model", "=", "collection.voucher.line"),
+                ("res_model", "=", "collection.voucher"),
                 ("res_field", "=", "attachment"),
             ]
         )
 
         second = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-RETRY-OTHER",
                 "payments": [
@@ -959,25 +911,24 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        self.assertEqual(second["id"], first["id"])
-        line.invalidate_recordset()
-        self.assertEqual(line.attachment_filename, "original.png")
-        self.assertEqual(line.attachment, PNG_B64.encode())
-        self.assertEqual(self._line_attachments(line).ids, original_att_ids)
+        self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.attachment_filename, "original.png")
+        self.assertEqual(voucher.attachment, PNG_B64.encode())
+        self.assertEqual(self._voucher_attachments(voucher).ids, original_att_ids)
         self.assertEqual(
             self.env["ir.attachment"].search_count(
                 [
-                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_model", "=", "collection.voucher"),
                     ("res_field", "=", "attachment"),
                 ]
             ),
             before_atts,
         )
 
-    def test_exact_retry_with_nest_does_not_add_when_line_has_none(self):
-        """Exact-retry nest MUST NOT add an attachment when the line has none."""
+    def test_exact_retry_with_nest_does_not_add_when_voucher_has_none(self):
+        """Exact-retry nest MUST NOT add an attachment when the voucher has none."""
         first = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-RETRY-EMPTY",
                 "payments": [
@@ -989,17 +940,16 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        line = self.env["collection.voucher.line"].browse(first["payments"][0]["id"])
-        self.assertFalse(line.attachment)
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        self.assertFalse(voucher.attachment)
         before_atts = self.env["ir.attachment"].search_count(
             [
-                ("res_model", "=", "collection.voucher.line"),
+                ("res_model", "=", "collection.voucher"),
                 ("res_field", "=", "attachment"),
             ]
         )
 
         second = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-RETRY-EMPTY-OTHER",
                 "payments": [
@@ -1012,15 +962,15 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        self.assertEqual(second["id"], first["id"])
-        line.invalidate_recordset()
-        self.assertFalse(line.attachment)
-        self.assertFalse(line.attachment_filename)
-        self.assertFalse(self._line_attachments(line))
+        self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
+        voucher.invalidate_recordset()
+        self.assertFalse(voucher.attachment)
+        self.assertFalse(voucher.attachment_filename)
+        self.assertFalse(self._voucher_attachments(voucher))
         self.assertEqual(
             self.env["ir.attachment"].search_count(
                 [
-                    ("res_model", "=", "collection.voucher.line"),
+                    ("res_model", "=", "collection.voucher"),
                     ("res_field", "=", "attachment"),
                 ]
             ),
@@ -1030,7 +980,6 @@ class TestCollectionMcpAttachment(TransactionCase):
     def test_exact_retry_without_nest_leaves_existing_attachment(self):
         """Triangulation: exact-retry omitting nest must not clear existing file."""
         first = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-RETRY-OMIT",
                 "payments": [
@@ -1046,9 +995,8 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        line = self.env["collection.voucher.line"].browse(first["payments"][0]["id"])
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
         second = self._call(
-            "create_collection_voucher",
             {
                 "customer_identification": "MCP-ATT-RETRY-OMIT-OTHER",
                 "payments": [
@@ -1061,8 +1009,8 @@ class TestCollectionMcpAttachment(TransactionCase):
                 ],
             },
         )
-        self.assertEqual(second["id"], first["id"])
-        line.invalidate_recordset()
-        self.assertEqual(line.attachment_filename, "keep.pdf")
-        self.assertEqual(line.attachment, PDF_B64.encode())
-        self.assertEqual(len(self._line_attachments(line)), 1)
+        self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.attachment_filename, "keep.pdf")
+        self.assertEqual(voucher.attachment, PDF_B64.encode())
+        self.assertEqual(len(self._voucher_attachments(voucher)), 1)

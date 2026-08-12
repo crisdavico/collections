@@ -1,0 +1,15 @@
+# SDD change state — orchestrator-managed
+change: standalone-payment-vouchers
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+phase: archived
+apply_slice: complete
+updated: 2026-08-12
+verify_verdict: pass_with_warnings
+evidence_revision: sha256:e3ecf8e49634a1446bae7a13814ae228ff29a7b562e2c54da07b0ed6a7883d87
+notes: |
+  Planning, apply (5 stacked phases), verify, and archive complete.
+  Human granted nebula-agent edit authority. Verify pass_with_warnings.
+  Destructive REMOVED header/line merge acknowledged and applied.
+  Archived 2026-08-12 to openspec/changes/archive/2026-08-12-standalone-payment-vouchers/.

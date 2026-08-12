@@ -1,6 +1,7 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import inspect
 from datetime import date
 from pathlib import Path
 
@@ -17,43 +18,36 @@ _DOCUMENT_REVIEW_DIR = (
 
 
 class TestCollectionDocumentReview(TransactionCase):
-    """RED/GREEN: document review queue, approve/reject, and validate guard."""
+    """RED/GREEN: document review queue, approve/reject on collection.voucher."""
 
     def setUp(self):
         super().setUp()
         self.env.company.write({"document_review_enabled": True})
 
-    def _create_voucher(self, customer_identification="CUST-REV"):
-        return self.env["collection.voucher"].create(
-            {"customer_identification": customer_identification}
-        )
-
-    def _line_vals(self, voucher, **extra):
+    def _voucher_vals(self, **extra):
         vals = {
-            "voucher_id": voucher.id,
+            "customer_identification": "CUST-REV",
             "document_type": "bank_transfer",
             "amount": 100.0,
         }
         vals.update(extra)
         if "document_id" not in vals:
-            count = self.env["collection.voucher.line"].search_count([])
+            count = self.env["collection.voucher"].search_count([])
             vals["document_id"] = f"DOC-REV-{count}"
         return vals
 
-    def _create_attached_line(self, voucher, **extra):
+    def _create_attached_voucher(self, **extra):
         extra.setdefault("attachment", PNG_B64)
         extra.setdefault("attachment_filename", "proof.png")
-        return self.env["collection.voucher.line"].create(
-            self._line_vals(voucher, **extra)
-        )
+        return self.env["collection.voucher"].create(self._voucher_vals(**extra))
 
     def _neutralize_preexisting_queue(self):
         """Make pre-existing devel rows ineligible so this transaction is isolated."""
-        Line = self.env["collection.voucher.line"]
-        queued = Line.get_review_queue()
+        Voucher = self.env["collection.voucher"]
+        queued = Voucher.get_review_queue()
         if not queued:
             return
-        Line.browse([item["id"] for item in queued]).write({"state": "rejected"})
+        Voucher.browse([item["id"] for item in queued]).write({"state": "rejected"})
 
     def _assert_no_binary_in_payload(self, item):
         self.assertIsInstance(item, dict)
@@ -65,7 +59,8 @@ class TestCollectionDocumentReview(TransactionCase):
             url.startswith("/web/content?"),
             f"attachment_url must be a /web/content route, got {url!r}",
         )
-        self.assertIn("model=collection.voucher.line", url)
+        self.assertIn("model=collection.voucher", url)
+        self.assertNotIn("collection.voucher.line", url)
         self.assertIn("field=attachment", url)
         self.assertNotIn("datas", url)
         self.assertNotIn("base64", url.lower())
@@ -77,11 +72,11 @@ class TestCollectionDocumentReview(TransactionCase):
             self.assertNotIn("data:image", rendered)
             self.assertNotIn("data:application/pdf", rendered)
 
-    def _expected_content_url(self, line):
+    def _expected_content_url(self, voucher):
         return (
-            "/web/content?model=collection.voucher.line"
-            f"&id={line.id}&field=attachment"
-            f"&filename={line.attachment_filename}"
+            "/web/content?model=collection.voucher"
+            f"&id={voucher.id}&field=attachment"
+            f"&filename={voucher.attachment_filename}"
         )
 
     def _viewer_template_xml(self):
@@ -117,48 +112,67 @@ class TestCollectionDocumentReview(TransactionCase):
                 return value
         return ""
 
-    # --- 1.1 Queue eligibility + empty queue ---
+    def _helpers_js(self):
+        return (_DOCUMENT_REVIEW_DIR / "document_review_helpers.esm.js").read_text(
+            encoding="utf-8"
+        )
 
-    def test_queue_includes_only_eligible_pending_attached_new(self):
-        """Eligible: voucher new, review pending, attachment present."""
+    def _action_js(self):
+        return (_DOCUMENT_REVIEW_DIR / "document_review_action.esm.js").read_text(
+            encoding="utf-8"
+        )
+
+    # --- Queue eligibility + empty queue ---
+
+    def test_review_rpcs_live_on_collection_voucher(self):
+        Voucher = self.env["collection.voucher"]
+        self.assertTrue(hasattr(Voucher, "get_review_queue"))
+        self.assertTrue(hasattr(Voucher, "action_review_approve"))
+        self.assertTrue(hasattr(Voucher, "action_review_reject"))
+        self.assertTrue(hasattr(Voucher, "action_review_set_rotation"))
+        self.assertNotIn("collection.voucher.line", self.env)
+
+    def test_queue_includes_only_pending_attached_vouchers(self):
+        """Eligible: voucher pending AND attachment present (no parent state=new)."""
         self._neutralize_preexisting_queue()
-        Line = self.env["collection.voucher.line"]
-        eligible_voucher = self._create_voucher("CUST-REV-ELIG")
-        eligible = self._create_attached_line(
-            eligible_voucher,
+        Voucher = self.env["collection.voucher"]
+        eligible = self._create_attached_voucher(
+            customer_identification="CUST-REV-ELIG",
             document_id="DOC-REV-ELIG",
             from_account="ACC-FROM",
             to_account="ACC-TO",
             voucher_number="TRF-1",
             voucher_date=date(2026, 3, 15),
         )
-        unattached = Line.create(
-            self._line_vals(
-                eligible_voucher,
+        unattached = Voucher.create(
+            self._voucher_vals(
+                customer_identification="CUST-REV-NONE",
                 document_id="DOC-REV-NONE",
             )
         )
-        validated_voucher = self._create_voucher("CUST-REV-VAL")
-        validated_line = self._create_attached_line(
-            validated_voucher, document_id="DOC-REV-VAL"
+        approved = self._create_attached_voucher(
+            customer_identification="CUST-REV-APPR",
+            document_id="DOC-REV-APPR-INELIG",
         )
-        validated_voucher.write({"state": "validated"})
-        decided = self._create_attached_line(
-            self._create_voucher("CUST-REV-DEC"),
+        approved.action_approve()
+        decided = self._create_attached_voucher(
+            customer_identification="CUST-REV-DEC",
             document_id="DOC-REV-DEC",
         )
-        decided.write({"state": "approved"})
+        decided.write({"state": "rejected"})
 
-        queue = Line.get_review_queue()
+        queue = Voucher.get_review_queue()
         queued_ids = [item["id"] for item in queue]
         self.assertIn(eligible.id, queued_ids)
         self.assertNotIn(unattached.id, queued_ids)
-        self.assertNotIn(validated_line.id, queued_ids)
+        self.assertNotIn(approved.id, queued_ids)
         self.assertNotIn(decided.id, queued_ids)
+        state_keys = {key for key, _label in Voucher._fields["state"].selection}
+        self.assertNotIn("new", state_keys)
 
         payload = next(item for item in queue if item["id"] == eligible.id)
-        self.assertEqual(payload["voucher_id"], eligible_voucher.id)
-        self.assertEqual(payload["voucher_name"], eligible_voucher.name)
+        self.assertEqual(payload["voucher_id"], eligible.id)
+        self.assertEqual(payload["voucher_name"], eligible.name)
         self.assertEqual(payload["document_id"], "DOC-REV-ELIG")
         self.assertEqual(payload["document_type"], "bank_transfer")
         self.assertAlmostEqual(payload["amount"], 100.0, places=2)
@@ -176,35 +190,42 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         self._assert_no_binary_in_payload(payload)
 
-    def test_queue_empty_when_no_eligible_lines(self):
+    def test_queue_empty_when_no_eligible_vouchers(self):
         """Triangulation: ineligible-only setup yields an empty queue."""
         self._neutralize_preexisting_queue()
-        Line = self.env["collection.voucher.line"]
-        voucher = self._create_voucher("CUST-REV-EMPTY")
-        Line.create(self._line_vals(voucher, document_id="DOC-REV-EMPTY-NONE"))
-        attached = self._create_attached_line(voucher, document_id="DOC-REV-EMPTY-ATT")
+        Voucher = self.env["collection.voucher"]
+        Voucher.create(
+            self._voucher_vals(
+                customer_identification="CUST-REV-EMPTY",
+                document_id="DOC-REV-EMPTY-NONE",
+            )
+        )
+        attached = self._create_attached_voucher(
+            customer_identification="CUST-REV-EMPTY-ATT",
+            document_id="DOC-REV-EMPTY-ATT",
+        )
         attached.write({"state": "approved"})
-        rejected_voucher = self._create_voucher("CUST-REV-EMPTY-REJ")
-        self._create_attached_line(rejected_voucher, document_id="DOC-REV-EMPTY-REJ")
-        rejected_voucher.write({"state": "rejected"})
+        rejected = self._create_attached_voucher(
+            customer_identification="CUST-REV-EMPTY-REJ",
+            document_id="DOC-REV-EMPTY-REJ",
+        )
+        rejected.write({"state": "rejected"})
 
-        queue = Line.get_review_queue()
+        queue = Voucher.get_review_queue()
         self.assertEqual(queue, [])
 
     def test_queue_orders_pdf_and_png_without_base64(self):
         """Triangulation: PDF and PNG proofs both queue with content URLs only."""
         self._neutralize_preexisting_queue()
-        Line = self.env["collection.voucher.line"]
-        first_voucher = self._create_voucher("CUST-REV-PNG")
-        png_line = self._create_attached_line(
-            first_voucher,
+        Voucher = self.env["collection.voucher"]
+        png_voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-PNG",
             document_id="DOC-REV-PNG",
             attachment=PNG_B64,
             attachment_filename="a.png",
         )
-        second_voucher = self._create_voucher("CUST-REV-PDF")
-        pdf_line = self._create_attached_line(
-            second_voucher,
+        pdf_voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-PDF",
             document_id="DOC-REV-PDF",
             document_type="check",
             amount=50.0,
@@ -216,8 +237,10 @@ class TestCollectionDocumentReview(TransactionCase):
             attachment=PDF_B64,
             attachment_filename="b.pdf",
         )
-        queue = Line.get_review_queue()
-        self.assertEqual([item["id"] for item in queue], [png_line.id, pdf_line.id])
+        queue = Voucher.get_review_queue()
+        self.assertEqual(
+            [item["id"] for item in queue], [png_voucher.id, pdf_voucher.id]
+        )
         self.assertEqual(queue[0]["position"], 1)
         self.assertEqual(queue[1]["position"], 2)
         self.assertEqual(queue[0]["total"], 2)
@@ -227,13 +250,17 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(queue[1]["check_bank"], "Banco Nación")
         self.assertEqual(queue[1]["check_type"], "common")
         self.assertEqual(queue[1]["attachment_filename"], "b.pdf")
+        self.assertEqual(queue[0]["voucher_id"], png_voucher.id)
+        self.assertEqual(queue[0]["voucher_name"], png_voucher.name)
+        self.assertEqual(queue[1]["voucher_id"], pdf_voucher.id)
+        self.assertEqual(queue[1]["voucher_name"], pdf_voucher.name)
         self.assertEqual(
             queue[0]["attachment_url"],
-            self._expected_content_url(png_line),
+            self._expected_content_url(png_voucher),
         )
         self.assertEqual(
             queue[1]["attachment_url"],
-            self._expected_content_url(pdf_line),
+            self._expected_content_url(pdf_voucher),
         )
         for item in queue:
             self._assert_no_binary_in_payload(item)
@@ -241,56 +268,88 @@ class TestCollectionDocumentReview(TransactionCase):
     def test_queue_image_payload_is_web_content_url_only(self):
         """Image proofs expose /web/content URLs, never datas/base64."""
         self._neutralize_preexisting_queue()
-        Line = self.env["collection.voucher.line"]
-        png_line = self._create_attached_line(
-            self._create_voucher("CUST-REV-IMG-PNG"),
+        Voucher = self.env["collection.voucher"]
+        png_voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-IMG-PNG",
             document_id="DOC-REV-IMG-PNG",
             attachment=PNG_B64,
             attachment_filename="proof.png",
         )
-        jpg_line = self._create_attached_line(
-            self._create_voucher("CUST-REV-IMG-JPG"),
+        jpg_voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-IMG-JPG",
             document_id="DOC-REV-IMG-JPG",
             attachment=PNG_B64,
             attachment_filename="proof.jpg",
         )
-        queue = {item["id"]: item for item in Line.get_review_queue()}
-        for line, filename in (
-            (png_line, "proof.png"),
-            (jpg_line, "proof.jpg"),
+        queue = {item["id"]: item for item in Voucher.get_review_queue()}
+        for voucher, filename in (
+            (png_voucher, "proof.png"),
+            (jpg_voucher, "proof.jpg"),
         ):
-            payload = queue[line.id]
+            payload = queue[voucher.id]
             self.assertEqual(payload["attachment_filename"], filename)
             self.assertEqual(
                 payload["attachment_url"],
-                self._expected_content_url(line),
+                self._expected_content_url(voucher),
             )
-            self.assertIn(f"id={line.id}", payload["attachment_url"])
+            self.assertIn(f"id={voucher.id}", payload["attachment_url"])
             self.assertIn(f"filename={filename}", payload["attachment_url"])
             self._assert_no_binary_in_payload(payload)
 
     def test_queue_pdf_payload_is_web_content_url_only(self):
         """Triangulation: PDF proofs use the same content route, never base64."""
         self._neutralize_preexisting_queue()
-        Line = self.env["collection.voucher.line"]
-        pdf_line = self._create_attached_line(
-            self._create_voucher("CUST-REV-PDF-URL"),
+        pdf_voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-PDF-URL",
             document_id="DOC-REV-PDF-URL",
             attachment=PDF_B64,
             attachment_filename="comprobante.pdf",
         )
         payload = next(
-            item for item in Line.get_review_queue() if item["id"] == pdf_line.id
+            item
+            for item in self.env["collection.voucher"].get_review_queue()
+            if item["id"] == pdf_voucher.id
         )
         self.assertEqual(payload["attachment_filename"], "comprobante.pdf")
         self.assertEqual(
             payload["attachment_url"],
-            self._expected_content_url(pdf_line),
+            self._expected_content_url(pdf_voucher),
         )
-        self.assertIn(f"id={pdf_line.id}", payload["attachment_url"])
+        self.assertIn(f"id={pdf_voucher.id}", payload["attachment_url"])
         self.assertIn("filename=comprobante.pdf", payload["attachment_url"])
         self.assertNotEqual(payload["attachment_url"], PNG_B64)
         self._assert_no_binary_in_payload(payload)
+
+    def test_owl_line_model_is_collection_voucher(self):
+        """OWL must call review RPCs on collection.voucher, not the dropped line."""
+        helpers_js = self._helpers_js()
+        action_js = self._action_js()
+        self.assertIn('LINE_MODEL = "collection.voucher"', helpers_js)
+        self.assertNotIn("collection.voucher.line", helpers_js)
+        self.assertNotIn("collection.voucher.line", action_js)
+        self.assertIn("LINE_MODEL", action_js)
+        self.assertIn("get_review_queue", action_js)
+        self.assertIn("action_review_approve", action_js)
+        self.assertIn("action_review_reject", action_js)
+        self.assertIn("action_review_set_rotation", action_js)
+
+    def test_document_review_copy_targets_vouchers_not_lines(self):
+        xml = self._viewer_template_xml()
+        action_js = self._action_js()
+        self.assertNotIn("líneas", xml)
+        self.assertNotIn("lineas", xml.lower())
+        self.assertNotIn("Payment line", action_js)
+        self.assertIn("Payment voucher approved.", action_js)
+        self.assertIn("Payment voucher rejected.", action_js)
+        self.assertIn("No quedan comprobantes elegibles para revisar.", xml)
+
+    def test_review_lock_uses_for_update_on_collection_voucher(self):
+        source = inspect.getsource(
+            type(self.env["collection.voucher"])._lock_and_ensure_review_eligible
+        )
+        self.assertIn("FOR UPDATE", source)
+        self.assertIn("collection_voucher", source)
+        self.assertNotIn("collection_voucher_line", source)
 
     def test_document_review_viewer_binds_web_content_for_image_and_pdf(self):
         """OWL viewer must bind /web/content URLs on img and iframe/embed."""
@@ -452,12 +511,8 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertIn("is-zoom-pannable", scss)
         self.assertIn("is-panning", scss)
 
-        action_js = (_DOCUMENT_REVIEW_DIR / "document_review_action.esm.js").read_text(
-            encoding="utf-8"
-        )
-        helpers_js = (
-            _DOCUMENT_REVIEW_DIR / "document_review_helpers.esm.js"
-        ).read_text(encoding="utf-8")
+        action_js = self._action_js()
+        helpers_js = self._helpers_js()
         self.assertIn("applyViewerPan", helpers_js)
         self.assertIn("isViewerZoomIdentity", helpers_js)
         self.assertIn("applyViewerPan", action_js)
@@ -551,12 +606,8 @@ class TestCollectionDocumentReview(TransactionCase):
             "PDF viewer must still bind current.attachment_url",
         )
 
-        action_js = (_DOCUMENT_REVIEW_DIR / "document_review_action.esm.js").read_text(
-            encoding="utf-8"
-        )
-        helpers_js = (
-            _DOCUMENT_REVIEW_DIR / "document_review_helpers.esm.js"
-        ).read_text(encoding="utf-8")
+        action_js = self._action_js()
+        helpers_js = self._helpers_js()
         self.assertIn("nextViewerRotation", helpers_js)
         self.assertIn("storedViewerRotation", helpers_js)
         self.assertIn("storedViewerRotation", action_js)
@@ -565,57 +616,67 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertIn("rotateViewerRight", action_js)
 
     def test_attachment_rotation_defaults_zero_and_copy_false(self):
-        voucher = self._create_voucher("CUST-REV-ROT-DEF")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-DEF")
-        self.assertEqual(line.attachment_rotation, 0)
-        line.write({"attachment_rotation": 90})
-        clone = line.copy({"document_id": "DOC-REV-ROT-DEF-CLONE"})
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-ROT-DEF",
+            document_id="DOC-REV-ROT-DEF",
+        )
+        self.assertEqual(voucher.attachment_rotation, 0)
+        voucher.write({"attachment_rotation": 90})
+        clone = voucher.copy({"document_id": "DOC-REV-ROT-DEF-CLONE"})
         self.assertEqual(clone.attachment_rotation, 0)
-        self.assertEqual(line.attachment_rotation, 90)
+        self.assertEqual(voucher.attachment_rotation, 90)
 
     def test_set_rotation_persists_and_returns_in_queue(self):
         self._neutralize_preexisting_queue()
-        voucher = self._create_voucher("CUST-REV-ROT-SAVE")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-SAVE")
-        line.action_review_set_rotation(90)
-        self.assertEqual(line.attachment_rotation, 90)
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-ROT-SAVE",
+            document_id="DOC-REV-ROT-SAVE",
+        )
+        voucher.action_review_set_rotation(90)
+        self.assertEqual(voucher.attachment_rotation, 90)
         payload = next(
-            item for item in line.get_review_queue() if item["id"] == line.id
+            item for item in voucher.get_review_queue() if item["id"] == voucher.id
         )
         self.assertEqual(payload["attachment_rotation"], 90)
         self._assert_no_binary_in_payload(payload)
-        line.action_review_set_rotation(270)
-        self.assertEqual(line.attachment_rotation, 270)
-        line.action_review_set_rotation(0)
-        self.assertEqual(line.attachment_rotation, 0)
+        voucher.action_review_set_rotation(270)
+        self.assertEqual(voucher.attachment_rotation, 270)
+        voucher.action_review_set_rotation(0)
+        self.assertEqual(voucher.attachment_rotation, 0)
 
     def test_set_rotation_refuses_invalid_and_ineligible(self):
-        """Triangulation: invalid angles and ineligible lines must not persist."""
-        voucher = self._create_voucher("CUST-REV-ROT-BAD")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-BAD")
+        """Triangulation: invalid angles and ineligible vouchers must not persist."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-ROT-BAD",
+            document_id="DOC-REV-ROT-BAD",
+        )
         with self.assertRaises(UserError):
-            line.action_review_set_rotation(45)
+            voucher.action_review_set_rotation(45)
         with self.assertRaises(UserError):
-            line.action_review_set_rotation(-90)
-        self.assertEqual(line.attachment_rotation, 0)
-        line.action_review_approve()
+            voucher.action_review_set_rotation(-90)
+        self.assertEqual(voucher.attachment_rotation, 0)
+        voucher.action_review_approve()
         with self.assertRaises(UserError):
-            line.action_review_set_rotation(90)
-        self.assertEqual(line.attachment_rotation, 0)
+            voucher.action_review_set_rotation(90)
+        self.assertEqual(voucher.attachment_rotation, 0)
 
     def test_attachment_write_resets_rotation(self):
-        voucher = self._create_voucher("CUST-REV-ROT-RESET")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-RESET")
-        line.action_review_set_rotation(180)
-        self.assertEqual(line.attachment_rotation, 180)
-        line.write(
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-ROT-RESET",
+            document_id="DOC-REV-ROT-RESET",
+        )
+        voucher.action_review_set_rotation(180)
+        self.assertEqual(voucher.attachment_rotation, 180)
+        stored_bytes = voucher.attachment
+        voucher.write(
             {
                 "attachment": PDF_B64,
                 "attachment_filename": "rotated-reset.pdf",
             }
         )
-        self.assertEqual(line.attachment_rotation, 0)
-        self.assertEqual(line.attachment_filename, "rotated-reset.pdf")
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertEqual(voucher.attachment_filename, "rotated-reset.pdf")
+        self.assertNotEqual(voucher.attachment, stored_bytes)
 
     def test_document_review_hides_document_id(self):
         """Reviewer UI must not show document_id; voucher and position stay visible."""
@@ -632,34 +693,35 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertIn("current.position", xml)
         self.assertIn("current.total", xml)
 
-    # --- 1.2 Default pending/audit, approve, reject, aggregate ---
+    # --- Defaults, approve, reject (no aggregate header validate) ---
 
     def test_state_defaults_pending_and_copy_false(self):
-        voucher = self._create_voucher("CUST-REV-DEF")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-DEF")
-        self.assertEqual(line.state, "pending")
-        self.assertFalse(line.reviewed_by)
-        self.assertFalse(line.reviewed_at)
-        line.write(
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-DEF",
+            document_id="DOC-REV-DEF",
+        )
+        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
+        voucher.write(
             {
                 "state": "approved",
                 "reviewed_by": self.env.user.id,
             }
         )
-        clone = line.copy({"document_id": "DOC-REV-DEF-CLONE"})
+        clone = voucher.copy({"document_id": "DOC-REV-DEF-CLONE"})
         self.assertEqual(clone.state, "pending")
         self.assertFalse(clone.reviewed_by)
         self.assertFalse(clone.reviewed_at)
 
     def test_approve_persists_edits_and_records_audit(self):
-        voucher = self._create_voucher("CUST-REV-APPR")
-        line = self._create_attached_line(
-            voucher,
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-APPR",
             document_id="DOC-REV-APPR",
             amount=100.0,
             from_account="OLD-FROM",
         )
-        line.action_review_approve(
+        voucher.action_review_approve(
             {
                 "document_id": "HACKED-ID",
                 "amount": 250.75,
@@ -669,26 +731,25 @@ class TestCollectionDocumentReview(TransactionCase):
                 "voucher_date": date(2026, 5, 1),
             }
         )
-        self.assertEqual(line.document_id, "DOC-REV-APPR")
-        self.assertAlmostEqual(line.amount, 250.75, places=2)
-        self.assertEqual(line.from_account, "NEW-FROM")
-        self.assertEqual(line.to_account, "NEW-TO")
-        self.assertEqual(line.voucher_number, "TRF-EDIT")
-        self.assertEqual(line.voucher_date, date(2026, 5, 1))
-        self.assertEqual(line.state, "approved")
-        self.assertEqual(line.reviewed_by, self.env.user)
-        self.assertTrue(line.reviewed_at)
+        self.assertEqual(voucher.document_id, "DOC-REV-APPR")
+        self.assertAlmostEqual(voucher.amount, 250.75, places=2)
+        self.assertEqual(voucher.from_account, "NEW-FROM")
+        self.assertEqual(voucher.to_account, "NEW-TO")
+        self.assertEqual(voucher.voucher_number, "TRF-EDIT")
+        self.assertEqual(voucher.voucher_date, date(2026, 5, 1))
+        self.assertEqual(voucher.state, "approved")
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertTrue(voucher.reviewed_at)
 
     def test_approve_persists_check_fields(self):
         """Triangulation: check type-specific fields persist on approve."""
-        voucher = self._create_voucher("CUST-REV-CHK")
-        line = self._create_attached_line(
-            voucher,
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-CHK",
             document_id="DOC-REV-CHK",
             document_type="check",
             amount=10.0,
         )
-        line.action_review_approve(
+        voucher.action_review_approve(
             {
                 "document_type": "check",
                 "amount": 80.0,
@@ -699,144 +760,117 @@ class TestCollectionDocumentReview(TransactionCase):
                 "check_payment_date": date(2026, 2, 10),
             }
         )
-        self.assertEqual(line.check_number, "CHK-9")
-        self.assertEqual(line.check_bank, "Banco Nación")
-        self.assertEqual(line.check_type, "deferred")
-        self.assertEqual(line.check_issue_date, date(2026, 1, 10))
-        self.assertEqual(line.check_payment_date, date(2026, 2, 10))
-        self.assertAlmostEqual(line.amount, 80.0, places=2)
-        self.assertEqual(line.state, "approved")
+        self.assertEqual(voucher.check_number, "CHK-9")
+        self.assertEqual(voucher.check_bank, "Banco Nación")
+        self.assertEqual(voucher.check_type, "deferred")
+        self.assertEqual(voucher.check_issue_date, date(2026, 1, 10))
+        self.assertEqual(voucher.check_payment_date, date(2026, 2, 10))
+        self.assertAlmostEqual(voucher.amount, 80.0, places=2)
+        self.assertEqual(voucher.state, "approved")
+
+    def test_approve_persists_cash_deposit_fields(self):
+        """Triangulation: cash_deposit corrections persist shared fields only."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-CASH",
+            document_id="DOC-REV-CASH",
+            document_type="cash_deposit",
+            amount=15.0,
+        )
+        voucher.action_review_approve(
+            {
+                "document_type": "cash_deposit",
+                "amount": 42.5,
+            }
+        )
+        self.assertEqual(voucher.document_type, "cash_deposit")
+        self.assertAlmostEqual(voucher.amount, 42.5, places=2)
+        self.assertEqual(voucher.state, "approved")
 
     def test_reject_sets_rejected_and_records_audit(self):
-        voucher = self._create_voucher("CUST-REV-REJ")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-REJ")
-        line.action_review_reject()
-        self.assertEqual(line.state, "rejected")
-        self.assertEqual(line.reviewed_by, self.env.user)
-        self.assertTrue(line.reviewed_at)
-        self.assertEqual(voucher.state, "rejected")
-
-    def test_aggregate_validate_when_all_attached_approved(self):
-        voucher = self._create_voucher("CUST-REV-AGG")
-        first = self._create_attached_line(voucher, document_id="DOC-REV-AGG-1")
-        second = self._create_attached_line(
-            voucher,
-            document_id="DOC-REV-AGG-2",
-            attachment=PDF_B64,
-            attachment_filename="two.pdf",
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-REJ",
+            document_id="DOC-REV-REJ",
         )
-        unattached = self.env["collection.voucher.line"].create(
-            self._line_vals(voucher, document_id="DOC-REV-AGG-NONE")
-        )
-        first.action_review_approve()
-        self.assertEqual(first.state, "approved")
-        self.assertEqual(voucher.state, "new")
-        self.assertEqual(unattached.state, "pending")
-        second.action_review_approve({"amount": 120.0})
-        self.assertEqual(second.state, "approved")
-        self.assertAlmostEqual(second.amount, 120.0, places=2)
-        self.assertEqual(voucher.state, "validated")
-        self.assertEqual(unattached.state, "pending")
-
-    def test_line_reject_rejects_voucher_immediately(self):
-        """Triangulation: rejecting one attached line rejects the voucher."""
-        voucher = self._create_voucher("CUST-REV-REJ-V")
-        pending = self._create_attached_line(voucher, document_id="DOC-REV-REJ-V1")
-        sibling = self._create_attached_line(voucher, document_id="DOC-REV-REJ-V2")
-        pending.action_review_reject()
-        self.assertEqual(pending.state, "rejected")
+        voucher.action_review_reject()
         self.assertEqual(voucher.state, "rejected")
-        self.assertEqual(sibling.state, "pending")
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertTrue(voucher.reviewed_at)
 
-    # --- 1.3 Stale/concurrent, attachment reset, validate guard ---
+    # --- Stale/concurrent, attachment reset ---
 
     def test_stale_approve_and_reject_refuse_without_corruption(self):
-        voucher = self._create_voucher("CUST-REV-STALE")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-STALE")
-        line.action_review_approve({"amount": 40.0})
-        self.assertEqual(line.state, "approved")
-        self.assertEqual(voucher.state, "validated")
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-STALE",
+            document_id="DOC-REV-STALE",
+        )
+        voucher.action_review_approve({"amount": 40.0})
+        self.assertEqual(voucher.state, "approved")
         with self.assertRaises(UserError):
-            line.action_review_approve({"amount": 1.0})
+            voucher.action_review_approve({"amount": 1.0})
         with self.assertRaises(UserError):
-            line.action_review_reject()
-        self.assertEqual(line.state, "approved")
-        self.assertAlmostEqual(line.amount, 40.0, places=2)
-        self.assertEqual(voucher.state, "validated")
+            voucher.action_review_reject()
+        self.assertEqual(voucher.state, "approved")
+        self.assertAlmostEqual(voucher.amount, 40.0, places=2)
 
-    def test_stale_review_when_voucher_not_new_or_unattached(self):
-        """Triangulation: ineligible voucher/attachment refuses both actions."""
-        voucher = self._create_voucher("CUST-REV-STALE2")
-        attached = self._create_attached_line(voucher, document_id="DOC-REV-STALE2")
-        voucher.write({"state": "rejected"})
+    def test_stale_review_when_not_pending_or_unattached(self):
+        """Triangulation: ineligible state/attachment refuses both review actions."""
+        attached = self._create_attached_voucher(
+            customer_identification="CUST-REV-STALE2",
+            document_id="DOC-REV-STALE2",
+        )
+        attached.write({"state": "rejected"})
         with self.assertRaises(UserError):
             attached.action_review_approve()
         with self.assertRaises(UserError):
             attached.action_review_reject()
-        self.assertEqual(attached.state, "pending")
-        self.assertEqual(voucher.state, "rejected")
+        self.assertEqual(attached.state, "rejected")
 
-        open_voucher = self._create_voucher("CUST-REV-STALE3")
-        unattached = self.env["collection.voucher.line"].create(
-            self._line_vals(open_voucher, document_id="DOC-REV-STALE3")
+        unattached = self.env["collection.voucher"].create(
+            self._voucher_vals(
+                customer_identification="CUST-REV-STALE3",
+                document_id="DOC-REV-STALE3",
+            )
         )
         with self.assertRaises(UserError):
             unattached.action_review_approve()
         with self.assertRaises(UserError):
             unattached.action_review_reject()
         self.assertEqual(unattached.state, "pending")
-        self.assertEqual(open_voucher.state, "new")
 
     def test_attachment_write_resets_pending_and_clears_audit(self):
-        voucher = self._create_voucher("CUST-REV-RESET")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-RESET")
-        line.action_review_approve()
-        self.assertEqual(line.state, "approved")
-        self.assertTrue(line.reviewed_by)
-        self.assertTrue(line.reviewed_at)
-        line.write(
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-RESET",
+            document_id="DOC-REV-RESET",
+        )
+        voucher.action_review_approve()
+        self.assertEqual(voucher.state, "approved")
+        self.assertTrue(voucher.reviewed_by)
+        self.assertTrue(voucher.reviewed_at)
+        voucher.write(
             {
                 "attachment": PDF_B64,
                 "attachment_filename": "replaced.pdf",
             }
         )
-        self.assertEqual(line.state, "pending")
-        self.assertFalse(line.reviewed_by)
-        self.assertFalse(line.reviewed_at)
-        self.assertEqual(line.attachment_filename, "replaced.pdf")
+        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
+        self.assertEqual(voucher.attachment_filename, "replaced.pdf")
 
-    def test_attachment_write_resets_rejected_line(self):
-        """Triangulation: replacing a rejected line's file also reopens review."""
-        voucher = self._create_voucher("CUST-REV-RESET-REJ")
-        line = self._create_attached_line(voucher, document_id="DOC-REV-RESET-REJ")
-        line.action_review_reject()
-        self.assertEqual(line.state, "rejected")
-        line.write(
+    def test_attachment_write_resets_rejected_voucher(self):
+        """Triangulation: replacing a rejected voucher's file also reopens review."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-RESET-REJ",
+            document_id="DOC-REV-RESET-REJ",
+        )
+        voucher.action_review_reject()
+        self.assertEqual(voucher.state, "rejected")
+        voucher.write(
             {
                 "attachment": PNG_B64,
                 "attachment_filename": "again.png",
             }
         )
-        self.assertEqual(line.state, "pending")
-        self.assertFalse(line.reviewed_by)
-        self.assertFalse(line.reviewed_at)
-
-    def test_action_validate_blocked_while_attached_pending(self):
-        voucher = self._create_voucher("CUST-REV-GUARD")
-        self._create_attached_line(voucher, document_id="DOC-REV-GUARD")
-        with self.assertRaises(UserError):
-            voucher.action_validate()
-        self.assertEqual(voucher.state, "new")
-
-    def test_action_validate_allows_unattached_pending_lines(self):
-        """Unattached lines must not block validate; no-line vouchers stay valid."""
-        voucher = self._create_voucher("CUST-REV-UNATT")
-        self.env["collection.voucher.line"].create(
-            self._line_vals(voucher, document_id="DOC-REV-UNATT")
-        )
-        voucher.action_validate()
-        self.assertEqual(voucher.state, "validated")
-
-        empty = self._create_voucher("CUST-REV-NOLINES")
-        empty.action_validate()
-        self.assertEqual(empty.state, "validated")
+        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)

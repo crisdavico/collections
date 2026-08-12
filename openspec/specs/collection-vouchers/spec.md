@@ -2,15 +2,17 @@
 
 ## Purpose
 
-Manual vouchers: sequence, New→Validated/Rejected, chatter/activities, payment lines. No
-WhatsApp/API/agent.
+Manual vouchers: sequence, pending→approved/rejected, chatter/activities, one voucher
+per payment. No WhatsApp/API/agent.
 
 ## Requirements
 
 ### Requirement: Voucher sequence naming
 
 The system MUST assign each new voucher a unique persisted name matching
-`COL/<year>/<number>`.
+`COL/<year>/<number>` via sequence code `collection.voucher`. Each payment MUST
+consume one sequence number.
+(Previously: Sequence applied to a header voucher that could cover multiple lines.)
 
 #### Scenario: Sequence assigned on create
 
@@ -18,22 +20,143 @@ The system MUST assign each new voucher a unique persisted name matching
 - WHEN saved the first time
 - THEN name MUST match `COL/<current-year>/<number>` and be unique
 
-### Requirement: Voucher header fields and defaults
+### Requirement: Mail thread and activities
 
-The system MUST require `customer_identification`. The system MUST NOT store or accept
-`received_date`. Registration time MUST be automatic ORM `create_date` (readonly; MUST
-NOT be overridable by MCP, create vals, or editable views). On create, `state` MUST
-default to `new`. Currency MUST be the company default (no multi-currency UX).
-(Previously: Required `received_date` defaulting to today.)
+Each voucher MUST support messaging and activities. Voucher fields including `state`
+SHOULD be tracked in chatter.
+(Previously: Chatter lived on the header; scenarios used header state `new`.)
+
+#### Scenario: Chatter and activities available
+
+- GIVEN an open voucher form
+- WHEN a message is posted or an activity scheduled
+- THEN it MUST persist on that voucher
+
+#### Scenario: State change tracked
+
+- GIVEN a voucher in `pending`
+- WHEN approved or rejected
+- THEN chatter MUST record the state change
+
+### Requirement: Authorization for internal users
+
+Internal users (`base.group_user`) MUST have full CRUD on vouchers. The system MUST
+NOT grant ACL on `collection.voucher.line`. No dedicated groups or record rules.
+(Previously: Full CRUD on vouchers and payment lines.)
+
+#### Scenario: Internal user CRUD
+
+- GIVEN an authenticated internal user
+- WHEN they CRUD a voucher
+- THEN ACL MUST allow the operation
+
+#### Scenario: Non-internal user denied
+
+- GIVEN a user without internal-user privileges
+- WHEN they attempt voucher CRUD
+- THEN the system MUST deny access
+
+### Requirement: Deferred integrations not required
+
+Completeness MUST NOT require HTTP API, WhatsApp metadata, partner/CRM linkage, or agent
+calls. Optional per-voucher image/PDF attachments are an allowed capability and MUST
+NOT be required for completeness of unrelated voucher features.
+(Previously: Completeness referred to vouchers with payment lines.)
+
+#### Scenario: Completeness without deferred features
+
+- GIVEN backend-only voucher management
+- WHEN operators create, edit, approve, or reject vouchers
+- THEN success MUST NOT depend on deferred integrations
+- AND success MUST NOT require that vouchers have attachments
+
+### Requirement: Payment document_id uniqueness
+
+Vouchers MUST support nullable Char `document_id` unique among non-null values. UI
+vouchers without `document_id` MUST remain allowed. MCP MUST require non-empty
+`document_id` per payment.
+(Previously: Uniqueness and UI omit applied to payment lines.)
+
+#### Scenario: Manual payment without document_id still OK
+
+- GIVEN a user saving a UI voucher without `document_id`
+- WHEN saved
+- THEN the voucher MUST persist
+
+### Requirement: MCP optional payment attachment on create
+
+`create_collection_vouchers` MAY accept one optional nested attachment per payment with
+required `name`, `mimetype`, and base64 `datas` when present. Declared `mimetype` MUST
+match content detection (`image/*` or PDF only); mismatch or bad base64 MUST raise
+`UserError` with no writes. Create with attachments MUST persist all vouchers and files
+atomically under a savepoint. Exact-retry by `document_id` MUST return all matching
+vouchers and MUST NOT add, replace, or compare attachments (even when a voucher has
+none). All-new and conflict rules MUST remain unchanged.
+(Previously: Nested attachments on singular `create_collection_voucher`; exact-retry
+returned one header voucher.)
+
+#### Scenario: MCP create with nested attachment
+
+- GIVEN unused `document_id`s and a payment with valid nested attachment
+- WHEN `create_collection_vouchers` runs
+- THEN vouchers and attachments MUST persist atomically under a savepoint
+
+#### Scenario: MCP attachment MIME mismatch rejected
+
+- GIVEN nested attachment with mismatched or non-image/non-PDF `mimetype`
+- WHEN `create_collection_vouchers` runs
+- THEN MUST raise `UserError` with no writes
+
+#### Scenario: Exact-retry skips attachment writes
+
+- GIVEN every submitted `document_id` already exists
+- WHEN retried with or without nested attachments
+- THEN all matching vouchers return unchanged; attachments MUST NOT be
+  written/replaced/compared
+
+### Requirement: Concurrent and stale review attempts
+
+Approve and reject MUST refuse stale or concurrent attempts when the voucher is no
+longer eligible (not `pending`, or attachment no longer present) and MUST NOT corrupt
+review or voucher state.
+(Previously: Eligibility also required a parent voucher in `new` and a line record.)
+
+#### Scenario: Concurrent or stale review attempt
+
+- GIVEN a voucher already decided or otherwise ineligible for review
+- WHEN approve or reject is attempted again
+- THEN the system MUST refuse the action and MUST NOT alter terminal or decided state
+
+### Requirement: Attachment replacement resets review to pending
+
+Replacing a voucher attachment (write of new Binary content) MUST reset that voucher’s
+`state` to `pending` and MUST clear prior reviewer/time audit for a fresh review.
+Omit/empty and MIME validation rules remain unchanged.
+(Previously: Replacement reset the payment line’s `state` and audit.)
+
+#### Scenario: Attachment replacement resets voucher state
+
+- GIVEN a voucher previously `approved` or `rejected` with an attachment
+- WHEN a new valid attachment replaces the prior file
+- THEN `state` MUST become `pending`
+- AND prior reviewer/time audit MUST be cleared for re-review
+
+### Requirement: Voucher fields and defaults
+
+Each `collection.voucher` MUST represent one payment. The system MUST require
+`customer_identification`. The system MUST NOT store or accept `received_date`.
+Registration time MUST be automatic ORM `create_date` (readonly; MUST NOT be
+overridable by MCP, create vals, or editable views). On create, `state` MUST default
+to `pending`. Currency MUST be the company default (no multi-currency UX).
 
 #### Scenario: Defaults on create
 
 - GIVEN a new voucher saved without overriding defaults
 - WHEN create completes
-- THEN `create_date` MUST be automatic, `state` `new`, currency company default
+- THEN `create_date` MUST be automatic, `state` `pending`, currency company default
 - AND `received_date` MUST NOT exist
 
-#### Scenario: Required header fields
+#### Scenario: Required fields
 
 - GIVEN a voucher missing `customer_identification`
 - WHEN saved
@@ -45,160 +168,119 @@ default to `new`. Currency MUST be the company default (no multi-currency UX).
 - WHEN create runs via UI or MCP
 - THEN creation time MUST NOT be caller-overridable and `received_date` MUST NOT persist
 
-### Requirement: Voucher state transitions
+### Requirement: Voucher lifecycle
 
-States MUST be `new`, `validated`, and `rejected`. Validate and Reject MUST apply only
-from `new` and MUST NOT alter terminal states. When Document Review is ON,
-`action_validate()` MUST refuse while any attachment-bearing line is `pending`. When
-OFF, Validate MUST succeed from `new` even with pending attached lines.
-(Previously: Validate always refused while any attached line was `pending`.)
+States MUST be `pending`, `approved`, and `rejected`. Approve and Reject MUST apply
+only from `pending` and MUST NOT alter terminal states. Delete MUST be allowed only
+when `state` is `pending`. Any user-driven change from `pending` to `approved` or
+`rejected` (including kanban drag) MUST record reviewer and review time the same as
+Approve/Reject. Approve/Reject on Payment Vouchers MUST remain available whether
+Document Review is ON or OFF. Review queue RPCs remain governed by `document-review`.
+Confidence, per-field stamps, and reviewer-note persistence MUST NOT be required.
 
-#### Scenario: Validate from new
+#### Scenario: Approve from pending
 
-- GIVEN a voucher in `new` with no attachment-bearing lines still `pending`
-- WHEN validated
-- THEN `state` MUST become `validated`
+- GIVEN a voucher in `pending`
+- WHEN approved
+- THEN `state` MUST become `approved`
+- AND reviewer and review time MUST be recorded
 
-#### Scenario: Reject from new
+#### Scenario: Reject from pending
 
-- GIVEN a voucher in `new`
+- GIVEN a voucher in `pending`
 - WHEN rejected
 - THEN `state` MUST become `rejected`
+- AND reviewer and review time MUST be recorded
 
 #### Scenario: Terminal states block transitions
 
-- GIVEN a voucher in `validated` or `rejected`
-- WHEN Validate or Reject is attempted
+- GIVEN a voucher in `approved` or `rejected`
+- WHEN Approve or Reject is attempted
 - THEN `state` MUST NOT change
 
-#### Scenario: Validate blocked while attached lines pending
+#### Scenario: Delete from pending
 
-- GIVEN Document Review is ON and a voucher in `new` with at least one
-  attachment-bearing line still `pending`
-- WHEN `action_validate()` is invoked
-- THEN validation MUST be refused and `state` MUST remain `new`
+- GIVEN a voucher in `pending`
+- WHEN deleted
+- THEN the system MUST allow the delete
 
-#### Scenario: Validate succeeds with pending attachments when review is off
+#### Scenario: Delete blocked when not pending
 
-- GIVEN Document Review is OFF and a voucher in `new` with at least one
-  attachment-bearing line still `pending`
-- WHEN `action_validate()` is invoked
-- THEN validation MUST succeed and `state` MUST become `validated`
+- GIVEN a voucher in `approved` or `rejected`
+- WHEN deleted
+- THEN the system MUST refuse the delete
 
-### Requirement: Mail thread and activities
+#### Scenario: Kanban drag is audited
 
-Each voucher MUST support messaging and activities. Header fields including `state`
-SHOULD be tracked in chatter.
+- GIVEN a `pending` voucher on a state-grouped kanban
+- WHEN an internal user drags it to `approved` or `rejected`
+- THEN `state` MUST change to that value
+- AND reviewer and review time MUST be recorded as for Approve/Reject
 
-#### Scenario: Chatter and activities available
+#### Scenario: Approve and Reject remain when review is off
 
-- GIVEN an open voucher form
-- WHEN a message is posted or an activity scheduled
-- THEN it MUST persist on that voucher
+- GIVEN Document Review is OFF and a voucher in `pending`
+- WHEN Approve or Reject is used on Payment Vouchers
+- THEN `state` MUST become `approved` or `rejected` respectively
 
-#### Scenario: State change tracked
+#### Scenario: Default pending
 
-- GIVEN a voucher in `new`
-- WHEN validated or rejected
-- THEN chatter MUST record the state change
+- GIVEN a newly created voucher
+- WHEN `state` is read without a prior decision
+- THEN `state` MUST be `pending`
 
-### Requirement: Payment lines and payment field contract
+### Requirement: Payment field contract
 
-Vouchers MUST allow zero or more payment lines with `document_type` `bank_transfer` |
-`check` | `cash_deposit` | `unsupported`. Persist nullable fields (OCR validators NOT
-required): `amount`, `from_account`, `to_account`, `voucher_number`, `voucher_date`,
-`check_number`, `check_bank`, `check_issue_date`, `check_payment_date`, `check_type`
-Selection `common`/`deferred`. `unsupported` MUST persist without other payment fields.
+Each voucher MUST persist `document_type` `bank_transfer` | `check` | `cash_deposit` |
+`unsupported` and nullable payment fields (OCR validators NOT required): `amount`,
+`from_account`, `to_account`, `voucher_number`, `voucher_date`, `check_number`,
+`check_bank`, `check_issue_date`, `check_payment_date`, `check_type` Selection
+`common`/`deferred`. `unsupported` MUST persist without other payment fields.
 
 #### Scenario: Persist type-specific fields
 
-- GIVEN `bank_transfer`, `check`, and `cash_deposit` lines with payment fields filled
+- GIVEN `bank_transfer`, `check`, and `cash_deposit` vouchers with payment fields filled
   (`check_type` `common` or `deferred`)
 - WHEN saved
-- THEN each line MUST persist those values
+- THEN each voucher MUST persist those values
 
 #### Scenario: Unsupported and partial entry
 
-- GIVEN an `unsupported` line plus a partial supported-type line
+- GIVEN an `unsupported` voucher plus a partial supported-type voucher
 - WHEN saved
 - THEN both MUST persist
 
-### Requirement: Authorization for internal users
+### Requirement: Payment Vouchers UI
 
-Internal users (`base.group_user`) MUST have full CRUD on vouchers and payment lines. No
-dedicated groups or record rules.
-
-#### Scenario: Internal user CRUD
-
-- GIVEN an authenticated internal user
-- WHEN they CRUD a voucher or payment line
-- THEN ACL MUST allow the operation
-
-#### Scenario: Non-internal user denied
-
-- GIVEN a user without internal-user privileges
-- WHEN they attempt voucher or payment CRUD
-- THEN the system MUST deny access
-
-### Requirement: Menu and backend UI
-
-The system MUST expose Collections → Payment Vouchers and Collections → Payment Lines.
-List/search for vouchers MUST show reference, customer identification, readonly
-`create_date`, and status. Form MUST show statusbar, Validate/Reject when `new`,
-readonly `create_date`, and chatter/activity controls. Views MUST NOT show
-`received_date`.
-
-The voucher form MUST NOT use a single all-type editable payment-lines table. It MUST
-show three stacked editable tables for `bank_transfer`, `check`, and `cash_deposit`
-(same `collection.voucher.line` model), in that order, each filtered to its
-`document_type`. Each table MUST hide `document_type` and MUST default new rows to that
-table’s type. Field sets MUST be:
-
-- `bank_transfer`: `document_id`, `amount`, `from_account`, `to_account`,
-  `voucher_number`, `voucher_date`
-- `check`: `document_id`, `amount`, `check_number`, `check_bank`, `check_type`,
-  `check_issue_date`, `check_payment_date`
-- `cash_deposit`: `document_id`, `amount`
-
-A voucher MUST still allow mixed supported document types across those tables. The form
-MUST NOT provide an editable table for `unsupported` lines. (Previously: Collections →
-Payment Vouchers only; form used one editable `payment_ids` list showing `document_type`
-and optional mixed columns.)
+The system MUST expose Collections → Payment Vouchers as the only create/edit surface
+(kanban, list, and form; create and edit enabled). Kanban MUST group by `state`.
+List/search MUST show reference, customer identification, readonly `create_date`,
+status, and payment fields. Form MUST show statusbar, Approve/Reject when `pending`,
+readonly `create_date`, payment fields for the voucher’s `document_type`, chatter and
+activity controls, and MUST NOT show `received_date`. The system MUST NOT expose
+Collections → Payment Lines or typed embedded payment-line tables.
 
 #### Scenario: Menu and form behaviors
 
-- GIVEN the module installed and a voucher in `new`
+- GIVEN the module installed and a voucher in `pending`
 - WHEN an internal user opens Collections → Payment Vouchers then the form
 - THEN list/search MUST show reference, customer identification, `create_date`, status
-- AND form MUST show statusbar, Validate/Reject, readonly `create_date`,
-  chatter/activity UI without `received_date`
-- AND form MUST show three stacked editable typed line tables (`bank_transfer`, `check`,
-  `cash_deposit`) and MUST NOT show a single all-type payment-lines list
+- AND form MUST show statusbar, Approve/Reject, readonly `create_date`, chatter/activity
+  UI without `received_date`
+- AND form MUST show that voucher’s payment fields and MUST NOT show payment-line tables
 
-#### Scenario: Typed table defaults and fields
+#### Scenario: Kanban grouped by state
 
-- GIVEN a voucher form open for editing
-- WHEN an internal user adds a row in the bank transfer, check, or cash deposit table
-- THEN the new line MUST receive that table’s `document_type`
-- AND the table MUST expose only that type’s field set including `document_id`
-- AND MUST NOT show a `document_type` column
+- GIVEN Payment Vouchers kanban
+- WHEN an internal user opens it
+- THEN vouchers MUST be grouped by `state`
+- AND create and edit MUST be enabled
 
-#### Scenario: Mixed types on one voucher
+#### Scenario: Payment Lines menu absent
 
-- GIVEN a voucher with at least one bank transfer line and one check line
-- WHEN the form is opened
-- THEN each line MUST appear only in its matching typed table
-
-#### Scenario: Payment Lines menu read-only browse
-
-- GIVEN the module installed and existing payment lines
-- WHEN an internal user opens Collections → Payment Lines
-- THEN the action MUST list `collection.voucher.line` records
-- AND create/edit from that action MUST be disabled
-- AND the list MUST show line `state`
-- AND search MUST allow filtering by line fields including `state`, `document_type`,
-  `document_id`, `amount`, type-specific payment fields, and related voucher
-- AND search MUST allow grouping by line `state`
+- GIVEN the module installed
+- WHEN menus load
+- THEN Collections → Payment Lines MUST NOT appear
 
 #### Scenario: UI create_date visibility
 
@@ -206,117 +288,89 @@ and optional mixed columns.)
 - WHEN list, search, kanban, or form is opened
 - THEN readonly `create_date` MUST be visible and not editable
 
-### Requirement: Unsupported lines remain non-editable on voucher form
+### Requirement: Unsupported vouchers remain persistable
 
-`unsupported` payment lines MUST remain persistable (e.g. MCP) but MUST NOT appear in
-the three typed editable form tables. Operators MUST be able to find them via
-Collections → Payment Lines (e.g. filter `document_type=unsupported`).
+`unsupported` vouchers MUST remain persistable (e.g. MCP) and MUST be findable via
+Collections → Payment Vouchers (e.g. filter `document_type=unsupported`).
 
-#### Scenario: Unsupported line not in typed form tables
+#### Scenario: Unsupported voucher visible in Payment Vouchers
 
-- GIVEN a voucher that has an `unsupported` payment line
-- WHEN an internal user opens the voucher form
-- THEN that line MUST NOT appear in the bank transfer, check, or cash deposit tables
+- GIVEN an `unsupported` voucher exists
+- WHEN an internal user opens Collections → Payment Vouchers and filters to
+  `unsupported`
+- THEN that voucher MUST be listed
 
-#### Scenario: Unsupported line visible in Payment Lines menu
+### Requirement: MCP tool create_collection_vouchers
 
-- GIVEN an `unsupported` payment line exists
-- WHEN an internal user opens Collections → Payment Lines and filters to `unsupported`
-- THEN that line MUST be listed
-
-### Requirement: Deferred integrations not required
-
-Completeness MUST NOT require HTTP API, WhatsApp metadata, partner/CRM linkage, or agent
-calls. Optional per-line image/PDF attachments are an allowed capability and MUST NOT be
-required for completeness of unrelated voucher features. (Previously: Completeness also
-MUST NOT require attachments.)
-
-#### Scenario: Completeness without deferred features
-
-- GIVEN backend-only voucher management
-- WHEN operators create, edit, validate, or reject vouchers with payment lines
-- THEN success MUST NOT depend on deferred integrations
-- AND success MUST NOT require that payment lines have attachments
-
-### Requirement: MCP tool create_collection_voucher
-
-The system MUST expose `create_collection_voucher` via `@mcp_tool` on `muk_mcp.mixin`
+The system MUST expose `create_collection_vouchers` via `@mcp_tool` on `muk_mcp.mixin`
 (`category=write`, `registry=mcp`), method-discovered — MUST NOT use a DB `muk_mcp.tool`
-record. Calls MUST use the authenticated user (MUST NOT `sudo()`); voucher/payment ACL
-MUST apply. Input MUST require `customer_identification` and non-empty `payments`; MUST
-NOT accept `received_date`. Each MCP payment MUST include non-empty `document_id` and
-existing payment fields (`document_type` required). Create MUST persist voucher + lines
-atomically (`state=new`, company currency). Response MUST include voucher
-`id`/`name`/`state` and payment `id`/`document_id`. Idempotency by `document_id`:
-all-new → create; full same-voucher match → return existing; in-call duplicate, partial
-overlap, or cross-voucher match → reject with no writes.
+record. Calls MUST use the authenticated user (MUST NOT `sudo()`); voucher ACL MUST
+apply. Input MUST require `customer_identification` and non-empty `payments`; MUST NOT
+accept `received_date`. Each MCP payment MUST include non-empty `document_id` and
+existing payment fields (`document_type` required). Create MUST persist one voucher per
+payment atomically (`state=pending`, company currency). Response MUST include each
+voucher `id`/`name`/`state` and `document_id`. Idempotency by `document_id`: all-new →
+create N vouchers; every submitted `document_id` already exists → return ALL those
+vouchers unchanged; in-call duplicate or partial overlap → reject with no writes.
+Submitted `document_id`s that already exist on different vouchers MUST succeed as
+exact replay (MUST NOT reject as a cross-voucher conflict). Exact replay MUST ignore
+`customer_identification` and nested attachments.
 
 #### Scenario: All-new create
 
 - GIVEN an internal user and unused payment `document_id`s
-- WHEN `create_collection_voucher` runs with valid customer and payments
-- THEN one voucher and those lines MUST be created
-- AND response MUST include voucher `id`/`name`/`state` and payment `id`/`document_id`
+- WHEN `create_collection_vouchers` runs with valid customer and payments
+- THEN one voucher per payment MUST be created atomically
+- AND response MUST include each voucher `id`/`name`/`state` and `document_id`
 
-#### Scenario: Exact-retry same voucher
+#### Scenario: Exact-retry returns all vouchers
 
-- GIVEN all submitted `document_id`s belong to one existing voucher
+- GIVEN every submitted `document_id` already exists
 - WHEN the same payload is retried
-- THEN that voucher and payments MUST return unchanged with no new rows
+- THEN all matching vouchers MUST return unchanged with no new rows
+- AND customer identification and nested attachments MUST be ignored
 
 #### Scenario: Duplicate document_id in call
 
 - GIVEN two payments in one call share a `document_id`
-- WHEN `create_collection_voucher` runs
+- WHEN `create_collection_vouchers` runs
 - THEN the call MUST be rejected with no writes
 
 #### Scenario: Partial-conflict
 
 - GIVEN some submitted `document_id`s exist and others do not
-- WHEN `create_collection_voucher` runs
+- WHEN `create_collection_vouchers` runs
 - THEN the call MUST be rejected with no writes
 
-#### Scenario: Cross-voucher-conflict
+#### Scenario: Existing document_ids on different vouchers succeed
 
-- GIVEN submitted `document_id`s span more than one voucher
-- WHEN `create_collection_voucher` runs
-- THEN the call MUST be rejected with no writes
+- GIVEN submitted `document_id`s already exist on more than one voucher
+- WHEN `create_collection_vouchers` runs
+- THEN the call MUST succeed as exact replay
+- AND response MUST include all those vouchers
 
 #### Scenario: ACL denial for non-permitted user
 
-- GIVEN a caller without voucher/payment create rights
-- WHEN `create_collection_voucher` runs
+- GIVEN a caller without voucher create rights
+- WHEN `create_collection_vouchers` runs
 - THEN access MUST be denied with no writes
 
-### Requirement: Payment document_id uniqueness
+### Requirement: Optional image or PDF attachment per voucher
 
-Payment lines MUST support nullable Char `document_id` unique among non-null values. UI
-lines without `document_id` MUST remain allowed. MCP MUST require non-empty
-`document_id` per payment.
-
-#### Scenario: Manual payment without document_id still OK
-
-- GIVEN a user saving a UI payment line without `document_id`
-- WHEN saved
-- THEN the line MUST persist
-
-### Requirement: Optional image or PDF attachment per payment line
-
-Each `collection.voucher.line` MAY store one optional proof as Binary
-(`attachment=True`) plus filename via `ir.attachment`. Omit/empty MUST remain valid.
-Fields MUST be optional, `copy=False`, under existing internal-user line ACL. MUST
-validate base64 and detected MIME (`image/*` or PDF only); MUST raise `UserError`
-otherwise.
+Each `collection.voucher` MAY store one optional proof as Binary (`attachment=True`)
+plus filename via `ir.attachment`. Omit/empty MUST remain valid. Fields MUST be
+optional, `copy=False`, under existing internal-user voucher ACL. MUST validate base64
+and detected MIME (`image/*` or PDF only); MUST raise `UserError` otherwise.
 
 #### Scenario: Omit attachment valid
 
-- GIVEN a payment line with no attachment
+- GIVEN a voucher with no attachment
 - WHEN saved
-- THEN the line MUST persist
+- THEN the voucher MUST persist
 
 #### Scenario: Valid file persists
 
-- GIVEN a line with valid base64 image/PDF and filename
+- GIVEN a voucher with valid base64 image/PDF and filename
 - WHEN saved
 - THEN Binary and filename MUST persist via `ir.attachment`
 
@@ -326,134 +380,27 @@ otherwise.
 - WHEN saved
 - THEN MUST raise `UserError` and MUST NOT persist the file
 
-### Requirement: Attachment widgets on typed and Payment Lines views
+### Requirement: Attachment widgets on Payment Vouchers views
 
-Each typed embedded list field set (`bank_transfer`, `check`, `cash_deposit`) and
-Payment Lines views MUST include optional Binary attachment and filename widgets.
-Browser accept MUST be limited to `image/*` and PDF.
+Payment Vouchers form, list, and kanban MUST include optional Binary attachment and
+filename widgets. Browser accept MUST be limited to `image/*` and PDF.
 
-#### Scenario: Typed tables show Binary widgets
+#### Scenario: Payment Vouchers views show Binary widgets
 
-- GIVEN a voucher form open for editing
-- WHEN a typed payment-line table is shown
-- THEN it MUST include Binary attachment and filename widgets
-- AND browser accept MUST allow `image/*` and PDF
-
-#### Scenario: Payment Lines views show Binary widgets
-
-- GIVEN Collections → Payment Lines
-- WHEN an internal user opens list or form views for a line
+- GIVEN Collections → Payment Vouchers
+- WHEN an internal user opens form, list, or kanban
 - THEN Binary attachment and filename widgets MUST be present
 - AND browser accept MUST allow `image/*` and PDF
 
-### Requirement: MCP optional payment attachment on create
+### Requirement: Destructive reset of legacy header and line data
 
-`create_collection_voucher` MAY accept one optional nested attachment per payment with
-required `name`, `mimetype`, and base64 `datas` when present. Declared `mimetype` MUST
-match content detection (`image/*` or PDF only); mismatch or bad base64 MUST raise
-`UserError` with no writes. Create with attachments MUST persist voucher, lines, and
-files atomically under a savepoint. Exact-retry by `document_id` MUST return the
-existing voucher and MUST NOT add, replace, or compare attachments (even when the line
-has none). All-new and conflict rules MUST remain unchanged.
+On apply, the system MAY discard legacy header vouchers, payment lines, chatter, and
+attachments. The system MUST NOT convert header+line rows, chatter, or attachments into
+standalone vouchers.
 
-#### Scenario: MCP create with nested attachment
+#### Scenario: Upgrade without conversion
 
-- GIVEN unused `document_id`s and a payment with valid nested attachment
-- WHEN `create_collection_voucher` runs
-- THEN voucher, lines, and attachment MUST persist atomically under a savepoint
-
-#### Scenario: MCP attachment MIME mismatch rejected
-
-- GIVEN nested attachment with mismatched or non-image/non-PDF `mimetype`
-- WHEN `create_collection_voucher` runs
-- THEN MUST raise `UserError` with no writes
-
-#### Scenario: Exact-retry skips attachment writes
-
-- GIVEN all submitted `document_id`s belong to one existing voucher
-- WHEN retried with or without nested attachments
-- THEN voucher returns unchanged; attachments MUST NOT be written/replaced/compared
-
-### Requirement: Payment line state and audit
-
-Each `collection.voucher.line` MUST track `state` `pending` | `approved` | `rejected`,
-defaulting to `pending` (including on additive upgrade for existing lines). The field
-MUST be named `state` (not a separate review-status field). When `state` leaves
-`pending`, the system MUST record reviewer and review time audit fields. Confidence,
-per-field stamps, and reviewer-note persistence MUST NOT be required.
-
-#### Scenario: Default pending including upgrade
-
-- GIVEN a newly created line or an existing line after additive upgrade
-- WHEN `state` is read without a prior decision
-- THEN `state` MUST be `pending`
-
-#### Scenario: Audit on decision
-
-- GIVEN a pending line
-- WHEN approved or rejected
-- THEN reviewer and review time MUST be recorded
-
-### Requirement: Approve may validate voucher when all attached lines approved
-
-When Document Review is ON and a line is approved, if the parent voucher is `new` and
-every attachment-bearing line is `approved`, the system MAY set the voucher to
-`validated`. Unattached lines MUST NOT block that path. When OFF, review approve MUST
-NOT run.
-(Previously: Last attached-line approve MAY validate with no company flag.)
-
-#### Scenario: Aggregate voucher validation
-
-- GIVEN a `new` voucher whose every attachment-bearing line becomes `approved`
-- WHEN the last such line is approved
-- THEN the voucher `state` MUST become `validated`
-
-#### Scenario: Review approve does not run when off
-
-- GIVEN Document Review is OFF
-- WHEN review approve is attempted
-- THEN approve MUST NOT run and the voucher MUST NOT validate via review
-
-### Requirement: Line reject immediately rejects voucher
-
-When Document Review is ON, rejecting a line MUST set it to `rejected` and, if the
-parent voucher is `new`, MUST set the voucher to `rejected`. When OFF, review reject
-MUST NOT run.
-(Previously: Line reject always rejected a `new` parent voucher with no company flag.)
-
-#### Scenario: Immediate voucher rejection on line reject
-
-- GIVEN a `new` voucher with a pending attached line
-- WHEN that line is rejected
-- THEN the line MUST be `rejected` and the voucher MUST become `rejected`
-
-#### Scenario: Review reject does not run when off
-
-- GIVEN Document Review is OFF and a `new` voucher with a pending attached line
-- WHEN review reject is attempted
-- THEN reject MUST NOT run and the voucher MUST remain `new`
-
-### Requirement: Concurrent and stale review attempts
-
-Approve and reject MUST refuse stale or concurrent attempts when the line is no longer
-eligible (not `pending`, voucher not `new`, or attachment no longer present) and MUST
-NOT corrupt review or voucher state.
-
-#### Scenario: Concurrent or stale review attempt
-
-- GIVEN a line already decided or otherwise ineligible for review
-- WHEN approve or reject is attempted again
-- THEN the system MUST refuse the action and MUST NOT alter terminal or decided state
-
-### Requirement: Attachment replacement resets review to pending
-
-Replacing a payment-line attachment (write of new Binary content) MUST reset that line’s
-`state` to `pending` and MUST clear prior reviewer/time audit for a fresh review.
-Omit/empty and MIME validation rules remain unchanged.
-
-#### Scenario: Attachment replacement resets line state
-
-- GIVEN a line previously `approved` or `rejected` with an attachment
-- WHEN a new valid attachment replaces the prior file
-- THEN `state` MUST become `pending`
-- AND prior reviewer/time audit MUST be cleared for re-review
+- GIVEN a database with header vouchers and payment lines
+- WHEN this change is applied
+- THEN legacy header/line data MAY be absent
+- AND historical vouchers MUST NOT be required as converted standalone records

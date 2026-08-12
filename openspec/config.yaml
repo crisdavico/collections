@@ -14,11 +14,13 @@ defaults:
 
 context: |
   Stack: Odoo 19 on Python, PostgreSQL 17, Docker Compose, and Doodba.
-  Scope: collection addon only
-    (odoo/custom/src/private/collection/).
+  Scope: collection addon (odoo/custom/src/private/collection/) plus coordinated
+    Nebula agent at /home/crisd/projects/nebula/nebula-agent.
   Product: Payment vouchers / collections registration for company sellers.
-  Models: collection.voucher, collection.voucher.line; mail.thread + activities.
-  Testing: invoke test -m collection (Odoo TransactionCase in containers).
+  Models: collection.voucher (standalone per payment); mail.thread + activities.
+  MCP: create_collection_vouchers (one voucher per payment; list identity).
+  Testing: invoke test -m collection (Odoo TransactionCase in containers);
+    nebula-agent uv run make test / integration_tests.
   Quality: pre-commit (Ruff, pylint-odoo, ESLint, Prettier, OCA checks).
   Conventions: repo AGENTS.md + this module's .atl/skill-registry.md.
 
@@ -54,11 +56,13 @@ testing:
   notes:
     - Strict TDD enabled; run module tests after each work unit.
     - Prefer scoped pre-commit on collection paths over full-repo lint.
+    - Coordinated Nebula changes live under /home/crisd/projects/nebula/nebula-agent.
 
 rules:
   proposal:
     - State user impact, affected models/views, risks, and rollback strategy.
-    - Keep changes inside collection unless dependency configuration must change.
+    - Keep Odoo changes inside collection unless dependency configuration must change.
+    - Coordinated Nebula MCP rename/list-formatter work is in-scope for this change.
   specs:
     - Use RFC 2119 keywords for requirements.
     - Express acceptance scenarios with Given, When, and Then.
@@ -73,10 +77,16 @@ rules:
     - Include module upgrade and scoped pre-commit verification.
   apply:
     guidelines:
-      - Edit owned code only under odoo/custom/src/private/collection/.
+      - Edit owned Odoo code only under odoo/custom/src/private/collection/.
+      - Coordinated Nebula edits are allowed under
+        /home/crisd/projects/nebula/nebula-agent (MCP name, list formatter, tests,
+        collection-voucher-registration spec, AGENTS.md).
       - Do not edit Copier-managed or git-aggregate-managed files directly.
       - Load exact skills from odoo/custom/src/private/collection/.atl/skill-registry.md
         before implementation.
+    roots:
+      - /home/crisd/projects/seedian/seedian/odoo/custom/src/private/collection
+      - /home/crisd/projects/nebula/nebula-agent
     tdd: true
     test_command: invoke test -m collection
   verify:

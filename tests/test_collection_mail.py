@@ -13,7 +13,10 @@ class TestCollectionMail(TransactionCase):
         self.cr.flush()
 
     def _create_voucher(self, **extra):
-        vals = {"customer_identification": "MAIL-CUST"}
+        vals = {
+            "customer_identification": "MAIL-CUST",
+            "document_type": "bank_transfer",
+        }
         vals.update(extra)
         voucher = self.env["collection.voucher"].create(vals)
         # Clear create-time _track_discard residue before state writes
@@ -41,17 +44,17 @@ class TestCollectionMail(TransactionCase):
         self.assertIn(activity, voucher.activity_ids)
         self.assertEqual(activity.summary, "Review collection voucher")
 
-    def test_validate_tracks_state_in_chatter(self):
+    def test_approve_tracks_state_in_chatter(self):
         voucher = self._create_voucher(customer_identification="MAIL-VAL")
-        voucher.action_validate()
+        voucher.action_approve()
         self._flush_tracking()
         tracking = voucher.message_ids.sudo().mapped("tracking_value_ids")
         tracked_fields = tracking.mapped("field_id.name")
         self.assertIn("state", tracked_fields)
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
         self.assertTrue(state_tracking)
-        self.assertEqual(state_tracking[-1].old_value_char, "New")
-        self.assertEqual(state_tracking[-1].new_value_char, "Validated")
+        self.assertEqual(state_tracking[-1].old_value_char, "Pending")
+        self.assertEqual(state_tracking[-1].new_value_char, "Approved")
 
     def test_reject_tracks_state_in_chatter(self):
         voucher = self._create_voucher(customer_identification="MAIL-REJ")
@@ -62,5 +65,5 @@ class TestCollectionMail(TransactionCase):
         self.assertIn("state", tracked_fields)
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
         self.assertTrue(state_tracking)
-        self.assertEqual(state_tracking[-1].old_value_char, "New")
+        self.assertEqual(state_tracking[-1].old_value_char, "Pending")
         self.assertEqual(state_tracking[-1].new_value_char, "Rejected")

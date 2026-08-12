@@ -11,12 +11,13 @@ Ground truth order: source under this directory →
 
 - **What:** Manual payment vouchers for company sellers (cobranzas).
 - **Stack:** Odoo 19, PostgreSQL 17, Doodba (`seedian` compose project).
-- **Models:** `collection.voucher`, `collection.voucher.line`.
-- **Integrations:** `mail.thread` / activities; MuK MCP tool `create_collection_voucher`
-  on `muk_mcp.mixin`.
-- **Attachments (in scope):** each `collection.voucher.line` MAY have one optional image
-  or PDF (`fields.Binary` + filename via `ir.attachment`). See OpenSpec change
-  `voucher-line-attachments` and `openspec/specs/collection-vouchers/spec.md`.
+- **Models:** `collection.voucher` (standalone per payment).
+- **Integrations:** `mail.thread` / activities; MuK MCP tool
+  `create_collection_vouchers` on `muk_mcp.mixin`. Coordinated Nebula first-party tool
+  `register_latest_collection_voucher` lives in
+  `/home/crisd/projects/nebula/nebula-agent`.
+- **Attachments (in scope):** each `collection.voucher` MAY have one optional image or
+  PDF (`fields.Binary` + filename via `ir.attachment`).
 - **Out of scope (do not invent):** WhatsApp, HTTP public API, partner/CRM linkage,
   multi-file or non-image/non-PDF attachments, multi-currency UX, agent LLM code inside
   this addon.
@@ -65,9 +66,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | Path                                         | Role                                                            |
 | -------------------------------------------- | --------------------------------------------------------------- |
 | `__manifest__.py`                            | Module metadata; depends `base`, `mail`, `muk_mcp`              |
-| `models/collection_voucher.py`               | Header model, sequence on create, validate/reject, unlink guard |
-| `models/collection_voucher_line.py`          | Payment lines + `UNIQUE(document_id)` constraint                |
-| `tools/collection_voucher.py`                | `@mcp_tool` `create_collection_voucher` on `muk_mcp.mixin`      |
+| `models/collection_voucher.py`               | Voucher model, sequence on create, approve/reject, unlink guard |
+| `tools/collection_voucher.py`                | `@mcp_tool` `create_collection_vouchers` on `muk_mcp.mixin`     |
 | `views/collection_views.xml`                 | List/search/kanban/form + menus/actions                         |
 | `data/ir_sequence_data.xml`                  | Sequence `collection.voucher` → `COL/%(year)s/`                 |
 | `security/ir.model.access.csv`               | Full CRUD for `base.group_user` only                            |
@@ -81,26 +81,28 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `collection.voucher`.
 - **No `received_date`:** registration time is ORM `create_date` only; strip forged
   `create_date` / `write_date` on create; views must not expose `received_date`.
-- **States:** voucher `new` → `validated` | `rejected`. Terminal voucher states are
-  immutable. Delete only when voucher `state == 'new'` (`@api.ondelete`). Payment line
-  `state` is `pending` | `approved` | `rejected` (default `pending`).
+- **States:** voucher `pending` → `approved` | `rejected`. Terminal voucher states are
+  immutable. Delete only when voucher `state == 'pending'` (`@api.ondelete`).
 - **Currency:** company default; no multi-currency UX.
 - **ACL:** internal users only; no extra groups or record rules.
-- **Line attachment:** optional one image/PDF per line (`Binary` + filename,
+- **Attachment:** optional one image/PDF per voucher (`Binary` + filename,
   `attachment=True`, `copy=False`); server validates base64 and detected MIME; omit
   remains valid.
 - **MCP:**
-  - Method-discovered `@mcp_tool` (`category=write`, `registry=mcp`).
+  - Method-discovered `@mcp_tool` `create_collection_vouchers` (`category=write`,
+    `registry=mcp`).
   - **Never** `sudo()`; never add a DB `muk_mcp.tool` record for this.
   - Require `customer_identification` + non-empty `payments`.
   - Each MCP payment requires non-empty `document_id` and `document_type`.
   - Optional nested `attachment` per payment (`name`, `mimetype`, base64 `datas`);
     validate MIME vs content; create atomically inside the existing savepoint.
-  - Idempotency: all-new → create; full same-voucher match → replay; in-call duplicate /
-    partial / cross-voucher → `UserError`, no writes.
-  - Exact-retry replay MUST NOT add, replace, or compare line attachments.
+  - One voucher per payment. Response `{vouchers:[{id,name,state,document_id},...]}`.
+  - Idempotency: all-new → create N; exact set → replay ALL vouchers; in-call duplicate
+    / partial overlap → `UserError`, no writes. Docs on different vouchers succeed as
+    exact replay.
+  - Exact-retry replay MUST NOT add, replace, or compare attachments.
   - Handle `UniqueViolation` races with invalidate + replay/reject.
-- **UI lines** may omit `document_id`; MCP may not.
+- **UI** may omit `document_id`; MCP may not.
 - **Odoo 19:** use `<list>` not `<tree>`; `models.Constraint` not `_sql_constraints`;
   `t-out` not `t-esc`; `@api.ondelete` for delete rules.
 
