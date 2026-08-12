@@ -1,14 +1,20 @@
 /** @odoo-module **/
 
-import {Component, onWillStart, useState} from "@odoo/owl";
+import {Component, onWillStart, onWillUnmount, useState} from "@odoo/owl";
 import {
   LINE_MODEL,
+  applyViewerPan,
+  applyWheelZoom,
   attachmentViewerKind,
   buildApproveVals,
+  identityViewerZoom,
   initialViewerStatus,
+  isViewerZoomIdentity,
   nextIndexAfterReload,
+  nextViewerRotation,
   rpcErrorMessage,
   sanitizeQueueItem,
+  storedViewerRotation,
 } from "@collection/document_review/document_review_helpers.esm";
 import {_t} from "@web/core/l10n/translation";
 import {registry} from "@web/core/registry";
@@ -28,8 +34,14 @@ export class DocumentReviewAction extends Component {
       loading: true,
       busy: false,
       viewerStatus: "empty",
+      viewerFit: false,
+      viewerZoom: identityViewerZoom(),
+      viewerRotation: 0,
+      viewerPanning: false,
     });
+    this.viewerPanPointer = null;
     onWillStart(() => this.loadQueue());
+    onWillUnmount(() => this.stopViewerPan());
   }
 
   get current() {
@@ -72,6 +84,31 @@ export class DocumentReviewAction extends Component {
     return this.viewerKind === "pdf";
   }
 
+  get viewerIsReady() {
+    return this.state.viewerStatus === "ready";
+  }
+
+  get pdfFitFragment() {
+    return this.state.viewerFit ? "#view=Fit" : "";
+  }
+
+  get viewerZoomStyle() {
+    const {scale, x, y} = this.state.viewerZoom;
+    return `transform: translate(${x}px, ${y}px) scale(${scale}); transform-origin: 0 0;`;
+  }
+
+  get viewerRotateStyle() {
+    return `transform: rotate(${this.state.viewerRotation}deg);`;
+  }
+
+  get viewerRotateIsOdd() {
+    return this.state.viewerRotation % 180 !== 0;
+  }
+
+  get viewerCanPan() {
+    return this.viewerIsReady && !isViewerZoomIdentity(this.state.viewerZoom);
+  }
+
   async loadQueue({keepIndex = false} = {}) {
     const previousIndex = this.state.index;
     this.state.loading = true;
@@ -106,7 +143,118 @@ export class DocumentReviewAction extends Component {
   }
 
   syncViewer() {
+    this.resetViewerTransform();
     this.state.viewerStatus = initialViewerStatus(this.viewerKind);
+  }
+
+  resetViewerTransform() {
+    this.stopViewerPan();
+    this.state.viewerFit = false;
+    this.state.viewerZoom = identityViewerZoom();
+    this.state.viewerRotation = storedViewerRotation(this.current);
+  }
+
+  fitViewer() {
+    if (!this.viewerIsReady) {
+      return;
+    }
+    this.state.viewerFit = true;
+    this.state.viewerZoom = identityViewerZoom();
+  }
+
+  rotateViewerLeft() {
+    this.rotateViewer(-90);
+  }
+
+  rotateViewerRight() {
+    this.rotateViewer(90);
+  }
+
+  async rotateViewer(step) {
+    if (!this.viewerIsReady || !this.current) {
+      return;
+    }
+    const next = nextViewerRotation(this.state.viewerRotation, step);
+    this.state.viewerRotation = next;
+    this.current.attachment_rotation = next;
+    try {
+      await this.orm.call(LINE_MODEL, "action_review_set_rotation", [
+        [this.current.id],
+        next,
+      ]);
+    } catch (error) {
+      this.notifyError(error);
+    }
+  }
+
+  onViewerWheel(ev) {
+    if (!this.viewerIsReady) {
+      return;
+    }
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const next = applyWheelZoom(
+      this.state.viewerZoom,
+      {x: ev.clientX - rect.left, y: ev.clientY - rect.top},
+      ev.deltaY
+    );
+    this.state.viewerZoom.scale = next.scale;
+    this.state.viewerZoom.x = next.x;
+    this.state.viewerZoom.y = next.y;
+  }
+
+  onViewerPointerDown(ev) {
+    if (!this.viewerCanPan || ev.button !== 0) {
+      return;
+    }
+    this.viewerPanPointer = {id: ev.pointerId, x: ev.clientX, y: ev.clientY};
+    this.state.viewerPanning = true;
+    if (typeof ev.currentTarget.setPointerCapture === "function") {
+      ev.currentTarget.setPointerCapture(ev.pointerId);
+    }
+    ev.preventDefault();
+  }
+
+  onViewerPointerMove(ev) {
+    if (!this.state.viewerPanning || !this.viewerPanPointer) {
+      return;
+    }
+    if (this.viewerPanPointer.id !== ev.pointerId) {
+      return;
+    }
+    const next = applyViewerPan(
+      this.state.viewerZoom,
+      ev.clientX - this.viewerPanPointer.x,
+      ev.clientY - this.viewerPanPointer.y
+    );
+    this.viewerPanPointer.x = ev.clientX;
+    this.viewerPanPointer.y = ev.clientY;
+    this.state.viewerZoom.x = next.x;
+    this.state.viewerZoom.y = next.y;
+  }
+
+  onViewerPointerUp(ev) {
+    if (this.viewerPanPointer && this.viewerPanPointer.id !== ev.pointerId) {
+      return;
+    }
+    this.stopViewerPan(ev.currentTarget, ev.pointerId);
+  }
+
+  stopViewerPan(target, pointerId) {
+    const captureId =
+      pointerId === undefined
+        ? this.viewerPanPointer && this.viewerPanPointer.id
+        : pointerId;
+    this.viewerPanPointer = null;
+    this.state.viewerPanning = false;
+    if (
+      target &&
+      captureId !== undefined &&
+      typeof target.hasPointerCapture === "function" &&
+      target.hasPointerCapture(captureId) &&
+      typeof target.releasePointerCapture === "function"
+    ) {
+      target.releasePointerCapture(captureId);
+    }
   }
 
   onViewerLoad() {

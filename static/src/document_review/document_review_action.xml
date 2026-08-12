@@ -12,7 +12,83 @@
                 </div>
                 <main t-else="" class="split">
                     <section class="clay viewer" aria-label="Visor del documento">
-                        <div class="press tray">
+                        <div t-if="viewerIsReady" class="viewer-toolbar">
+                            <button
+                class="clay blob-btn"
+                type="button"
+                aria-label="Rotar a la izquierda"
+                t-on-click="rotateViewerLeft"
+              >
+                                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                                    <path
+                    d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                  />
+                                    <path d="M3 3v5h5" />
+                                </svg>
+                            </button>
+                            <button
+                class="clay blob-btn"
+                type="button"
+                aria-label="Rotar a la derecha"
+                t-on-click="rotateViewerRight"
+              >
+                                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                                    <path
+                    d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+                  />
+                                    <path d="M21 3v5h-5" />
+                                </svg>
+                            </button>
+                            <button
+                class="clay blob-btn"
+                type="button"
+                aria-label="Ajustar al visor"
+                t-on-click="fitViewer"
+              >
+                                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                                    <path d="M15 3h6v6" />
+                                    <path d="M9 21H3v-6" />
+                                    <path d="M21 3l-7 7" />
+                                    <path d="M3 21l7-7" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div
+              t-attf-class="press tray {{ viewerCanPan ? 'is-zoom-pannable' : '' }} {{ state.viewerPanning ? 'is-panning' : '' }}"
+              t-on-wheel.prevent="onViewerWheel"
+              t-on-pointerdown="onViewerPointerDown"
+              t-on-pointermove="onViewerPointerMove"
+              t-on-pointerup="onViewerPointerUp"
+              t-on-pointercancel="onViewerPointerUp"
+              t-on-lostpointercapture="onViewerPointerUp"
+            >
                             <p t-if="viewerIsEmpty" class="viewer-empty">
                                 No hay archivo adjunto para mostrar.
                             </p>
@@ -29,22 +105,31 @@
                 >
                                     No se pudo cargar el documento.
                                 </p>
-                                <img
-                  t-if="viewerIsImage"
-                  t-attf-class="viewer-image {{ state.viewerStatus === 'ready' ? '' : 'is-hidden' }}"
-                  t-att-src="current.attachment_url"
-                  t-att-alt="current.attachment_filename"
-                  t-on-load="onViewerLoad"
-                  t-on-error="onViewerError"
-                />
-                                <iframe
-                  t-if="viewerIsPdf"
-                  t-attf-class="viewer-pdf {{ state.viewerStatus === 'ready' ? '' : 'is-hidden' }}"
-                  t-att-src="current.attachment_url"
-                  title="Comprobante PDF"
-                  t-on-load="onViewerLoad"
-                  t-on-error="onViewerError"
-                />
+                                <div class="viewer-zoom" t-att-style="viewerZoomStyle">
+                                    <div
+                    t-attf-class="viewer-rotate {{ viewerRotateIsOdd ? 'is-odd' : '' }}"
+                    t-att-style="viewerRotateStyle"
+                  >
+                                        <img
+                      t-if="viewerIsImage"
+                      t-attf-class="viewer-image {{ state.viewerStatus === 'ready' ? '' : 'is-hidden' }} {{ state.viewerFit ? 'is-fitted' : '' }}"
+                      t-att-src="current.attachment_url"
+                      t-att-alt="current.attachment_filename"
+                      draggable="false"
+                      t-on-load="onViewerLoad"
+                      t-on-error="onViewerError"
+                    />
+                                        <iframe
+                      t-if="viewerIsPdf"
+                      t-attf-class="viewer-pdf {{ state.viewerStatus === 'ready' ? '' : 'is-hidden' }}"
+                      t-attf-src="{{current.attachment_url}}{{pdfFitFragment}}"
+                      title="Comprobante PDF"
+                      t-on-load="onViewerLoad"
+                      t-on-error="onViewerError"
+                    />
+                                    </div>
+                                </div>
+                                <div t-if="viewerIsPdf" class="viewer-pdf-hitbox" />
                             </t>
                         </div>
                     </section>
@@ -105,22 +190,6 @@
                         </div>
 
                         <div class="panel-body">
-                            <div class="field">
-                                <div class="ftop">
-                                    <label for="collection_review_document_id">
-                                        ID de documento
-                                    </label>
-                                </div>
-                                <div class="slot">
-                                    <input
-                    id="collection_review_document_id"
-                    type="text"
-                    readonly="readonly"
-                    t-att-value="current.document_id"
-                  />
-                                </div>
-                            </div>
-
                             <div class="field">
                                 <div class="ftop">
                                     <label for="collection_review_document_type">

@@ -89,6 +89,32 @@ class TestCollectionDocumentReview(TransactionCase):
     def _viewer_template_root(self):
         return etree.fromstring(self._viewer_template_xml().encode())
 
+    def _viewer_class_tokens(self, node):
+        return " ".join(
+            filter(
+                None,
+                [
+                    node.get("class"),
+                    node.get("t-attf-class"),
+                    node.get("t-att-class"),
+                ],
+            )
+        )
+
+    def _viewer_tray_nodes(self, root):
+        return [
+            node
+            for node in root.xpath(".//*")
+            if "tray" in self._viewer_class_tokens(node).split()
+        ]
+
+    def _viewer_event_handler(self, node, *names):
+        for name in names:
+            value = node.get(name)
+            if value:
+                return value
+        return ""
+
     # --- 1.1 Queue eligibility + empty queue ---
 
     def test_queue_includes_only_eligible_pending_attached_new(self):
@@ -139,6 +165,7 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(payload["voucher_number"], "TRF-1")
         self.assertEqual(payload["voucher_date"], date(2026, 3, 15))
         self.assertEqual(payload["attachment_filename"], "proof.png")
+        self.assertEqual(payload["attachment_rotation"], 0)
         self.assertEqual(payload["position"], 1)
         self.assertEqual(payload["total"], 1)
         self.assertEqual(
@@ -153,14 +180,10 @@ class TestCollectionDocumentReview(TransactionCase):
         Line = self.env["collection.voucher.line"]
         voucher = self._create_voucher("CUST-REV-EMPTY")
         Line.create(self._line_vals(voucher, document_id="DOC-REV-EMPTY-NONE"))
-        attached = self._create_attached_line(
-            voucher, document_id="DOC-REV-EMPTY-ATT"
-        )
+        attached = self._create_attached_line(voucher, document_id="DOC-REV-EMPTY-ATT")
         attached.write({"review_status": "approved"})
         rejected_voucher = self._create_voucher("CUST-REV-EMPTY-REJ")
-        self._create_attached_line(
-            rejected_voucher, document_id="DOC-REV-EMPTY-REJ"
-        )
+        self._create_attached_line(rejected_voucher, document_id="DOC-REV-EMPTY-REJ")
         rejected_voucher.write({"state": "rejected"})
 
         queue = Line.get_review_queue()
@@ -255,9 +278,7 @@ class TestCollectionDocumentReview(TransactionCase):
             attachment_filename="comprobante.pdf",
         )
         payload = next(
-            item
-            for item in Line.get_review_queue()
-            if item["id"] == pdf_line.id
+            item for item in Line.get_review_queue() if item["id"] == pdf_line.id
         )
         self.assertEqual(payload["attachment_filename"], "comprobante.pdf")
         self.assertEqual(
@@ -281,9 +302,7 @@ class TestCollectionDocumentReview(TransactionCase):
         images = root.xpath(".//img")
         self.assertTrue(images, "image proofs must render via <img>")
         self.assertTrue(
-            any(
-                node.get("t-att-src") == "current.attachment_url" for node in images
-            ),
+            any(node.get("t-att-src") == "current.attachment_url" for node in images),
             "image viewer must bind current.attachment_url",
         )
         pdf_nodes = root.xpath(".//iframe") + root.xpath(".//embed")
@@ -291,6 +310,7 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertTrue(
             any(
                 node.get("t-att-src") == "current.attachment_url"
+                or "current.attachment_url" in (node.get("t-attf-src") or "")
                 for node in pdf_nodes
             ),
             "PDF viewer must bind current.attachment_url",
@@ -310,6 +330,305 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertIn("No hay comprobantes pendientes", xml)
         self.assertNotIn("Traceback", xml)
         self.assertNotIn("viewer-placeholder", xml)
+
+    def test_document_review_viewer_fit_button_and_wheel_zoom(self):
+        """Viewer must expose fit-to-pane and cursor-anchored wheel zoom."""
+        xml = self._viewer_template_xml()
+        root = self._viewer_template_root()
+        self.assertIn("Ajustar al visor", xml)
+        self.assertIn("fitViewer", xml)
+        self.assertIn("onViewerWheel", xml)
+        self.assertIn("viewer-pdf-hitbox", xml)
+        self.assertNotIn("datas", xml)
+        self.assertNotIn("base64", xml.lower())
+        self.assertNotIn("data:image", xml)
+        self.assertNotIn("data:application/pdf", xml)
+
+        fit_buttons = root.xpath(".//button[@aria-label='Ajustar al visor']")
+        self.assertTrue(
+            fit_buttons, "fit control must be a button labeled Ajustar al visor"
+        )
+        self.assertTrue(
+            any("fitViewer" in (node.get("t-on-click") or "") for node in fit_buttons),
+            "fit button must call fitViewer",
+        )
+
+        trays = self._viewer_tray_nodes(root)
+        self.assertTrue(trays, "viewer tray must exist")
+        self.assertTrue(
+            any(
+                "onViewerWheel" in (node.get("t-on-wheel.prevent") or "")
+                or "onViewerWheel" in (node.get("t-on-wheel") or "")
+                for node in trays
+            ),
+            "tray must bind wheel zoom via onViewerWheel",
+        )
+
+        scss = (_DOCUMENT_REVIEW_DIR / "document_review_action.scss").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "cursor: zoom-in",
+            scss,
+            "hovering the document viewer must show a zoom cursor",
+        )
+
+        hitboxes = [
+            node
+            for node in root.xpath(".//*")
+            if "viewer-pdf-hitbox" in (node.get("class") or "")
+            or "viewer-pdf-hitbox" in (node.get("t-attf-class") or "")
+            or "viewer-pdf-hitbox" in (node.get("t-att-class") or "")
+        ]
+        self.assertTrue(hitboxes, "PDF viewer must include a wheel hitbox")
+        images = root.xpath(".//img")
+        self.assertTrue(
+            any(node.get("t-att-src") == "current.attachment_url" for node in images),
+            "image viewer must still bind current.attachment_url",
+        )
+        pdf_nodes = root.xpath(".//iframe") + root.xpath(".//embed")
+        self.assertTrue(
+            any(
+                "current.attachment_url" in (node.get("t-att-src") or "")
+                or "current.attachment_url" in (node.get("t-attf-src") or "")
+                for node in pdf_nodes
+            ),
+            "PDF viewer must still bind current.attachment_url",
+        )
+
+    def test_document_review_viewer_pointer_pan_while_zoomed(self):
+        """Zoomed proofs must pan on left-button drag; PDF hitbox must keep the drag."""
+        xml = self._viewer_template_xml()
+        root = self._viewer_template_root()
+        self.assertIn("onViewerPointerDown", xml)
+        self.assertIn("onViewerPointerMove", xml)
+        self.assertIn("onViewerPointerUp", xml)
+        self.assertIn("is-panning", xml)
+        self.assertIn("is-zoom-pannable", xml)
+        self.assertIn("viewer-pdf-hitbox", xml)
+        self.assertNotIn("datas", xml)
+        self.assertNotIn("base64", xml.lower())
+        self.assertNotIn("data:image", xml)
+        self.assertNotIn("data:application/pdf", xml)
+
+        trays = self._viewer_tray_nodes(root)
+        self.assertTrue(trays, "viewer tray must exist")
+        self.assertTrue(
+            any(
+                "onViewerPointerDown"
+                in self._viewer_event_handler(node, "t-on-pointerdown")
+                for node in trays
+            ),
+            "tray must start pan via onViewerPointerDown",
+        )
+        self.assertTrue(
+            any(
+                "onViewerPointerMove"
+                in self._viewer_event_handler(node, "t-on-pointermove")
+                for node in trays
+            ),
+            "tray must pan via onViewerPointerMove",
+        )
+        self.assertTrue(
+            any(
+                "onViewerPointerUp"
+                in self._viewer_event_handler(
+                    node, "t-on-pointerup", "t-on-pointercancel"
+                )
+                or "onViewerPointerUp"
+                in self._viewer_event_handler(node, "t-on-lostpointercapture")
+                for node in trays
+            ),
+            "tray must end pan via onViewerPointerUp",
+        )
+
+        scss = (_DOCUMENT_REVIEW_DIR / "document_review_action.scss").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("cursor: grab", scss)
+        self.assertIn("cursor: grabbing", scss)
+        self.assertIn("is-zoom-pannable", scss)
+        self.assertIn("is-panning", scss)
+
+        action_js = (_DOCUMENT_REVIEW_DIR / "document_review_action.esm.js").read_text(
+            encoding="utf-8"
+        )
+        helpers_js = (
+            _DOCUMENT_REVIEW_DIR / "document_review_helpers.esm.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("applyViewerPan", helpers_js)
+        self.assertIn("isViewerZoomIdentity", helpers_js)
+        self.assertIn("applyViewerPan", action_js)
+        self.assertIn("onViewerPointerDown", action_js)
+        self.assertIn("onViewerPointerMove", action_js)
+        self.assertIn("onViewerPointerUp", action_js)
+        self.assertIn("setPointerCapture", action_js)
+
+        hitboxes = [
+            node
+            for node in root.xpath(".//*")
+            if "viewer-pdf-hitbox" in self._viewer_class_tokens(node)
+        ]
+        self.assertTrue(hitboxes, "PDF viewer must keep a pointer hitbox for pan")
+        images = root.xpath(".//img")
+        self.assertTrue(
+            any(node.get("t-att-src") == "current.attachment_url" for node in images),
+            "image viewer must still bind current.attachment_url",
+        )
+        self.assertTrue(
+            any(
+                node.get("draggable") == "false"
+                or node.get("t-att-draggable") == "false"
+                for node in images
+            ),
+            "image proofs must not use native drag",
+        )
+        pdf_nodes = root.xpath(".//iframe") + root.xpath(".//embed")
+        self.assertTrue(
+            any(
+                "current.attachment_url" in (node.get("t-att-src") or "")
+                or "current.attachment_url" in (node.get("t-attf-src") or "")
+                for node in pdf_nodes
+            ),
+            "PDF viewer must still bind current.attachment_url",
+        )
+
+    def test_document_review_viewer_rotate_buttons(self):
+        """Viewer must expose clockwise and counterclockwise rotation."""
+        xml = self._viewer_template_xml()
+        root = self._viewer_template_root()
+        self.assertIn("Rotar a la izquierda", xml)
+        self.assertIn("Rotar a la derecha", xml)
+        self.assertIn("rotateViewerLeft", xml)
+        self.assertIn("rotateViewerRight", xml)
+        self.assertIn("viewer-rotate", xml)
+        self.assertNotIn("datas", xml)
+        self.assertNotIn("base64", xml.lower())
+        self.assertNotIn("data:image", xml)
+        self.assertNotIn("data:application/pdf", xml)
+
+        left_buttons = root.xpath(".//button[@aria-label='Rotar a la izquierda']")
+        right_buttons = root.xpath(".//button[@aria-label='Rotar a la derecha']")
+        self.assertTrue(left_buttons, "rotate-left control must be labeled")
+        self.assertTrue(right_buttons, "rotate-right control must be labeled")
+        self.assertTrue(
+            any(
+                "rotateViewerLeft" in (node.get("t-on-click") or "")
+                for node in left_buttons
+            ),
+            "rotate-left button must call rotateViewerLeft",
+        )
+        self.assertTrue(
+            any(
+                "rotateViewerRight" in (node.get("t-on-click") or "")
+                for node in right_buttons
+            ),
+            "rotate-right button must call rotateViewerRight",
+        )
+
+        rotate_wraps = [
+            node
+            for node in root.xpath(".//*")
+            if "viewer-rotate" in (node.get("class") or "")
+            or "viewer-rotate" in (node.get("t-attf-class") or "")
+            or "viewer-rotate" in (node.get("t-att-class") or "")
+        ]
+        self.assertTrue(rotate_wraps, "viewer must wrap proofs in a rotate layer")
+        images = root.xpath(".//img")
+        self.assertTrue(
+            any(node.get("t-att-src") == "current.attachment_url" for node in images),
+            "image viewer must still bind current.attachment_url",
+        )
+        pdf_nodes = root.xpath(".//iframe") + root.xpath(".//embed")
+        self.assertTrue(
+            any(
+                "current.attachment_url" in (node.get("t-att-src") or "")
+                or "current.attachment_url" in (node.get("t-attf-src") or "")
+                for node in pdf_nodes
+            ),
+            "PDF viewer must still bind current.attachment_url",
+        )
+
+        action_js = (_DOCUMENT_REVIEW_DIR / "document_review_action.esm.js").read_text(
+            encoding="utf-8"
+        )
+        helpers_js = (
+            _DOCUMENT_REVIEW_DIR / "document_review_helpers.esm.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("nextViewerRotation", helpers_js)
+        self.assertIn("storedViewerRotation", helpers_js)
+        self.assertIn("storedViewerRotation", action_js)
+        self.assertIn("action_review_set_rotation", action_js)
+        self.assertIn("rotateViewerLeft", action_js)
+        self.assertIn("rotateViewerRight", action_js)
+
+    def test_attachment_rotation_defaults_zero_and_copy_false(self):
+        voucher = self._create_voucher("CUST-REV-ROT-DEF")
+        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-DEF")
+        self.assertEqual(line.attachment_rotation, 0)
+        line.write({"attachment_rotation": 90})
+        clone = line.copy({"document_id": "DOC-REV-ROT-DEF-CLONE"})
+        self.assertEqual(clone.attachment_rotation, 0)
+        self.assertEqual(line.attachment_rotation, 90)
+
+    def test_set_rotation_persists_and_returns_in_queue(self):
+        self._neutralize_preexisting_queue()
+        voucher = self._create_voucher("CUST-REV-ROT-SAVE")
+        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-SAVE")
+        line.action_review_set_rotation(90)
+        self.assertEqual(line.attachment_rotation, 90)
+        payload = next(
+            item for item in line.get_review_queue() if item["id"] == line.id
+        )
+        self.assertEqual(payload["attachment_rotation"], 90)
+        self._assert_no_binary_in_payload(payload)
+        line.action_review_set_rotation(270)
+        self.assertEqual(line.attachment_rotation, 270)
+        line.action_review_set_rotation(0)
+        self.assertEqual(line.attachment_rotation, 0)
+
+    def test_set_rotation_refuses_invalid_and_ineligible(self):
+        """Triangulation: invalid angles and ineligible lines must not persist."""
+        voucher = self._create_voucher("CUST-REV-ROT-BAD")
+        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-BAD")
+        with self.assertRaises(UserError):
+            line.action_review_set_rotation(45)
+        with self.assertRaises(UserError):
+            line.action_review_set_rotation(-90)
+        self.assertEqual(line.attachment_rotation, 0)
+        line.action_review_approve()
+        with self.assertRaises(UserError):
+            line.action_review_set_rotation(90)
+        self.assertEqual(line.attachment_rotation, 0)
+
+    def test_attachment_write_resets_rotation(self):
+        voucher = self._create_voucher("CUST-REV-ROT-RESET")
+        line = self._create_attached_line(voucher, document_id="DOC-REV-ROT-RESET")
+        line.action_review_set_rotation(180)
+        self.assertEqual(line.attachment_rotation, 180)
+        line.write(
+            {
+                "attachment": PDF_B64,
+                "attachment_filename": "rotated-reset.pdf",
+            }
+        )
+        self.assertEqual(line.attachment_rotation, 0)
+        self.assertEqual(line.attachment_filename, "rotated-reset.pdf")
+
+    def test_document_review_hides_document_id(self):
+        """Reviewer UI must not show document_id; voucher and position stay visible."""
+        xml = self._viewer_template_xml()
+        root = self._viewer_template_root()
+        self.assertNotIn("ID de documento", xml)
+        self.assertNotIn("collection_review_document_id", xml)
+        self.assertNotIn("current.document_id", xml)
+        self.assertFalse(
+            root.xpath(".//*[@id='collection_review_document_id']"),
+            "document_id input must not be in the review template",
+        )
+        self.assertIn("current.voucher_name", xml)
+        self.assertIn("current.position", xml)
+        self.assertIn("current.total", xml)
 
     # --- 1.2 Default pending/audit, approve, reject, aggregate ---
 

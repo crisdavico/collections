@@ -54,6 +54,7 @@ class CollectionVoucherLine(models.Model):
     )
     attachment = fields.Binary(attachment=True, copy=False)
     attachment_filename = fields.Char(copy=False)
+    attachment_rotation = fields.Integer(default=0, copy=False)
     review_status = fields.Selection(
         selection=[
             ("pending", "Pending"),
@@ -86,9 +87,15 @@ class CollectionVoucherLine(models.Model):
         }
     )
 
+    _ALLOWED_ROTATIONS = frozenset({0, 90, 180, 270})
+
     _document_id_uniq = models.Constraint(
         "UNIQUE(document_id)",
         "Document ID must be unique!",
+    )
+    _attachment_rotation_valid = models.Constraint(
+        "CHECK(attachment_rotation IN (0, 90, 180, 270))",
+        "Attachment rotation must be 0, 90, 180, or 270 degrees.",
     )
 
     @api.model
@@ -119,6 +126,16 @@ class CollectionVoucherLine(models.Model):
     def _check_attachment_content(self):
         for line in self:
             self._validate_attachment_payload(line.attachment)
+
+    @api.constrains("attachment_rotation")
+    def _check_attachment_rotation(self):
+        for line in self:
+            if line.attachment_rotation not in self._ALLOWED_ROTATIONS:
+                raise UserError(
+                    self.env._(
+                        "Attachment rotation must be 0, 90, 180, or 270 degrees."
+                    )
+                )
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -163,15 +180,39 @@ class CollectionVoucherLine(models.Model):
             self.voucher_id.action_reject()
         return True
 
+    def action_review_set_rotation(self, degrees):
+        self.ensure_one()
+        self._ensure_review_eligible()
+        self.write(
+            {"attachment_rotation": self._normalize_attachment_rotation(degrees)}
+        )
+        return True
+
     @api.private
     def _vals_with_review_reset_on_new_attachment(self, vals):
-        if not vals.get("attachment"):
+        if "attachment" not in vals:
             return vals
         vals = dict(vals)
-        vals["review_status"] = "pending"
-        vals["reviewed_by"] = False
-        vals["reviewed_at"] = False
+        if vals.get("attachment"):
+            vals["review_status"] = "pending"
+            vals["reviewed_by"] = False
+            vals["reviewed_at"] = False
+        vals["attachment_rotation"] = 0
         return vals
+
+    @api.private
+    def _normalize_attachment_rotation(self, degrees):
+        try:
+            rotation = int(degrees)
+        except (TypeError, ValueError) as err:
+            raise UserError(
+                self.env._("Attachment rotation must be 0, 90, 180, or 270 degrees.")
+            ) from err
+        if rotation not in self._ALLOWED_ROTATIONS:
+            raise UserError(
+                self.env._("Attachment rotation must be 0, 90, 180, or 270 degrees.")
+            )
+        return rotation
 
     @api.private
     def _editable_review_vals(self, vals):
@@ -212,9 +253,7 @@ class CollectionVoucherLine(models.Model):
     def _ensure_review_eligible(self):
         self.ensure_one()
         if not self._is_review_eligible():
-            raise UserError(
-                self.env._("This payment line is not eligible for review.")
-            )
+            raise UserError(self.env._("This payment line is not eligible for review."))
 
     @api.private
     def _is_review_eligible(self):
@@ -245,17 +284,14 @@ class CollectionVoucherLine(models.Model):
         if voucher.state != "new":
             return
         attached = voucher.payment_ids._lines_with_attachment()
-        if attached and all(
-            line.review_status == "approved" for line in attached
-        ):
+        if attached and all(line.review_status == "approved" for line in attached):
             voucher.action_validate()
 
     @api.private
     def _attachment_content_url(self):
         self.ensure_one()
         url = (
-            "/web/content?model=collection.voucher.line"
-            f"&id={self.id}&field=attachment"
+            f"/web/content?model=collection.voucher.line&id={self.id}&field=attachment"
         )
         if self.attachment_filename:
             url = f"{url}&filename={self.attachment_filename}"
@@ -284,4 +320,5 @@ class CollectionVoucherLine(models.Model):
             "total": total,
             "attachment_filename": self.attachment_filename,
             "attachment_url": self._attachment_content_url(),
+            "attachment_rotation": self.attachment_rotation,
         }

@@ -119,3 +119,53 @@ export function attachmentViewerKind(item) {
 export function initialViewerStatus(kind) {
   return kind === "empty" ? "empty" : "loading";
 }
+
+export const VIEWER_ZOOM_MIN = 0.5;
+export const VIEWER_ZOOM_MAX = 8;
+export const VIEWER_ZOOM_FACTOR = 1.1;
+
+export function identityViewerZoom() {
+  return {scale: 1, x: 0, y: 0};
+}
+
+export function isViewerZoomIdentity(zoom) {
+  return Boolean(zoom) && zoom.scale === 1 && zoom.x === 0 && zoom.y === 0;
+}
+
+export const VIEWER_ROTATION_STEP = 90;
+export const VIEWER_ROTATIONS = new Set([0, 90, 180, 270]);
+
+export function nextViewerRotation(degrees, step = VIEWER_ROTATION_STEP) {
+  return ((((Number(degrees) || 0) + Number(step)) % 360) + 360) % 360;
+}
+
+export function storedViewerRotation(item) {
+  const degrees = nextViewerRotation(item && item.attachment_rotation, 0);
+  return VIEWER_ROTATIONS.has(degrees) ? degrees : 0;
+}
+
+export function clampViewerZoom(scale) {
+  return Math.min(VIEWER_ZOOM_MAX, Math.max(VIEWER_ZOOM_MIN, scale));
+}
+
+export function applyWheelZoom(zoom, cursor, deltaY) {
+  const factor = deltaY > 0 ? 1 / VIEWER_ZOOM_FACTOR : VIEWER_ZOOM_FACTOR;
+  const nextScale = clampViewerZoom(zoom.scale * factor);
+  if (nextScale === zoom.scale) {
+    return {scale: zoom.scale, x: zoom.x, y: zoom.y};
+  }
+  const ratio = nextScale / zoom.scale;
+  return {
+    scale: nextScale,
+    x: cursor.x - (cursor.x - zoom.x) * ratio,
+    y: cursor.y - (cursor.y - zoom.y) * ratio,
+  };
+}
+
+export function applyViewerPan(zoom, dx, dy) {
+  return {
+    scale: zoom.scale,
+    x: zoom.x + (Number(dx) || 0),
+    y: zoom.y + (Number(dy) || 0),
+  };
+}

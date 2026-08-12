@@ -187,6 +187,8 @@ class TestCollectionAcl(TransactionCase):
             Line.browse(admin_line.id).action_review_approve({"amount": 1.0})
         with self.assertRaises(AccessError):
             Line.browse(admin_line.id).action_review_reject()
+        with self.assertRaises(AccessError):
+            Line.browse(admin_line.id).action_review_set_rotation(90)
 
     def test_internal_user_review_queue_and_approve_allowed(self):
         """Internal users must queue an attached pending line and approve it."""
@@ -221,3 +223,14 @@ class TestCollectionAcl(TransactionCase):
         self.assertEqual(line.reviewed_by, self.internal_user)
         self.assertTrue(line.reviewed_at)
         self.assertEqual(voucher.state, "rejected")
+
+    def test_internal_user_review_set_rotation_allowed(self):
+        """Internal users must persist viewer rotation on an eligible line."""
+        env = self.env(user=self.internal_user)
+        _voucher, line = self._create_attached_pending_line(
+            env,
+            document_id="ACL-REV-INT-ROT-DOC",
+            customer_identification="ACL-REV-INT-ROT",
+        )
+        line.action_review_set_rotation(90)
+        self.assertEqual(line.attachment_rotation, 90)

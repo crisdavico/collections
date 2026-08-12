@@ -171,9 +171,8 @@
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;
-    max-width: 1160px;
-    margin: 0 auto;
-    padding: 16px 24px 24px;
+    margin: 0;
+    padding: 16px 24px 24px 12px;
   }
 
   .split {
@@ -182,7 +181,7 @@
     min-width: 0;
     min-height: 0;
     width: 100%;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
     gap: 22px;
     align-items: stretch;
   }
@@ -209,6 +208,7 @@
   }
 
   .viewer {
+    position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -216,22 +216,78 @@
     padding: 20px;
   }
 
-  .tray {
+  .viewer-toolbar {
+    position: absolute;
+    top: 28px;
+    right: 28px;
+    z-index: 2;
     display: flex;
+    gap: 8px;
+  }
+
+  .tray {
+    position: relative;
+    display: grid;
     flex: 1 1 auto;
-    align-items: center;
-    justify-content: center;
+    place-items: center;
     min-height: 0;
     overflow: hidden;
     padding: 24px 22px;
+    container-type: size;
+    cursor: zoom-in;
+    user-select: none;
+    touch-action: none;
+
+    &.is-zoom-pannable {
+      cursor: grab;
+    }
+
+    &.is-panning {
+      cursor: grabbing;
+    }
+  }
+
+  .viewer-zoom {
+    display: flex;
+    grid-area: 1 / 1;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    justify-self: stretch;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .viewer-rotate {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    transform-origin: center center;
+    transition: transform 0.18s;
+  }
+
+  .viewer-pdf-hitbox {
+    grid-area: 1 / 1;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    cursor: inherit;
   }
 
   .viewer-empty,
   .viewer-loading,
   .viewer-error {
+    grid-area: 1 / 1;
     margin: 0;
     color: var(--ink-2);
     text-align: center;
+    cursor: default;
   }
 
   .viewer-error {
@@ -242,6 +298,22 @@
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+    -webkit-user-drag: none;
+
+    &.is-fitted {
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  .viewer-rotate.is-odd .viewer-image {
+    max-width: 100cqh;
+    max-height: 100cqw;
+
+    &.is-fitted {
+      width: 100cqh;
+      height: 100cqw;
+    }
   }
 
   .viewer-pdf {
@@ -250,6 +322,11 @@
     min-height: 420px;
     border: 0;
     background: #fff;
+  }
+
+  .viewer-rotate.is-odd .viewer-pdf {
+    width: 100cqh;
+    height: 100cqw;
   }
 
   .is-hidden {
@@ -489,7 +566,8 @@
 
     .tray {
       display: block;
-      overflow: visible;
+      min-height: 420px;
+      overflow: hidden;
     }
 
     .panel-body {
