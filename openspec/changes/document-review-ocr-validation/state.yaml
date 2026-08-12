@@ -3,18 +3,20 @@ change: document-review-ocr-validation
 artifact_store: openspec
 delivery_strategy: ask-on-risk
 chain_strategy: stacked-to-main
-phase: apply
-apply_slice: pr3-viewer
+phase: ready-for-verify
+apply_slice: complete
 updated: 2026-08-12
 review_budget_risk: high
-estimated_loc: 500-800
 notes: |
-  User confirmed stacked-to-main. Applying Phase 1 (PR1 model) only.
-  Branch: feat/document-review-pr1-model (from voucher-line-attachments-unit-3).
-  Implementation in collection addon; OpenSpec artifacts live here.
+  Apply complete on stacked-to-main.
+  PR1 feat/document-review-pr1-model → voucher-line-attachments-unit-3
+  PR2 feat/document-review-pr2-owl → PR1
+  PR3 feat/document-review-pr3-viewer → PR2 (viewer + ACL/verify)
+  All 18 tasks [x]. Next: /sdd-verify.
 artifacts:
   - proposal.md
   - specs/document-review/spec.md
   - specs/collection-vouchers/spec.md
   - design.md
   - tasks.md
+  - apply-progress.md

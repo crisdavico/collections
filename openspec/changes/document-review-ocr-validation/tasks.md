@@ -63,8 +63,8 @@ Threat matrix: N/A. Workflow risks in 1.3, 3.2, 4.1.
 
 ## Phase 4: ACL + final verification
 
-- [ ] 4.1 RED→GREEN `tests/test_collection_acl.py`: non-internal denied
+- [x] 4.1 RED→GREEN `tests/test_collection_acl.py`: non-internal denied
       queue/approve/reject; internal OK
-- [ ] 4.2 Bump `__manifest__.py` version; upgrade `collection` on devel
-- [ ] 4.3 Run `invoke test -m collection`; fix failures mapped to spec scenarios
-- [ ] 4.4 Scoped `pre-commit run --files odoo/custom/src/private/collection/**`
+- [x] 4.2 Bump `__manifest__.py` version; upgrade `collection` on devel
+- [x] 4.3 Run `invoke test -m collection`; fix failures mapped to spec scenarios
+- [x] 4.4 Scoped `pre-commit run --files odoo/custom/src/private/collection/**`

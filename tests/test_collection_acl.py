@@ -4,6 +4,8 @@
 from odoo.exceptions import AccessError
 from odoo.tests import TransactionCase
 
+from .test_collection_payment import PNG_B64
+
 
 class TestCollectionAcl(TransactionCase):
     """RED: ACL allow for base.group_user; deny for non-internal users."""
@@ -152,3 +154,70 @@ class TestCollectionAcl(TransactionCase):
             Payment.browse(admin_payment.id).write({"amount": 1.0})
         with self.assertRaises(AccessError):
             Payment.browse(admin_payment.id).unlink()
+
+    def _create_attached_pending_line(self, env, document_id, customer_identification):
+        voucher = env["collection.voucher"].create(
+            {"customer_identification": customer_identification}
+        )
+        line = env["collection.voucher.line"].create(
+            {
+                "voucher_id": voucher.id,
+                "document_type": "bank_transfer",
+                "amount": 100.0,
+                "document_id": document_id,
+                "attachment": PNG_B64,
+                "attachment_filename": "acl-proof.png",
+            }
+        )
+        return voucher, line
+
+    def test_portal_user_review_queue_approve_reject_denied(self):
+        """Non-internal users must be denied queue, approve, reject, and line read."""
+        _voucher, admin_line = self._create_attached_pending_line(
+            self.env,
+            document_id="ACL-REV-PORTAL-DOC",
+            customer_identification="ACL-REV-PORTAL",
+        )
+        Line = self.env["collection.voucher.line"].with_user(self.portal_user)
+        with self.assertRaises(AccessError):
+            Line.get_review_queue()
+        with self.assertRaises(AccessError):
+            Line.browse(admin_line.id).read(["review_status"])
+        with self.assertRaises(AccessError):
+            Line.browse(admin_line.id).action_review_approve({"amount": 1.0})
+        with self.assertRaises(AccessError):
+            Line.browse(admin_line.id).action_review_reject()
+
+    def test_internal_user_review_queue_and_approve_allowed(self):
+        """Internal users must queue an attached pending line and approve it."""
+        env = self.env(user=self.internal_user)
+        voucher, line = self._create_attached_pending_line(
+            env,
+            document_id="ACL-REV-INT-APPROVE-DOC",
+            customer_identification="ACL-REV-INT-APPROVE",
+        )
+        self.assertEqual(line.review_status, "pending")
+        queue = env["collection.voucher.line"].get_review_queue()
+        queued_ids = [item["id"] for item in queue]
+        self.assertIn(line.id, queued_ids)
+        line.action_review_approve({"amount": 150.0})
+        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.amount, 150.0)
+        self.assertEqual(line.reviewed_by, self.internal_user)
+        self.assertTrue(line.reviewed_at)
+        self.assertEqual(voucher.state, "validated")
+
+    def test_internal_user_review_reject_allowed(self):
+        """Triangulation: internal users must reject an attached pending line."""
+        env = self.env(user=self.internal_user)
+        voucher, line = self._create_attached_pending_line(
+            env,
+            document_id="ACL-REV-INT-REJECT-DOC",
+            customer_identification="ACL-REV-INT-REJECT",
+        )
+        self.assertEqual(line.review_status, "pending")
+        line.action_review_reject()
+        self.assertEqual(line.review_status, "rejected")
+        self.assertEqual(line.reviewed_by, self.internal_user)
+        self.assertTrue(line.reviewed_at)
+        self.assertEqual(voucher.state, "rejected")
