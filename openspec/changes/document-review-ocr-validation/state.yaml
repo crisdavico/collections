@@ -4,7 +4,7 @@ artifact_store: openspec
 delivery_strategy: ask-on-risk
 chain_strategy: stacked-to-main
 phase: apply
-apply_slice: pr2-owl
+apply_slice: pr3-viewer
 updated: 2026-08-12
 review_budget_risk: high
 estimated_loc: 500-800

@@ -72,3 +72,50 @@ export function rpcErrorMessage(error) {
   }
   return _t("Could not complete the review action.");
 }
+
+export const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "svg",
+]);
+export const PDF_MIME = "application/pdf";
+export const PDF_EXTENSION = "pdf";
+
+export function filenameExtension(filename) {
+  const name = String(filename || "")
+    .trim()
+    .toLowerCase();
+  const dot = name.lastIndexOf(".");
+  if (dot < 0 || dot === name.length - 1) {
+    return "";
+  }
+  return name.slice(dot + 1);
+}
+
+export function attachmentViewerKind(item) {
+  if (!item) {
+    return "empty";
+  }
+  const url = String(item.attachment_url || "").trim();
+  const filename = String(item.attachment_filename || "").trim();
+  if (!url || !filename) {
+    return "empty";
+  }
+  const mime = String(item.mimetype || "").toLowerCase();
+  const extension = filenameExtension(filename);
+  if (mime === PDF_MIME || extension === PDF_EXTENSION) {
+    return "pdf";
+  }
+  if (mime.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)) {
+    return "image";
+  }
+  return "image";
+}
+
+export function initialViewerStatus(kind) {
+  return kind === "empty" ? "empty" : "loading";
+}

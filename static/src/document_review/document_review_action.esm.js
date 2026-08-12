@@ -3,7 +3,9 @@
 import {Component, onWillStart, useState} from "@odoo/owl";
 import {
   LINE_MODEL,
+  attachmentViewerKind,
   buildApproveVals,
+  initialViewerStatus,
   nextIndexAfterReload,
   rpcErrorMessage,
   sanitizeQueueItem,
@@ -25,6 +27,7 @@ export class DocumentReviewAction extends Component {
       index: 0,
       loading: true,
       busy: false,
+      viewerStatus: "empty",
     });
     onWillStart(() => this.loadQueue());
   }
@@ -53,6 +56,22 @@ export class DocumentReviewAction extends Component {
     return Boolean(this.current && this.current.document_type === "check");
   }
 
+  get viewerKind() {
+    return attachmentViewerKind(this.current);
+  }
+
+  get viewerIsEmpty() {
+    return this.viewerKind === "empty";
+  }
+
+  get viewerIsImage() {
+    return this.viewerKind === "image";
+  }
+
+  get viewerIsPdf() {
+    return this.viewerKind === "pdf";
+  }
+
   async loadQueue({keepIndex = false} = {}) {
     const previousIndex = this.state.index;
     this.state.loading = true;
@@ -68,19 +87,36 @@ export class DocumentReviewAction extends Component {
       this.state.index = 0;
     } finally {
       this.state.loading = false;
+      this.syncViewer();
     }
   }
 
   goPrev() {
     if (this.canPrev) {
       this.state.index -= 1;
+      this.syncViewer();
     }
   }
 
   goNext() {
     if (this.canNext) {
       this.state.index += 1;
+      this.syncViewer();
     }
+  }
+
+  syncViewer() {
+    this.state.viewerStatus = initialViewerStatus(this.viewerKind);
+  }
+
+  onViewerLoad() {
+    if (this.state.viewerStatus === "loading") {
+      this.state.viewerStatus = "ready";
+    }
+  }
+
+  onViewerError() {
+    this.state.viewerStatus = "error";
   }
 
   onFieldInput(fieldName, ev) {

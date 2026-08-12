@@ -13,9 +13,39 @@
                 <main t-else="" class="split">
                     <section class="clay viewer" aria-label="Visor del documento">
                         <div class="press tray">
-                            <p class="viewer-placeholder">
-                                La imagen o el PDF se mostrará aquí.
+                            <p t-if="viewerIsEmpty" class="viewer-empty">
+                                No hay archivo adjunto para mostrar.
                             </p>
+                            <t t-else="">
+                                <p
+                  t-if="state.viewerStatus === 'loading'"
+                  class="viewer-loading"
+                >
+                                    Cargando documento…
+                                </p>
+                                <p
+                  t-if="state.viewerStatus === 'error'"
+                  class="viewer-error"
+                >
+                                    No se pudo cargar el documento.
+                                </p>
+                                <img
+                  t-if="viewerIsImage"
+                  t-attf-class="viewer-image {{ state.viewerStatus === 'ready' ? '' : 'is-hidden' }}"
+                  t-att-src="current.attachment_url"
+                  t-att-alt="current.attachment_filename"
+                  t-on-load="onViewerLoad"
+                  t-on-error="onViewerError"
+                />
+                                <iframe
+                  t-if="viewerIsPdf"
+                  t-attf-class="viewer-pdf {{ state.viewerStatus === 'ready' ? '' : 'is-hidden' }}"
+                  t-att-src="current.attachment_url"
+                  title="Comprobante PDF"
+                  t-on-load="onViewerLoad"
+                  t-on-error="onViewerError"
+                />
+                            </t>
                         </div>
                     </section>
 

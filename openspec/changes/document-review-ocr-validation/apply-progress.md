@@ -2,11 +2,12 @@
 
 **Change**: `document-review-ocr-validation`
 **Mode**: Strict TDD
-**Batch**: PR 2 / work unit 2 (OWL ORM client) — merged with PR 1
+**Batch**: PR 3 / work unit 3 (binary viewer) — merged with PR 1 + PR 2
 **Delivery**: stacked-to-main
 **applyState at start**: ready
 
-Merged: Phase 1 (PR 1 / model review workflow) + Phase 2 (PR 2 / OWL ORM client).
+Merged: Phase 1 (PR 1 / model review workflow) + Phase 2 (PR 2 / OWL ORM client) +
+Phase 3 (PR 3 / authenticated binary viewer).
 
 ## Completed Tasks
 
@@ -21,6 +22,9 @@ Merged: Phase 1 (PR 1 / model review workflow) + Phase 2 (PR 2 / OWL ORM client)
 - [x] 2.2 GREEN `static/src/document_review/document_review_action.esm.js` + `.xml`: ORM queue; typed editors by `document_type`; readonly `document_id`/voucher/position; nav + next after decision; empty state; drop mocks/stamps/notes
 - [x] 2.3 GREEN wire approve/reject RPCs + notifications; reload queue on `UserError`
 - [x] 2.4 REFACTOR thin OWL; never put attachment datas/base64 in component state
+- [x] 3.1 RED assert queue payload content URL only (no `datas`/base64) in `tests/test_collection_document_review.py`
+- [x] 3.2 GREEN `/web/content` image vs PDF viewer + loading/error/empty in `document_review_action.*` (+scss)
+- [x] 3.3 REFACTOR MIME/filename branching only
 
 ## Files Changed
 
@@ -49,6 +53,18 @@ Merged: Phase 1 (PR 1 / model review workflow) + Phase 2 (PR 2 / OWL ORM client)
 | `openspec/changes/document-review-ocr-validation/tasks.md` | Modified | Phase 1–2 `[x]`; Phase 3–4 left unchecked |
 | `openspec/changes/document-review-ocr-validation/apply-progress.md` | Modified | Merged Phase 1 + Phase 2 evidence |
 
+### Phase 3 (PR 3 / this batch)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `tests/test_collection_document_review.py` | Modified | Strengthened `_assert_no_binary_in_payload`; exact PNG/JPG/PDF `/web/content` URLs; OWL img/iframe + loading/error/empty-attachment contract |
+| `static/src/document_review/document_review_action.xml` | Modified | Replaced placeholder with img + iframe bound to `current.attachment_url`; distinct loading/error/empty-attachment copy |
+| `static/src/document_review/document_review_action.esm.js` | Modified | Viewer status + load/error handlers; thin getters over helpers; never fetches binary into state |
+| `static/src/document_review/document_review_action.scss` | Modified | Viewer image/PDF/loading/error/empty styles; dropped `.viewer-placeholder` |
+| `static/src/document_review/document_review_helpers.esm.js` | Modified | Pure `attachmentViewerKind` / `filenameExtension` / `initialViewerStatus`; `sanitizeQueueItem` still strips `datas`/`attachment` |
+| `openspec/changes/document-review-ocr-validation/tasks.md` | Modified | Phase 3 `[x]`; Phase 4 left unchecked |
+| `openspec/changes/document-review-ocr-validation/apply-progress.md` | Modified | Merged Phase 1 + 2 + 3 evidence |
+
 ## TDD Cycle Evidence
 
 ### Phase 1
@@ -72,38 +88,48 @@ Merged: Phase 1 (PR 1 / model review workflow) + Phase 2 (PR 2 / OWL ORM client)
 | 2.3 | same | Unit (RPC contract via model tests) | ✅ 15/15 DocumentReview | ✅ Tests first (2.1); RPCs not wired in prototype | ✅ `orm.call` approve `[[id], vals]` / reject `[[id]]`; notify + reload | ✅ success notify vs UserError notify+reload | ✅ `runDecision` |
 | 2.4 | `document_review_helpers.esm.js` | Unit | ✅ 34/34 after GREEN | N/A (refactor) | ✅ 34/34 after extract; full `/collection` 96/96 | ➖ Structural | ✅ Pure helpers; no datas/base64 in `useState` |
 
+### Phase 3
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1 | `tests/test_collection_document_review.py` | Unit (TransactionCase) | ✅ 34/34 Ui+DocumentReview | ✅ Written (placeholder still in XML; viewer states missing) | ✅ 4/4 new tests after 3.2 | ✅ PNG + JPG image URLs; dedicated PDF URL; img vs iframe; loading/error/empty vs queue-empty | ✅ 3.3 helpers |
+| 3.2 | `document_review_action.{esm.js,xml,scss}` | Unit (URL + template contract; no OWL E2E) | ✅ 34/34 | ✅ Tests first (2 FAIL XML) | ✅ 4/4 then 38/38 focused | ✅ image `<img>` + PDF `<iframe>` both bind `current.attachment_url` | ✅ 3.3 |
+| 3.3 | `document_review_helpers.esm.js` | Unit | ✅ 38/38 before extract | N/A (refactor) | ✅ 38/38 after extract; full `/collection` 100/100 | ➖ Structural (MIME/filename already branched in GREEN) | ✅ `attachmentViewerKind` + `filenameExtension` + `initialViewerStatus` |
+
 ### Test Summary
 
-- **Total tests written this batch (PR 2)**: 2 (`test_document_review_menu_and_client_action`, `test_document_review_client_action_path_and_name`)
-- **Total tests passing**: 96 collection tests, 0 failed, 0 errors (full `/collection`); was 94 after PR 1
-- **Layers used**: Unit/integration via Odoo `TransactionCase` (2 new UI + 15 review + prior), E2E (0 — unavailable)
-- **Approval tests** (refactoring): 2.1 xmlid/tag tests still pass after helper extract
-- **Pure functions created**: 6 (`sanitizeQueueItem`, `editableKeysForType`, `ormValue`, `buildApproveVals`, `nextIndexAfterReload`, `rpcErrorMessage`)
+- **Total tests written this batch (PR 3)**: 4 (`test_queue_image_payload_is_web_content_url_only`, `test_queue_pdf_payload_is_web_content_url_only`, `test_document_review_viewer_binds_web_content_for_image_and_pdf`, `test_document_review_viewer_has_loading_error_empty_attachment_states`)
+- **Total tests passing**: 100 collection tests, 0 failed, 0 errors (full `/collection`); was 96 after PR 2
+- **Layers used**: Unit/integration via Odoo `TransactionCase` (4 new review + prior), E2E (0 — unavailable)
+- **Approval tests** (refactoring): XML img/iframe + loading/error/empty assertions still pass after helper extract
+- **Pure functions created**: 3 (`filenameExtension`, `attachmentViewerKind`, `initialViewerStatus`) plus constants `IMAGE_EXTENSIONS`, `PDF_MIME`, `PDF_EXTENSION`
 
-### Safety Net (before production OWL / manifest edits)
-
-```
-docker exec -i seedian-odoo-1 odoo -d devel -u collection --test-enable --stop-after-init --workers=0 --http-port=18069 --test-tags /collection:TestCollectionUi,/collection:TestCollectionDocumentReview
-```
-
-Result: exit 0; `0 failed, 0 error(s) of 32 tests`.
-
-### RED gate (2.1, tests only — views XML not in manifest)
+### Safety Net (before production viewer edits)
 
 ```
-docker exec -i seedian-odoo-1 odoo -d devel -u collection --test-enable --stop-after-init --workers=0 --http-port=18069 --test-tags /collection:TestCollectionUi.test_document_review_menu_and_client_action,/collection:TestCollectionUi.test_document_review_client_action_path_and_name
+docker exec -i seedian-odoo-1 odoo -d devel -u collection --test-enable --stop-after-init --workers=0 --http-port=18069 --test-tags /collection:TestCollectionDocumentReview,/collection:TestCollectionUi
 ```
 
-Result: exit 1; `0 failed, 2 error(s) of 2 tests` — `ValueError: External ID not found` for `collection.menu_collection_document_review` and `collection.action_collection_document_review`.
+Result: exit 0; `0 failed, 0 error(s) of 34 tests`.
 
-### GREEN gate (after manifest data/assets + OWL)
+### RED gate (3.1, tests only — placeholder viewer still in XML)
 
-Same focused command as safety net: exit 0; `0 failed, 0 error(s) of 34 tests`.
+```
+docker exec -i seedian-odoo-1 odoo -d devel -u collection --test-enable --stop-after-init --workers=0 --http-port=18069 --test-tags /collection:TestCollectionDocumentReview.test_queue_image_payload_is_web_content_url_only,/collection:TestCollectionDocumentReview.test_queue_pdf_payload_is_web_content_url_only,/collection:TestCollectionDocumentReview.test_document_review_viewer_binds_web_content_for_image_and_pdf,/collection:TestCollectionDocumentReview.test_document_review_viewer_has_loading_error_empty_attachment_states
+```
 
-### After 2.4 refactor
+Result: exit 1; `2 failed, 0 error(s) of 4 tests` — payload URL tests passed (queue already returned `/web/content`); XML tests failed (`viewer-placeholder` present; `viewer-loading` missing).
 
-Focused: exit 0; `0 failed, 0 error(s) of 34 tests`.
-Full module: `--test-tags /collection` → exit 0; `0 failed, 0 error(s) of 96 tests`.
+### GREEN gate (after img/iframe viewer)
+
+Same four-test command: exit 0; `0 failed, 0 error(s) of 4 tests`.
+
+Focused Ui+DocumentReview: exit 0; `0 failed, 0 error(s) of 38 tests`.
+
+### After 3.3 refactor
+
+Focused: exit 0; `0 failed, 0 error(s) of 38 tests`.
+Full module: `--test-tags /collection` → exit 0; `0 failed, 0 error(s) of 100 tests`.
 
 ## Work Unit Evidence
 
@@ -115,13 +141,21 @@ Full module: `--test-tags /collection` → exit 0; `0 failed, 0 error(s) of 96 t
 | Runtime harness command/scenario and exact result | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --http-port=18069` → exit 0; `Module collection loaded`; `Modules loaded.`; `Registry loaded`. Additive `review_status` default `pending` applied without `migrations/`. |
 | Rollback boundary | `models/collection_voucher.py`, `models/collection_voucher_line.py`, `tests/test_collection_document_review.py`, `tests/__init__.py`, voucher/payment test extensions. Revert those files and upgrade `collection`. Does not include OWL/static, document-review views, ACL tests, or `__manifest__.py` version. |
 
-### Phase 2 (this batch)
+### Phase 2 (prior batch)
 
 | Evidence | Value |
 |----------|-------|
 | Focused test command and exact result | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --test-enable --stop-after-init --workers=0 --http-port=18069 --test-tags /collection:TestCollectionUi,/collection:TestCollectionDocumentReview` → exit 0; **0 failed, 0 error(s) of 34 tests**. Full module: `--test-tags /collection` → exit 0; **0 failed, 0 error(s) of 96 tests**. (`--http-port=18069` because 8069 is held by the running odoo process.) |
 | Runtime harness command/scenario and exact result | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --http-port=18069` → exit 0; `Module collection loaded`; `Modules loaded.`; `Registry loaded`. UI xmlid/tag assertions are the harness for empty + multi-line nav. **N/A browser E2E** — e2e layer unavailable in `openspec/config.yaml`. |
 | Rollback boundary | `static/src/document_review/*`, `views/collection_document_review_views.xml`, `__manifest__.py` (data/assets only; version still `19.0.1.3.0`), `tests/test_collection_ui.py`, `openspec/changes/document-review-ocr-validation/tasks.md`, `openspec/changes/document-review-ocr-validation/apply-progress.md`. Revert those and upgrade `collection`. Does not include model review fields, ACL tests, binary viewer, or manifest version bump. |
+
+### Phase 3 (this batch)
+
+| Evidence | Value |
+|----------|-------|
+| Focused test command and exact result | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --test-enable --stop-after-init --workers=0 --http-port=18069 --test-tags /collection:TestCollectionDocumentReview,/collection:TestCollectionUi` → exit 0; **0 failed, 0 error(s) of 38 tests**. Full module: `--test-tags /collection` → exit 0; **0 failed, 0 error(s) of 100 tests**. |
+| Runtime harness command/scenario and exact result | **N/A browser E2E** — e2e layer unavailable in `openspec/config.yaml`. Image vs PDF branching is covered by Python URL tests (`test_queue_image_payload_is_web_content_url_only`, `test_queue_pdf_payload_is_web_content_url_only`) plus `attachmentViewerKind` helper logic; browser visual check is follow-up. Upgrade: `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --http-port=18069` → exit 0; `Module collection loaded`; `Modules loaded.`; `Registry loaded`. |
+| Rollback boundary | viewer in `document_review_action.*` + helpers + any 3.1 test additions + openspec tasks/apply-progress. Specifically: `static/src/document_review/document_review_action.esm.js`, `.xml`, `.scss`, `document_review_helpers.esm.js`, `tests/test_collection_document_review.py`, `openspec/changes/document-review-ocr-validation/tasks.md`, `openspec/changes/document-review-ocr-validation/apply-progress.md`. Revert those and upgrade `collection`. Does not include ACL tests or `__manifest__.py` version bump. |
 
 ## Public contracts (cumulative)
 
@@ -130,26 +164,26 @@ Full module: `--test-tags /collection` → exit 0; `0 failed, 0 error(s) of 96 t
 - `collection.voucher.line.action_review_reject()` — eligible only; audit; `action_reject` on voucher
 - Attachment Binary write → `pending` + clear audit
 - `collection.voucher.action_validate()` — `UserError` if any attached line is `pending`
-- OWL client tag `collection.document_review`: `orm.call` queue/approve/reject; typed editors; no attachment datas in `useState`; `attachment_url` string only (not fetched/rendered in this slice)
+- OWL client tag `collection.document_review`: `orm.call` queue/approve/reject; typed editors; no attachment datas in `useState`; `attachment_url` string only
+- Viewer: `<img>` for image filename/MIME, `<iframe>` for PDF; both bind `current.attachment_url` (`/web/content?model=collection.voucher.line&id=…&field=attachment`); loading until load, error on failed load, empty-attachment distinct from queue-empty; never fetch binary into JS state
 
 ## Deviations from Design
 
-None — implementation matches design for this slice. Binary image/PDF `/web/content` rendering is deferred to Phase 3 as specified.
+None — implementation matches design for this slice. Queue MIME was not added; filename (+ optional `mimetype` if present) branching is enough. ACL tests and manifest version bump remain Phase 4.
 
 ## Issues Found
 
 - `docker exec` of a second `odoo` on the live `seedian-odoo-1` container requires `--http-port` other than 8069 (`Address already in use`). Focused and full tests used `--http-port=18069`.
 - `invoke test -m collection` uses `docker compose run` and was not used, per apply instructions when the stack is already up.
-- Browser E2E for empty queue + multi-line nav is unavailable (`openspec/config.yaml` e2e: false); xmlid/tag tests plus upgrade are the runtime harness for PR 2.
+- Browser E2E for image vs PDF visual rendering is unavailable (`openspec/config.yaml` e2e: false); Python URL tests + helper logic plus upgrade are the runtime harness for PR 3. Browser visual check is follow-up.
 
 ## Remaining Tasks
 
-- [ ] Phase 3 (PR 3): binary viewer (image/PDF via `/web/content` + loading/error/empty)
 - [ ] Phase 4: ACL + manifest bump + full pre-commit
 
 ## Workload / PR Boundary
 
 - Mode: stacked PR slice (`stacked-to-main`)
-- Current work unit: PR 2 / OWL ORM client
-- Boundary: starts at Document Review xmlid tests + OWL ORM queue/editors/RPCs; ends before real img/PDF `/web/content` rendering, ACL tests, and manifest version bump
-- Estimated review budget impact: OWL + views wiring + 2 UI tests; model layer unchanged in this slice
+- Current work unit: PR 3 / binary viewer
+- Boundary: starts at strengthened queue URL tests + OWL `/web/content` img/PDF viewer; ends before ACL tests, manifest version bump, and scoped pre-commit
+- Estimated review budget impact: viewer XML/JS/SCSS + helper extract + 4 review tests; model layer unchanged in this slice

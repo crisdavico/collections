@@ -2,11 +2,18 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from datetime import date
+from pathlib import Path
+
+from lxml import etree
 
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
 from .test_collection_payment import PDF_B64, PNG_B64
+
+_DOCUMENT_REVIEW_DIR = (
+    Path(__file__).resolve().parents[1] / "static" / "src" / "document_review"
+)
 
 
 class TestCollectionDocumentReview(TransactionCase):
@@ -47,12 +54,40 @@ class TestCollectionDocumentReview(TransactionCase):
         )
 
     def _assert_no_binary_in_payload(self, item):
+        self.assertIsInstance(item, dict)
         self.assertNotIn("datas", item)
         self.assertNotIn("attachment", item)
+        url = item.get("attachment_url")
+        self.assertIsInstance(url, str)
+        self.assertTrue(
+            url.startswith("/web/content?"),
+            f"attachment_url must be a /web/content route, got {url!r}",
+        )
+        self.assertIn("model=collection.voucher.line", url)
+        self.assertIn("field=attachment", url)
+        self.assertNotIn("datas", url)
+        self.assertNotIn("base64", url.lower())
+        self.assertFalse(url.startswith("data:"))
         for value in item.values():
             rendered = str(value)
             self.assertNotIn(PNG_B64, rendered)
             self.assertNotIn(PDF_B64, rendered)
+            self.assertNotIn("data:image", rendered)
+            self.assertNotIn("data:application/pdf", rendered)
+
+    def _expected_content_url(self, line):
+        return (
+            "/web/content?model=collection.voucher.line"
+            f"&id={line.id}&field=attachment"
+            f"&filename={line.attachment_filename}"
+        )
+
+    def _viewer_template_xml(self):
+        path = _DOCUMENT_REVIEW_DIR / "document_review_action.xml"
+        return path.read_text(encoding="utf-8")
+
+    def _viewer_template_root(self):
+        return etree.fromstring(self._viewer_template_xml().encode())
 
     # --- 1.1 Queue eligibility + empty queue ---
 
@@ -106,9 +141,9 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(payload["attachment_filename"], "proof.png")
         self.assertEqual(payload["position"], 1)
         self.assertEqual(payload["total"], 1)
-        self.assertIn(
-            f"/web/content?model=collection.voucher.line&id={eligible.id}&field=attachment",
+        self.assertEqual(
             payload["attachment_url"],
+            self._expected_content_url(eligible),
         )
         self._assert_no_binary_in_payload(payload)
 
@@ -167,9 +202,114 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(queue[1]["check_bank"], "Banco Nación")
         self.assertEqual(queue[1]["check_type"], "common")
         self.assertEqual(queue[1]["attachment_filename"], "b.pdf")
+        self.assertEqual(
+            queue[0]["attachment_url"],
+            self._expected_content_url(png_line),
+        )
+        self.assertEqual(
+            queue[1]["attachment_url"],
+            self._expected_content_url(pdf_line),
+        )
         for item in queue:
-            self.assertIn("field=attachment", item["attachment_url"])
             self._assert_no_binary_in_payload(item)
+
+    def test_queue_image_payload_is_web_content_url_only(self):
+        """Image proofs expose /web/content URLs, never datas/base64."""
+        self._neutralize_preexisting_queue()
+        Line = self.env["collection.voucher.line"]
+        png_line = self._create_attached_line(
+            self._create_voucher("CUST-REV-IMG-PNG"),
+            document_id="DOC-REV-IMG-PNG",
+            attachment=PNG_B64,
+            attachment_filename="proof.png",
+        )
+        jpg_line = self._create_attached_line(
+            self._create_voucher("CUST-REV-IMG-JPG"),
+            document_id="DOC-REV-IMG-JPG",
+            attachment=PNG_B64,
+            attachment_filename="proof.jpg",
+        )
+        queue = {item["id"]: item for item in Line.get_review_queue()}
+        for line, filename in (
+            (png_line, "proof.png"),
+            (jpg_line, "proof.jpg"),
+        ):
+            payload = queue[line.id]
+            self.assertEqual(payload["attachment_filename"], filename)
+            self.assertEqual(
+                payload["attachment_url"],
+                self._expected_content_url(line),
+            )
+            self.assertIn(f"id={line.id}", payload["attachment_url"])
+            self.assertIn(f"filename={filename}", payload["attachment_url"])
+            self._assert_no_binary_in_payload(payload)
+
+    def test_queue_pdf_payload_is_web_content_url_only(self):
+        """Triangulation: PDF proofs use the same content route, never base64."""
+        self._neutralize_preexisting_queue()
+        Line = self.env["collection.voucher.line"]
+        pdf_line = self._create_attached_line(
+            self._create_voucher("CUST-REV-PDF-URL"),
+            document_id="DOC-REV-PDF-URL",
+            attachment=PDF_B64,
+            attachment_filename="comprobante.pdf",
+        )
+        payload = next(
+            item
+            for item in Line.get_review_queue()
+            if item["id"] == pdf_line.id
+        )
+        self.assertEqual(payload["attachment_filename"], "comprobante.pdf")
+        self.assertEqual(
+            payload["attachment_url"],
+            self._expected_content_url(pdf_line),
+        )
+        self.assertIn(f"id={pdf_line.id}", payload["attachment_url"])
+        self.assertIn("filename=comprobante.pdf", payload["attachment_url"])
+        self.assertNotEqual(payload["attachment_url"], PNG_B64)
+        self._assert_no_binary_in_payload(payload)
+
+    def test_document_review_viewer_binds_web_content_for_image_and_pdf(self):
+        """OWL viewer must bind /web/content URLs on img and iframe/embed."""
+        xml = self._viewer_template_xml()
+        root = self._viewer_template_root()
+        self.assertNotIn("viewer-placeholder", xml)
+        self.assertNotIn("datas", xml)
+        self.assertNotIn("base64", xml.lower())
+        self.assertNotIn("data:image", xml)
+        self.assertNotIn("data:application/pdf", xml)
+        images = root.xpath(".//img")
+        self.assertTrue(images, "image proofs must render via <img>")
+        self.assertTrue(
+            any(
+                node.get("t-att-src") == "current.attachment_url" for node in images
+            ),
+            "image viewer must bind current.attachment_url",
+        )
+        pdf_nodes = root.xpath(".//iframe") + root.xpath(".//embed")
+        self.assertTrue(pdf_nodes, "PDF proofs must render via <iframe> or <embed>")
+        self.assertTrue(
+            any(
+                node.get("t-att-src") == "current.attachment_url"
+                for node in pdf_nodes
+            ),
+            "PDF viewer must bind current.attachment_url",
+        )
+
+    def test_document_review_viewer_has_loading_error_empty_attachment_states(
+        self,
+    ):
+        """Viewer loading, error, and empty-attachment must be distinct."""
+        xml = self._viewer_template_xml()
+        self.assertIn("viewer-loading", xml)
+        self.assertIn("viewer-error", xml)
+        self.assertIn("viewer-empty", xml)
+        self.assertIn("Cargando documento", xml)
+        self.assertIn("No se pudo cargar el documento", xml)
+        self.assertIn("No hay archivo adjunto para mostrar", xml)
+        self.assertIn("No hay comprobantes pendientes", xml)
+        self.assertNotIn("Traceback", xml)
+        self.assertNotIn("viewer-placeholder", xml)
 
     # --- 1.2 Default pending/audit, approve, reject, aggregate ---
 

@@ -226,10 +226,34 @@
     padding: 24px 22px;
   }
 
-  .viewer-placeholder {
+  .viewer-empty,
+  .viewer-loading,
+  .viewer-error {
     margin: 0;
     color: var(--ink-2);
     text-align: center;
+  }
+
+  .viewer-error {
+    color: var(--rose);
+  }
+
+  .viewer-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  .viewer-pdf {
+    width: 100%;
+    height: 100%;
+    min-height: 420px;
+    border: 0;
+    background: #fff;
+  }
+
+  .is-hidden {
+    display: none;
   }
 
   .panel {

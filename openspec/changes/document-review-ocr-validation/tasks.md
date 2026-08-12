@@ -55,11 +55,11 @@ Threat matrix: N/A. Workflow risks in 1.3, 3.2, 4.1.
 
 ## Phase 3: Binary viewer (PR 3)
 
-- [ ] 3.1 RED assert queue payload content URL only (no `datas`/base64) in
+- [x] 3.1 RED assert queue payload content URL only (no `datas`/base64) in
       `tests/test_collection_document_review.py`
-- [ ] 3.2 GREEN `/web/content` image vs PDF viewer + loading/error/empty in
+- [x] 3.2 GREEN `/web/content` image vs PDF viewer + loading/error/empty in
       `document_review_action.*` (+scss)
-- [ ] 3.3 REFACTOR MIME/filename branching only
+- [x] 3.3 REFACTOR MIME/filename branching only
 
 ## Phase 4: ACL + final verification
 
