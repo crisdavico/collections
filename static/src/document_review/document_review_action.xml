@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+    <t t-name="collection.DocumentReviewAction">
+        <div class="o_collection_doc_review">
+            <div class="shell">
+                <div t-if="state.loading &amp;&amp; !hasQueue" class="clay empty-state">
+                    <p>Cargando cola de revisión…</p>
+                </div>
+                <div t-elif="!hasQueue" class="clay empty-state">
+                    <h2>No hay comprobantes pendientes</h2>
+                    <p>No quedan líneas elegibles para revisar.</p>
+                </div>
+                <main t-else="" class="split">
+                    <section class="clay viewer" aria-label="Visor del documento">
+                        <div class="press tray">
+                            <p class="viewer-placeholder">
+                                La imagen o el PDF se mostrará aquí.
+                            </p>
+                        </div>
+                    </section>
+
+                    <section class="clay panel" aria-label="Validación de campos">
+                        <div class="phead">
+                            <h2>Validá los campos</h2>
+                            <div class="corner">
+                                <p class="doc-id" t-out="current.voucher_name" />
+                                <div class="nav">
+                                    <button
+                    class="clay blob-btn"
+                    type="button"
+                    aria-label="Documento anterior"
+                    t-att-disabled="!canPrev || state.busy"
+                    t-on-click="goPrev"
+                  >
+                                        <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                                            <path d="M15 18l-6-6 6-6" />
+                                        </svg>
+                                    </button>
+                                    <span class="count">
+                                        <b t-out="current.position" />
+                                        /
+                                        <t t-out="current.total" />
+                                    </span>
+                                    <button
+                    class="clay blob-btn"
+                    type="button"
+                    aria-label="Documento siguiente"
+                    t-att-disabled="!canNext || state.busy"
+                    t-on-click="goNext"
+                  >
+                                        <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                                            <path d="M9 18l6-6-6-6" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="panel-body">
+                            <div class="field">
+                                <div class="ftop">
+                                    <label for="collection_review_document_id">
+                                        ID de documento
+                                    </label>
+                                </div>
+                                <div class="slot">
+                                    <input
+                    id="collection_review_document_id"
+                    type="text"
+                    readonly="readonly"
+                    t-att-value="current.document_id"
+                  />
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <div class="ftop">
+                                    <label for="collection_review_document_type">
+                                        Tipo de documento
+                                    </label>
+                                </div>
+                                <div class="slot">
+                                    <select
+                    id="collection_review_document_type"
+                    t-att-value="current.document_type"
+                    t-on-change="(ev) => this.onFieldInput('document_type', ev)"
+                  >
+                                        <option value="bank_transfer">
+                                            Transferencia bancaria
+                                        </option>
+                                        <option value="check">Cheque</option>
+                                        <option value="cash_deposit">
+                                            Depósito en efectivo
+                                        </option>
+                                        <option value="unsupported">
+                                            No soportado
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <div class="ftop">
+                                    <label for="collection_review_amount">Monto</label>
+                                </div>
+                                <div class="slot">
+                                    <input
+                    id="collection_review_amount"
+                    type="number"
+                    step="0.01"
+                    t-att-value="current.amount"
+                    t-on-input="(ev) => this.onFieldInput('amount', ev)"
+                  />
+                                </div>
+                            </div>
+
+                            <t t-if="isBankTransfer">
+                                <div class="field">
+                                    <div class="ftop">
+                                        <label for="collection_review_from_account">
+                                            Cuenta origen
+                                        </label>
+                                    </div>
+                                    <div class="slot">
+                                        <input
+                      id="collection_review_from_account"
+                      type="text"
+                      t-att-value="current.from_account"
+                      t-on-input="(ev) => this.onFieldInput('from_account', ev)"
+                    />
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <div class="ftop">
+                                        <label for="collection_review_to_account">
+                                            Cuenta destino
+                                        </label>
+                                    </div>
+                                    <div class="slot">
+                                        <input
+                      id="collection_review_to_account"
+                      type="text"
+                      t-att-value="current.to_account"
+                      t-on-input="(ev) => this.onFieldInput('to_account', ev)"
+                    />
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="field">
+                                        <div class="ftop">
+                                            <label
+                        for="collection_review_voucher_number"
+                      >
+                                                Nro. comprobante
+                                            </label>
+                                        </div>
+                                        <div class="slot">
+                                            <input
+                        id="collection_review_voucher_number"
+                        type="text"
+                        t-att-value="current.voucher_number"
+                        t-on-input="(ev) => this.onFieldInput('voucher_number', ev)"
+                      />
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <div class="ftop">
+                                            <label for="collection_review_voucher_date">
+                                                Fecha
+                                            </label>
+                                        </div>
+                                        <div class="slot">
+                                            <input
+                        id="collection_review_voucher_date"
+                        type="date"
+                        t-att-value="current.voucher_date"
+                        t-on-input="(ev) => this.onFieldInput('voucher_date', ev)"
+                      />
+                                        </div>
+                                    </div>
+                                </div>
+                            </t>
+
+                            <t t-if="isCheck">
+                                <div class="field">
+                                    <div class="ftop">
+                                        <label for="collection_review_check_number">
+                                            Nro. cheque
+                                        </label>
+                                    </div>
+                                    <div class="slot">
+                                        <input
+                      id="collection_review_check_number"
+                      type="text"
+                      t-att-value="current.check_number"
+                      t-on-input="(ev) => this.onFieldInput('check_number', ev)"
+                    />
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <div class="ftop">
+                                        <label for="collection_review_check_bank">
+                                            Banco
+                                        </label>
+                                    </div>
+                                    <div class="slot">
+                                        <input
+                      id="collection_review_check_bank"
+                      type="text"
+                      t-att-value="current.check_bank"
+                      t-on-input="(ev) => this.onFieldInput('check_bank', ev)"
+                    />
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <div class="ftop">
+                                        <label for="collection_review_check_type">
+                                            Tipo de cheque
+                                        </label>
+                                    </div>
+                                    <div class="slot">
+                                        <select
+                      id="collection_review_check_type"
+                      t-att-value="current.check_type"
+                      t-on-change="(ev) => this.onFieldInput('check_type', ev)"
+                    >
+                                            <option value="" />
+                                            <option value="common">Común</option>
+                                            <option value="deferred">Diferido</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="field">
+                                        <div class="ftop">
+                                            <label
+                        for="collection_review_check_issue_date"
+                      >
+                                                Fecha de emisión
+                                            </label>
+                                        </div>
+                                        <div class="slot">
+                                            <input
+                        id="collection_review_check_issue_date"
+                        type="date"
+                        t-att-value="current.check_issue_date"
+                        t-on-input="(ev) => this.onFieldInput('check_issue_date', ev)"
+                      />
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <div class="ftop">
+                                            <label
+                        for="collection_review_check_payment_date"
+                      >
+                                                Fecha de pago
+                                            </label>
+                                        </div>
+                                        <div class="slot">
+                                            <input
+                        id="collection_review_check_payment_date"
+                        type="date"
+                        t-att-value="current.check_payment_date"
+                        t-on-input="(ev) => this.onFieldInput('check_payment_date', ev)"
+                      />
+                                        </div>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+
+                        <div class="acts">
+                            <button
+                class="btn no"
+                type="button"
+                t-att-disabled="state.busy"
+                t-on-click="reject"
+              >
+                                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                >
+                                    <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                                Rechazar
+                            </button>
+                            <button
+                class="btn yes"
+                type="button"
+                t-att-disabled="state.busy"
+                t-on-click="approve"
+              >
+                                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                                    <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                                Aprobar y seguir
+                            </button>
+                        </div>
+                    </section>
+                </main>
+            </div>
+        </div>
+    </t>
+</templates>

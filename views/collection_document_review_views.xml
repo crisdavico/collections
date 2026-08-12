@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="action_collection_document_review" model="ir.actions.client">
+        <field name="name">Document Review</field>
+        <field name="tag">collection.document_review</field>
+        <field name="path">document-review</field>
+    </record>
+
+    <menuitem
+    id="menu_collection_document_review"
+    name="Document Review"
+    parent="menu_collection_root"
+    action="action_collection_document_review"
+    sequence="30"
+  />
+</odoo>

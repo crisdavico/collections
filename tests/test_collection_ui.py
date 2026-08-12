@@ -656,3 +656,26 @@ class TestCollectionUi(TransactionCase):
                 options,
                 f"{label} must not advertise non-image/PDF extensions",
             )
+
+    # --- Phase 2: Document Review client action (PR 2) ---
+
+    def test_document_review_menu_and_client_action(self):
+        """Collections → Document Review must keep the client action tag."""
+        root_menu = self.env.ref("collection.menu_collection_root")
+        review_menu = self.env.ref("collection.menu_collection_document_review")
+        action = self.env.ref("collection.action_collection_document_review")
+
+        self.assertEqual(review_menu.name, "Document Review")
+        self.assertEqual(review_menu.parent_id, root_menu)
+        self.assertEqual(review_menu.action, action)
+        self.assertEqual(action.type, "ir.actions.client")
+        self.assertEqual(action.tag, "collection.document_review")
+
+    def test_document_review_client_action_path_and_name(self):
+        """Triangulation: client action keeps English name and document-review path."""
+        action = self.env.ref("collection.action_collection_document_review")
+        self.assertEqual(action.name, "Document Review")
+        self.assertEqual(action.path, "document-review")
+        self.assertNotEqual(action._name, "ir.actions.act_window")
+        self.assertEqual(action._name, "ir.actions.client")
+        self.assertFalse(getattr(action, "res_model", False))

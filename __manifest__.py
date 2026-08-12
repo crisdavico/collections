@@ -12,7 +12,13 @@
         "security/ir.model.access.csv",
         "data/ir_sequence_data.xml",
         "views/collection_views.xml",
+        "views/collection_document_review_views.xml",
     ],
+    "assets": {
+        "web.assets_backend": [
+            "collection/static/src/document_review/**/*",
+        ],
+    },
     "installable": True,
     "application": True,
     "license": "AGPL-3",
