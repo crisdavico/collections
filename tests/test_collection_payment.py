@@ -235,18 +235,18 @@ class TestCollectionPaymentAttachment(TransactionCase):
         )
         line.write(
             {
-                "review_status": "approved",
+                "state": "approved",
                 "reviewed_by": self.env.user.id,
             }
         )
-        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.state, "approved")
         line.write(
             {
                 "attachment": PDF_B64,
                 "attachment_filename": "new.pdf",
             }
         )
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         self.assertFalse(line.reviewed_by)
         self.assertFalse(line.reviewed_at)
         self.assertEqual(line.attachment_filename, "new.pdf")
@@ -264,7 +264,7 @@ class TestCollectionPaymentAttachment(TransactionCase):
         )
         line.write(
             {
-                "review_status": "rejected",
+                "state": "rejected",
                 "reviewed_by": self.env.user.id,
             }
         )
@@ -274,7 +274,7 @@ class TestCollectionPaymentAttachment(TransactionCase):
                 "attachment_filename": "again.png",
             }
         )
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         self.assertFalse(line.reviewed_by)
         self.assertFalse(line.reviewed_at)
 

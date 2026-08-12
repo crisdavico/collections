@@ -72,8 +72,10 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _ensure_no_pending_attached_review(self):
+        if not self.env.company._document_review_enabled():
+            return
         pending = self.mapped("payment_ids").filtered(
-            lambda line: line.review_status == "pending"
+            lambda line: line.state == "pending"
         )
         if pending._lines_with_attachment():
             raise UserError(

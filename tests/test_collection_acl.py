@@ -156,6 +156,7 @@ class TestCollectionAcl(TransactionCase):
             Payment.browse(admin_payment.id).unlink()
 
     def _create_attached_pending_line(self, env, document_id, customer_identification):
+        self.env.company.write({"document_review_enabled": True})
         voucher = env["collection.voucher"].create(
             {"customer_identification": customer_identification}
         )
@@ -182,7 +183,7 @@ class TestCollectionAcl(TransactionCase):
         with self.assertRaises(AccessError):
             Line.get_review_queue()
         with self.assertRaises(AccessError):
-            Line.browse(admin_line.id).read(["review_status"])
+            Line.browse(admin_line.id).read(["state"])
         with self.assertRaises(AccessError):
             Line.browse(admin_line.id).action_review_approve({"amount": 1.0})
         with self.assertRaises(AccessError):
@@ -198,12 +199,12 @@ class TestCollectionAcl(TransactionCase):
             document_id="ACL-REV-INT-APPROVE-DOC",
             customer_identification="ACL-REV-INT-APPROVE",
         )
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         queue = env["collection.voucher.line"].get_review_queue()
         queued_ids = [item["id"] for item in queue]
         self.assertIn(line.id, queued_ids)
         line.action_review_approve({"amount": 150.0})
-        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.state, "approved")
         self.assertEqual(line.amount, 150.0)
         self.assertEqual(line.reviewed_by, self.internal_user)
         self.assertTrue(line.reviewed_at)
@@ -217,9 +218,9 @@ class TestCollectionAcl(TransactionCase):
             document_id="ACL-REV-INT-REJECT-DOC",
             customer_identification="ACL-REV-INT-REJECT",
         )
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         line.action_review_reject()
-        self.assertEqual(line.review_status, "rejected")
+        self.assertEqual(line.state, "rejected")
         self.assertEqual(line.reviewed_by, self.internal_user)
         self.assertTrue(line.reviewed_at)
         self.assertEqual(voucher.state, "rejected")

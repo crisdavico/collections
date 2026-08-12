@@ -133,6 +133,7 @@ class TestCollectionUi(TransactionCase):
             action.search_view_id,
             self.env.ref("collection.view_collection_voucher_search"),
         )
+        self.assertEqual(action.path, "payment-vouchers")
 
     def test_list_and_search_show_required_fields(self):
         """List and search arches must expose reference, ID, create_date, status."""
@@ -407,6 +408,7 @@ class TestCollectionUi(TransactionCase):
     # --- Phase 2: Payment Lines menu (Unit 2) ---
 
     PAYMENT_LINE_SEARCH_FIELDS = (
+        "state",
         "document_type",
         "document_id",
         "amount",
@@ -460,6 +462,7 @@ class TestCollectionUi(TransactionCase):
             action.search_view_id,
             self.env.ref("collection.view_collection_voucher_line_search"),
         )
+        self.assertEqual(action.path, "payment-lines")
         list_view = self.env.ref("collection.view_collection_voucher_line_list")
         self.assertEqual(list_view.model, "collection.voucher.line")
 
@@ -479,6 +482,7 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(list_root.tag, "list")
         list_fields = self._field_names(list_root)
         for field_name in (
+            "state",
             "document_type",
             "document_id",
             "amount",
@@ -489,6 +493,37 @@ class TestCollectionUi(TransactionCase):
                 list_fields,
                 f"Payment Lines list must show field {field_name}",
             )
+
+    def test_payment_lines_list_and_search_expose_line_state(self):
+        """Payment Lines MUST show line state and allow filter/group by state."""
+        Line = self.env["collection.voucher.line"]
+        self.assertIn("state", Line._fields)
+        self.assertNotIn("review_status", Line._fields)
+        self.assertEqual(
+            [value for value, _label in Line._fields["state"].selection],
+            ["pending", "approved", "rejected"],
+        )
+
+        list_root = self._arch_root("collection.view_collection_voucher_line_list")
+        state_nodes = list_root.xpath('./field[@name="state"]')
+        self.assertTrue(state_nodes, "Payment Lines list must show state")
+        self.assertEqual(state_nodes[0].get("widget"), "badge")
+
+        search_root = self._arch_root("collection.view_collection_voucher_line_search")
+        for value in ("pending", "approved", "rejected"):
+            filters = search_root.xpath(f'//filter[contains(@domain, "{value}")]')
+            matching = [
+                node for node in filters if "state" in (node.get("domain") or "")
+            ]
+            self.assertTrue(
+                matching,
+                f"Payment Lines search must filter state={value}",
+            )
+        group_state = search_root.xpath('//filter[contains(@context, "state")]')
+        self.assertTrue(
+            group_state,
+            "Payment Lines search must offer group_by state",
+        )
 
     def test_unsupported_absent_from_typed_form_tables(self):
         """unsupported lines MUST NOT match any typed form list domain."""
@@ -679,3 +714,65 @@ class TestCollectionUi(TransactionCase):
         self.assertNotEqual(action._name, "ir.actions.act_window")
         self.assertEqual(action._name, "ir.actions.client")
         self.assertFalse(getattr(action, "res_model", False))
+
+    def test_settings_arch_has_collections_app_and_flag_field(self):
+        """Settings inherit MUST expose app name=collections and the related flag."""
+        root = self._arch_root("collection.res_config_settings_view_form")
+        apps = root.xpath("//app[@name='collections']")
+        self.assertEqual(
+            len(apps),
+            1,
+            "Settings inherit must declare <app name='collections'>",
+        )
+        fields = apps[0].xpath(".//field[@name='document_review_enabled']")
+        self.assertEqual(
+            len(fields),
+            1,
+            "Collections settings app must include document_review_enabled",
+        )
+
+    def test_settings_combined_view_exposes_collections_flag(self):
+        """Triangulation: combined Settings form via get_view includes the flag."""
+        result = self.env["res.config.settings"].get_view(view_type="form")
+        arch = etree.fromstring(result["arch"])
+        apps = arch.xpath("//app[@name='collections']")
+        self.assertTrue(
+            apps,
+            "combined Settings view must include app name=collections",
+        )
+        fields = apps[0].xpath(".//field[@name='document_review_enabled']")
+        self.assertTrue(
+            fields,
+            "combined Settings view must include document_review_enabled",
+        )
+
+    def test_load_menus_omits_document_review_when_flag_off(self):
+        """When Document Review is OFF, load_menus MUST omit the review menu."""
+        self.assertFalse(self.env.company.document_review_enabled)
+        review_menu = self.env.ref("collection.menu_collection_document_review")
+        root_menu = self.env.ref("collection.menu_collection_root")
+        voucher_menu = self.env.ref("collection.menu_collection_voucher")
+        line_menu = self.env.ref("collection.menu_collection_voucher_line")
+        menus = self.env["ir.ui.menu"].load_menus(False)
+        self.assertIn("root", menus)
+        self.assertIn(root_menu.id, menus)
+        self.assertIn(voucher_menu.id, menus)
+        self.assertIn(line_menu.id, menus)
+        self.assertNotIn(
+            review_menu.id,
+            menus,
+            "Document Review menu must be absent from load_menus when flag is OFF",
+        )
+
+    def test_load_menus_includes_document_review_when_flag_on(self):
+        """When Document Review is ON, load_menus MUST include the review menu."""
+        self.env.company.write({"document_review_enabled": True})
+        self.assertTrue(self.env.company.document_review_enabled)
+        review_menu = self.env.ref("collection.menu_collection_document_review")
+        menus = self.env["ir.ui.menu"].load_menus(False)
+        self.assertIn("root", menus)
+        self.assertIn(
+            review_menu.id,
+            menus,
+            "Document Review menu must be present in load_menus when flag is ON",
+        )

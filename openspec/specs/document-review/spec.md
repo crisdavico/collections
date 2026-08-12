@@ -10,9 +10,9 @@ fields against the attachment, and approve/reject without mock data.
 ### Requirement: Eligible review queue
 
 The system MUST queue only `collection.voucher.line` records where the parent voucher
-`state` is `new`, the line review status is `pending`, and an attachment is present.
-Lines missing any eligibility criterion MUST NOT appear. Confidence scores, per-field
-stamps, and reviewer-note persistence MUST NOT be required.
+`state` is `new`, the line `state` is `pending`, and an attachment is present. Lines
+missing any eligibility criterion MUST NOT appear. Confidence scores, per-field stamps,
+and reviewer-note persistence MUST NOT be required.
 
 #### Scenario: Queue eligibility
 
@@ -149,7 +149,7 @@ URL. Replacing or clearing the attachment MUST reset rotation to 0 degrees.
 ### Requirement: Approve and reject without mocks
 
 Approve and reject MUST call real server actions (no mock handlers). Approve MUST
-persist field corrections before updating review status. Reject and approve outcomes for
+persist field corrections before updating line `state`. Reject and approve outcomes for
 voucher aggregate state are governed by `collection-vouchers`.
 
 #### Scenario: Correction persistence on approve
@@ -157,14 +157,14 @@ voucher aggregate state are governed by `collection-vouchers`.
 - GIVEN an eligible pending line with edited payment fields
 - WHEN the reviewer approves
 - THEN corrected field values MUST persist on the line
-- AND review status MUST become `approved`
+- AND line `state` MUST become `approved`
 
 #### Scenario: Reject invokes real action
 
 - GIVEN an eligible pending line
 - WHEN the reviewer rejects
 - THEN the server reject action MUST run (no mock)
-- AND the line review status MUST become `rejected`
+- AND the line `state` MUST become `rejected`
 
 ### Requirement: Document Review authorization
 
@@ -175,4 +175,57 @@ approve/reject actions.
 
 - GIVEN a user without internal-user privileges
 - WHEN they attempt Document Review queue access or approve/reject
+- THEN the system MUST deny access
+
+### Requirement: Per-company Document Review flag
+
+Each company MUST have a boolean Document Review flag defaulting to OFF. Settings
+admins MUST toggle it at `/odoo/settings#collections`. When ON, existing Document
+Review requirements MUST still apply. Line `state` and review audit columns MUST
+remain on payment-line views regardless of the flag.
+
+#### Scenario: Default off
+
+- GIVEN a fresh install or upgrade
+- WHEN the current company's flag is read
+- THEN Document Review MUST be OFF
+
+#### Scenario: Settings admin toggle
+
+- GIVEN a Settings administrator
+- WHEN they change Document Review at `/odoo/settings#collections`
+- THEN the current company's flag MUST persist that value
+
+#### Scenario: Line state and audit remain
+
+- GIVEN Document Review is OFF
+- WHEN an internal user opens payment-line views
+- THEN line `state` and review audit columns MUST still appear
+
+### Requirement: Document Review menu and RPCs when flag is off
+
+When OFF, the Document Review menu MUST NOT appear. Operations `get_review_queue`,
+`action_review_approve`, `action_review_reject`, and `action_review_set_rotation`
+MUST refuse, including for internal users, and MUST NOT succeed as an empty queue.
+Direct `/odoo/document-review` MUST still be refused via those operations. When ON,
+only internal users MUST access them.
+
+#### Scenario: Menu hidden when off
+
+- GIVEN Document Review is OFF
+- WHEN menus load
+- THEN Document Review MUST NOT appear
+
+#### Scenario: Review operations refuse when off
+
+- GIVEN Document Review is OFF
+- WHEN an internal user calls `get_review_queue`, `action_review_approve`,
+  `action_review_reject`, or `action_review_set_rotation`, including via
+  `/odoo/document-review`
+- THEN the system MUST refuse (not empty-queue success)
+
+#### Scenario: Internal ACL when on
+
+- GIVEN Document Review is ON
+- WHEN a non-internal user attempts those review operations
 - THEN the system MUST deny access

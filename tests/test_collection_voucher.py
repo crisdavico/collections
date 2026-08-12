@@ -105,6 +105,7 @@ class TestCollectionVoucher(TransactionCase):
 
     def test_action_validate_blocked_when_attached_line_pending(self):
         """Validate must refuse while an attached line is still pending review."""
+        self.env.company.write({"document_review_enabled": True})
         voucher = self._create_voucher(customer_identification="CUST-VAL-PEND")
         self.env["collection.voucher.line"].create(
             {
@@ -130,7 +131,7 @@ class TestCollectionVoucher(TransactionCase):
                 "amount": 10.0,
             }
         )
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         self.assertFalse(line.attachment)
         voucher.action_validate()
         self.assertEqual(voucher.state, "validated")

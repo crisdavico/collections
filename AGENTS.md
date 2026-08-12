@@ -81,8 +81,9 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `collection.voucher`.
 - **No `received_date`:** registration time is ORM `create_date` only; strip forged
   `create_date` / `write_date` on create; views must not expose `received_date`.
-- **States:** `new` → `validated` | `rejected`. Terminal states are immutable. Delete
-  only when `state == 'new'` (`@api.ondelete`).
+- **States:** voucher `new` → `validated` | `rejected`. Terminal voucher states are
+  immutable. Delete only when voucher `state == 'new'` (`@api.ondelete`). Payment line
+  `state` is `pending` | `approved` | `rejected` (default `pending`).
 - **Currency:** company default; no multi-currency UX.
 - **ACL:** internal users only; no extra groups or record rules.
 - **Line attachment:** optional one image/PDF per line (`Binary` + filename,

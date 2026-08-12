@@ -211,6 +211,7 @@
     <record id="action_collection_voucher" model="ir.actions.act_window">
         <field name="name">Payment Vouchers</field>
         <field name="res_model">collection.voucher</field>
+        <field name="path">payment-vouchers</field>
         <field name="view_mode">kanban,list,form</field>
         <field name="search_view_id" ref="view_collection_voucher_search" />
         <field name="help" type="html">
@@ -227,6 +228,13 @@
         <field name="arch" type="xml">
             <list string="Payment Lines" create="false" edit="false">
                 <field name="voucher_id" />
+                <field
+          name="state"
+          widget="badge"
+          decoration-info="state == 'pending'"
+          decoration-success="state == 'approved'"
+          decoration-danger="state == 'rejected'"
+        />
                 <field name="document_type" />
                 <field name="document_id" />
                 <field name="amount" />
@@ -257,6 +265,7 @@
         <field name="arch" type="xml">
             <search string="Search Payment Lines">
                 <field name="voucher_id" />
+                <field name="state" />
                 <field name="document_type" />
                 <field name="document_id" />
                 <field name="amount" />
@@ -269,6 +278,22 @@
                 <field name="check_type" />
                 <field name="check_issue_date" />
                 <field name="check_payment_date" />
+                <filter
+          string="Pending"
+          name="filter_pending"
+          domain="[('state', '=', 'pending')]"
+        />
+                <filter
+          string="Approved"
+          name="filter_approved"
+          domain="[('state', '=', 'approved')]"
+        />
+                <filter
+          string="Rejected"
+          name="filter_rejected"
+          domain="[('state', '=', 'rejected')]"
+        />
+                <separator />
                 <filter
           string="Bank Transfer"
           name="filter_bank_transfer"
@@ -291,6 +316,11 @@
         />
                 <group>
                     <filter
+            string="Status"
+            name="group_state"
+            context="{'group_by': 'state'}"
+          />
+                    <filter
             string="Document Type"
             name="group_document_type"
             context="{'group_by': 'document_type'}"
@@ -308,6 +338,7 @@
     <record id="action_collection_voucher_line" model="ir.actions.act_window">
         <field name="name">Payment Lines</field>
         <field name="res_model">collection.voucher.line</field>
+        <field name="path">payment-lines</field>
         <field name="view_mode">list</field>
         <field name="search_view_id" ref="view_collection_voucher_line_search" />
         <field name="context">{'create': False, 'edit': False}</field>

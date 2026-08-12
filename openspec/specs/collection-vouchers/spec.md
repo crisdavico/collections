@@ -48,9 +48,10 @@ default to `new`. Currency MUST be the company default (no multi-currency UX).
 ### Requirement: Voucher state transitions
 
 States MUST be `new`, `validated`, and `rejected`. Validate and Reject MUST apply only
-from `new` and MUST NOT alter terminal states. `action_validate()` MUST refuse while any
-attachment-bearing payment line on the voucher still has review status `pending`.
-(Previously: Validate from `new` had no attachment-line review gate.)
+from `new` and MUST NOT alter terminal states. When Document Review is ON,
+`action_validate()` MUST refuse while any attachment-bearing line is `pending`. When
+OFF, Validate MUST succeed from `new` even with pending attached lines.
+(Previously: Validate always refused while any attached line was `pending`.)
 
 #### Scenario: Validate from new
 
@@ -72,9 +73,17 @@ attachment-bearing payment line on the voucher still has review status `pending`
 
 #### Scenario: Validate blocked while attached lines pending
 
-- GIVEN a voucher in `new` with at least one attachment-bearing line still `pending`
+- GIVEN Document Review is ON and a voucher in `new` with at least one
+  attachment-bearing line still `pending`
 - WHEN `action_validate()` is invoked
 - THEN validation MUST be refused and `state` MUST remain `new`
+
+#### Scenario: Validate succeeds with pending attachments when review is off
+
+- GIVEN Document Review is OFF and a voucher in `new` with at least one
+  attachment-bearing line still `pending`
+- WHEN `action_validate()` is invoked
+- THEN validation MUST succeed and `state` MUST become `validated`
 
 ### Requirement: Mail thread and activities
 
@@ -186,8 +195,10 @@ and optional mixed columns.)
 - WHEN an internal user opens Collections → Payment Lines
 - THEN the action MUST list `collection.voucher.line` records
 - AND create/edit from that action MUST be disabled
-- AND search MUST allow filtering by line fields including `document_type`,
+- AND the list MUST show line `state`
+- AND search MUST allow filtering by line fields including `state`, `document_type`,
   `document_id`, `amount`, type-specific payment fields, and related voucher
+- AND search MUST allow grouping by line `state`
 
 #### Scenario: UI create_date visibility
 
@@ -363,19 +374,19 @@ has none). All-new and conflict rules MUST remain unchanged.
 - WHEN retried with or without nested attachments
 - THEN voucher returns unchanged; attachments MUST NOT be written/replaced/compared
 
-### Requirement: Payment line review status and audit
+### Requirement: Payment line state and audit
 
-Each `collection.voucher.line` MUST track review status `pending` | `approved` |
-`rejected`, defaulting to `pending` (including on additive upgrade for existing lines).
-When review status leaves `pending`, the system MUST record reviewer and review time
-audit fields. Confidence, per-field stamps, and reviewer-note persistence MUST NOT be
-required.
+Each `collection.voucher.line` MUST track `state` `pending` | `approved` | `rejected`,
+defaulting to `pending` (including on additive upgrade for existing lines). The field
+MUST be named `state` (not a separate review-status field). When `state` leaves
+`pending`, the system MUST record reviewer and review time audit fields. Confidence,
+per-field stamps, and reviewer-note persistence MUST NOT be required.
 
 #### Scenario: Default pending including upgrade
 
 - GIVEN a newly created line or an existing line after additive upgrade
-- WHEN review status is read without a prior decision
-- THEN status MUST be `pending`
+- WHEN `state` is read without a prior decision
+- THEN `state` MUST be `pending`
 
 #### Scenario: Audit on decision
 
@@ -385,9 +396,11 @@ required.
 
 ### Requirement: Approve may validate voucher when all attached lines approved
 
-When a line is approved, if the parent voucher is `new` and every attachment-bearing
-line on that voucher is `approved`, the system MAY transition the voucher to
-`validated`. Lines without attachments MUST NOT block that aggregate approval path.
+When Document Review is ON and a line is approved, if the parent voucher is `new` and
+every attachment-bearing line is `approved`, the system MAY set the voucher to
+`validated`. Unattached lines MUST NOT block that path. When OFF, review approve MUST
+NOT run.
+(Previously: Last attached-line approve MAY validate with no company flag.)
 
 #### Scenario: Aggregate voucher validation
 
@@ -395,16 +408,30 @@ line on that voucher is `approved`, the system MAY transition the voucher to
 - WHEN the last such line is approved
 - THEN the voucher `state` MUST become `validated`
 
+#### Scenario: Review approve does not run when off
+
+- GIVEN Document Review is OFF
+- WHEN review approve is attempted
+- THEN approve MUST NOT run and the voucher MUST NOT validate via review
+
 ### Requirement: Line reject immediately rejects voucher
 
-Rejecting a payment line MUST set that line to `rejected` and, when the parent voucher
-is `new`, MUST immediately set the voucher to `rejected`.
+When Document Review is ON, rejecting a line MUST set it to `rejected` and, if the
+parent voucher is `new`, MUST set the voucher to `rejected`. When OFF, review reject
+MUST NOT run.
+(Previously: Line reject always rejected a `new` parent voucher with no company flag.)
 
 #### Scenario: Immediate voucher rejection on line reject
 
 - GIVEN a `new` voucher with a pending attached line
 - WHEN that line is rejected
 - THEN the line MUST be `rejected` and the voucher MUST become `rejected`
+
+#### Scenario: Review reject does not run when off
+
+- GIVEN Document Review is OFF and a `new` voucher with a pending attached line
+- WHEN review reject is attempted
+- THEN reject MUST NOT run and the voucher MUST remain `new`
 
 ### Requirement: Concurrent and stale review attempts
 
@@ -420,13 +447,13 @@ NOT corrupt review or voucher state.
 
 ### Requirement: Attachment replacement resets review to pending
 
-Replacing a payment-line attachment (write of new Binary content) MUST reset that
-line’s review status to `pending` and MUST clear prior reviewer/time audit for a fresh
-review. Omit/empty and MIME validation rules remain unchanged.
+Replacing a payment-line attachment (write of new Binary content) MUST reset that line’s
+`state` to `pending` and MUST clear prior reviewer/time audit for a fresh review.
+Omit/empty and MIME validation rules remain unchanged.
 
-#### Scenario: Attachment replacement resets review status
+#### Scenario: Attachment replacement resets line state
 
 - GIVEN a line previously `approved` or `rejected` with an attachment
 - WHEN a new valid attachment replaces the prior file
-- THEN review status MUST become `pending`
+- THEN `state` MUST become `pending`
 - AND prior reviewer/time audit MUST be cleared for re-review

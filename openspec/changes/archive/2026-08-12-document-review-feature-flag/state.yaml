@@ -1,0 +1,14 @@
+# SDD change state — orchestrator-managed
+change: document-review-feature-flag
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+phase: archived
+apply_slice: complete
+updated: 2026-08-12
+verify_verdict: pass_with_warnings
+evidence_revision: sha256:c6d15f667e396e823d2c645838e6e1d4ed36d68d3875e1f646a804f333d5966b
+notes: |
+  Archived to openspec/changes/archive/2026-08-12-document-review-feature-flag/.
+  17/17 tasks, 130/130 tests, 15/15 scenarios. Verify pass_with_warnings.
+  Stacked PRs to main were planned and not created.

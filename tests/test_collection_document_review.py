@@ -19,6 +19,10 @@ _DOCUMENT_REVIEW_DIR = (
 class TestCollectionDocumentReview(TransactionCase):
     """RED/GREEN: document review queue, approve/reject, and validate guard."""
 
+    def setUp(self):
+        super().setUp()
+        self.env.company.write({"document_review_enabled": True})
+
     def _create_voucher(self, customer_identification="CUST-REV"):
         return self.env["collection.voucher"].create(
             {"customer_identification": customer_identification}
@@ -49,9 +53,7 @@ class TestCollectionDocumentReview(TransactionCase):
         queued = Line.get_review_queue()
         if not queued:
             return
-        Line.browse([item["id"] for item in queued]).write(
-            {"review_status": "rejected"}
-        )
+        Line.browse([item["id"] for item in queued]).write({"state": "rejected"})
 
     def _assert_no_binary_in_payload(self, item):
         self.assertIsInstance(item, dict)
@@ -145,7 +147,7 @@ class TestCollectionDocumentReview(TransactionCase):
             self._create_voucher("CUST-REV-DEC"),
             document_id="DOC-REV-DEC",
         )
-        decided.write({"review_status": "approved"})
+        decided.write({"state": "approved"})
 
         queue = Line.get_review_queue()
         queued_ids = [item["id"] for item in queue]
@@ -181,7 +183,7 @@ class TestCollectionDocumentReview(TransactionCase):
         voucher = self._create_voucher("CUST-REV-EMPTY")
         Line.create(self._line_vals(voucher, document_id="DOC-REV-EMPTY-NONE"))
         attached = self._create_attached_line(voucher, document_id="DOC-REV-EMPTY-ATT")
-        attached.write({"review_status": "approved"})
+        attached.write({"state": "approved"})
         rejected_voucher = self._create_voucher("CUST-REV-EMPTY-REJ")
         self._create_attached_line(rejected_voucher, document_id="DOC-REV-EMPTY-REJ")
         rejected_voucher.write({"state": "rejected"})
@@ -632,20 +634,20 @@ class TestCollectionDocumentReview(TransactionCase):
 
     # --- 1.2 Default pending/audit, approve, reject, aggregate ---
 
-    def test_review_status_defaults_pending_and_copy_false(self):
+    def test_state_defaults_pending_and_copy_false(self):
         voucher = self._create_voucher("CUST-REV-DEF")
         line = self._create_attached_line(voucher, document_id="DOC-REV-DEF")
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         self.assertFalse(line.reviewed_by)
         self.assertFalse(line.reviewed_at)
         line.write(
             {
-                "review_status": "approved",
+                "state": "approved",
                 "reviewed_by": self.env.user.id,
             }
         )
         clone = line.copy({"document_id": "DOC-REV-DEF-CLONE"})
-        self.assertEqual(clone.review_status, "pending")
+        self.assertEqual(clone.state, "pending")
         self.assertFalse(clone.reviewed_by)
         self.assertFalse(clone.reviewed_at)
 
@@ -673,7 +675,7 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(line.to_account, "NEW-TO")
         self.assertEqual(line.voucher_number, "TRF-EDIT")
         self.assertEqual(line.voucher_date, date(2026, 5, 1))
-        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.state, "approved")
         self.assertEqual(line.reviewed_by, self.env.user)
         self.assertTrue(line.reviewed_at)
 
@@ -703,13 +705,13 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(line.check_issue_date, date(2026, 1, 10))
         self.assertEqual(line.check_payment_date, date(2026, 2, 10))
         self.assertAlmostEqual(line.amount, 80.0, places=2)
-        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.state, "approved")
 
     def test_reject_sets_rejected_and_records_audit(self):
         voucher = self._create_voucher("CUST-REV-REJ")
         line = self._create_attached_line(voucher, document_id="DOC-REV-REJ")
         line.action_review_reject()
-        self.assertEqual(line.review_status, "rejected")
+        self.assertEqual(line.state, "rejected")
         self.assertEqual(line.reviewed_by, self.env.user)
         self.assertTrue(line.reviewed_at)
         self.assertEqual(voucher.state, "rejected")
@@ -727,14 +729,14 @@ class TestCollectionDocumentReview(TransactionCase):
             self._line_vals(voucher, document_id="DOC-REV-AGG-NONE")
         )
         first.action_review_approve()
-        self.assertEqual(first.review_status, "approved")
+        self.assertEqual(first.state, "approved")
         self.assertEqual(voucher.state, "new")
-        self.assertEqual(unattached.review_status, "pending")
+        self.assertEqual(unattached.state, "pending")
         second.action_review_approve({"amount": 120.0})
-        self.assertEqual(second.review_status, "approved")
+        self.assertEqual(second.state, "approved")
         self.assertAlmostEqual(second.amount, 120.0, places=2)
         self.assertEqual(voucher.state, "validated")
-        self.assertEqual(unattached.review_status, "pending")
+        self.assertEqual(unattached.state, "pending")
 
     def test_line_reject_rejects_voucher_immediately(self):
         """Triangulation: rejecting one attached line rejects the voucher."""
@@ -742,9 +744,9 @@ class TestCollectionDocumentReview(TransactionCase):
         pending = self._create_attached_line(voucher, document_id="DOC-REV-REJ-V1")
         sibling = self._create_attached_line(voucher, document_id="DOC-REV-REJ-V2")
         pending.action_review_reject()
-        self.assertEqual(pending.review_status, "rejected")
+        self.assertEqual(pending.state, "rejected")
         self.assertEqual(voucher.state, "rejected")
-        self.assertEqual(sibling.review_status, "pending")
+        self.assertEqual(sibling.state, "pending")
 
     # --- 1.3 Stale/concurrent, attachment reset, validate guard ---
 
@@ -752,13 +754,13 @@ class TestCollectionDocumentReview(TransactionCase):
         voucher = self._create_voucher("CUST-REV-STALE")
         line = self._create_attached_line(voucher, document_id="DOC-REV-STALE")
         line.action_review_approve({"amount": 40.0})
-        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.state, "approved")
         self.assertEqual(voucher.state, "validated")
         with self.assertRaises(UserError):
             line.action_review_approve({"amount": 1.0})
         with self.assertRaises(UserError):
             line.action_review_reject()
-        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.state, "approved")
         self.assertAlmostEqual(line.amount, 40.0, places=2)
         self.assertEqual(voucher.state, "validated")
 
@@ -771,7 +773,7 @@ class TestCollectionDocumentReview(TransactionCase):
             attached.action_review_approve()
         with self.assertRaises(UserError):
             attached.action_review_reject()
-        self.assertEqual(attached.review_status, "pending")
+        self.assertEqual(attached.state, "pending")
         self.assertEqual(voucher.state, "rejected")
 
         open_voucher = self._create_voucher("CUST-REV-STALE3")
@@ -782,14 +784,14 @@ class TestCollectionDocumentReview(TransactionCase):
             unattached.action_review_approve()
         with self.assertRaises(UserError):
             unattached.action_review_reject()
-        self.assertEqual(unattached.review_status, "pending")
+        self.assertEqual(unattached.state, "pending")
         self.assertEqual(open_voucher.state, "new")
 
     def test_attachment_write_resets_pending_and_clears_audit(self):
         voucher = self._create_voucher("CUST-REV-RESET")
         line = self._create_attached_line(voucher, document_id="DOC-REV-RESET")
         line.action_review_approve()
-        self.assertEqual(line.review_status, "approved")
+        self.assertEqual(line.state, "approved")
         self.assertTrue(line.reviewed_by)
         self.assertTrue(line.reviewed_at)
         line.write(
@@ -798,7 +800,7 @@ class TestCollectionDocumentReview(TransactionCase):
                 "attachment_filename": "replaced.pdf",
             }
         )
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         self.assertFalse(line.reviewed_by)
         self.assertFalse(line.reviewed_at)
         self.assertEqual(line.attachment_filename, "replaced.pdf")
@@ -808,14 +810,14 @@ class TestCollectionDocumentReview(TransactionCase):
         voucher = self._create_voucher("CUST-REV-RESET-REJ")
         line = self._create_attached_line(voucher, document_id="DOC-REV-RESET-REJ")
         line.action_review_reject()
-        self.assertEqual(line.review_status, "rejected")
+        self.assertEqual(line.state, "rejected")
         line.write(
             {
                 "attachment": PNG_B64,
                 "attachment_filename": "again.png",
             }
         )
-        self.assertEqual(line.review_status, "pending")
+        self.assertEqual(line.state, "pending")
         self.assertFalse(line.reviewed_by)
         self.assertFalse(line.reviewed_at)
 

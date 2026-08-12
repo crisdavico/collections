@@ -55,7 +55,7 @@ class CollectionVoucherLine(models.Model):
     attachment = fields.Binary(attachment=True, copy=False)
     attachment_filename = fields.Char(copy=False)
     attachment_rotation = fields.Integer(default=0, copy=False)
-    review_status = fields.Selection(
+    state = fields.Selection(
         selection=[
             ("pending", "Pending"),
             ("approved", "Approved"),
@@ -64,6 +64,7 @@ class CollectionVoucherLine(models.Model):
         default="pending",
         required=True,
         copy=False,
+        group_expand=True,
     )
     reviewed_by = fields.Many2one(
         comodel_name="res.users",
@@ -151,10 +152,11 @@ class CollectionVoucherLine(models.Model):
 
     @api.model
     def get_review_queue(self):
+        self._ensure_document_review_enabled()
         lines = self.search(
             [
                 ("voucher_id.state", "=", "new"),
-                ("review_status", "=", "pending"),
+                ("state", "=", "pending"),
                 ("attachment", "!=", False),
             ],
             order="id",
@@ -166,6 +168,7 @@ class CollectionVoucherLine(models.Model):
         ]
 
     def action_review_approve(self, vals=None):
+        self._ensure_document_review_enabled()
         self.ensure_one()
         self._lock_and_ensure_review_eligible()
         self._write_review_decision("approved", self._editable_review_vals(vals))
@@ -173,6 +176,7 @@ class CollectionVoucherLine(models.Model):
         return True
 
     def action_review_reject(self):
+        self._ensure_document_review_enabled()
         self.ensure_one()
         self._lock_and_ensure_review_eligible()
         self._write_review_decision("rejected")
@@ -181,6 +185,7 @@ class CollectionVoucherLine(models.Model):
         return True
 
     def action_review_set_rotation(self, degrees):
+        self._ensure_document_review_enabled()
         self.ensure_one()
         self._ensure_review_eligible()
         self.write(
@@ -189,12 +194,17 @@ class CollectionVoucherLine(models.Model):
         return True
 
     @api.private
+    def _ensure_document_review_enabled(self):
+        if not self.env.company._document_review_enabled():
+            raise UserError(self.env._("Document Review is not enabled."))
+
+    @api.private
     def _vals_with_review_reset_on_new_attachment(self, vals):
         if "attachment" not in vals:
             return vals
         vals = dict(vals)
         if vals.get("attachment"):
-            vals["review_status"] = "pending"
+            vals["state"] = "pending"
             vals["reviewed_by"] = False
             vals["reviewed_at"] = False
         vals["attachment_rotation"] = 0
@@ -227,7 +237,7 @@ class CollectionVoucherLine(models.Model):
     @api.private
     def _write_review_decision(self, status, extra_vals=None):
         vals = {
-            "review_status": status,
+            "state": status,
             "reviewed_by": self.env.user.id,
             "reviewed_at": fields.Datetime.now(),
         }
@@ -260,7 +270,7 @@ class CollectionVoucherLine(models.Model):
         self.ensure_one()
         return bool(
             self.voucher_id.state == "new"
-            and self.review_status == "pending"
+            and self.state == "pending"
             and self._lines_with_attachment()
         )
 
@@ -284,7 +294,7 @@ class CollectionVoucherLine(models.Model):
         if voucher.state != "new":
             return
         attached = voucher.payment_ids._lines_with_attachment()
-        if attached and all(line.review_status == "approved" for line in attached):
+        if attached and all(line.state == "approved" for line in attached):
             voucher.action_validate()
 
     @api.private
