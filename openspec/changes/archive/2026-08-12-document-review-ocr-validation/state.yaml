@@ -3,16 +3,14 @@ change: document-review-ocr-validation
 artifact_store: openspec
 delivery_strategy: ask-on-risk
 chain_strategy: stacked-to-main
-phase: ready-for-verify
+phase: archive
 apply_slice: complete
 updated: 2026-08-12
 review_budget_risk: high
 notes: |
-  Apply complete on stacked-to-main.
-  PR1 feat/document-review-pr1-model → voucher-line-attachments-unit-3
-  PR2 feat/document-review-pr2-owl → PR1
-  PR3 feat/document-review-pr3-viewer → PR2 (viewer + ACL/verify)
-  All 18 tasks [x]. Next: /sdd-verify.
+  Archived 2026-08-12. Verify PASS WITH WARNINGS. 103/103 tests. 11/11
+  requirements, 21/21 scenarios (15 COMPLIANT, 6 OWL/viewer PARTIAL — no
+  browser E2E). No CRITICAL, 0 blockers. 18/18 tasks [x]. reviewGate absent.
 artifacts:
   - proposal.md
   - specs/document-review/spec.md
@@ -20,3 +18,4 @@ artifacts:
   - design.md
   - tasks.md
   - apply-progress.md
+  - verify-report.md
