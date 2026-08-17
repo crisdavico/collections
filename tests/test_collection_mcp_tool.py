@@ -105,7 +105,7 @@ class TestCollectionMcpTool(TransactionCase):
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
-    def _payload(self, customer="MCP-CUST-NEW", payments=None):
+    def _payload(self, customer="MCP-CUST-NEW", payments=None, *, seller_id="default"):
         if payments is None:
             payments = [
                 {
@@ -123,10 +123,15 @@ class TestCollectionMcpTool(TransactionCase):
                     "check_type": "common",
                 },
             ]
-        return {
+        payload = {
             "customer_identification": customer,
             "payments": payments,
         }
+        if seller_id == "default":
+            payload["seller_id"] = self.internal_user.id
+        elif seller_id is not None:
+            payload["seller_id"] = seller_id
+        return payload
 
     def _assert_voucher_list(self, result, document_ids, state="pending"):
         """Assert payment-order list identity for create and exact replay."""
@@ -177,6 +182,12 @@ class TestCollectionMcpTool(TransactionCase):
         self.assertEqual(schema["type"], "object")
         self.assertIn("customer_identification", schema["required"])
         self.assertIn("payments", schema["required"])
+        self.assertIn(
+            "seller_id",
+            schema["required"],
+            "MCP schema must require top-level seller_id",
+        )
+        self.assertIn("seller_id", schema.get("properties", {}))
         self.assertNotIn(
             "received_date",
             schema.get("properties", {}),
@@ -649,6 +660,219 @@ class TestCollectionMcpTool(TransactionCase):
             ),
         )
 
+    # --- seller_id required, stamp all-new only, replay read-only ---
+
+    def _payload_with_seller(self, seller_id=None, **kwargs):
+        payload = self._payload(**kwargs)
+        payload["seller_id"] = self.internal_user.id if seller_id is None else seller_id
+        return payload
+
+    def test_all_new_create_stamps_seller_id(self):
+        """All-new create MUST stamp top-level seller_id on every voucher."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        result = self._call(
+            self._payload_with_seller(
+                customer="MCP-CUST-SELLER",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-SELLER-A",
+                        "document_type": "bank_transfer",
+                        "amount": 15.0,
+                    },
+                    {
+                        "document_id": "MCP-DOC-SELLER-B",
+                        "document_type": "cash_deposit",
+                        "amount": 25.0,
+                    },
+                ],
+            )
+        )
+        self._assert_voucher_list(result, ["MCP-DOC-SELLER-A", "MCP-DOC-SELLER-B"])
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers + 2,
+        )
+        first = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
+        self.assertEqual(first.seller_id, self.internal_user)
+        self.assertEqual(second.seller_id, self.internal_user)
+
+    def test_exact_retry_does_not_mutate_null_seller(self):
+        """Exact replay MUST ignore seller_id and MUST NOT fill a legacy null seller."""
+        legacy = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "MCP-CUST-LEGACY-NULL",
+                "document_type": "bank_transfer",
+                "document_id": "MCP-DOC-LEGACY-NULL",
+                "amount": 9.0,
+            }
+        )
+        self.assertFalse(legacy.seller_id)
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        write_date = legacy.write_date
+
+        result = self._call(
+            self._payload_with_seller(
+                customer="MCP-CUST-LEGACY-RETRY",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-LEGACY-NULL",
+                        "document_type": "bank_transfer",
+                        "amount": 999.0,
+                    }
+                ],
+            )
+        )
+        self._assert_voucher_list(result, ["MCP-DOC-LEGACY-NULL"])
+        self.assertEqual(result["vouchers"][0]["id"], legacy.id)
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        legacy.invalidate_recordset()
+        self.assertFalse(legacy.seller_id)
+        self.assertEqual(legacy.customer_identification, "MCP-CUST-LEGACY-NULL")
+        self.assertEqual(legacy.amount, 9.0)
+        self.assertEqual(legacy.write_date, write_date)
+
+    def test_exact_retry_does_not_replace_existing_seller(self):
+        """Triangulation: replay with another seller MUST NOT rewrite seller_id."""
+        first = self._call(
+            self._payload_with_seller(
+                customer="MCP-CUST-SELLER-KEEP",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-SELLER-KEEP",
+                        "document_type": "unsupported",
+                    }
+                ],
+            )
+        )
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        self.assertEqual(voucher.seller_id, self.internal_user)
+        other_seller = self.env.ref("base.user_admin")
+        self.assertNotEqual(other_seller, self.internal_user)
+
+        result = self._call(
+            self._payload_with_seller(
+                seller_id=other_seller.id,
+                customer="MCP-CUST-SELLER-KEEP-OTHER",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-SELLER-KEEP",
+                        "document_type": "unsupported",
+                    }
+                ],
+            )
+        )
+        self.assertEqual(result["vouchers"][0]["id"], voucher.id)
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.seller_id, self.internal_user)
+        self.assertEqual(voucher.customer_identification, "MCP-CUST-SELLER-KEEP")
+
+    def test_missing_seller_id_rejects_no_writes(self):
+        """Payloads missing seller_id MUST be rejected with no voucher writes."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-NO-SELLER",
+                    seller_id=None,
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-NO-SELLER",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                        }
+                    ],
+                )
+            )
+        self.assertIn("seller_id", str(err.exception).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-NO-SELLER")]
+            )
+        )
+
+    def test_portal_seller_id_rejects_no_writes(self):
+        """Portal/share seller_id MUST be rejected with no writes."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        self.assertTrue(self.portal_user.share)
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload_with_seller(
+                    seller_id=self.portal_user.id,
+                    customer="MCP-CUST-PORTAL-SELLER",
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-PORTAL-SELLER",
+                            "document_type": "check",
+                            "amount": 2.0,
+                            "check_type": "common",
+                        }
+                    ],
+                )
+            )
+        message = str(err.exception).lower()
+        self.assertNotIn("unexpected keyword", message)
+        self.assertIn(
+            "internal",
+            message,
+            f"Expected internal-seller validation message, got: {err.exception}",
+        )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-PORTAL-SELLER")]
+            )
+        )
+
+    def test_unknown_seller_id_rejects_no_writes(self):
+        """Unknown seller_id MUST be rejected with no writes."""
+        unknown_id = (
+            max(self.env["res.users"].search([], order="id desc", limit=1).id, 1)
+            + 999999
+        )
+        self.assertFalse(self.env["res.users"].browse(unknown_id).exists())
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload_with_seller(
+                    seller_id=unknown_id,
+                    customer="MCP-CUST-UNKNOWN-SELLER",
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-UNKNOWN-SELLER",
+                            "document_type": "cash_deposit",
+                            "amount": 3.0,
+                        }
+                    ],
+                )
+            )
+        message = str(err.exception).lower()
+        self.assertNotIn("unexpected keyword", message)
+        self.assertIn(
+            "seller_id",
+            message,
+            f"Expected seller_id validation message, got: {err.exception}",
+        )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-UNKNOWN-SELLER")]
+            )
+        )
+
 
 class TestCollectionMcpAttachment(TransactionCase):
     """RED/GREEN: optional nested MCP attachment on create; exact-retry ignore."""
@@ -661,6 +885,8 @@ class TestCollectionMcpAttachment(TransactionCase):
 
     def _call(self, arguments, user=None):
         env = self.env(user=user) if user else self.env(user=self.internal_user)
+        arguments = dict(arguments)
+        arguments.setdefault("seller_id", self.internal_user.id)
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 

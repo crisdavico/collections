@@ -107,6 +107,44 @@ class TestCollectionVoucher(TransactionCase):
         )
         self.assertTrue(voucher.create_date)
 
+    # --- Voucher seller_id (nullable, no backfill) ---
+
+    def test_orm_create_without_seller_stays_null(self):
+        """ORM create without seller_id MUST persist a null seller (no backfill)."""
+        fields_map = self.env["collection.voucher"]._fields
+        self.assertIn("seller_id", fields_map)
+        seller_field = fields_map["seller_id"]
+        self.assertEqual(seller_field.comodel_name, "res.users")
+        self.assertFalse(
+            seller_field.required,
+            "ORM seller_id must stay nullable (no NOT NULL / no backfill)",
+        )
+        self.assertEqual(seller_field.domain, [("share", "=", False)])
+
+        voucher = self._create_voucher(customer_identification="CUST-NO-SELLER")
+        self.assertFalse(
+            voucher.seller_id,
+            "ORM create without seller_id must leave seller null",
+        )
+
+    def test_orm_write_does_not_backfill_null_seller(self):
+        """Triangulation: explicit seller persists; write does not backfill null."""
+        seller = self.env.user
+        with_seller = self._create_voucher(
+            customer_identification="CUST-WITH-SELLER",
+            seller_id=seller.id,
+        )
+        self.assertEqual(with_seller.seller_id, seller)
+
+        legacy = self._create_voucher(customer_identification="CUST-LEGACY-NULL")
+        self.assertFalse(legacy.seller_id)
+        legacy.write({"amount": 10.0})
+        self.assertFalse(
+            legacy.seller_id,
+            "Saving a null-seller voucher must not backfill seller_id",
+        )
+        self.assertEqual(legacy.amount, 10.0)
+
     # --- 1.3 Payment field contract on the voucher ---
 
     def test_persist_type_specific_collection_fields(self):

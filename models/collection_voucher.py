@@ -27,6 +27,12 @@ class CollectionVoucher(models.Model):
         required=True,
         tracking=True,
     )
+    seller_id = fields.Many2one(
+        comodel_name="res.users",
+        string="Seller",
+        required=False,
+        domain=[("share", "=", False)],
+    )
     state = fields.Selection(
         selection=[
             ("pending", "Pending"),

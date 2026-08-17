@@ -64,7 +64,9 @@ class CollectionMcpMixin(models.AbstractModel):
         name="create_collection_vouchers",
         description=(
             "Create one payment voucher per payment. "
-            "Requires customer_identification and a non-empty payments array. "
+            "Requires customer_identification, seller_id, and a non-empty "
+            "payments array. "
+            "seller_id must be an internal user (not portal/share). "
             "Each payment must include a non-empty document_id and document_type. "
             "Each payment may include an optional attachment "
             "{name, mimetype, datas}. "
@@ -76,6 +78,13 @@ class CollectionMcpMixin(models.AbstractModel):
                 "customer_identification": {
                     "type": "string",
                     "description": "Customer identification string for the voucher.",
+                },
+                "seller_id": {
+                    "type": "integer",
+                    "description": (
+                        "Internal user id of the seller. Required on every call; "
+                        "stamped only on all-new create. Ignored on exact replay."
+                    ),
                 },
                 "payments": {
                     "type": "array",
@@ -150,7 +159,7 @@ class CollectionMcpMixin(models.AbstractModel):
                     },
                 },
             },
-            "required": ["customer_identification", "payments"],
+            "required": ["customer_identification", "payments", "seller_id"],
         },
         category="write",
         registry="mcp",
@@ -159,11 +168,13 @@ class CollectionMcpMixin(models.AbstractModel):
         self,
         customer_identification: str,
         payments: list[dict[str, Any]],
+        seller_id: int | None = None,
     ) -> dict[str, Any]:
         """Validate, resolve document_id idempotency, then create or replay.
 
         Nested attachments are validated and mapped only on the all-new create
-        path. Exact-retry ignores attachment nests (no add/replace/compare).
+        path. Exact-retry ignores attachment nests, customer, and seller_id
+        (no add/replace/compare; no writes to matching vouchers).
 
         :raise UserError: when required fields are missing/invalid or conflicts.
         :raise AccessError: when the caller lacks voucher create rights.
@@ -173,6 +184,7 @@ class CollectionMcpMixin(models.AbstractModel):
             raise UserError(_("customer_identification is required."))
         if not isinstance(payments, list) or not payments:
             raise UserError(_("payments must be a non-empty list."))
+        seller = self._collection_require_internal_seller(seller_id)
 
         payment_vals_list = self._collection_parse_payment_vals(payments)
         document_ids = [vals["document_id"] for vals in payment_vals_list]
@@ -182,7 +194,7 @@ class CollectionMcpMixin(models.AbstractModel):
         # Caller env only — never sudo(); ORM ACL enforces base.group_user rights.
         existing = self._collection_vouchers_by_document_ids(document_ids)
         if existing:
-            # Exact-retry / conflict: ignore attachment nests entirely.
+            # Exact-retry / conflict: ignore attachment nests and seller_id.
             return self._collection_replay_or_reject(existing, document_ids)
 
         # Create-only: validate nests and map into voucher vals after all-new.
@@ -191,7 +203,9 @@ class CollectionMcpMixin(models.AbstractModel):
         )
 
         try:
-            return self._collection_create_vouchers(customer, payment_vals_list)
+            return self._collection_create_vouchers(
+                customer, payment_vals_list, seller.id
+            )
         except UniqueViolation:
             # Race: concurrent create won the unique(document_id) race.
             # Savepoint already rolled back + cleared; refresh ORM caches.
@@ -376,14 +390,35 @@ class CollectionMcpMixin(models.AbstractModel):
                 )
             )
         # Exact set of existing document_ids succeeds even across vouchers.
-        # Customer identification and nested attachments are ignored.
+        # Customer identification, nested attachments, and seller_id are ignored.
         return self._collection_vouchers_payload(existing, document_ids)
+
+    @api.model
+    def _collection_require_internal_seller(self, seller_id: Any):
+        """Return a browsable internal user or raise UserError (no sudo)."""
+        if seller_id in (None, False, ""):
+            raise UserError(_("seller_id is required."))
+        try:
+            seller_pk = int(seller_id)
+        except (TypeError, ValueError) as err:
+            raise UserError(_("seller_id must be an internal user.")) from err
+        if seller_pk <= 0:
+            raise UserError(_("seller_id is required."))
+        seller = self.env["res.users"].browse(seller_pk)
+        if (
+            not seller.exists()
+            or seller.share
+            or not seller.has_group("base.group_user")
+        ):
+            raise UserError(_("seller_id must be an internal user."))
+        return seller
 
     @api.model
     def _collection_create_vouchers(
         self,
         customer: str,
         payment_vals_list: list[dict[str, Any]],
+        seller_id: int,
     ) -> dict[str, Any]:
         """Atomically create one voucher per payment inside a savepoint."""
         Voucher = self.env["collection.voucher"]
@@ -393,6 +428,7 @@ class CollectionMcpMixin(models.AbstractModel):
                 **vals,
                 "customer_identification": customer,
                 "state": "pending",
+                "seller_id": seller_id,
             }
             for vals in payment_vals_list
         ]

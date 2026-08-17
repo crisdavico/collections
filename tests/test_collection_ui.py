@@ -452,6 +452,29 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(voucher.document_type, "cash_deposit")
         self.assertFalse(voucher.document_id)
 
+    def test_form_seller_id_is_required(self):
+        """Payment Vouchers form MUST require seller_id (ORM stays nullable)."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        nodes = self._field_nodes(form_root, "seller_id")
+        self.assertTrue(nodes, "form must include seller_id")
+        required = nodes[0].get("required")
+        self.assertIn(
+            required,
+            ("1", "True", "true"),
+            f"form seller_id must be required (got {required!r})",
+        )
+
+    def test_list_form_search_expose_seller_id(self):
+        """Triangulation: list, form, and search MUST show seller_id."""
+        for xmlid, label in (
+            ("collection.view_collection_voucher_list", "list"),
+            ("collection.view_collection_voucher_form", "form"),
+            ("collection.view_collection_voucher_search", "search"),
+        ):
+            root = self._arch_root(xmlid)
+            names = self._field_names(root)
+            self.assertIn("seller_id", names, f"{label} view must expose seller_id")
+
     # --- Document Review client action (kept; OWL retarget is Phase 3) ---
 
     def test_document_review_menu_and_client_action(self):
