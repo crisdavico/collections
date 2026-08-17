@@ -1,0 +1,16 @@
+# SDD change state — orchestrator-managed
+change: collection-sheets
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: auto
+subagent_model: grok-4.6
+phase: apply
+updated: 2026-08-17
+notes: |
+  Maintainer reset after PR1 488/400 budget. PR1 commit 1c02e8c stands.
+phase: archived
+updated: 2026-08-17
+notes: |
+  PR5 isolation committed 6cc16f0 on feat/collection-sheets-05-test-isolation.
+  Archived 2026-08-17. Settings-menu WIP still unstaged (out of this change).
