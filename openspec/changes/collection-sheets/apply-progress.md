@@ -2,8 +2,8 @@
 
 **Change**: collection-sheets
 **Mode**: Strict TDD
-**Batch**: PR 1 of 4 (tasks 1.1–1.5)
-**Branch**: `feat/collection-sheets-01-seller-mcp`
+**Batch**: PR 2 of 4 (tasks 2.1–2.3); PR 1 complete
+**Branch**: `feat/collection-sheets-02-sheet-sequence` (from `feat/collection-sheets-01-seller-mcp`)
 **Chain strategy**: stacked-to-main
 
 ## Completed Tasks
@@ -13,6 +13,9 @@
 - [x] 1.3 RED `tests/test_collection_mcp_tool.py`: require `seller_id`; all-new stamps; exact replay no mutate (incl. null); missing/portal/unknown reject, no writes.
 - [x] 1.4 GREEN `models/collection_voucher.py`: nullable `seller_id` → `res.users`, domain `[('share','=',False)]`.
 - [x] 1.5 GREEN `tools/collection_voucher.py`: validate internal `seller_id`; stamp all-new only; replay read-only; no `sudo()`. Voucher seller in `views/collection_views.xml`. REFACTOR.
+- [x] 2.1 RED `tests/test_collection_sheet.py`: unique `CS/<year>/<number>`; no `state`; missing seller and post-create seller write rejected; not from `create_uid`.
+- [x] 2.2 GREEN create `models/collection_sheet.py`: required frozen `seller_id`; sequence `collection.sheet`.
+- [x] 2.3 GREEN `models/__init__.py`; `data/ir_sequence_data.xml` `CS/%(year)s/` pad 4; `security/ir.model.access.csv` one `base.group_user` CRUD row; `tests/__init__.py`. REFACTOR.
 
 ## TDD Cycle Evidence
 
@@ -67,7 +70,6 @@ None — implementation matches design.
 
 ## Remaining Tasks
 
-- [ ] Phase 2 (PR 2): sheet model + sequence (2.1–2.3)
 - [ ] Phase 3 (PR 3): Action, dates, constraints (3.1–3.6)
 - [ ] Phase 4 (PR 4): UI, ACL, upgrade (4.1–4.4)
 
@@ -78,3 +80,65 @@ None — implementation matches design.
 - Starts at: collection `main` (`744b8d2`)
 - Ends with: nullable voucher `seller_id`; form required + list/form/search exposure; MCP requires top-level `seller_id`, stamps all-new only, exact replay does not mutate (incl. null seller); missing/portal/unknown seller rejected with no writes
 - Estimated review budget impact: ~350 authored lines (implementation); within 400
+
+---
+
+## PR 2 of 4 — Sheet model + sequence (2.1–2.3)
+
+**Branch**: `feat/collection-sheets-02-sheet-sequence`
+**Base**: `feat/collection-sheets-01-seller-mcp` (`1c02e8c`)
+
+### TDD Cycle Evidence (PR2)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 2.1 | `tests/test_collection_sheet.py` | Unit | N/A (new) | ✅ Written: `KeyError: collection.sheet` (6/6) | ✅ 0 failed, 0 error(s) of 6 | ✅ sequence unique + pattern; missing seller; freeze other/same seller; seller ≠ create_uid | ✅ `_create_sheet` helper |
+| 2.2 | `tests/test_collection_sheet.py` | Unit | N/A (new model) | ✅ 2.1 tests | ✅ required frozen `seller_id`; sequence `collection.sheet`; no `state` | covered by 2.1 | ➖ Model already minimal |
+| 2.3 | same | Unit | existing `__init__`/ACL/sequence XML | ✅ 2.1 tests | ✅ import, `CS/%(year)s/` pad 4, one `base.group_user` CRUD row | ➖ Structural wiring | ➖ None needed |
+
+### Test Summary (PR2)
+
+- **Total tests written**: 6
+- **Focused tests passing**: 6/6
+- **Layers used**: Unit (TransactionCase)
+- **Approval tests**: None
+- **Pure functions created**: 0
+
+### Work Unit Evidence (PR2)
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `docker compose run --rm odoo odoo --test-enable --stop-after-init --workers=0 -u collection --test-tags /collection:TestCollectionSheet` → **0 failed, 0 error(s) of 6 tests** |
+| Official runner | `invoke test -m collection --mode=update` → **12 failed, 0 error(s) of 150 tests**. Same 12 pre-existing `document_review_enabled=True` flag-off failures. Sheet tests all passed. |
+| Runtime harness | `invoke install -m collection` → **exit 0** (sheet table, sequence, ACL loaded on devel) |
+| Rollback boundary | Revert `models/collection_sheet.py`, sheet import, `seq_collection_sheet`, sheet ACL row, `tests/test_collection_sheet.py` + test import. Does not revert PR1 seller/MCP or PR3 Action/dates/`sheet_id`. |
+
+### Files Changed (PR2)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `tests/test_collection_sheet.py` | Created | Sequence, no state, required/frozen seller, not from create_uid |
+| `models/collection_sheet.py` | Created | Required readonly `seller_id`; sequence on create; write block |
+| `models/__init__.py` | Modified | Import sheet |
+| `data/ir_sequence_data.xml` | Modified | `collection.sheet` `CS/%(year)s/` pad 4, `company_id=False` |
+| `security/ir.model.access.csv` | Modified | One `base.group_user` CRUD row |
+| `tests/__init__.py` | Modified | Import sheet tests |
+| `openspec/changes/collection-sheets/tasks.md` | Modified | Marked 2.1–2.3 `[x]` |
+| `openspec/changes/collection-sheets/apply-progress.md` | Modified | Merged PR2 evidence |
+
+### Deviations from Design (PR2)
+
+None — implementation matches design. No Action, dates, `sheet_id`, constraints, views, or manifest bump.
+
+### Remaining Tasks
+
+- [ ] Phase 3 (PR 3): Action, dates, constraints (3.1–3.6)
+- [ ] Phase 4 (PR 4): UI, ACL, upgrade (4.1–4.4)
+
+### Workload / PR Boundary (PR2)
+
+- Mode: stacked PR slice
+- Current work unit: PR2 sheet + sequence
+- Starts at: `feat/collection-sheets-01-seller-mcp` (`1c02e8c`)
+- Ends with: `collection.sheet` with unique `CS/<year>/<number>`, required frozen `seller_id` (not from `create_uid`), no `state`/chatter, one internal-user ACL row
+- Follow-up: PR3 Action/dates/constraints from this branch

@@ -7,5 +7,6 @@ from . import test_collection_document_review_flag
 from . import test_collection_mail
 from . import test_collection_mcp_tool
 from . import test_collection_payment
+from . import test_collection_sheet
 from . import test_collection_ui
 from . import test_collection_voucher

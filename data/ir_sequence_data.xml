@@ -7,4 +7,11 @@
         <field name="padding">4</field>
         <field name="company_id" eval="False" />
     </record>
+    <record id="seq_collection_sheet" model="ir.sequence">
+        <field name="name">Collection Sheet</field>
+        <field name="code">collection.sheet</field>
+        <field name="prefix">CS/%(year)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" eval="False" />
+    </record>
 </odoo>
