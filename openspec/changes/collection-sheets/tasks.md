@@ -54,7 +54,7 @@ Out: nebula-agent, threat-matrix, new migrations.
 
 ## Phase 4: UI, ACL, upgrade (PR 4)
 
-- [ ] 4.1 RED `tests/test_collection_ui.py`: sheet menu/list/form/search; Action xmlid; no statusbar; `<list>`. RED `tests/test_collection_acl.py`: sheet CRUD internal vs portal.
-- [ ] 4.2 GREEN `views/collection_views.xml`: sheet views+menu; list Action; `widget="many2many"`.
-- [ ] 4.3 GREEN `__manifest__.py` `19.0.1.9.0` → `19.0.1.10.0`. Keep `migrations/19.0.1.7.0`; no `migrations/19.0.1.10.0/`.
-- [ ] 4.4 Verify: `invoke install -m collection`; `invoke test -m collection`; Seedian root `pre-commit run --files odoo/custom/src/private/collection/**`.
+- [x] 4.1 RED `tests/test_collection_ui.py`: sheet menu/list/form/search; Action xmlid; no statusbar; `<list>`. RED `tests/test_collection_acl.py`: sheet CRUD internal vs portal.
+- [x] 4.2 GREEN `views/collection_views.xml`: sheet views+menu; list Action; `widget="many2many"`.
+- [x] 4.3 GREEN `__manifest__.py` `19.0.1.9.0` → `19.0.1.10.0`. Keep `migrations/19.0.1.7.0`; no `migrations/19.0.1.10.0/`.
+- [x] 4.4 Verify: `invoke install -m collection`; `invoke test -m collection`; Seedian root `pre-commit run --files odoo/custom/src/private/collection/**`.

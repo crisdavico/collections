@@ -475,6 +475,71 @@ class TestCollectionUi(TransactionCase):
             names = self._field_names(root)
             self.assertIn("seller_id", names, f"{label} view must expose seller_id")
 
+    def test_collection_sheets_menu_list_form_search(self):
+        """Collections → Collection Sheets MUST wire list, form, and search."""
+        root_menu = self.env.ref("collection.menu_collection_root")
+        sheet_menu = self.env.ref("collection.menu_collection_sheet")
+        action = self.env.ref("collection.action_collection_sheet")
+        create_action = self.env.ref("collection.action_create_collection_sheet")
+
+        self.assertEqual(sheet_menu.name, "Collection Sheets")
+        self.assertEqual(sheet_menu.parent_id, root_menu)
+        self.assertEqual(sheet_menu.action, action)
+        self.assertEqual(action.res_model, "collection.sheet")
+        self.assertIn("list", action.view_mode)
+        self.assertIn("form", action.view_mode)
+        self.assertEqual(
+            action.search_view_id,
+            self.env.ref("collection.view_collection_sheet_search"),
+        )
+        self.assertEqual(create_action.type, "ir.actions.server")
+        self.assertEqual(create_action.binding_view_types, "list")
+
+        list_root = self._arch_root("collection.view_collection_sheet_list")
+        search_root = self._arch_root("collection.view_collection_sheet_search")
+        self.assertEqual(list_root.tag, "list")
+        self.assertNotEqual(list_root.tag, "tree")
+        self.assertEqual(search_root.tag, "search")
+        list_fields = self._field_names(list_root)
+        search_fields = self._field_names(search_root)
+        for field_name in ("name", "seller_id", "date_from", "date_to"):
+            self.assertIn(field_name, list_fields, f"list must show {field_name}")
+            self.assertIn(field_name, search_fields, f"search must show {field_name}")
+        self._assert_create_edit_enabled(list_root, "sheet list")
+
+    def test_collection_sheets_form_without_statusbar(self):
+        """Sheet form: required seller readonly after create, dates, membership."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        self.assertEqual(form_root.tag, "form")
+        self._assert_create_edit_enabled(form_root, "sheet form")
+        names = self._field_names(form_root)
+        for field_name in ("name", "seller_id", "date_from", "date_to", "voucher_ids"):
+            self.assertIn(field_name, names, f"form must show {field_name}")
+
+        seller = self._field_nodes(form_root, "seller_id")[0]
+        self.assertIn(
+            seller.get("required"),
+            ("1", "True", "true"),
+            f"form seller_id must be required (got {seller.get('required')!r})",
+        )
+        readonly = seller.get("readonly") or ""
+        self.assertIn("id", readonly, "seller_id must be readonly after create")
+        self.assertNotIn(
+            readonly.lower(),
+            ("1", "true"),
+            "seller_id must stay editable on create",
+        )
+        membership = self._field_nodes(form_root, "voucher_ids")[0]
+        self.assertEqual(membership.get("widget"), "many2many")
+        self.assertFalse(
+            form_root.xpath('//field[@widget="statusbar"]'),
+            "sheet form must not include a workflow statusbar",
+        )
+        self.assertNotIn(
+            "received_date",
+            etree.tostring(form_root, encoding="unicode"),
+        )
+
     # --- Document Review client action (kept; OWL retarget is Phase 3) ---
 
     def test_document_review_menu_and_client_action(self):

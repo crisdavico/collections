@@ -2,8 +2,8 @@
 
 **Change**: collection-sheets
 **Mode**: Strict TDD
-**Batch**: PR 3 of 4 (tasks 3.1–3.6); PR 1–2 complete
-**Branch**: `feat/collection-sheets-03-action-dates` (from `feat/collection-sheets-02-sheet-sequence`)
+**Batch**: PR 4 of 4 (tasks 4.1–4.4); PR 1–3 complete
+**Branch**: `feat/collection-sheets-04-ui-acl` (from `feat/collection-sheets-03-action-dates`)
 **Chain strategy**: stacked-to-main
 
 ## Completed Tasks
@@ -22,6 +22,10 @@
 - [x] 3.4 RED unlink sheet: vouchers persist, `sheet_id` null. RED assigned without seller fails.
 - [x] 3.5 GREEN `models/collection_voucher.py`: `sheet_id` set-null; constrains+CHECK; list `ir.actions.server` (no wizard).
 - [x] 3.6 GREEN `models/collection_sheet.py`: O2M; UTC dates; `(2,id)`→`(3,id)`; freeze seller. REFACTOR.
+- [x] 4.1 RED `tests/test_collection_ui.py`: sheet menu/list/form/search; Action xmlid; no statusbar; `<list>`. RED `tests/test_collection_acl.py`: sheet CRUD internal vs portal.
+- [x] 4.2 GREEN `views/collection_views.xml`: sheet views+menu; list Action; `widget="many2many"`.
+- [x] 4.3 GREEN `__manifest__.py` `19.0.1.9.0` → `19.0.1.10.0`. Keep `migrations/19.0.1.7.0`; no `migrations/19.0.1.10.0/`.
+- [x] 4.4 Verify: `invoke install -m collection`; `invoke test -m collection --mode=update`; scoped pre-commit.
 
 ## TDD Cycle Evidence
 
@@ -202,7 +206,7 @@ None — implementation matches design. No sheet menu/form/search, no ACL tests,
 
 ### Remaining Tasks
 
-- [ ] Phase 4 (PR 4): UI, ACL, upgrade (4.1–4.4)
+- [x] Phase 4 (PR 4): UI, ACL, upgrade (4.1–4.4)
 
 ### Workload / PR Boundary (PR3)
 
@@ -211,3 +215,65 @@ None — implementation matches design. No sheet menu/form/search, no ACL tests,
 - Starts at: `feat/collection-sheets-02-sheet-sequence` (`feee801`)
 - Ends with: list Action creates one sheet from unassigned same-seller vouchers (any state); mixed/null/assigned/empty rejected atomically; membership constraints; UTC dates; sheet unlink unassigns
 - Follow-up: PR4 UI/ACL/manifest from this branch
+
+---
+
+## PR 4 of 4 — UI, ACL, upgrade (4.1–4.4)
+
+**Branch**: `feat/collection-sheets-04-ui-acl`
+**Base**: `feat/collection-sheets-03-action-dates` (`1d3f2f2`)
+
+### TDD Cycle Evidence (PR4)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 4.1 UI | `tests/test_collection_ui.py` | Unit (arch) | ✅ 30/31 UI+ACL (1 known flag-off) | ✅ Written: missing menu/form xmlids | ✅ 0 failed of 5 focused | ✅ menu/list/search + form seller/membership/no statusbar | ➖ Match voucher XML |
+| 4.1 ACL | `tests/test_collection_acl.py` | Unit | same | ✅ Written; passed immediately (ACL from PR2) | ✅ internal CRUD + portal deny | ✅ one `base.group_user` row, no `ir.rule` | ➖ E501 wrap |
+| 4.2 | `views/collection_views.xml` | Unit (arch) | same | ✅ 4.1 UI | ✅ `<list>`/form/search/menu; `widget="many2many"`; no duplicate Action | covered by 4.1 | ➖ None needed |
+| 4.3 | `__manifest__.py` | Structural | N/A | ➖ Version bump | ✅ `19.0.1.10.0`; kept `migrations/19.0.1.7.0` | ➖ Single output | ➖ None needed |
+| 4.4 | verify | Integration | same 12 flag-off | n/a | ✅ install 0; suite 12/164 known flag-off; pre-commit | n/a | n/a |
+
+### Test Summary (PR4)
+
+- **Total tests written**: 5 (2 UI + 3 ACL)
+- **Focused tests passing**: 5/5
+- **Layers used**: Unit (TransactionCase)
+- **Approval tests**: ACL coverage of PR2 row
+- **Pure functions created**: 0
+
+### Work Unit Evidence (PR4)
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `docker compose run --rm odoo odoo --test-enable --stop-after-init --workers=0 -u collection --test-tags /collection:TestCollectionUi.test_collection_sheets_menu_list_form_search,/collection:TestCollectionUi.test_collection_sheets_form_without_statusbar,/collection:TestCollectionAcl.test_internal_user_sheet_crud_allowed,/collection:TestCollectionAcl.test_portal_user_sheet_crud_denied,/collection:TestCollectionAcl.test_sheet_acl_internal_group_only` → **0 failed, 0 error(s) of 5 tests** |
+| Official runner | `invoke test -m collection --mode=update` → **12 failed, 0 error(s) of 164 tests**. Same 12 pre-existing flag-off failures. No PR4 regressions. |
+| Runtime harness | `invoke install -m collection` → **exit 0** (sheet views/menu; version `19.0.1.10.0`) |
+| Rollback boundary | Revert sheet list/form/search/menu/`action_collection_sheet`; UI/ACL tests; manifest `19.0.1.10.0` (+ generated README/index). Does not revert PR1–PR3. Settings-menu WIP stays unstaged. |
+
+### Files Changed (PR4)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `tests/test_collection_ui.py` | Modified | Sheet menu/list/form/search; Action xmlid; no statusbar; `<list>` |
+| `tests/test_collection_acl.py` | Modified | Sheet CRUD internal vs portal; one internal ACL row |
+| `views/collection_views.xml` | Modified | Sheet views+menu; membership `widget="many2many"`; list Action untouched |
+| `__manifest__.py` | Modified | `19.0.1.9.0` → `19.0.1.10.0` |
+| `README.rst`, `static/description/index.html` | Modified | oca-gen-addon-readme version bump |
+| `openspec/changes/collection-sheets/tasks.md` | Modified | Marked 4.1–4.4 `[x]` |
+| `openspec/changes/collection-sheets/apply-progress.md` | Modified | Merged PR4 evidence |
+
+### Deviations from Design (PR4)
+
+None — implementation matches design. Did not duplicate `action_create_collection_sheet`. No `migrations/19.0.1.10.0/`.
+
+### Remaining Tasks
+
+None — all tasks 1.1–4.4 complete. Next: `sdd-verify`.
+
+### Workload / PR Boundary (PR4)
+
+- Mode: stacked PR slice
+- Current work unit: PR4 UI, ACL, upgrade
+- Starts at: `feat/collection-sheets-03-action-dates` (`1d3f2f2`)
+- Ends with: Collections → Collection Sheets list/form/search; required seller readonly after create; membership many2many; internal ACL coverage; manifest `19.0.1.10.0`
+- Follow-up: `sdd-verify`

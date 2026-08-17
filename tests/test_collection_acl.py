@@ -137,7 +137,7 @@ class TestCollectionAcl(TransactionCase):
         )
 
     def test_portal_user_review_queue_approve_reject_denied(self):
-        """Non-internal users must be denied queue, approve, reject, and voucher read."""
+        """Non-internal users must be denied queue, approve, reject, and read."""
         admin_voucher = self._create_attached_pending_voucher(
             self.env,
             document_id="ACL-REV-PORTAL-DOC",
@@ -209,3 +209,46 @@ class TestCollectionAcl(TransactionCase):
             env["collection.voucher"].get_review_queue()
         voucher.action_approve()
         self.assertEqual(voucher.state, "approved")
+
+    def _sheet_vals(self, **extra):
+        vals = {"seller_id": self.internal_user.id}
+        vals.update(extra)
+        return vals
+
+    def test_internal_user_sheet_crud_allowed(self):
+        Sheet = self.env["collection.sheet"].with_user(self.internal_user)
+        sheet = Sheet.create(self._sheet_vals())
+        self.assertTrue(sheet.id)
+        self.assertTrue(sheet.name)
+        sheet.write({"voucher_ids": [(5, 0, 0)]})
+        self.assertFalse(sheet.voucher_ids)
+        sheet_id = sheet.id
+        sheet.unlink()
+        self.assertFalse(Sheet.browse(sheet_id).exists())
+
+    def test_portal_user_sheet_crud_denied(self):
+        Sheet = self.env["collection.sheet"].with_user(self.portal_user)
+        with self.assertRaises(AccessError):
+            Sheet.create(self._sheet_vals())
+        admin_sheet = self.env["collection.sheet"].create(self._sheet_vals())
+        with self.assertRaises(AccessError):
+            Sheet.browse(admin_sheet.id).read(["name"])
+        with self.assertRaises(AccessError):
+            Sheet.browse(admin_sheet.id).write({"voucher_ids": [(5, 0, 0)]})
+        with self.assertRaises(AccessError):
+            Sheet.browse(admin_sheet.id).unlink()
+
+    def test_sheet_acl_internal_group_only(self):
+        """Triangulation: sheets use one base.group_user ACL row and no record rules."""
+        acls = self.env["ir.model.access"].search(
+            [("model_id.model", "=", "collection.sheet")]
+        )
+        self.assertEqual(len(acls), 1)
+        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertTrue(acls.perm_read)
+        self.assertTrue(acls.perm_write)
+        self.assertTrue(acls.perm_create)
+        self.assertTrue(acls.perm_unlink)
+        self.assertFalse(
+            self.env["ir.rule"].search([("model_id.model", "=", "collection.sheet")])
+        )
