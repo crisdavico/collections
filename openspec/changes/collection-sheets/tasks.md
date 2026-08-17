@@ -45,12 +45,12 @@ Out: nebula-agent, threat-matrix, new migrations.
 
 ## Phase 3: Action, dates, constraints (PR 3)
 
-- [ ] 3.1 RED Action: unassigned same-seller `pending`+`approved` → one sheet, both members; mixed/assigned/empty → `UserError`, no sheet.
-- [ ] 3.2 RED Action seller-less selection: null `seller_id` → `UserError`, no sheet (atomic). Spec ineligible GIVEN omitted this; still require non-null seller.
-- [ ] 3.3 RED mixed/null assign rejected; reassign → sheet B only; empty dates False; UTC min/max member `create_date`; no `received_date`.
-- [ ] 3.4 RED unlink sheet: vouchers persist, `sheet_id` null. RED `tests/test_collection_voucher.py`: assigned without seller fails.
-- [ ] 3.5 GREEN `models/collection_voucher.py`: `sheet_id` set-null; constrains+CHECK; list `ir.actions.server` (no wizard).
-- [ ] 3.6 GREEN `models/collection_sheet.py`: O2M; UTC dates; `(2,id)`→`(3,id)`; freeze seller. REFACTOR. `invoke test -m collection`.
+- [x] 3.1 RED Action: unassigned same-seller `pending`+`approved` → one sheet, both members; mixed/assigned/empty → `UserError`, no sheet.
+- [x] 3.2 RED Action seller-less selection: null `seller_id` → `UserError`, no sheet (atomic). Spec ineligible GIVEN omitted this; still require non-null seller.
+- [x] 3.3 RED mixed/null assign rejected; reassign → sheet B only; empty dates False; UTC min/max member `create_date`; no `received_date`.
+- [x] 3.4 RED unlink sheet: vouchers persist, `sheet_id` null. RED `tests/test_collection_voucher.py`: assigned without seller fails.
+- [x] 3.5 GREEN `models/collection_voucher.py`: `sheet_id` set-null; constrains+CHECK; list `ir.actions.server` (no wizard).
+- [x] 3.6 GREEN `models/collection_sheet.py`: O2M; UTC dates; `(2,id)`→`(3,id)`; freeze seller. REFACTOR. `invoke test -m collection`.
 
 ## Phase 4: UI, ACL, upgrade (PR 4)
 

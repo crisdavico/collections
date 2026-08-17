@@ -6,7 +6,7 @@ from datetime import date
 from psycopg2 import IntegrityError
 
 from odoo import fields
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
@@ -332,3 +332,15 @@ class TestCollectionVoucher(TransactionCase):
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
         self.assertEqual(voucher.attachment_filename, "new.pdf")
+
+    def test_assigned_without_seller_fails(self):
+        """Assigned voucher MUST keep a non-null seller."""
+        sheet = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        voucher = self._create_voucher(customer_identification="CUST-SHEET-NO-SELLER")
+        self.assertFalse(voucher.seller_id)
+        with mute_logger("odoo.sql_db"):
+            try:
+                voucher.write({"sheet_id": sheet.id})
+            except (UserError, ValidationError, IntegrityError):
+                return
+        self.fail("Assigning a seller-less voucher to a sheet must be rejected")

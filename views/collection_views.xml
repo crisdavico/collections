@@ -233,6 +233,16 @@
         </field>
     </record>
 
+    <!-- List-bound Action: create a collection sheet from selected vouchers -->
+    <record id="action_create_collection_sheet" model="ir.actions.server">
+        <field name="name">Create Collection Sheet</field>
+        <field name="model_id" ref="model_collection_voucher" />
+        <field name="binding_model_id" ref="model_collection_voucher" />
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_create_collection_sheet()</field>
+    </record>
+
     <!-- Action -->
     <record id="action_collection_voucher" model="ir.actions.act_window">
         <field name="name">Payment Vouchers</field>

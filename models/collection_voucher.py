@@ -5,7 +5,7 @@ import binascii
 from base64 import b64decode
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tools.mimetypes import guess_mimetype
 from odoo.tools.translate import _
 
@@ -32,6 +32,11 @@ class CollectionVoucher(models.Model):
         string="Seller",
         required=False,
         domain=[("share", "=", False)],
+    )
+    sheet_id = fields.Many2one(
+        comodel_name="collection.sheet",
+        string="Collection Sheet",
+        ondelete="set null",
     )
     state = fields.Selection(
         selection=[
@@ -110,6 +115,10 @@ class CollectionVoucher(models.Model):
         "CHECK(attachment_rotation IN (0, 90, 180, 270))",
         "Attachment rotation must be 0, 90, 180, or 270 degrees.",
     )
+    _sheet_requires_seller = models.Constraint(
+        "CHECK(sheet_id IS NULL OR seller_id IS NOT NULL)",
+        "A voucher assigned to a sheet must have a seller.",
+    )
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -166,6 +175,44 @@ class CollectionVoucher(models.Model):
                 "reviewed_at": fields.Datetime.now(),
             }
         )
+
+    def action_create_collection_sheet(self):
+        seller = self._seller_for_sheet_action()
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        self.sheet_id = sheet
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Collection Sheet"),
+            "res_model": "collection.sheet",
+            "res_id": sheet.id,
+            "view_mode": "form",
+            "target": "current",
+        }
+
+    @api.private
+    def _seller_for_sheet_action(self):
+        if not self:
+            raise UserError(_("Select at least one payment voucher."))
+        if any(not voucher.seller_id for voucher in self):
+            raise UserError(_("All selected vouchers must have a seller."))
+        sellers = self.mapped("seller_id")
+        if len(sellers) != 1:
+            raise UserError(_("All selected vouchers must belong to the same seller."))
+        if any(voucher.sheet_id for voucher in self):
+            raise UserError(_("Selected vouchers must not already belong to a sheet."))
+        return sellers
+
+    @api.constrains("sheet_id", "seller_id")
+    def _check_sheet_seller(self):
+        for voucher in self:
+            if not voucher.sheet_id:
+                continue
+            if not voucher.seller_id:
+                raise ValidationError(
+                    _("A voucher assigned to a sheet must have a seller.")
+                )
+            if voucher.seller_id != voucher.sheet_id.seller_id:
+                raise ValidationError(_("Voucher seller must match the sheet seller."))
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_pending(self):

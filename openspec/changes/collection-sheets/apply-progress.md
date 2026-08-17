@@ -2,8 +2,8 @@
 
 **Change**: collection-sheets
 **Mode**: Strict TDD
-**Batch**: PR 2 of 4 (tasks 2.1–2.3); PR 1 complete
-**Branch**: `feat/collection-sheets-02-sheet-sequence` (from `feat/collection-sheets-01-seller-mcp`)
+**Batch**: PR 3 of 4 (tasks 3.1–3.6); PR 1–2 complete
+**Branch**: `feat/collection-sheets-03-action-dates` (from `feat/collection-sheets-02-sheet-sequence`)
 **Chain strategy**: stacked-to-main
 
 ## Completed Tasks
@@ -16,6 +16,12 @@
 - [x] 2.1 RED `tests/test_collection_sheet.py`: unique `CS/<year>/<number>`; no `state`; missing seller and post-create seller write rejected; not from `create_uid`.
 - [x] 2.2 GREEN create `models/collection_sheet.py`: required frozen `seller_id`; sequence `collection.sheet`.
 - [x] 2.3 GREEN `models/__init__.py`; `data/ir_sequence_data.xml` `CS/%(year)s/` pad 4; `security/ir.model.access.csv` one `base.group_user` CRUD row; `tests/__init__.py`. REFACTOR.
+- [x] 3.1 RED Action: unassigned same-seller `pending`+`approved` → one sheet, both members; mixed/assigned/empty → `UserError`, no sheet.
+- [x] 3.2 RED Action seller-less selection: null `seller_id` → `UserError`, no sheet (atomic).
+- [x] 3.3 RED mixed/null assign rejected; reassign → sheet B only; empty dates False; UTC min/max member `create_date`; no `received_date`.
+- [x] 3.4 RED unlink sheet: vouchers persist, `sheet_id` null. RED assigned without seller fails.
+- [x] 3.5 GREEN `models/collection_voucher.py`: `sheet_id` set-null; constrains+CHECK; list `ir.actions.server` (no wizard).
+- [x] 3.6 GREEN `models/collection_sheet.py`: O2M; UTC dates; `(2,id)`→`(3,id)`; freeze seller. REFACTOR.
 
 ## TDD Cycle Evidence
 
@@ -132,7 +138,7 @@ None — implementation matches design. No Action, dates, `sheet_id`, constraint
 
 ### Remaining Tasks
 
-- [ ] Phase 3 (PR 3): Action, dates, constraints (3.1–3.6)
+- [x] Phase 3 (PR 3): Action, dates, constraints (3.1–3.6)
 - [ ] Phase 4 (PR 4): UI, ACL, upgrade (4.1–4.4)
 
 ### Workload / PR Boundary (PR2)
@@ -142,3 +148,66 @@ None — implementation matches design. No Action, dates, `sheet_id`, constraint
 - Starts at: `feat/collection-sheets-01-seller-mcp` (`1c02e8c`)
 - Ends with: `collection.sheet` with unique `CS/<year>/<number>`, required frozen `seller_id` (not from `create_uid`), no `state`/chatter, one internal-user ACL row
 - Follow-up: PR3 Action/dates/constraints from this branch
+
+---
+
+## PR 3 of 4 — Action, dates, constraints (3.1–3.6)
+
+**Branch**: `feat/collection-sheets-03-action-dates`
+**Base**: `feat/collection-sheets-02-sheet-sequence` (`feee801`)
+
+### TDD Cycle Evidence (PR3)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1 | `tests/test_collection_sheet.py` | Unit | ✅ 6/6 sheet | ✅ Written: no `action_create_collection_sheet` | ✅ 0 failed of 17 | ✅ happy path + mixed/assigned/empty | covered in 3.6 |
+| 3.2 | same | Unit | same | ✅ Written: null seller Action | ✅ UserError, sheet count unchanged | ➖ companion to 3.1 ineligible | ➖ |
+| 3.3 | same | Unit | same | ✅ Written: no `sheet_id`/`date_from` | ✅ assign/reassign/dates | ✅ mixed+null; empty dates; UTC span; no `received_date`; DELETE→UNLINK | covered in 3.6 |
+| 3.4 | sheet + `tests/test_collection_voucher.py` | Unit | same | ✅ Written: no `sheet_id` | ✅ unlink set-null; assigned without seller rejected | ✅ persist voucher + constrain | ➖ |
+| 3.5 | voucher model + `views/collection_views.xml` | Unit | same | ✅ 3.1–3.4 | ✅ `sheet_id` set-null; constrains+CHECK; list server action | covered by 3.1–3.4 | ✅ `_seller_for_sheet_action` |
+| 3.6 | `models/collection_sheet.py` | Unit | same | ✅ 3.1–3.4 | ✅ O2M; UTC stored dates; DELETE→UNLINK | covered by 3.3–3.4 | ➖ helpers already minimal |
+
+### Test Summary (PR3)
+
+- **Total tests written**: 11
+- **Focused tests passing**: 17/17 (`TestCollectionSheet` 16 + `test_assigned_without_seller_fails`)
+- **Layers used**: Unit (TransactionCase)
+- **Approval tests**: None
+- **Pure functions created**: 0 (ORM helpers)
+
+### Work Unit Evidence (PR3)
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `docker compose run --rm odoo odoo --test-enable --stop-after-init --workers=0 -u collection --test-tags /collection:TestCollectionSheet,/collection:TestCollectionVoucher.test_assigned_without_seller_fails` → **0 failed, 0 error(s) of 17 tests** |
+| Official runner | `invoke test -m collection --mode=update` → **12 failed, 0 error(s) of 161 tests**. Same 12 pre-existing `document_review_enabled=True` flag-off failures. Sheet/Action tests all passed. |
+| Runtime harness | `invoke install -m collection` → **exit 0** (schema/views on devel; `sheet_id` set-null FK + CHECK loaded) |
+| Rollback boundary | Revert voucher `sheet_id`/constrains/CHECK/Action method; sheet O2M/dates/UNLINK sanitize; list `ir.actions.server`. Does not revert PR1 seller/MCP, PR2 sequence/ACL, or PR4 menu/form/manifest. Unrelated settings-menu dirty files were not committed. |
+
+### Files Changed (PR3)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `tests/test_collection_sheet.py` | Modified | Action, membership, dates, unlink, list-bound server action |
+| `tests/test_collection_voucher.py` | Modified | Assigned without seller rejected |
+| `models/collection_voucher.py` | Modified | `sheet_id` set-null; same-seller + assigned⇒seller; CHECK; Action |
+| `models/collection_sheet.py` | Modified | `voucher_ids`; stored UTC dates; DELETE→UNLINK |
+| `views/collection_views.xml` | Modified | List-bound `ir.actions.server` (no wizard, no sheet menu/form) |
+| `openspec/changes/collection-sheets/tasks.md` | Modified | Marked 3.1–3.6 `[x]` |
+| `openspec/changes/collection-sheets/apply-progress.md` | Modified | Merged PR3 evidence |
+
+### Deviations from Design (PR3)
+
+None — implementation matches design. No sheet menu/form/search, no ACL tests, no manifest bump (PR4).
+
+### Remaining Tasks
+
+- [ ] Phase 4 (PR 4): UI, ACL, upgrade (4.1–4.4)
+
+### Workload / PR Boundary (PR3)
+
+- Mode: stacked PR slice
+- Current work unit: PR3 Action, dates, constraints
+- Starts at: `feat/collection-sheets-02-sheet-sequence` (`feee801`)
+- Ends with: list Action creates one sheet from unassigned same-seller vouchers (any state); mixed/null/assigned/empty rejected atomically; membership constraints; UTC dates; sheet unlink unassigns
+- Follow-up: PR4 UI/ACL/manifest from this branch
