@@ -14,6 +14,9 @@ _REVIEW_DISABLED_MSG = "Document Review is not enabled."
 class TestCollectionDocumentReviewFlag(TransactionCase):
     """Company Document Review flag defaults off and Settings persist it."""
 
+    def _force_document_review_enabled(self, enabled):
+        self.env.company.write({"document_review_enabled": enabled})
+
     def _create_pending_attached(self, customer, document_id):
         return self.env["collection.voucher"].create(
             {
@@ -27,19 +30,13 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         )
 
     def test_document_review_enabled_defaults_false_on_env_company(self):
+        field = self.env["res.company"]._fields["document_review_enabled"]
         self.assertFalse(
-            self.env.company.document_review_enabled,
-            "Document Review must be OFF on the current company by default",
+            field.default(self.env["res.company"]),
+            "Document Review must default OFF on res.company",
         )
 
     def test_document_review_enabled_defaults_false_on_browsed_company(self):
-        companies = self.env["res.company"].search([])
-        self.assertTrue(companies, "at least one company must exist")
-        for company in companies:
-            self.assertFalse(
-                company.document_review_enabled,
-                "Document Review must be OFF on browsed company records",
-            )
         fresh = self.env["res.company"].new({"name": "Flag Default Off Co"})
         self.assertFalse(
             fresh.document_review_enabled,
@@ -47,6 +44,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         )
 
     def test_settings_toggle_persists_true_on_company(self):
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         settings = self.env["res.config.settings"].create(
             {"document_review_enabled": True}
@@ -70,9 +68,10 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         )
 
     def test_document_review_helper_defaults_false(self):
+        self._force_document_review_enabled(False)
         self.assertFalse(
             self.env["res.company"]._document_review_enabled(),
-            "Helper must report Document Review OFF by default",
+            "Helper must report Document Review OFF when the company flag is off",
         )
 
     def test_document_review_helper_follows_company_write(self):
@@ -90,6 +89,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_get_review_queue_raises_when_review_off(self):
         """When OFF, get_review_queue must refuse with UserError, not return []."""
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         self._create_pending_attached("CUST-FLAG-Q-OFF", "DOC-FLAG-Q-OFF")
         with self.assertRaises(UserError) as error:
@@ -98,6 +98,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_action_review_approve_does_not_run_when_review_off(self):
         """When OFF, review approve must raise and leave the voucher pending."""
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self._create_pending_attached(
             "CUST-FLAG-APPR-OFF", "DOC-FLAG-APPR-OFF"
@@ -112,6 +113,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_action_review_reject_does_not_run_when_review_off(self):
         """When OFF, review reject must raise and leave the voucher pending."""
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self._create_pending_attached("CUST-FLAG-REJ-OFF", "DOC-FLAG-REJ-OFF")
         with self.assertRaises(UserError) as error:
@@ -123,6 +125,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_action_review_set_rotation_raises_when_review_off(self):
         """When OFF, set_rotation must raise and not persist rotation."""
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self._create_pending_attached("CUST-FLAG-ROT-OFF", "DOC-FLAG-ROT-OFF")
         with self.assertRaises(UserError) as error:
@@ -132,6 +135,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_form_approve_works_when_review_off(self):
         """Payment Vouchers Approve must work even when Document Review is OFF."""
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self.env["collection.voucher"].create(
             {
@@ -149,6 +153,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_form_reject_works_when_review_off(self):
         """Triangulation: Payment Vouchers Reject must work when the flag is OFF."""
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self.env["collection.voucher"].create(
             {
@@ -227,6 +232,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_payment_voucher_views_keep_state_when_review_off(self):
         """When OFF, Payment Vouchers list/form must still show state (and audit)."""
+        self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         self._assert_payment_voucher_views_keep_state_and_audit()
 

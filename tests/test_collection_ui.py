@@ -596,6 +596,7 @@ class TestCollectionUi(TransactionCase):
 
     def test_load_menus_omits_document_review_when_flag_off(self):
         """When Document Review is OFF, load_menus MUST omit the review menu."""
+        self.env.company.write({"document_review_enabled": False})
         self.assertFalse(self.env.company.document_review_enabled)
         review_menu = self.env.ref("collection.menu_collection_document_review")
         root_menu = self.env.ref("collection.menu_collection_root")
