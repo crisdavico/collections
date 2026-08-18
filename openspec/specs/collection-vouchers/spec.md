@@ -10,9 +10,9 @@ per payment. No WhatsApp/API/agent.
 ### Requirement: Voucher sequence naming
 
 The system MUST assign each new voucher a unique persisted name matching
-`COL/<year>/<number>` via sequence code `collection.voucher`. Each payment MUST
-consume one sequence number.
-(Previously: Sequence applied to a header voucher that could cover multiple lines.)
+`COL/<year>/<number>` via sequence code `collection.voucher`. Each payment MUST consume
+one sequence number. (Previously: Sequence applied to a header voucher that could cover
+multiple lines.)
 
 #### Scenario: Sequence assigned on create
 
@@ -23,8 +23,8 @@ consume one sequence number.
 ### Requirement: Mail thread and activities
 
 Each voucher MUST support messaging and activities. Voucher fields including `state`
-SHOULD be tracked in chatter.
-(Previously: Chatter lived on the header; scenarios used header state `new`.)
+SHOULD be tracked in chatter. (Previously: Chatter lived on the header; scenarios used
+header state `new`.)
 
 #### Scenario: Chatter and activities available
 
@@ -40,8 +40,8 @@ SHOULD be tracked in chatter.
 
 ### Requirement: Authorization for internal users
 
-Internal users (`base.group_user`) MUST have full CRUD on vouchers. The system MUST
-NOT grant ACL on `collection.voucher.line`. No dedicated groups or record rules.
+Internal users (`base.group_user`) MUST have full CRUD on vouchers. The system MUST NOT
+grant ACL on `collection.voucher.line`. No dedicated groups or record rules.
 (Previously: Full CRUD on vouchers and payment lines.)
 
 #### Scenario: Internal user CRUD
@@ -59,9 +59,9 @@ NOT grant ACL on `collection.voucher.line`. No dedicated groups or record rules.
 ### Requirement: Deferred integrations not required
 
 Completeness MUST NOT require HTTP API, WhatsApp metadata, partner/CRM linkage, or agent
-calls. Optional per-voucher image/PDF attachments are an allowed capability and MUST
-NOT be required for completeness of unrelated voucher features.
-(Previously: Completeness referred to vouchers with payment lines.)
+calls. Optional per-voucher image/PDF attachments are an allowed capability and MUST NOT
+be required for completeness of unrelated voucher features. (Previously: Completeness
+referred to vouchers with payment lines.)
 
 #### Scenario: Completeness without deferred features
 
@@ -74,8 +74,8 @@ NOT be required for completeness of unrelated voucher features.
 
 Vouchers MUST support nullable Char `document_id` unique among non-null values. UI
 vouchers without `document_id` MUST remain allowed. MCP MUST require non-empty
-`document_id` per payment.
-(Previously: Uniqueness and UI omit applied to payment lines.)
+`document_id` per payment. (Previously: Uniqueness and UI omit applied to payment
+lines.)
 
 #### Scenario: Manual payment without document_id still OK
 
@@ -91,9 +91,8 @@ match content detection (`image/*` or PDF only); mismatch or bad base64 MUST rai
 `UserError` with no writes. Create with attachments MUST persist all vouchers and files
 atomically under a savepoint. Exact-retry by `document_id` MUST return all matching
 vouchers and MUST NOT add, replace, or compare attachments (even when a voucher has
-none). All-new and conflict rules MUST remain unchanged.
-(Previously: Nested attachments on singular `create_collection_voucher`; exact-retry
-returned one header voucher.)
+none). All-new and conflict rules MUST remain unchanged. (Previously: Nested attachments
+on singular `create_collection_voucher`; exact-retry returned one header voucher.)
 
 #### Scenario: MCP create with nested attachment
 
@@ -118,8 +117,8 @@ returned one header voucher.)
 
 Approve and reject MUST refuse stale or concurrent attempts when the voucher is no
 longer eligible (not `pending`, or attachment no longer present) and MUST NOT corrupt
-review or voucher state.
-(Previously: Eligibility also required a parent voucher in `new` and a line record.)
+review or voucher state. (Previously: Eligibility also required a parent voucher in
+`new` and a line record.)
 
 #### Scenario: Concurrent or stale review attempt
 
@@ -131,8 +130,8 @@ review or voucher state.
 
 Replacing a voucher attachment (write of new Binary content) MUST reset that voucher’s
 `state` to `pending` and MUST clear prior reviewer/time audit for a fresh review.
-Omit/empty and MIME validation rules remain unchanged.
-(Previously: Replacement reset the payment line’s `state` and audit.)
+Omit/empty and MIME validation rules remain unchanged. (Previously: Replacement reset
+the payment line’s `state` and audit.)
 
 #### Scenario: Attachment replacement resets voucher state
 
@@ -145,9 +144,9 @@ Omit/empty and MIME validation rules remain unchanged.
 
 Each `collection.voucher` MUST represent one payment. The system MUST require
 `customer_identification`. The system MUST NOT store or accept `received_date`.
-Registration time MUST be automatic ORM `create_date` (readonly; MUST NOT be
-overridable by MCP, create vals, or editable views). On create, `state` MUST default
-to `pending`. Currency MUST be the company default (no multi-currency UX).
+Registration time MUST be automatic ORM `create_date` (readonly; MUST NOT be overridable
+by MCP, create vals, or editable views). On create, `state` MUST default to `pending`.
+Currency MUST be the company default (no multi-currency UX).
 
 #### Scenario: Defaults on create
 
@@ -170,13 +169,13 @@ to `pending`. Currency MUST be the company default (no multi-currency UX).
 
 ### Requirement: Voucher lifecycle
 
-States MUST be `pending`, `approved`, and `rejected`. Approve and Reject MUST apply
-only from `pending` and MUST NOT alter terminal states. Delete MUST be allowed only
-when `state` is `pending`. Any user-driven change from `pending` to `approved` or
-`rejected` (including kanban drag) MUST record reviewer and review time the same as
-Approve/Reject. Approve/Reject on Payment Vouchers MUST remain available whether
-Document Review is ON or OFF. Review queue RPCs remain governed by `document-review`.
-Confidence, per-field stamps, and reviewer-note persistence MUST NOT be required.
+States MUST be `pending`, `approved`, and `rejected`. Approve and Reject MUST apply only
+from `pending` and MUST NOT alter terminal states. Delete MUST be allowed only when
+`state` is `pending`. Any user-driven change from `pending` to `approved` or `rejected`
+(including kanban drag) MUST record reviewer and review time the same as Approve/Reject.
+Approve/Reject on Payment Vouchers MUST remain available whether Document Review is ON
+or OFF. Review queue RPCs remain governed by `document-review`. Confidence, per-field
+stamps, and reviewer-note persistence MUST NOT be required.
 
 #### Scenario: Approve from pending
 
@@ -311,16 +310,20 @@ internal user; missing, portal/share, or unknown ids MUST be rejected with no wr
 Each MCP payment MUST include non-empty `document_id` and existing payment fields
 (`document_type` required). Create MUST persist one voucher per payment atomically
 (`state=pending`, company currency) and MUST stamp `seller_id` only on all-new create.
-Response MUST include each voucher `id`/`name`/`state` and `document_id`. Idempotency by
+All-new create MUST auto-assign sheets via the same ORM create rules as UI voucher
+create (`seller_id` set, `sheet_id` omitted). Exact replay MUST NOT attach, move, or
+clear sheets (including leftover unassigned). The tool MUST NOT accept `sheet_id` in the
+payload and MUST NOT return `sheet_id`. Response MUST include each voucher
+`id`/`name`/`state` and `document_id` (`state` is voucher state). Idempotency by
 `document_id`: all-new → create N vouchers; every submitted `document_id` already exists
 → return ALL those vouchers unchanged; in-call duplicate or partial overlap → reject
 with no writes. Submitted `document_id`s that already exist on different vouchers MUST
 succeed as exact replay (MUST NOT reject as a cross-voucher conflict). Exact replay MUST
 ignore `customer_identification`, nested attachments, and `seller_id`, and MUST NOT
-mutate matching vouchers (including legacy null `seller_id`). Attachment atomicity and
-`document_id` uniqueness rules remain unchanged. (Previously: Input required only
-`customer_identification` and payments; no `seller_id`; exact replay ignored customer
-and attachments only.)
+mutate matching vouchers (including legacy null `seller_id` and `sheet_id`). Attachment
+atomicity and `document_id` uniqueness rules remain unchanged.
+(Previously: All-new stamped `seller_id` but did not assign sheets; exact replay ignored
+customer, attachments, and `seller_id` with no sheet attach or move.)
 
 #### Scenario: All-new create
 
@@ -368,6 +371,37 @@ and attachments only.)
 - GIVEN a payload missing `seller_id`, or with a portal/share or unknown user
 - WHEN `create_collection_vouchers` runs
 - THEN the call MUST be rejected with no writes
+
+#### Scenario: All-new with unique open assigns the batch
+
+- GIVEN unused `document_id`s, a valid `seller_id`, and that seller has exactly one open
+  sheet
+- WHEN `create_collection_vouchers` runs
+- THEN every created voucher MUST be assigned to that sheet
+- AND response MUST include each voucher `id`/`name`/`state` and `document_id`
+- AND MUST NOT include `sheet_id`
+
+#### Scenario: All-new with no open creates one open sheet and assigns all
+
+- GIVEN unused `document_id`s, a valid `seller_id`, and that seller has zero open sheets
+- WHEN `create_collection_vouchers` runs
+- THEN one open sheet MUST be created
+- AND every created voucher MUST be assigned to it
+
+#### Scenario: All-new with more than one open rejected
+
+- GIVEN unused `document_id`s, a valid `seller_id`, and that seller has more than one
+  open sheet
+- WHEN `create_collection_vouchers` runs
+- THEN the call MUST raise `UserError` with no vouchers written
+
+#### Scenario: Exact replay does not change sheet_id
+
+- GIVEN every submitted `document_id` already exists, including leftover unassigned
+  vouchers
+- WHEN the payload is retried
+- THEN each matching voucher’s `sheet_id` MUST be unchanged
+- AND no sheet MUST be created or attached
 
 ### Requirement: Optional image or PDF attachment per voucher
 
@@ -449,3 +483,55 @@ List, form, and search MUST expose `seller_id`.
 - GIVEN an existing voucher with or without seller
 - WHEN list, form, or search is opened
 - THEN `seller_id` MUST be visible
+
+### Requirement: Create auto-assign to open sheet
+
+On voucher create, when `seller_id` is set and `sheet_id` is omitted, the system MUST
+auto-assign: unique open sheet → assign; none → create one open sheet then assign; more
+than one open → `UserError` with no write. Null `seller_id` MUST leave the voucher
+unassigned. Explicit `sheet_id` MUST be honored when the target is the same seller and
+`open`; assign to a closed sheet MUST fail. Write of `seller_id` on an existing voucher
+MUST NOT auto-assign. The system MUST NOT backfill existing unassigned vouchers.
+
+#### Scenario: UI or ORM create with seller assigns
+
+- GIVEN a seller with exactly one open sheet
+- WHEN a voucher is created with that `seller_id` and omitted `sheet_id`
+- THEN the voucher MUST be assigned to that open sheet
+
+#### Scenario: Create without seller stays unassigned
+
+- GIVEN a voucher create with null `seller_id` and omitted `sheet_id`
+- WHEN create completes
+- THEN the voucher MUST persist unassigned
+
+#### Scenario: Explicit sheet_id honored when open
+
+- GIVEN an open same-seller sheet
+- WHEN a voucher is created with that `seller_id` and explicit `sheet_id`
+- THEN the voucher MUST be assigned to that sheet
+
+#### Scenario: Assign to closed sheet fails
+
+- GIVEN a closed same-seller sheet
+- WHEN a voucher is created or written with that `sheet_id`
+- THEN the write MUST fail
+
+#### Scenario: Later seller write does not auto-assign
+
+- GIVEN an existing unassigned voucher
+- WHEN `seller_id` is written
+- THEN `sheet_id` MUST remain empty
+
+#### Scenario: No open sheet creates then assigns
+
+- GIVEN a seller with zero open sheets
+- WHEN a voucher is created with that `seller_id` and omitted `sheet_id`
+- THEN one open sheet MUST be created for that seller
+- AND the voucher MUST be assigned to it
+
+#### Scenario: More than one open rejects create
+
+- GIVEN a seller with more than one open sheet
+- WHEN a voucher is created with that `seller_id` and omitted `sheet_id`
+- THEN create MUST raise `UserError` with no voucher written

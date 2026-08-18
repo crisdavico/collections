@@ -1,0 +1,14 @@
+# SDD change state — orchestrator-managed
+change: auto-assign-open-sheet
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: interactive
+planning_depth: standard
+subagent_model: cursor-grok-4.6-high-fast
+phase: archived
+updated: 2026-08-18
+notes: |
+  Archived 2026-08-18 to openspec/changes/archive/2026-08-18-auto-assign-open-sheet/.
+  Verify at close: pass_with_warnings; critical_findings 0; pylint C8101 pre-existing.
+  Unrelated dirty WIP remains unstaged (out of this change). No push.
