@@ -63,9 +63,27 @@ class CollectionSheet(models.Model):
         for sheet in self:
             sheet.document_review_enabled = enabled
 
+    @api.private
+    def _open_sheets_for_seller(self, seller):
+        seller_id = seller.id if isinstance(seller, models.Model) else seller
+        return self.search(
+            [
+                ("seller_id", "=", seller_id),
+                ("state", "=", "open"),
+            ]
+        )
+
+    @api.private
+    def _raise_if_seller_has_open_sheet(self, seller):
+        if self._open_sheets_for_seller(seller):
+            raise UserError(
+                _("This seller already has an open collection sheet.")
+            )
+
     @api.model_create_multi
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
+        opening_sellers = set()
         for vals in vals_list:
             if vals.get("name", "/") in (False, "/", "New"):
                 vals["name"] = sequence.next_by_code("collection.sheet") or "/"
@@ -73,6 +91,15 @@ class CollectionSheet(models.Model):
                 vals["voucher_ids"] = self._sanitize_voucher_commands(
                     vals["voucher_ids"]
                 )
+            resulting_state = vals.get("state") or "open"
+            seller_id = vals.get("seller_id")
+            if resulting_state == "open" and seller_id:
+                if seller_id in opening_sellers:
+                    raise UserError(
+                        _("This seller already has an open collection sheet.")
+                    )
+                self._raise_if_seller_has_open_sheet(seller_id)
+                opening_sellers.add(seller_id)
         return super().create(vals_list)
 
     def write(self, vals):
@@ -91,9 +118,23 @@ class CollectionSheet(models.Model):
                 return self.action_reopen()
             raise UserError(_("Sheet state can only be changed via Close or Reopen."))
         if "voucher_ids" in vals:
+            if not self.env.context.get("collection_sheet_unlinking") and any(
+                sheet.state == "closed" for sheet in self
+            ):
+                raise UserError(
+                    _(
+                        "Closed collection sheets cannot change membership. "
+                        "Reopen first."
+                    )
+                )
             vals = dict(vals)
             vals["voucher_ids"] = self._sanitize_voucher_commands(vals["voucher_ids"])
         return super().write(vals)
+
+    def unlink(self):
+        if not self.env.context.get("collection_sheet_unlinking"):
+            return self.with_context(collection_sheet_unlinking=True).unlink()
+        return super().unlink()
 
     def action_close(self):
         if any(sheet.state != "open" for sheet in self):
@@ -105,6 +146,15 @@ class CollectionSheet(models.Model):
     def action_reopen(self):
         if any(sheet.state != "closed" for sheet in self):
             raise UserError(_("Only closed sheets can be reopened."))
+        seen_sellers = set()
+        for sheet in self:
+            seller_id = sheet.seller_id.id
+            if seller_id in seen_sellers:
+                raise UserError(
+                    _("This seller already has an open collection sheet.")
+                )
+            self._raise_if_seller_has_open_sheet(sheet.seller_id)
+            seen_sellers.add(seller_id)
         return self.with_context(collection_sheet_audited_state=True).write(
             {"state": "open"}
         )

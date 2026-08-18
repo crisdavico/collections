@@ -130,9 +130,13 @@ class CollectionVoucher(models.Model):
             self._validate_attachment_payload(vals.get("attachment"))
             if vals.get("name", "/") in (False, "/", "New"):
                 vals["name"] = sequence.next_by_code("collection.voucher") or "/"
+            if vals.get("sheet_id"):
+                self._ensure_sheet_membership_unlocked(vals["sheet_id"])
         return super().create(vals_list)
 
     def write(self, vals):
+        if "sheet_id" in vals:
+            self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
         if "attachment" in vals:
             self._validate_attachment_payload(vals.get("attachment"))
             vals = self._vals_with_review_reset_on_new_attachment(vals)
@@ -178,6 +182,7 @@ class CollectionVoucher(models.Model):
 
     def action_create_collection_sheet(self):
         seller = self._seller_for_sheet_action()
+        self.env["collection.sheet"]._raise_if_seller_has_open_sheet(seller)
         sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
         self.sheet_id = sheet
         return {
@@ -201,6 +206,25 @@ class CollectionVoucher(models.Model):
         if any(voucher.sheet_id for voucher in self):
             raise UserError(_("Selected vouchers must not already belong to a sheet."))
         return sellers
+
+    @api.private
+    def _ensure_sheet_membership_unlocked(self, new_sheet_id):
+        if self.env.context.get("collection_sheet_unlinking"):
+            return
+        closed_msg = _(
+            "Closed collection sheets cannot change membership. Reopen first."
+        )
+        target = (
+            self.env["collection.sheet"].browse(new_sheet_id)
+            if new_sheet_id
+            else self.env["collection.sheet"]
+        )
+        if target and target.state == "closed":
+            raise UserError(closed_msg)
+        for voucher in self:
+            current = voucher.sheet_id
+            if current and current.state == "closed" and current != target:
+                raise UserError(closed_msg)
 
     @api.constrains("sheet_id", "seller_id")
     def _check_sheet_seller(self):
@@ -259,12 +283,13 @@ class CollectionVoucher(models.Model):
                 )
 
     @api.model
-    def get_review_queue(self):
-        self._ensure_document_review_enabled()
+    def get_review_queue(self, sheet_id=None):
+        sheet = self._require_review_sheet(sheet_id)
         vouchers = self.search(
             [
                 ("state", "=", "pending"),
                 ("attachment", "!=", False),
+                ("sheet_id", "=", sheet.id),
             ],
             order="id",
         )
@@ -274,23 +299,26 @@ class CollectionVoucher(models.Model):
             for index, voucher in enumerate(vouchers, start=1)
         ]
 
-    def action_review_approve(self, vals=None):
-        self._ensure_document_review_enabled()
+    def action_review_approve(self, sheet_id=None, vals=None):
+        sheet = self._require_review_sheet(sheet_id)
         self.ensure_one()
+        self._ensure_review_sheet_member(sheet)
         self._lock_and_ensure_review_eligible()
         self._write_review_decision("approved", self._editable_review_vals(vals))
         return True
 
-    def action_review_reject(self):
-        self._ensure_document_review_enabled()
+    def action_review_reject(self, sheet_id=None):
+        sheet = self._require_review_sheet(sheet_id)
         self.ensure_one()
+        self._ensure_review_sheet_member(sheet)
         self._lock_and_ensure_review_eligible()
         self._write_review_decision("rejected")
         return True
 
-    def action_review_set_rotation(self, degrees):
-        self._ensure_document_review_enabled()
+    def action_review_set_rotation(self, sheet_id=None, degrees=None):
+        sheet = self._require_review_sheet(sheet_id)
         self.ensure_one()
+        self._ensure_review_sheet_member(sheet)
         self._ensure_review_eligible()
         self.write(
             {"attachment_rotation": self._normalize_attachment_rotation(degrees)}
@@ -301,6 +329,30 @@ class CollectionVoucher(models.Model):
     def _ensure_document_review_enabled(self):
         if not self.env.company._document_review_enabled():
             raise UserError(self.env._("Document Review is not enabled."))
+
+    @api.private
+    def _require_review_sheet(self, sheet_id):
+        self._ensure_document_review_enabled()
+        if isinstance(sheet_id, bool) or not isinstance(sheet_id, int) or sheet_id <= 0:
+            raise UserError(
+                self.env._("A valid collection sheet is required for Document Review.")
+            )
+        sheet = self.env["collection.sheet"].browse(sheet_id)
+        if not sheet.exists():
+            raise UserError(
+                self.env._("A valid collection sheet is required for Document Review.")
+            )
+        return sheet
+
+    @api.private
+    def _ensure_review_sheet_member(self, sheet):
+        self.ensure_one()
+        if self.sheet_id != sheet:
+            raise UserError(
+                self.env._(
+                    "This voucher does not belong to the selected collection sheet."
+                )
+            )
 
     @api.private
     def _vals_with_review_reset_on_new_attachment(self, vals):

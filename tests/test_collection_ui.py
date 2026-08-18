@@ -531,6 +531,11 @@ class TestCollectionUi(TransactionCase):
         )
         membership = self._field_nodes(form_root, "voucher_ids")[0]
         self.assertEqual(membership.get("widget"), "many2many")
+        self.assertIn(
+            "state == 'closed'",
+            membership.get("readonly") or "",
+            "membership must be readonly when the sheet is closed",
+        )
         statusbar = form_root.xpath(
             '//header/field[@name="state" and @widget="statusbar"]'
         )

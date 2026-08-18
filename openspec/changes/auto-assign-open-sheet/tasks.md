@@ -35,10 +35,10 @@ Threat matrix N/A. No UNIQUE. `tools/collection_voucher.py` unchanged. Tests fro
 
 ## Phase 2: One-open + freeze (Unit 2 / PR2)
 
-- [ ] 2.1 RED `tests/test_collection_sheet.py`: second open create rejected; Reopen rejected if another open; leftover `>1` still Closeable; Action reject if open ≥1; freeze add/remove/reassign. Rewrite two-open same-seller tests (close-first or `_other_internal_seller`).
-- [ ] 2.2 GREEN `models/collection_sheet.py`: `_open_sheets_for_seller`; guard create-if-open and `action_reopen`; freeze `voucher_ids`; unlink via `collection_sheet_unlinking`. GREEN `models/collection_voucher.py`: after `_seller_for_sheet_action` reject open ≥1; reject add to closed or remove/reassign off closed.
-- [ ] 2.3 RED/GREEN membership readonly when closed (`tests/test_collection_ui.py`, `views/collection_views.xml`). RED/GREEN `tests/test_collection_document_review.py` two-sheet cases close-first or two sellers.
-- [ ] 2.4 `invoke test -m collection`.
+- [x] 2.1 RED `tests/test_collection_sheet.py`: second open create rejected; Reopen rejected if another open; leftover `>1` still Closeable; Action reject if open ≥1; freeze add/remove/reassign. Rewrite two-open same-seller tests (close-first or `_other_internal_seller`).
+- [x] 2.2 GREEN `models/collection_sheet.py`: `_open_sheets_for_seller`; guard create-if-open and `action_reopen`; freeze `voucher_ids`; unlink via `collection_sheet_unlinking`. GREEN `models/collection_voucher.py`: after `_seller_for_sheet_action` reject open ≥1; reject add to closed or remove/reassign off closed.
+- [x] 2.3 RED/GREEN membership readonly when closed (`tests/test_collection_ui.py`, `views/collection_views.xml`). RED/GREEN `tests/test_collection_document_review.py` two-sheet cases close-first or two sellers.
+- [x] 2.4 `invoke test -m collection`.
 
 ## Phase 3: Auto-assign + MCP (Unit 3 / PR3)
 

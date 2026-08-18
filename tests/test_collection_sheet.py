@@ -65,11 +65,12 @@ class TestCollectionSheet(TransactionCase):
 
     def test_sequence_names_are_unique(self):
         first = self._create_sheet()
+        first.action_close()
         second = self._create_sheet()
         self.assertNotEqual(first.name, second.name)
         self.assertRegex(first.name, r"^CS/\d{4}/\d{4}$")
         self.assertRegex(second.name, r"^CS/\d{4}/\d{4}$")
-        self.assertEqual(first.state, "open")
+        self.assertEqual(first.state, "closed")
         self.assertEqual(second.state, "open")
         self.assertEqual(first.seller_id, second.seller_id)
 
@@ -127,6 +128,61 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.state, "closed")
         sheet.with_context(collection_sheet_audited_state=True).write({"state": "open"})
         self.assertEqual(sheet.state, "open")
+
+    def test_create_second_open_rejected(self):
+        first = self._create_sheet()
+        before = self._sheet_count()
+        with self.assertRaises(UserError):
+            self._create_sheet()
+        self.assertEqual(self._sheet_count(), before)
+        self.assertEqual(first.state, "open")
+        other = self._other_internal_seller()
+        other_sheet = self._create_sheet(seller_id=other.id)
+        self.assertEqual(other_sheet.state, "open")
+        self.assertEqual(other_sheet.seller_id, other)
+
+    def test_reopen_rejected_if_another_open_exists(self):
+        first = self._create_sheet()
+        closed = self._create_sheet(state="closed")
+        with self.assertRaises(UserError):
+            closed.action_reopen()
+        self.assertEqual(closed.state, "closed")
+        self.assertEqual(first.state, "open")
+
+    def test_leftover_multiple_opens_still_closeable(self):
+        first = self._create_sheet()
+        leftover = self._create_sheet(state="closed")
+        leftover.with_context(collection_sheet_audited_state=True).write(
+            {"state": "open"}
+        )
+        self.assertEqual(first.state, "open")
+        self.assertEqual(leftover.state, "open")
+        leftover.action_close()
+        self.assertEqual(leftover.state, "closed")
+        self.assertEqual(first.state, "open")
+        first.action_close()
+        self.assertEqual(first.state, "closed")
+
+    def test_leftover_multiple_opens_reject_new_ops(self):
+        first = self._create_sheet()
+        leftover = self._create_sheet(state="closed")
+        leftover.with_context(collection_sheet_audited_state=True).write(
+            {"state": "open"}
+        )
+        before = self._sheet_count()
+        with self.assertRaises(UserError):
+            self._create_sheet()
+        closed = self._create_sheet(state="closed")
+        with self.assertRaises(UserError):
+            closed.action_reopen()
+        self.assertEqual(closed.state, "closed")
+        voucher = self._create_voucher(customer_identification="CUST-LEFT-ACT")
+        with self.assertRaises(UserError):
+            voucher.action_create_collection_sheet()
+        self.assertEqual(self._sheet_count(), before + 1)
+        self.assertFalse(voucher.sheet_id)
+        self.assertEqual(first.state, "open")
+        self.assertEqual(leftover.state, "open")
 
     def test_create_without_seller_is_rejected(self):
         with mute_logger("odoo.sql_db"):
@@ -200,6 +256,19 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(self._sheet_count(), before)
         self.assertFalse(voucher.sheet_id)
 
+    def test_action_rejected_when_open_sheet_exists(self):
+        open_sheet = self._create_sheet()
+        pending = self._create_voucher(customer_identification="CUST-ACT-OPEN-P")
+        approved = self._create_voucher(customer_identification="CUST-ACT-OPEN-A")
+        approved.action_approve()
+        before = self._sheet_count()
+        with self.assertRaises(UserError):
+            (pending | approved).action_create_collection_sheet()
+        self.assertEqual(self._sheet_count(), before)
+        self.assertFalse(pending.sheet_id)
+        self.assertFalse(approved.sheet_id)
+        self.assertEqual(open_sheet.state, "open")
+
     def test_mixed_or_null_seller_assign_rejected(self):
         sheet = self._create_sheet()
         other = self._other_internal_seller()
@@ -214,10 +283,12 @@ class TestCollectionSheet(TransactionCase):
 
     def test_reassign_moves_voucher_to_sheet_b_only(self):
         sheet_a = self._create_sheet()
-        sheet_b = self._create_sheet()
         voucher = self._create_voucher(
             customer_identification="CUST-REASG", sheet_id=sheet_a.id
         )
+        voucher.write({"sheet_id": False})
+        sheet_a.action_close()
+        sheet_b = self._create_sheet()
         voucher.write({"sheet_id": sheet_b.id})
         self.assertEqual(voucher.sheet_id, sheet_b)
         self.assertNotIn(voucher, sheet_a.voucher_ids)
@@ -268,6 +339,47 @@ class TestCollectionSheet(TransactionCase):
         self.assertFalse(voucher.sheet_id)
         self.assertFalse(sheet.voucher_ids)
 
+    def test_freeze_rejects_add_remove_and_reassign(self):
+        sheet = self._create_sheet()
+        member = self._create_voucher(
+            customer_identification="CUST-FRZ-MEM", sheet_id=sheet.id
+        )
+        outsider = self._create_voucher(customer_identification="CUST-FRZ-OUT")
+        sheet.action_close()
+        with self.assertRaises(UserError):
+            outsider.write({"sheet_id": sheet.id})
+        with self.assertRaises(UserError):
+            sheet.write({"voucher_ids": [Command.link(outsider.id)]})
+        with self.assertRaises(UserError):
+            member.write({"sheet_id": False})
+        with self.assertRaises(UserError):
+            sheet.write({"voucher_ids": [Command.unlink(member.id)]})
+        with self.assertRaises(UserError):
+            sheet.write({"voucher_ids": [Command.delete(member.id)]})
+        target = self._create_sheet()
+        with self.assertRaises(UserError):
+            member.write({"sheet_id": target.id})
+        with self.assertRaises(UserError):
+            self._create_voucher(
+                customer_identification="CUST-FRZ-CRT", sheet_id=sheet.id
+            )
+        self.assertEqual(member.sheet_id, sheet)
+        self.assertFalse(outsider.sheet_id)
+        self.assertEqual(sheet.voucher_ids, member)
+        self.assertTrue(member.exists())
+
+    def test_unlink_closed_sheet_unassigns_vouchers(self):
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-UNL-CL", sheet_id=sheet.id
+        )
+        sheet.action_close()
+        voucher_id = voucher.id
+        sheet.unlink()
+        leftover = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover.exists())
+        self.assertFalse(leftover.sheet_id)
+
     def test_create_sheet_action_is_list_bound_server_action(self):
         action = self.env.ref("collection.action_create_collection_sheet")
         self.assertEqual(action.type, "ir.actions.server")
@@ -289,7 +401,7 @@ class TestCollectionSheet(TransactionCase):
         """Triangulation: params.sheet_id is the invoked sheet, not a constant."""
         self.env.company.write({"document_review_enabled": True})
         sheet_a = self._create_sheet()
-        sheet_b = self._create_sheet()
+        sheet_b = self._create_sheet(seller_id=self._other_internal_seller().id)
         self.assertNotEqual(sheet_a.id, sheet_b.id)
         action_a = sheet_a.action_open_document_review()
         action_b = sheet_b.action_open_document_review()
@@ -323,6 +435,7 @@ class TestCollectionSheet(TransactionCase):
         self.env.company.write({"document_review_enabled": True})
         on_sheet = self._create_sheet()
         self.assertTrue(on_sheet.document_review_enabled)
+        on_sheet.action_close()
         self.env.company.write({"document_review_enabled": False})
         off_sheet = self._create_sheet()
         self.assertFalse(off_sheet.document_review_enabled)

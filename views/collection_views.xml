@@ -344,7 +344,11 @@
                             <field name="date_to" readonly="1" />
                         </group>
                     </group>
-                    <field name="voucher_ids" widget="many2many">
+                    <field
+            name="voucher_ids"
+            widget="many2many"
+            readonly="state == 'closed'"
+          >
                         <list>
                             <field name="name" />
                             <field name="customer_identification" />

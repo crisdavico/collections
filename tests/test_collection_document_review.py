@@ -23,6 +23,7 @@ class TestCollectionDocumentReview(TransactionCase):
     def setUp(self):
         super().setUp()
         self.env.company.write({"document_review_enabled": True})
+        self.review_sheet = self._create_sheet()
 
     def _voucher_vals(self, **extra):
         vals = {
@@ -36,18 +37,44 @@ class TestCollectionDocumentReview(TransactionCase):
             vals["document_id"] = f"DOC-REV-{count}"
         return vals
 
+    def _create_sheet(self, **extra):
+        vals = {"seller_id": self.env.user.id, **extra}
+        return self.env["collection.sheet"].create(vals)
+
+    def _other_internal_seller(self):
+        seller = self.env["res.users"].search(
+            [("share", "=", False), ("id", "!=", self.env.uid)],
+            order="id",
+            limit=1,
+        )
+        self.assertTrue(seller, "Need a second internal user")
+        return seller
+
+    def _close_open_sheets(self, seller=None):
+        seller_id = (seller or self.env.user).id
+        opens = self.env["collection.sheet"].search(
+            [("seller_id", "=", seller_id), ("state", "=", "open")]
+        )
+        if opens:
+            opens.action_close()
+
     def _create_attached_voucher(self, **extra):
         extra.setdefault("attachment", PNG_B64)
         extra.setdefault("attachment_filename", "proof.png")
+        extra.setdefault("seller_id", self.env.user.id)
+        extra.setdefault("sheet_id", self.review_sheet.id)
         return self.env["collection.voucher"].create(self._voucher_vals(**extra))
 
-    def _neutralize_preexisting_queue(self):
+    def _neutralize_preexisting_queue(self, sheet_id=None):
         """Make pre-existing devel rows ineligible so this transaction is isolated."""
-        Voucher = self.env["collection.voucher"]
-        queued = Voucher.get_review_queue()
-        if not queued:
-            return
-        Voucher.browse([item["id"] for item in queued]).write({"state": "rejected"})
+        domain = [
+            ("state", "=", "pending"),
+            ("attachment", "!=", False),
+            ("sheet_id", "=", sheet_id or self.review_sheet.id),
+        ]
+        queued = self.env["collection.voucher"].search(domain)
+        if queued:
+            queued.write({"state": "rejected"})
 
     def _assert_no_binary_in_payload(self, item):
         self.assertIsInstance(item, dict)
@@ -124,6 +151,184 @@ class TestCollectionDocumentReview(TransactionCase):
 
     # --- Queue eligibility + empty queue ---
 
+    def test_queue_is_isolated_to_requested_sheet(self):
+        """Queue for sheet A must not include sheet B's eligible vouchers."""
+        other = self._other_internal_seller()
+        self._close_open_sheets()
+        sheet_a = self._create_sheet()
+        sheet_b = self._create_sheet(seller_id=other.id)
+        voucher_a = self._create_attached_voucher(
+            customer_identification="CUST-SHEET-A",
+            document_id="DOC-SHEET-A",
+            seller_id=self.env.user.id,
+            sheet_id=sheet_a.id,
+        )
+        voucher_b = self._create_attached_voucher(
+            customer_identification="CUST-SHEET-B",
+            document_id="DOC-SHEET-B",
+            seller_id=other.id,
+            sheet_id=sheet_b.id,
+        )
+        queue_a = self.env["collection.voucher"].get_review_queue(sheet_a.id)
+        queued_ids = [item["id"] for item in queue_a]
+        self.assertEqual(queued_ids, [voucher_a.id])
+        self.assertNotIn(voucher_b.id, queued_ids)
+        queue_b = self.env["collection.voucher"].get_review_queue(sheet_b.id)
+        self.assertEqual([item["id"] for item in queue_b], [voucher_b.id])
+
+    def test_queue_empty_for_sheet_with_no_eligible_members(self):
+        """Empty or ineligible-only sheet must return [] and ignore other sheets."""
+        self._close_open_sheets()
+        empty_sheet = self._create_sheet()
+        empty_sheet.action_close()
+        ineligible_sheet = self._create_sheet()
+        unattached = self.env["collection.voucher"].create(
+            self._voucher_vals(
+                customer_identification="CUST-SHEET-NONE",
+                document_id="DOC-SHEET-NONE",
+                seller_id=self.env.user.id,
+                sheet_id=ineligible_sheet.id,
+            )
+        )
+        approved = self._create_attached_voucher(
+            customer_identification="CUST-SHEET-APPR",
+            document_id="DOC-SHEET-APPR",
+            seller_id=self.env.user.id,
+            sheet_id=ineligible_sheet.id,
+        )
+        approved.action_approve()
+        ineligible_sheet.action_close()
+        other_sheet = self._create_sheet()
+        other_eligible = self._create_attached_voucher(
+            customer_identification="CUST-SHEET-OTHER",
+            document_id="DOC-SHEET-OTHER",
+            seller_id=self.env.user.id,
+            sheet_id=other_sheet.id,
+        )
+        Voucher = self.env["collection.voucher"]
+        self.assertEqual(Voucher.get_review_queue(empty_sheet.id), [])
+        ineligible_queue = Voucher.get_review_queue(ineligible_sheet.id)
+        self.assertEqual(ineligible_queue, [])
+        self.assertNotIn(unattached.id, [item["id"] for item in ineligible_queue])
+        self.assertNotIn(approved.id, [item["id"] for item in ineligible_queue])
+        self.assertNotIn(other_eligible.id, [item["id"] for item in ineligible_queue])
+        other_queue = Voucher.get_review_queue(other_sheet.id)
+        self.assertEqual([item["id"] for item in other_queue], [other_eligible.id])
+
+    def test_review_queue_refuses_missing_or_invalid_sheet_id(self):
+        """Missing, 0, False, or unknown sheet ids must UserError, not return []."""
+        Voucher = self.env["collection.voucher"]
+        self._close_open_sheets()
+        valid_sheet = self._create_sheet()
+        self._create_attached_voucher(
+            customer_identification="CUST-SHEET-VALID-Q",
+            document_id="DOC-SHEET-VALID-Q",
+            seller_id=self.env.user.id,
+            sheet_id=valid_sheet.id,
+        )
+        with self.assertRaises(UserError):
+            Voucher.get_review_queue()
+        for invalid_id in (None, 0, False, valid_sheet.id + 10**6):
+            with self.subTest(sheet_id=invalid_id):
+                with self.assertRaises(UserError):
+                    Voucher.get_review_queue(invalid_id)
+
+    def test_review_mutations_refuse_missing_or_invalid_sheet_id(self):
+        """Mutations with missing/0/False/bad sheet id must UserError without writes."""
+        self._close_open_sheets()
+        sheet = self._create_sheet()
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-SHEET-VALID-M",
+            document_id="DOC-SHEET-VALID-M",
+            seller_id=self.env.user.id,
+            sheet_id=sheet.id,
+        )
+        for invalid_id in (None, 0, False, sheet.id + 10**6):
+            with self.subTest(sheet_id=invalid_id):
+                with self.assertRaises(UserError):
+                    voucher.action_review_approve(invalid_id, {"amount": 1.0})
+                with self.assertRaises(UserError):
+                    voucher.action_review_reject(invalid_id)
+                with self.assertRaises(UserError):
+                    voucher.action_review_set_rotation(invalid_id, 90)
+        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
+
+    def test_cross_sheet_mutations_are_refused(self):
+        """Approve, reject, and rotation of a sheet B voucher with sheet A must fail."""
+        other = self._other_internal_seller()
+        self._close_open_sheets()
+        sheet_a = self._create_sheet()
+        sheet_b = self._create_sheet(seller_id=other.id)
+        voucher_b = self._create_attached_voucher(
+            customer_identification="CUST-XSHEET-B",
+            document_id="DOC-XSHEET-B",
+            seller_id=other.id,
+            sheet_id=sheet_b.id,
+        )
+        with self.assertRaises(UserError):
+            voucher_b.action_review_approve(sheet_a.id, {"amount": 1.0})
+        with self.assertRaises(UserError):
+            voucher_b.action_review_reject(sheet_a.id)
+        with self.assertRaises(UserError):
+            voucher_b.action_review_set_rotation(sheet_a.id, 90)
+        self.assertEqual(voucher_b.state, "pending")
+        self.assertEqual(voucher_b.attachment_rotation, 0)
+        self.assertAlmostEqual(voucher_b.amount, 100.0, places=2)
+
+    def test_stale_sheet_membership_mutations_are_refused(self):
+        """Mutations must refuse a voucher that is no longer a member of the sheet."""
+        self._close_open_sheets()
+        sheet = self._create_sheet()
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-STALE-SHEET",
+            document_id="DOC-STALE-SHEET",
+            seller_id=self.env.user.id,
+            sheet_id=sheet.id,
+        )
+        voucher.write({"sheet_id": False})
+        self.assertFalse(voucher.sheet_id)
+        with self.assertRaises(UserError):
+            voucher.action_review_approve(sheet.id, {"amount": 1.0})
+        with self.assertRaises(UserError):
+            voucher.action_review_reject(sheet.id)
+        with self.assertRaises(UserError):
+            voucher.action_review_set_rotation(sheet.id, 90)
+        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
+
+    def test_same_sheet_mutations_succeed(self):
+        """Approve, reject, and rotation succeed for a voucher on the sheet."""
+        self._close_open_sheets()
+        sheet = self._create_sheet()
+        rotatable = self._create_attached_voucher(
+            customer_identification="CUST-SAME-ROT",
+            document_id="DOC-SAME-ROT",
+            seller_id=self.env.user.id,
+            sheet_id=sheet.id,
+        )
+        rotatable.action_review_set_rotation(sheet.id, 90)
+        self.assertEqual(rotatable.attachment_rotation, 90)
+        approved = self._create_attached_voucher(
+            customer_identification="CUST-SAME-APPR",
+            document_id="DOC-SAME-APPR",
+            seller_id=self.env.user.id,
+            sheet_id=sheet.id,
+        )
+        approved.action_review_approve(sheet.id, {"amount": 55.0})
+        self.assertEqual(approved.state, "approved")
+        self.assertAlmostEqual(approved.amount, 55.0, places=2)
+        rejected = self._create_attached_voucher(
+            customer_identification="CUST-SAME-REJ",
+            document_id="DOC-SAME-REJ",
+            seller_id=self.env.user.id,
+            sheet_id=sheet.id,
+        )
+        rejected.action_review_reject(sheet.id)
+        self.assertEqual(rejected.state, "rejected")
+
     def test_review_rpcs_live_on_collection_voucher(self):
         Voucher = self.env["collection.voucher"]
         self.assertTrue(hasattr(Voucher, "get_review_queue"))
@@ -148,6 +353,8 @@ class TestCollectionDocumentReview(TransactionCase):
             self._voucher_vals(
                 customer_identification="CUST-REV-NONE",
                 document_id="DOC-REV-NONE",
+                seller_id=self.env.user.id,
+                sheet_id=self.review_sheet.id,
             )
         )
         approved = self._create_attached_voucher(
@@ -161,7 +368,7 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         decided.write({"state": "rejected"})
 
-        queue = Voucher.get_review_queue()
+        queue = Voucher.get_review_queue(self.review_sheet.id)
         queued_ids = [item["id"] for item in queue]
         self.assertIn(eligible.id, queued_ids)
         self.assertNotIn(unattached.id, queued_ids)
@@ -198,6 +405,8 @@ class TestCollectionDocumentReview(TransactionCase):
             self._voucher_vals(
                 customer_identification="CUST-REV-EMPTY",
                 document_id="DOC-REV-EMPTY-NONE",
+                seller_id=self.env.user.id,
+                sheet_id=self.review_sheet.id,
             )
         )
         attached = self._create_attached_voucher(
@@ -211,7 +420,7 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         rejected.write({"state": "rejected"})
 
-        queue = Voucher.get_review_queue()
+        queue = Voucher.get_review_queue(self.review_sheet.id)
         self.assertEqual(queue, [])
 
     def test_queue_orders_pdf_and_png_without_base64(self):
@@ -237,7 +446,7 @@ class TestCollectionDocumentReview(TransactionCase):
             attachment=PDF_B64,
             attachment_filename="b.pdf",
         )
-        queue = Voucher.get_review_queue()
+        queue = Voucher.get_review_queue(self.review_sheet.id)
         self.assertEqual(
             [item["id"] for item in queue], [png_voucher.id, pdf_voucher.id]
         )
@@ -281,7 +490,9 @@ class TestCollectionDocumentReview(TransactionCase):
             attachment=PNG_B64,
             attachment_filename="proof.jpg",
         )
-        queue = {item["id"]: item for item in Voucher.get_review_queue()}
+        queue = {
+            item["id"]: item for item in Voucher.get_review_queue(self.review_sheet.id)
+        }
         for voucher, filename in (
             (png_voucher, "proof.png"),
             (jpg_voucher, "proof.jpg"),
@@ -307,7 +518,9 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         payload = next(
             item
-            for item in self.env["collection.voucher"].get_review_queue()
+            for item in self.env["collection.voucher"].get_review_queue(
+                self.review_sheet.id
+            )
             if item["id"] == pdf_voucher.id
         )
         self.assertEqual(payload["attachment_filename"], "comprobante.pdf")
@@ -332,6 +545,35 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertIn("action_review_approve", action_js)
         self.assertIn("action_review_reject", action_js)
         self.assertIn("action_review_set_rotation", action_js)
+
+    def test_owl_review_rpcs_pass_sheet_id_from_action_params(self):
+        """OWL must send params.sheet_id on all four review RPCs, not active_id."""
+        action_js = self._action_js()
+        compact = "".join(action_js.split())
+        self.assertIn("params.sheet_id", action_js)
+        self.assertNotIn("active_id", action_js)
+        self.assertIn('get_review_queue",[sheetId]', compact)
+        self.assertRegex(
+            compact,
+            r'action_review_approve",\[\[this\.current\.id\],sheetId,buildApproveVals\(this\.current\),?\]',
+        )
+        self.assertRegex(
+            compact,
+            r'action_review_reject",\[\[this\.current\.id\],sheetId,?\]',
+        )
+        self.assertRegex(
+            compact,
+            r'action_review_set_rotation",\[\[this\.current\.id\],sheetId,next,?\]',
+        )
+        self.assertIn("Number.isInteger(sheetId)", action_js)
+        load_queue = action_js.split("async loadQueue")[1].split("goPrev()")[0]
+        self.assertIn("sheetId", load_queue)
+        self.assertIn("get_review_queue", load_queue)
+        self.assertLess(
+            load_queue.find("sheetId"),
+            load_queue.find("get_review_queue"),
+            "loadQueue must resolve sheetId before calling get_review_queue",
+        )
 
     def test_document_review_copy_targets_vouchers_not_lines(self):
         xml = self._viewer_template_xml()
@@ -632,16 +874,18 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-ROT-SAVE",
             document_id="DOC-REV-ROT-SAVE",
         )
-        voucher.action_review_set_rotation(90)
+        voucher.action_review_set_rotation(self.review_sheet.id, 90)
         self.assertEqual(voucher.attachment_rotation, 90)
         payload = next(
-            item for item in voucher.get_review_queue() if item["id"] == voucher.id
+            item
+            for item in voucher.get_review_queue(self.review_sheet.id)
+            if item["id"] == voucher.id
         )
         self.assertEqual(payload["attachment_rotation"], 90)
         self._assert_no_binary_in_payload(payload)
-        voucher.action_review_set_rotation(270)
+        voucher.action_review_set_rotation(self.review_sheet.id, 270)
         self.assertEqual(voucher.attachment_rotation, 270)
-        voucher.action_review_set_rotation(0)
+        voucher.action_review_set_rotation(self.review_sheet.id, 0)
         self.assertEqual(voucher.attachment_rotation, 0)
 
     def test_set_rotation_refuses_invalid_and_ineligible(self):
@@ -651,13 +895,13 @@ class TestCollectionDocumentReview(TransactionCase):
             document_id="DOC-REV-ROT-BAD",
         )
         with self.assertRaises(UserError):
-            voucher.action_review_set_rotation(45)
+            voucher.action_review_set_rotation(self.review_sheet.id, 45)
         with self.assertRaises(UserError):
-            voucher.action_review_set_rotation(-90)
+            voucher.action_review_set_rotation(self.review_sheet.id, -90)
         self.assertEqual(voucher.attachment_rotation, 0)
-        voucher.action_review_approve()
+        voucher.action_review_approve(self.review_sheet.id)
         with self.assertRaises(UserError):
-            voucher.action_review_set_rotation(90)
+            voucher.action_review_set_rotation(self.review_sheet.id, 90)
         self.assertEqual(voucher.attachment_rotation, 0)
 
     def test_attachment_write_resets_rotation(self):
@@ -665,7 +909,7 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-ROT-RESET",
             document_id="DOC-REV-ROT-RESET",
         )
-        voucher.action_review_set_rotation(180)
+        voucher.action_review_set_rotation(self.review_sheet.id, 180)
         self.assertEqual(voucher.attachment_rotation, 180)
         stored_bytes = voucher.attachment
         voucher.write(
@@ -722,6 +966,7 @@ class TestCollectionDocumentReview(TransactionCase):
             from_account="OLD-FROM",
         )
         voucher.action_review_approve(
+            self.review_sheet.id,
             {
                 "document_id": "HACKED-ID",
                 "amount": 250.75,
@@ -729,7 +974,7 @@ class TestCollectionDocumentReview(TransactionCase):
                 "to_account": "NEW-TO",
                 "voucher_number": "TRF-EDIT",
                 "voucher_date": date(2026, 5, 1),
-            }
+            },
         )
         self.assertEqual(voucher.document_id, "DOC-REV-APPR")
         self.assertAlmostEqual(voucher.amount, 250.75, places=2)
@@ -750,6 +995,7 @@ class TestCollectionDocumentReview(TransactionCase):
             amount=10.0,
         )
         voucher.action_review_approve(
+            self.review_sheet.id,
             {
                 "document_type": "check",
                 "amount": 80.0,
@@ -758,7 +1004,7 @@ class TestCollectionDocumentReview(TransactionCase):
                 "check_type": "deferred",
                 "check_issue_date": date(2026, 1, 10),
                 "check_payment_date": date(2026, 2, 10),
-            }
+            },
         )
         self.assertEqual(voucher.check_number, "CHK-9")
         self.assertEqual(voucher.check_bank, "Banco Nación")
@@ -777,10 +1023,11 @@ class TestCollectionDocumentReview(TransactionCase):
             amount=15.0,
         )
         voucher.action_review_approve(
+            self.review_sheet.id,
             {
                 "document_type": "cash_deposit",
                 "amount": 42.5,
-            }
+            },
         )
         self.assertEqual(voucher.document_type, "cash_deposit")
         self.assertAlmostEqual(voucher.amount, 42.5, places=2)
@@ -791,7 +1038,7 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-REJ",
             document_id="DOC-REV-REJ",
         )
-        voucher.action_review_reject()
+        voucher.action_review_reject(self.review_sheet.id)
         self.assertEqual(voucher.state, "rejected")
         self.assertEqual(voucher.reviewed_by, self.env.user)
         self.assertTrue(voucher.reviewed_at)
@@ -803,12 +1050,12 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-STALE",
             document_id="DOC-REV-STALE",
         )
-        voucher.action_review_approve({"amount": 40.0})
+        voucher.action_review_approve(self.review_sheet.id, {"amount": 40.0})
         self.assertEqual(voucher.state, "approved")
         with self.assertRaises(UserError):
-            voucher.action_review_approve({"amount": 1.0})
+            voucher.action_review_approve(self.review_sheet.id, {"amount": 1.0})
         with self.assertRaises(UserError):
-            voucher.action_review_reject()
+            voucher.action_review_reject(self.review_sheet.id)
         self.assertEqual(voucher.state, "approved")
         self.assertAlmostEqual(voucher.amount, 40.0, places=2)
 
@@ -820,21 +1067,23 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         attached.write({"state": "rejected"})
         with self.assertRaises(UserError):
-            attached.action_review_approve()
+            attached.action_review_approve(self.review_sheet.id)
         with self.assertRaises(UserError):
-            attached.action_review_reject()
+            attached.action_review_reject(self.review_sheet.id)
         self.assertEqual(attached.state, "rejected")
 
         unattached = self.env["collection.voucher"].create(
             self._voucher_vals(
                 customer_identification="CUST-REV-STALE3",
                 document_id="DOC-REV-STALE3",
+                seller_id=self.env.user.id,
+                sheet_id=self.review_sheet.id,
             )
         )
         with self.assertRaises(UserError):
-            unattached.action_review_approve()
+            unattached.action_review_approve(self.review_sheet.id)
         with self.assertRaises(UserError):
-            unattached.action_review_reject()
+            unattached.action_review_reject(self.review_sheet.id)
         self.assertEqual(unattached.state, "pending")
 
     def test_attachment_write_resets_pending_and_clears_audit(self):
@@ -842,7 +1091,7 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-RESET",
             document_id="DOC-REV-RESET",
         )
-        voucher.action_review_approve()
+        voucher.action_review_approve(self.review_sheet.id)
         self.assertEqual(voucher.state, "approved")
         self.assertTrue(voucher.reviewed_by)
         self.assertTrue(voucher.reviewed_at)
@@ -863,7 +1112,7 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-RESET-REJ",
             document_id="DOC-REV-RESET-REJ",
         )
-        voucher.action_review_reject()
+        voucher.action_review_reject(self.review_sheet.id)
         self.assertEqual(voucher.state, "rejected")
         voucher.write(
             {
