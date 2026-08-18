@@ -44,10 +44,10 @@ Nebula/`auto-assign-open-sheet` out of scope. Threat matrix N/A.
 
 ## Phase 2: MCP tests (PR 2)
 
-- [ ] 2.1 RED `TestCollectionMcpAttachment`: omit valid; MIME/b64 `UserError` no writes; chatter proof not `res_field=attachment`.
-- [ ] 2.2 GREEN validate nest then post; fail-closed before writes.
-- [ ] 2.3 RED exact-retry with/without nest: return all; no add/replace/compare.
-- [ ] 2.4 GREEN exact-retry / UniqueViolation replay: no post, no nest compare.
+- [x] 2.1 RED `TestCollectionMcpAttachment`: omit valid; MIME/b64 `UserError` no writes; chatter proof not `res_field=attachment`.
+- [x] 2.2 GREEN validate nest then post; fail-closed before writes.
+- [x] 2.3 RED exact-retry with/without nest: return all; no add/replace/compare.
+- [x] 2.4 GREEN exact-retry / UniqueViolation replay: no post, no nest compare.
 
 ## Phase 3: Document review + docs (PR 3)
 

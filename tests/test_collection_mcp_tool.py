@@ -1086,6 +1086,16 @@ class TestCollectionMcpAttachment(TransactionCase):
             ]
         )
 
+    def _field_attachments(self, voucher):
+        """Binary-field leftovers (`res_field=attachment`) must not exist."""
+        return self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "collection.voucher"),
+                ("res_id", "=", voucher.id),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+
     def _chatter_attachment_count(self):
         return self.env["ir.attachment"].search_count(
             [
@@ -1124,6 +1134,12 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertEqual(len(attachments), 1)
         self.assertEqual(attachments.datas, PNG_B64.encode())
         self.assertFalse(attachments.res_field)
+        self.assertFalse(
+            self._field_attachments(voucher),
+            "MCP nest must not persist as Binary res_field=attachment",
+        )
+        self.assertNotIn("attachment", voucher._fields)
+        self.assertNotIn("attachment_filename", voucher._fields)
         self.assertEqual(
             self.env["collection.voucher"].search_count([]),
             before_vouchers + 1,
@@ -1171,6 +1187,7 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertTrue(voucher.exists())
         self.assertFalse(voucher.message_main_attachment_id)
         self.assertFalse(self._voucher_attachments(voucher))
+        self.assertFalse(self._field_attachments(voucher))
 
     def test_create_mime_mismatch_rejects_no_writes(self):
         """Declared MIME mismatch / non-allow-list must UserError with no writes."""
@@ -1205,6 +1222,19 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertFalse(
             self.env["collection.voucher"].search(
                 [("document_id", "=", "MCP-DOC-ATT-MIME")]
+            ),
+        )
+        leftover = self.env["collection.voucher"].search(
+            [("document_id", "=", "MCP-DOC-ATT-MIME")]
+        )
+        self.assertFalse(leftover)
+        self.assertFalse(
+            self.env["ir.attachment"].search(
+                [
+                    ("res_model", "=", "collection.voucher"),
+                    ("res_field", "=", "attachment"),
+                    ("name", "=", "fake.pdf"),
+                ]
             ),
         )
 
@@ -1267,6 +1297,88 @@ class TestCollectionMcpAttachment(TransactionCase):
             ),
         )
 
+    def test_create_batch_invalid_nest_writes_nothing(self):
+        """Fail-closed: invalid nest MUST reject the whole batch before writes."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_atts = self._chatter_attachment_count()
+        with self.assertRaises(UserError) as err:
+            self._call(
+                {
+                    "customer_identification": "MCP-ATT-BATCH-FAIL",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-BATCH-OK",
+                            "document_type": "bank_transfer",
+                            "amount": 10.0,
+                            "attachment": self._nest("ok.png", "image/png", PNG_B64),
+                        },
+                        {
+                            "document_id": "MCP-DOC-ATT-BATCH-BAD",
+                            "document_type": "cash_deposit",
+                            "amount": 11.0,
+                            "attachment": self._nest(
+                                "fake.pdf", "application/pdf", PNG_B64
+                            ),
+                        },
+                    ],
+                },
+            )
+        self.assertNotIn("tool not found", str(err.exception).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertEqual(self._chatter_attachment_count(), before_atts)
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [
+                    (
+                        "document_id",
+                        "in",
+                        ["MCP-DOC-ATT-BATCH-OK", "MCP-DOC-ATT-BATCH-BAD"],
+                    )
+                ]
+            ),
+        )
+
+    def test_create_incomplete_nest_rejects_no_writes(self):
+        """Triangulation: nest missing datas MUST UserError with no writes."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_atts = self._chatter_attachment_count()
+        with self.assertRaises(UserError) as err:
+            self._call(
+                {
+                    "customer_identification": "MCP-ATT-INCOMPLETE",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-INCOMPLETE",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                            "attachment": {
+                                "name": "proof.png",
+                                "mimetype": "image/png",
+                            },
+                        }
+                    ],
+                },
+            )
+        message = str(err.exception).lower()
+        self.assertNotIn("tool not found", message)
+        self.assertTrue(
+            "datas" in message or "attachment" in message,
+            f"Expected nest datas validation, got: {err.exception}",
+        )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertEqual(self._chatter_attachment_count(), before_atts)
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-ATT-INCOMPLETE")]
+            ),
+        )
+
     def test_exact_retry_with_nest_does_not_replace_attachment(self):
         """Exact-retry with a different nest must leave stored attachment unchanged."""
         first = self._call(
@@ -1286,9 +1398,7 @@ class TestCollectionMcpAttachment(TransactionCase):
         original_att_ids = self._voucher_attachments(voucher).ids
         self.assertEqual(len(original_att_ids), 1)
         self.assertEqual(voucher.message_main_attachment_id.name, "original.png")
-        self.assertEqual(
-            voucher.message_main_attachment_id.datas, PNG_B64.encode()
-        )
+        self.assertEqual(voucher.message_main_attachment_id.datas, PNG_B64.encode())
         before_atts = self._chatter_attachment_count()
 
         second = self._call(
@@ -1309,9 +1419,7 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
         voucher.invalidate_recordset()
         self.assertEqual(voucher.message_main_attachment_id.name, "original.png")
-        self.assertEqual(
-            voucher.message_main_attachment_id.datas, PNG_B64.encode()
-        )
+        self.assertEqual(voucher.message_main_attachment_id.datas, PNG_B64.encode())
         self.assertEqual(self._voucher_attachments(voucher).ids, original_att_ids)
         self.assertEqual(
             self._chatter_attachment_count(),
@@ -1393,7 +1501,261 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
         voucher.invalidate_recordset()
         self.assertEqual(voucher.message_main_attachment_id.name, "keep.pdf")
-        self.assertEqual(
-            voucher.message_main_attachment_id.datas, PDF_B64.encode()
-        )
+        self.assertEqual(voucher.message_main_attachment_id.datas, PDF_B64.encode())
         self.assertEqual(len(self._voucher_attachments(voucher)), 1)
+
+    def _patch_voucher_search_miss_once(self, document_ids):
+        """Simulate a race: first document_id lookup misses rows that already exist."""
+        Voucher = self.env["collection.voucher"]
+        empty = Voucher.browse()
+        real_search = type(Voucher).search
+        calls = {"n": 0}
+
+        def search_proxy(model_self, domain=None, *args, **kwargs):
+            domain = domain or []
+            is_doc_lookup = any(
+                isinstance(term, (list, tuple))
+                and len(term) >= 3
+                and term[0] == "document_id"
+                and term[1] == "in"
+                and set(term[2]) == set(document_ids)
+                for term in domain
+            )
+            if model_self._name == "collection.voucher" and is_doc_lookup:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return empty
+            return real_search(model_self, domain, *args, **kwargs)
+
+        return patch("odoo.models.Model.search", search_proxy), calls
+
+    def test_exact_retry_ignores_invalid_nest(self):
+        """Exact-retry MUST NOT compare nests: invalid MIME still replays."""
+        first = self._call(
+            {
+                "customer_identification": "MCP-ATT-RETRY-IGN",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-IGN",
+                        "document_type": "bank_transfer",
+                        "amount": 7.0,
+                        "attachment": self._nest("keep.png", "image/png", PNG_B64),
+                    }
+                ],
+            },
+        )
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        original_att_ids = self._voucher_attachments(voucher).ids
+        before_atts = self._chatter_attachment_count()
+
+        second = self._call(
+            {
+                "customer_identification": "MCP-ATT-RETRY-IGN-OTHER",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-IGN",
+                        "document_type": "bank_transfer",
+                        "amount": 7.0,
+                        "attachment": self._nest("bad.bin", "image/png", INVALID_B64),
+                    }
+                ],
+            },
+        )
+        self.assertEqual(second["vouchers"], first["vouchers"])
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.message_main_attachment_id.name, "keep.png")
+        self.assertEqual(self._voucher_attachments(voucher).ids, original_att_ids)
+        self.assertEqual(self._chatter_attachment_count(), before_atts)
+        self.assertFalse(self._field_attachments(voucher))
+
+    def test_exact_retry_returns_all_with_mixed_nests(self):
+        """Exact-retry of a two-payment set MUST return all and ignore mixed nests."""
+        first = self._call(
+            {
+                "customer_identification": "MCP-ATT-RETRY-ALL",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-ALL-A",
+                        "document_type": "bank_transfer",
+                        "amount": 1.0,
+                        "attachment": self._nest("a.png", "image/png", PNG_B64),
+                    },
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-ALL-B",
+                        "document_type": "cash_deposit",
+                        "amount": 2.0,
+                    },
+                ],
+            },
+        )
+        self.assertEqual(len(first["vouchers"]), 2)
+        voucher_a = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        voucher_b = self.env["collection.voucher"].browse(first["vouchers"][1]["id"])
+        a_att_ids = self._voucher_attachments(voucher_a).ids
+        before_atts = self._chatter_attachment_count()
+
+        second = self._call(
+            {
+                "customer_identification": "MCP-ATT-RETRY-ALL-OTHER",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-ALL-A",
+                        "document_type": "bank_transfer",
+                        "amount": 99.0,
+                    },
+                    {
+                        "document_id": "MCP-DOC-ATT-RETRY-ALL-B",
+                        "document_type": "cash_deposit",
+                        "amount": 99.0,
+                        "attachment": self._nest(
+                            "late.pdf", "application/pdf", PDF_B64
+                        ),
+                    },
+                ],
+            },
+        )
+        self.assertEqual(second["vouchers"], first["vouchers"])
+        voucher_a.invalidate_recordset()
+        voucher_b.invalidate_recordset()
+        self.assertEqual(voucher_a.message_main_attachment_id.name, "a.png")
+        self.assertEqual(self._voucher_attachments(voucher_a).ids, a_att_ids)
+        self.assertFalse(voucher_b.message_main_attachment_id)
+        self.assertFalse(self._voucher_attachments(voucher_b))
+        self.assertEqual(self._chatter_attachment_count(), before_atts)
+
+    def test_unique_violation_replay_with_nest_does_not_post(self):
+        """UniqueViolation exact-set replay MUST NOT message_post a nested proof."""
+        first = self._call(
+            {
+                "customer_identification": "MCP-ATT-UV",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-UV",
+                        "document_type": "bank_transfer",
+                        "amount": 13.0,
+                    }
+                ],
+            },
+        )
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        self.assertFalse(voucher.message_main_attachment_id)
+        before_atts = self._chatter_attachment_count()
+        doc_ids = ["MCP-DOC-ATT-UV"]
+        search_patch, calls = self._patch_voucher_search_miss_once(doc_ids)
+
+        with mute_logger("odoo.sql_db"), search_patch:
+            second = self._call(
+                {
+                    "customer_identification": "MCP-ATT-UV-OTHER",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-UV",
+                            "document_type": "bank_transfer",
+                            "amount": 13.0,
+                            "attachment": self._nest("race.png", "image/png", PNG_B64),
+                        }
+                    ],
+                },
+            )
+
+        self.assertGreaterEqual(
+            calls["n"],
+            2,
+            "Expected initial miss + post-UniqueViolation re-lookup",
+        )
+        self.assertEqual(second["vouchers"], first["vouchers"])
+        voucher.invalidate_recordset()
+        self.assertFalse(voucher.message_main_attachment_id)
+        self.assertFalse(self._voucher_attachments(voucher))
+        self.assertEqual(self._chatter_attachment_count(), before_atts)
+
+    def test_unique_violation_replay_does_not_replace_existing_proof(self):
+        """Triangulation: UniqueViolation replay MUST NOT replace stored proof."""
+        first = self._call(
+            {
+                "customer_identification": "MCP-ATT-UV-KEEP",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-UV-KEEP",
+                        "document_type": "cash_deposit",
+                        "amount": 4.0,
+                        "attachment": self._nest("orig.png", "image/png", PNG_B64),
+                    }
+                ],
+            },
+        )
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        original_att_ids = self._voucher_attachments(voucher).ids
+        before_atts = self._chatter_attachment_count()
+        doc_ids = ["MCP-DOC-ATT-UV-KEEP"]
+        search_patch, calls = self._patch_voucher_search_miss_once(doc_ids)
+
+        with mute_logger("odoo.sql_db"), search_patch:
+            second = self._call(
+                {
+                    "customer_identification": "MCP-ATT-UV-KEEP-OTHER",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-UV-KEEP",
+                            "document_type": "cash_deposit",
+                            "amount": 4.0,
+                            "attachment": self._nest(
+                                "race.pdf", "application/pdf", PDF_B64
+                            ),
+                        }
+                    ],
+                },
+            )
+
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertEqual(second["vouchers"], first["vouchers"])
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.message_main_attachment_id.name, "orig.png")
+        self.assertEqual(voucher.message_main_attachment_id.datas, PNG_B64.encode())
+        self.assertEqual(self._voucher_attachments(voucher).ids, original_att_ids)
+        self.assertEqual(self._chatter_attachment_count(), before_atts)
+        self.assertFalse(self._field_attachments(voucher))
+
+    def test_unique_violation_replay_ignores_invalid_nest(self):
+        """Race replay ignores nests, including invalid MIME."""
+        first = self._call(
+            {
+                "customer_identification": "MCP-ATT-UV-IGN",
+                "payments": [
+                    {
+                        "document_id": "MCP-DOC-ATT-UV-IGN",
+                        "document_type": "bank_transfer",
+                        "amount": 5.0,
+                    }
+                ],
+            },
+        )
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        self.assertFalse(voucher.message_main_attachment_id)
+        before_atts = self._chatter_attachment_count()
+        doc_ids = ["MCP-DOC-ATT-UV-IGN"]
+        search_patch, calls = self._patch_voucher_search_miss_once(doc_ids)
+
+        with mute_logger("odoo.sql_db"), search_patch:
+            second = self._call(
+                {
+                    "customer_identification": "MCP-ATT-UV-IGN-OTHER",
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-ATT-UV-IGN",
+                            "document_type": "bank_transfer",
+                            "amount": 5.0,
+                            "attachment": self._nest(
+                                "bad.bin", "image/png", INVALID_B64
+                            ),
+                        }
+                    ],
+                },
+            )
+
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertEqual(second["vouchers"], first["vouchers"])
+        voucher.invalidate_recordset()
+        self.assertFalse(voucher.message_main_attachment_id)
+        self.assertFalse(self._voucher_attachments(voucher))
+        self.assertEqual(self._chatter_attachment_count(), before_atts)

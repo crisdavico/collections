@@ -197,8 +197,14 @@ class CollectionMcpMixin(models.AbstractModel):
             # Exact-retry / conflict: ignore attachment nests and seller_id.
             return self._collection_replay_or_reject(existing, document_ids)
 
-        # Create-only: validate nests as chatter sidecars after all-new.
-        sidecars = self._collection_parse_payment_attachments(payments)
+        try:
+            # Create-only: validate nests before writes (fail-closed).
+            sidecars = self._collection_parse_payment_attachments(payments)
+        except UserError:
+            replayed = self._collection_replay_existing(document_ids)
+            if replayed is not None:
+                return replayed
+            raise
 
         try:
             return self._collection_create_vouchers(
@@ -208,10 +214,9 @@ class CollectionMcpMixin(models.AbstractModel):
             # Race: concurrent create won the unique(document_id) race.
             # Savepoint already rolled back + cleared; refresh ORM caches.
             # Attachment nests are ignored on the post-race replay path.
-            self.env.invalidate_all()
-            raced = self._collection_vouchers_by_document_ids(document_ids)
-            if raced:
-                return self._collection_replay_or_reject(raced, document_ids)
+            replayed = self._collection_replay_existing(document_ids)
+            if replayed is not None:
+                return replayed
             raise UserError(
                 _(
                     "Payment document_id conflict could not be resolved after "
@@ -381,6 +386,15 @@ class CollectionMcpMixin(models.AbstractModel):
         return self._collection_vouchers_payload(existing, document_ids)
 
     @api.model
+    def _collection_replay_existing(self, document_ids: list[str]):
+        """Invalidate and replay if document_ids already exist; else None."""
+        self.env.invalidate_all()
+        raced = self._collection_vouchers_by_document_ids(document_ids)
+        if raced:
+            return self._collection_replay_or_reject(raced, document_ids)
+        return None
+
+    @api.model
     def _collection_require_internal_seller(self, seller_id: Any):
         """Return a browsable internal user or raise UserError (no sudo)."""
         if seller_id in (None, False, ""):
@@ -427,7 +441,7 @@ class CollectionMcpMixin(models.AbstractModel):
                     continue
                 name, raw = sidecar
                 voucher.message_post(
-                    body="Payment proof attached.",
+                    body=_("Payment proof attached."),
                     message_type="notification",
                     attachments=[(name, raw)],
                 )
