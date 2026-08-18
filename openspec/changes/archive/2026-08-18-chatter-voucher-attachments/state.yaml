@@ -1,0 +1,19 @@
+# SDD change state — orchestrator-managed
+change: chatter-voucher-attachments
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: auto
+planning_depth: standard
+subagent_model: cursor-grok-4.6-high-fast
+phase: archived
+updated: 2026-08-18
+notes: |
+  Archived to openspec/changes/archive/2026-08-18-chatter-voucher-attachments/.
+  Apply complete on stacked local branches (not pushed):
+  feat/chatter-voucher-attachments-01-migrate-model (86bb6a8)
+  feat/chatter-voucher-attachments-02-mcp-tests (78c3f96)
+  feat/chatter-voucher-attachments-03-document-review (68d5bfc)
+  feat/chatter-voucher-attachments-04-upgrade (51b3268 + 870416d)
+  Verify at close: PASS WITH WARNINGS; 26/26 scenarios; 10/10 requirements;
+  scoped collection suite 0 failed, 0 errors of 242. No push.
