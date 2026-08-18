@@ -1,0 +1,17 @@
+# SDD change state — orchestrator-managed
+change: voucher-ocr-provenance
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: grok-4.6-fast
+phase: archived
+updated: 2026-08-18
+notes: |
+  Archived to openspec/changes/archive/2026-08-18-voucher-ocr-provenance/.
+  Specs synced: collection-vouchers (+4 ADDED), document-review (+5 ADDED).
+  Tasks 14/14 complete. Snapshot vs archive diff -r empty (DIFF_STATUS=0).
+  Close state includes post-verify form+OWL union visibility for Raw OCR /
+  Seller Confirmed. Document ID remains Current-only. Nebula nested provenance
+  still out of scope. No git commits or PRs. reviewGate absent.

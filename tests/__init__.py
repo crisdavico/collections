@@ -5,6 +5,7 @@ from . import test_collection_acl
 from . import test_collection_document_review
 from . import test_collection_document_review_flag
 from . import test_collection_mail
+from . import test_collection_mcp_seller_lookup
 from . import test_collection_mcp_tool
 from . import test_collection_payment
 from . import test_collection_sheet

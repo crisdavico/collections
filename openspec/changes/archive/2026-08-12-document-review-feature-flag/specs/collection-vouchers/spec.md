@@ -7,8 +7,8 @@
 States MUST be `new`, `validated`, and `rejected`. Validate and Reject MUST apply only
 from `new` and MUST NOT alter terminal states. When Document Review is ON,
 `action_validate()` MUST refuse while any attachment-bearing line is `pending`. When
-OFF, Validate MUST succeed from `new` even with pending attached lines.
-(Previously: Validate always refused while any attached line was `pending`.)
+OFF, Validate MUST succeed from `new` even with pending attached lines. (Previously:
+Validate always refused while any attached line was `pending`.)
 
 #### Scenario: Validate from new
 
@@ -47,8 +47,7 @@ OFF, Validate MUST succeed from `new` even with pending attached lines.
 When Document Review is ON and a line is approved, if the parent voucher is `new` and
 every attachment-bearing line is `approved`, the system MAY set the voucher to
 `validated`. Unattached lines MUST NOT block that path. When OFF, review approve MUST
-NOT run.
-(Previously: Last attached-line approve MAY validate with no company flag.)
+NOT run. (Previously: Last attached-line approve MAY validate with no company flag.)
 
 #### Scenario: Aggregate voucher validation
 
@@ -66,8 +65,8 @@ NOT run.
 
 When Document Review is ON, rejecting a line MUST set it to `rejected` and, if the
 parent voucher is `new`, MUST set the voucher to `rejected`. When OFF, review reject
-MUST NOT run.
-(Previously: Line reject always rejected a `new` parent voucher with no company flag.)
+MUST NOT run. (Previously: Line reject always rejected a `new` parent voucher with no
+company flag.)
 
 #### Scenario: Immediate voucher rejection on line reject
 

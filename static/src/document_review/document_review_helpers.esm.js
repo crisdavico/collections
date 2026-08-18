@@ -48,9 +48,16 @@ export function ormValue(value) {
   return value;
 }
 
+export function isProvenanceKey(key) {
+  return Boolean(key) && (key.startsWith("ocr_") || key.startsWith("seller_"));
+}
+
 export function buildApproveVals(item) {
   const vals = {};
   for (const key of editableKeysForType(item.document_type)) {
+    if (isProvenanceKey(key)) {
+      continue;
+    }
     vals[key] = key === "amount" ? Number(item.amount) || 0 : ormValue(item[key]);
   }
   return vals;

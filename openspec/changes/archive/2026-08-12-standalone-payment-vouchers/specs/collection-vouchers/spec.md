@@ -6,9 +6,9 @@
 
 Each `collection.voucher` MUST represent one payment. The system MUST require
 `customer_identification`. The system MUST NOT store or accept `received_date`.
-Registration time MUST be automatic ORM `create_date` (readonly; MUST NOT be
-overridable by MCP, create vals, or editable views). On create, `state` MUST default
-to `pending`. Currency MUST be the company default (no multi-currency UX).
+Registration time MUST be automatic ORM `create_date` (readonly; MUST NOT be overridable
+by MCP, create vals, or editable views). On create, `state` MUST default to `pending`.
+Currency MUST be the company default (no multi-currency UX).
 
 #### Scenario: Defaults on create
 
@@ -31,13 +31,13 @@ to `pending`. Currency MUST be the company default (no multi-currency UX).
 
 ### Requirement: Voucher lifecycle
 
-States MUST be `pending`, `approved`, and `rejected`. Approve and Reject MUST apply
-only from `pending` and MUST NOT alter terminal states. Delete MUST be allowed only
-when `state` is `pending`. Any user-driven change from `pending` to `approved` or
-`rejected` (including kanban drag) MUST record reviewer and review time the same as
-Approve/Reject. Approve/Reject on Payment Vouchers MUST remain available whether
-Document Review is ON or OFF. Review queue RPCs remain governed by `document-review`.
-Confidence, per-field stamps, and reviewer-note persistence MUST NOT be required.
+States MUST be `pending`, `approved`, and `rejected`. Approve and Reject MUST apply only
+from `pending` and MUST NOT alter terminal states. Delete MUST be allowed only when
+`state` is `pending`. Any user-driven change from `pending` to `approved` or `rejected`
+(including kanban drag) MUST record reviewer and review time the same as Approve/Reject.
+Approve/Reject on Payment Vouchers MUST remain available whether Document Review is ON
+or OFF. Review queue RPCs remain governed by `document-review`. Confidence, per-field
+stamps, and reviewer-note persistence MUST NOT be required.
 
 #### Scenario: Approve from pending
 
@@ -173,8 +173,8 @@ payment atomically (`state=pending`, company currency). Response MUST include ea
 voucher `id`/`name`/`state` and `document_id`. Idempotency by `document_id`: all-new →
 create N vouchers; every submitted `document_id` already exists → return ALL those
 vouchers unchanged; in-call duplicate or partial overlap → reject with no writes.
-Submitted `document_id`s that already exist on different vouchers MUST succeed as
-exact replay (MUST NOT reject as a cross-voucher conflict). Exact replay MUST ignore
+Submitted `document_id`s that already exist on different vouchers MUST succeed as exact
+replay (MUST NOT reject as a cross-voucher conflict). Exact replay MUST ignore
 `customer_identification` and nested attachments.
 
 #### Scenario: All-new create
@@ -271,9 +271,9 @@ standalone vouchers.
 ### Requirement: Voucher sequence naming
 
 The system MUST assign each new voucher a unique persisted name matching
-`COL/<year>/<number>` via sequence code `collection.voucher`. Each payment MUST
-consume one sequence number.
-(Previously: Sequence applied to a header voucher that could cover multiple lines.)
+`COL/<year>/<number>` via sequence code `collection.voucher`. Each payment MUST consume
+one sequence number. (Previously: Sequence applied to a header voucher that could cover
+multiple lines.)
 
 #### Scenario: Sequence assigned on create
 
@@ -284,8 +284,8 @@ consume one sequence number.
 ### Requirement: Mail thread and activities
 
 Each voucher MUST support messaging and activities. Voucher fields including `state`
-SHOULD be tracked in chatter.
-(Previously: Chatter lived on the header; scenarios used header state `new`.)
+SHOULD be tracked in chatter. (Previously: Chatter lived on the header; scenarios used
+header state `new`.)
 
 #### Scenario: Chatter and activities available
 
@@ -301,8 +301,8 @@ SHOULD be tracked in chatter.
 
 ### Requirement: Authorization for internal users
 
-Internal users (`base.group_user`) MUST have full CRUD on vouchers. The system MUST
-NOT grant ACL on `collection.voucher.line`. No dedicated groups or record rules.
+Internal users (`base.group_user`) MUST have full CRUD on vouchers. The system MUST NOT
+grant ACL on `collection.voucher.line`. No dedicated groups or record rules.
 (Previously: Full CRUD on vouchers and payment lines.)
 
 #### Scenario: Internal user CRUD
@@ -320,9 +320,9 @@ NOT grant ACL on `collection.voucher.line`. No dedicated groups or record rules.
 ### Requirement: Deferred integrations not required
 
 Completeness MUST NOT require HTTP API, WhatsApp metadata, partner/CRM linkage, or agent
-calls. Optional per-voucher image/PDF attachments are an allowed capability and MUST
-NOT be required for completeness of unrelated voucher features.
-(Previously: Completeness referred to vouchers with payment lines.)
+calls. Optional per-voucher image/PDF attachments are an allowed capability and MUST NOT
+be required for completeness of unrelated voucher features. (Previously: Completeness
+referred to vouchers with payment lines.)
 
 #### Scenario: Completeness without deferred features
 
@@ -335,8 +335,8 @@ NOT be required for completeness of unrelated voucher features.
 
 Vouchers MUST support nullable Char `document_id` unique among non-null values. UI
 vouchers without `document_id` MUST remain allowed. MCP MUST require non-empty
-`document_id` per payment.
-(Previously: Uniqueness and UI omit applied to payment lines.)
+`document_id` per payment. (Previously: Uniqueness and UI omit applied to payment
+lines.)
 
 #### Scenario: Manual payment without document_id still OK
 
@@ -352,9 +352,8 @@ match content detection (`image/*` or PDF only); mismatch or bad base64 MUST rai
 `UserError` with no writes. Create with attachments MUST persist all vouchers and files
 atomically under a savepoint. Exact-retry by `document_id` MUST return all matching
 vouchers and MUST NOT add, replace, or compare attachments (even when a voucher has
-none). All-new and conflict rules MUST remain unchanged.
-(Previously: Nested attachments on singular `create_collection_voucher`; exact-retry
-returned one header voucher.)
+none). All-new and conflict rules MUST remain unchanged. (Previously: Nested attachments
+on singular `create_collection_voucher`; exact-retry returned one header voucher.)
 
 #### Scenario: MCP create with nested attachment
 
@@ -379,8 +378,8 @@ returned one header voucher.)
 
 Approve and reject MUST refuse stale or concurrent attempts when the voucher is no
 longer eligible (not `pending`, or attachment no longer present) and MUST NOT corrupt
-review or voucher state.
-(Previously: Eligibility also required a parent voucher in `new` and a line record.)
+review or voucher state. (Previously: Eligibility also required a parent voucher in
+`new` and a line record.)
 
 #### Scenario: Concurrent or stale review attempt
 
@@ -392,8 +391,8 @@ review or voucher state.
 
 Replacing a voucher attachment (write of new Binary content) MUST reset that voucher’s
 `state` to `pending` and MUST clear prior reviewer/time audit for a fresh review.
-Omit/empty and MIME validation rules remain unchanged.
-(Previously: Replacement reset the payment line’s `state` and audit.)
+Omit/empty and MIME validation rules remain unchanged. (Previously: Replacement reset
+the payment line’s `state` and audit.)
 
 #### Scenario: Attachment replacement resets voucher state
 
@@ -407,14 +406,12 @@ Omit/empty and MIME validation rules remain unchanged.
 ### Requirement: Voucher header fields and defaults
 
 (Reason: Header+line split is removed; one voucher is one payment with lifecycle
-`pending`.)
-(Migration: Replaced by Voucher fields and defaults.)
+`pending`.) (Migration: Replaced by Voucher fields and defaults.)
 
 ### Requirement: Voucher state transitions
 
 (Reason: Header states `new`/`validated`/`rejected` and aggregate validate-while-lines-
-pending are removed.)
-(Migration: Replaced by Voucher lifecycle.)
+pending are removed.) (Migration: Replaced by Voucher lifecycle.)
 
 ### Requirement: Payment lines and payment field contract
 
@@ -428,24 +425,24 @@ pending are removed.)
 
 ### Requirement: Unsupported lines remain non-editable on voucher form
 
-(Reason: Payment Lines browse surface is removed.)
-(Migration: Replaced by Unsupported vouchers remain persistable.)
+(Reason: Payment Lines browse surface is removed.) (Migration: Replaced by Unsupported
+vouchers remain persistable.)
 
 ### Requirement: MCP tool create_collection_voucher
 
-(Reason: Singular header+N-lines tool and cross-voucher reject are removed.)
-(Migration: Replaced by MCP tool create_collection_vouchers. Callers MUST use the
-plural name; exact replay returns all vouchers.)
+(Reason: Singular header+N-lines tool and cross-voucher reject are removed.) (Migration:
+Replaced by MCP tool create_collection_vouchers. Callers MUST use the plural name; exact
+replay returns all vouchers.)
 
 ### Requirement: Optional image or PDF attachment per payment line
 
-(Reason: Attachments move from the line to the standalone voucher.)
-(Migration: Replaced by Optional image or PDF attachment per voucher.)
+(Reason: Attachments move from the line to the standalone voucher.) (Migration: Replaced
+by Optional image or PDF attachment per voucher.)
 
 ### Requirement: Attachment widgets on typed and Payment Lines views
 
-(Reason: Typed line tables and Payment Lines views are removed.)
-(Migration: Replaced by Attachment widgets on Payment Vouchers views.)
+(Reason: Typed line tables and Payment Lines views are removed.) (Migration: Replaced by
+Attachment widgets on Payment Vouchers views.)
 
 ### Requirement: Payment line state and audit
 
@@ -454,10 +451,10 @@ plural name; exact replay returns all vouchers.)
 
 ### Requirement: Approve may validate voucher when all attached lines approved
 
-(Reason: Aggregate header validation from attached-line approve is removed.)
-(Migration: None. Approving a voucher sets that voucher to `approved` only.)
+(Reason: Aggregate header validation from attached-line approve is removed.) (Migration:
+None. Approving a voucher sets that voucher to `approved` only.)
 
 ### Requirement: Line reject immediately rejects voucher
 
-(Reason: Aggregate header reject from line reject is removed.)
-(Migration: None. Rejecting a voucher sets that voucher to `rejected` only.)
+(Reason: Aggregate header reject from line reject is removed.) (Migration: None.
+Rejecting a voucher sets that voucher to `rejected` only.)

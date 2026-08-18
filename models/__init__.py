@@ -3,6 +3,6 @@
 
 from . import collection_sheet
 from . import collection_voucher
-from . import ir_ui_menu
+from . import collection_voucher_review_snapshot
 from . import res_company
 from . import res_config_settings

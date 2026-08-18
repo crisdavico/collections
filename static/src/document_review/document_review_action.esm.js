@@ -61,11 +61,23 @@ export class DocumentReviewAction extends Component {
   }
 
   get isBankTransfer() {
-    return Boolean(this.current && this.current.document_type === "bank_transfer");
+    return this._layerHasDocumentType("bank_transfer");
   }
 
   get isCheck() {
-    return Boolean(this.current && this.current.document_type === "check");
+    return this._layerHasDocumentType("check");
+  }
+
+  _layerHasDocumentType(documentType) {
+    const current = this.current;
+    if (!current) {
+      return false;
+    }
+    return [
+      current.document_type,
+      current.ocr_document_type,
+      current.seller_document_type,
+    ].includes(documentType);
   }
 
   get viewerKind() {
@@ -109,11 +121,32 @@ export class DocumentReviewAction extends Component {
     return this.viewerIsReady && !isViewerZoomIdentity(this.state.viewerZoom);
   }
 
+  get reviewSheetId() {
+    const params = this.props.action && this.props.action.params;
+    const sheetId = params ? params.sheet_id : undefined;
+    if (!Number.isInteger(sheetId) || sheetId <= 0) {
+      return false;
+    }
+    return sheetId;
+  }
+
   async loadQueue({keepIndex = false} = {}) {
     const previousIndex = this.state.index;
     this.state.loading = true;
+    const sheetId = this.reviewSheetId;
+    if (!sheetId) {
+      this.notification.add(
+        _t("A valid collection sheet is required for Document Review."),
+        {type: "danger"}
+      );
+      this.state.items = [];
+      this.state.index = 0;
+      this.state.loading = false;
+      this.syncViewer();
+      return;
+    }
     try {
-      const queue = await this.orm.call(LINE_MODEL, "get_review_queue", []);
+      const queue = await this.orm.call(LINE_MODEL, "get_review_queue", [sheetId]);
       this.state.items = (queue || []).map(sanitizeQueueItem);
       this.state.index = keepIndex
         ? nextIndexAfterReload(previousIndex, this.state.items.length)
@@ -177,9 +210,18 @@ export class DocumentReviewAction extends Component {
     const next = nextViewerRotation(this.state.viewerRotation, step);
     this.state.viewerRotation = next;
     this.current.attachment_rotation = next;
+    const sheetId = this.reviewSheetId;
+    if (!sheetId) {
+      this.notification.add(
+        _t("A valid collection sheet is required for Document Review."),
+        {type: "danger"}
+      );
+      return;
+    }
     try {
       await this.orm.call(LINE_MODEL, "action_review_set_rotation", [
         [this.current.id],
+        sheetId,
         next,
       ]);
     } catch (error) {
@@ -276,10 +318,12 @@ export class DocumentReviewAction extends Component {
   }
 
   async approve() {
+    const sheetId = this.reviewSheetId;
     await this.runDecision(
       () =>
         this.orm.call(LINE_MODEL, "action_review_approve", [
           [this.current.id],
+          sheetId,
           buildApproveVals(this.current),
         ]),
       _t("Payment voucher approved.")
@@ -287,8 +331,10 @@ export class DocumentReviewAction extends Component {
   }
 
   async reject() {
+    const sheetId = this.reviewSheetId;
     await this.runDecision(
-      () => this.orm.call(LINE_MODEL, "action_review_reject", [[this.current.id]]),
+      () =>
+        this.orm.call(LINE_MODEL, "action_review_reject", [[this.current.id], sheetId]),
       _t("Payment voucher rejected.")
     );
   }

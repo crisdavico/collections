@@ -11,6 +11,7 @@ from odoo.tools.translate import _
 class CollectionSheet(models.Model):
     _name = "collection.sheet"
     _description = "Collection Sheet"
+    _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "id desc"
 
     name = fields.Char(
@@ -42,6 +43,7 @@ class CollectionSheet(models.Model):
         ],
         default="open",
         required=True,
+        tracking=True,
         copy=False,
     )
     document_review_enabled = fields.Boolean(
@@ -88,18 +90,14 @@ class CollectionSheet(models.Model):
     @api.private
     def _raise_if_seller_has_open_sheet(self, seller):
         if self._open_sheets_for_seller(seller):
-            raise UserError(
-                _("This seller already has an open collection sheet.")
-            )
+            raise UserError(_("This seller already has an open collection sheet."))
 
     @api.private
     def _resolve_open_sheet_id_for_create(self, seller_id):
         self._lock_open_sheet_for_seller(seller_id)
         opens = self._open_sheets_for_seller(seller_id)
         if len(opens) > 1:
-            raise UserError(
-                _("This seller has more than one open collection sheet.")
-            )
+            raise UserError(_("This seller has more than one open collection sheet."))
         if len(opens) == 1:
             return opens.id
         return self.create({"seller_id": seller_id}).id
@@ -175,9 +173,7 @@ class CollectionSheet(models.Model):
         for sheet in self:
             seller_id = sheet.seller_id.id
             if seller_id in seen_sellers:
-                raise UserError(
-                    _("This seller already has an open collection sheet.")
-                )
+                raise UserError(_("This seller already has an open collection sheet."))
             self._raise_if_seller_has_open_sheet(sheet.seller_id)
             seen_sellers.add(seller_id)
         return self.with_context(collection_sheet_audited_state=True).write(

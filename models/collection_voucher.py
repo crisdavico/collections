@@ -87,6 +87,71 @@ class CollectionVoucher(models.Model):
         copy=False,
     )
     reviewed_at = fields.Datetime(copy=False)
+    review_snapshot_ids = fields.One2many(
+        comodel_name="collection.voucher.review.snapshot",
+        inverse_name="voucher_id",
+        string="Review History",
+        copy=False,
+        readonly=True,
+    )
+    ocr_document_type = fields.Selection(
+        selection=[
+            ("bank_transfer", "Bank Transfer"),
+            ("check", "Check"),
+            ("cash_deposit", "Cash Deposit"),
+            ("unsupported", "Unsupported"),
+        ],
+        string="Document Type",
+        copy=False,
+    )
+    ocr_amount = fields.Monetary(
+        string="Amount", copy=False, currency_field="currency_id"
+    )
+    ocr_from_account = fields.Char(string="From Account", copy=False)
+    ocr_to_account = fields.Char(string="To Account", copy=False)
+    ocr_voucher_number = fields.Char(string="Voucher Number", copy=False)
+    ocr_voucher_date = fields.Date(string="Voucher Date", copy=False)
+    ocr_check_number = fields.Char(string="Check Number", copy=False)
+    ocr_check_bank = fields.Char(string="Check Bank", copy=False)
+    ocr_check_issue_date = fields.Date(string="Check Issue Date", copy=False)
+    ocr_check_payment_date = fields.Date(string="Check Payment Date", copy=False)
+    ocr_check_type = fields.Selection(
+        selection=[
+            ("common", "Common"),
+            ("deferred", "Deferred"),
+        ],
+        string="Check Type",
+        copy=False,
+    )
+    seller_document_type = fields.Selection(
+        selection=[
+            ("bank_transfer", "Bank Transfer"),
+            ("check", "Check"),
+            ("cash_deposit", "Cash Deposit"),
+            ("unsupported", "Unsupported"),
+        ],
+        string="Document Type",
+        copy=False,
+    )
+    seller_amount = fields.Monetary(
+        string="Amount", copy=False, currency_field="currency_id"
+    )
+    seller_from_account = fields.Char(string="From Account", copy=False)
+    seller_to_account = fields.Char(string="To Account", copy=False)
+    seller_voucher_number = fields.Char(string="Voucher Number", copy=False)
+    seller_voucher_date = fields.Date(string="Voucher Date", copy=False)
+    seller_check_number = fields.Char(string="Check Number", copy=False)
+    seller_check_bank = fields.Char(string="Check Bank", copy=False)
+    seller_check_issue_date = fields.Date(string="Check Issue Date", copy=False)
+    seller_check_payment_date = fields.Date(string="Check Payment Date", copy=False)
+    seller_check_type = fields.Selection(
+        selection=[
+            ("common", "Common"),
+            ("deferred", "Deferred"),
+        ],
+        string="Check Type",
+        copy=False,
+    )
 
     _REVIEW_EDITABLE_FIELDS = frozenset(
         {
@@ -148,6 +213,15 @@ class CollectionVoucher(models.Model):
     def write(self, vals):
         if not self:
             return True
+        blocked = {
+            f"{prefix}_{name}"
+            for prefix in ("ocr", "seller")
+            for name in self._REVIEW_EDITABLE_FIELDS
+        }
+        if blocked & set(vals):
+            raise UserError(
+                _("OCR and seller-confirmed fields cannot be modified after create.")
+            )
         if "sheet_id" in vals:
             self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
         if "message_main_attachment_id" in vals:
@@ -458,6 +532,27 @@ class CollectionVoucher(models.Model):
         if extra_vals:
             vals.update(extra_vals)
         self.with_context(collection_audited_state=True).write(vals)
+        self._append_review_snapshot(status)
+
+    @api.private
+    def _append_review_snapshot(self, decision):
+        Snapshot = self.env["collection.voucher.review.snapshot"]
+        for voucher in self:
+            last = Snapshot.search(
+                [("voucher_id", "=", voucher.id)],
+                order="revision desc",
+                limit=1,
+            )
+            payload = {
+                "voucher_id": voucher.id,
+                "revision": (last.revision or 0) + 1,
+                "reviewer_id": voucher.reviewed_by.id,
+                "reviewed_at": voucher.reviewed_at,
+                "decision": decision,
+            }
+            for name in self._REVIEW_EDITABLE_FIELDS:
+                payload[name] = voucher[name]
+            Snapshot.with_context(collection_review_snapshot=True).create(payload)
 
     @api.private
     def _lock_and_ensure_review_eligible(self):
@@ -501,7 +596,7 @@ class CollectionVoucher(models.Model):
     def _review_queue_payload(self, position, total):
         self.ensure_one()
         attachment = self.message_main_attachment_id
-        return {
+        payload = {
             "id": self.id,
             "voucher_id": self.id,
             "voucher_name": self.name,
@@ -524,3 +619,7 @@ class CollectionVoucher(models.Model):
             "attachment_url": self._attachment_content_url(),
             "attachment_rotation": self.attachment_rotation,
         }
+        for prefix in ("ocr", "seller"):
+            for name in self._REVIEW_EDITABLE_FIELDS:
+                payload[f"{prefix}_{name}"] = self[f"{prefix}_{name}"]
+        return payload

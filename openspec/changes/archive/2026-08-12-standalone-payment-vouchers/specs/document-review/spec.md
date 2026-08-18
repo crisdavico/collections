@@ -7,9 +7,9 @@
 The system MUST queue only `collection.voucher` records where `state` is `pending` and
 an attachment is present. Vouchers missing any eligibility criterion MUST NOT appear.
 Parent-voucher `state == new` MUST NOT be an eligibility criterion. Confidence scores,
-per-field stamps, and reviewer-note persistence MUST NOT be required.
-(Previously: Queued `collection.voucher.line` records whose parent voucher `state` was
-`new`, line `state` was `pending`, and an attachment was present.)
+per-field stamps, and reviewer-note persistence MUST NOT be required. (Previously:
+Queued `collection.voucher.line` records whose parent voucher `state` was `new`, line
+`state` was `pending`, and an attachment was present.)
 
 #### Scenario: Queue eligibility
 
@@ -28,9 +28,9 @@ per-field stamps, and reviewer-note persistence MUST NOT be required.
 
 The Document Review OWL client MUST load queue and voucher data via ORM (no mocks) from
 `collection.voucher`. It MUST support typed editable inputs, queue navigation, and
-advance to the next eligible record after a successful approve or reject.
-(Previously: Loaded `collection.voucher.line`; readonly voucher reference was the parent
-header name.)
+advance to the next eligible record after a successful approve or reject. (Previously:
+Loaded `collection.voucher.line`; readonly voucher reference was the parent header
+name.)
 
 #### Scenario: Typed editable fields by document type
 
@@ -59,8 +59,8 @@ header name.)
 
 The client MUST render image and PDF proofs via an authenticated binary route whose
 model is `collection.voucher`. The OWL layer MUST NOT embed attachment base64. The
-viewer MUST present distinct loading, error, and empty-attachment states.
-(Previously: Binary URLs used model `collection.voucher.line`.)
+viewer MUST present distinct loading, error, and empty-attachment states. (Previously:
+Binary URLs used model `collection.voucher.line`.)
 
 #### Scenario: Image via authenticated binary route
 
@@ -86,11 +86,11 @@ viewer MUST present distinct loading, error, and empty-attachment states.
 
 The viewer MUST offer controls that rotate the current image or PDF 90 degrees clockwise
 and counterclockwise. Rotation MUST be a view transform: it MUST NOT rewrite the stored
-attachment bytes. The chosen angle MUST persist on the voucher and MUST be restored
-when the reviewer views that same proof again (including after queue navigation or
-reopening Document Review). PDF proofs MUST still load from the authenticated binary
-URL. Replacing or clearing the attachment MUST reset rotation to 0 degrees.
-(Previously: Rotation persisted on the payment line.)
+attachment bytes. The chosen angle MUST persist on the voucher and MUST be restored when
+the reviewer views that same proof again (including after queue navigation or reopening
+Document Review). PDF proofs MUST still load from the authenticated binary URL.
+Replacing or clearing the attachment MUST reset rotation to 0 degrees. (Previously:
+Rotation persisted on the payment line.)
 
 #### Scenario: Rotate clockwise and counterclockwise
 
@@ -116,9 +116,8 @@ URL. Replacing or clearing the attachment MUST reset rotation to 0 degrees.
 
 Approve and reject MUST call real server actions (no mock handlers). Approve MUST
 persist field corrections before updating voucher `state`. Reject and approve outcomes
-for voucher `state` are governed by `collection-vouchers`.
-(Previously: Corrections and `state` were persisted on the payment line; aggregate
-header state was also implied.)
+for voucher `state` are governed by `collection-vouchers`. (Previously: Corrections and
+`state` were persisted on the payment line; aggregate header state was also implied.)
 
 #### Scenario: Correction persistence on approve
 
@@ -136,11 +135,11 @@ header state was also implied.)
 
 ### Requirement: Per-company Document Review flag
 
-Each company MUST have a boolean Document Review flag defaulting to OFF. Settings
-admins MUST toggle it at `/odoo/settings#collections`. When ON, existing Document
-Review requirements MUST still apply. Voucher `state` and review audit columns MUST
-remain on Payment Vouchers views regardless of the flag.
-(Previously: Line `state` and review audit columns remained on payment-line views.)
+Each company MUST have a boolean Document Review flag defaulting to OFF. Settings admins
+MUST toggle it at `/odoo/settings#collections`. When ON, existing Document Review
+requirements MUST still apply. Voucher `state` and review audit columns MUST remain on
+Payment Vouchers views regardless of the flag. (Previously: Line `state` and review
+audit columns remained on payment-line views.)
 
 #### Scenario: Default off
 

@@ -1,0 +1,14 @@
+# SDD change state — orchestrator-managed
+change: sheet-scoped-document-review
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: interactive
+planning_depth: standard
+subagent_model: grok-4.6
+phase: verify
+updated: 2026-08-18
+notes: |
+  Verify PASS WITH WARNINGS. 4/4 requirements, 13/13 scenarios. 194 tests / 0 failed.
+  Report: verify-report.md (sha256:4d272b008837952c57634efd84f9fd2d636344aff1d0b1859c7b7cfec109ebdb).
+  stacked-to-main, not committed. Archive not started.

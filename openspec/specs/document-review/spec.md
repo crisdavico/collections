@@ -47,9 +47,9 @@ state and MUST NOT fall back to a company-wide or other-sheet queue.
 
 The Document Review OWL client MUST load queue and voucher data via ORM (no mocks) from
 `collection.voucher`. It MUST support typed editable inputs, queue navigation, and
-advance to the next eligible record after a successful approve or reject.
-(Previously: Loaded `collection.voucher.line`; readonly voucher reference was the parent
-header name.)
+advance to the next eligible record after a successful approve or reject. (Previously:
+Loaded `collection.voucher.line`; readonly voucher reference was the parent header
+name.)
 
 #### Scenario: Typed editable fields by document type
 
@@ -178,9 +178,8 @@ files that do not change designated proof MUST NOT reset rotation.
 
 Approve and reject MUST call real server actions (no mock handlers). Approve MUST
 persist field corrections before updating voucher `state`. Reject and approve outcomes
-for voucher `state` are governed by `collection-vouchers`.
-(Previously: Corrections and `state` were persisted on the payment line; aggregate
-header state was also implied.)
+for voucher `state` are governed by `collection-vouchers`. (Previously: Corrections and
+`state` were persisted on the payment line; aggregate header state was also implied.)
 
 #### Scenario: Correction persistence on approve
 
@@ -209,11 +208,11 @@ approve/reject actions.
 
 ### Requirement: Per-company Document Review flag
 
-Each company MUST have a boolean Document Review flag defaulting to OFF. Settings
-admins MUST toggle it at `/odoo/settings#collections`. When ON, existing Document
-Review requirements MUST still apply. Voucher `state` and review audit columns MUST
-remain on Payment Vouchers views regardless of the flag.
-(Previously: Line `state` and review audit columns remained on payment-line views.)
+Each company MUST have a boolean Document Review flag defaulting to OFF. Settings admins
+MUST toggle it at `/odoo/settings#collections`. When ON, existing Document Review
+requirements MUST still apply. Voucher `state` and review audit columns MUST remain on
+Payment Vouchers views regardless of the flag. (Previously: Line `state` and review
+audit columns remained on payment-line views.)
 
 #### Scenario: Default off
 
@@ -235,24 +234,26 @@ remain on Payment Vouchers views regardless of the flag.
 
 ### Requirement: Document Review menu and RPCs when flag is off
 
-When OFF, the Document Review menu MUST NOT appear. Operations `get_review_queue`,
-`action_review_approve`, `action_review_reject`, and `action_review_set_rotation`
-MUST refuse, including for internal users, and MUST NOT succeed as an empty queue.
-Direct `/odoo/document-review` MUST still be refused via those operations. When ON,
-only internal users MUST access them.
+The Collections menu MUST NOT include Document Review, whether the current company's
+flag is ON or OFF. When OFF, operations `get_review_queue`, `action_review_approve`,
+`action_review_reject`, and `action_review_set_rotation` MUST refuse, including for
+internal users and including leftover `/odoo/document-review`, with or without a sheet
+identifier, and MUST NOT succeed as an empty queue. When ON, only internal users MUST
+access them. (Previously: When OFF the Document Review menu was hidden; when ON,
+Collections → Document Review was available as a standalone menu.)
 
-#### Scenario: Menu hidden when off
+#### Scenario: Menu absence
 
-- GIVEN Document Review is OFF
+- GIVEN the module installed and Document Review ON or OFF
 - WHEN menus load
-- THEN Document Review MUST NOT appear
+- THEN Collections → Document Review MUST NOT appear
 
 #### Scenario: Review operations refuse when off
 
 - GIVEN Document Review is OFF
 - WHEN an internal user calls `get_review_queue`, `action_review_approve`,
-  `action_review_reject`, or `action_review_set_rotation`, including via
-  `/odoo/document-review`
+  `action_review_reject`, or `action_review_set_rotation`, with or without a sheet
+  identifier, including via leftover `/odoo/document-review`
 - THEN the system MUST refuse (not empty-queue success)
 
 #### Scenario: Internal ACL when on
@@ -260,3 +261,114 @@ only internal users MUST access them.
 - GIVEN Document Review is ON
 - WHEN a non-internal user attempts those review operations
 - THEN the system MUST deny access
+
+### Requirement: Sheet identifier required on review operations
+
+Queue and mutation operations `get_review_queue`, `action_review_approve`,
+`action_review_reject`, and `action_review_set_rotation` MUST require a validated sheet
+identifier and MUST operate only on that sheet (`sheet_id`). Direct or global review
+MUST NOT succeed. Missing or invalid identifiers MUST be refused (not empty-queue
+success). Mutations MUST refuse vouchers that are not current members of that sheet. OWL
+MUST pass the identifier on queue, approve, reject, and rotation.
+
+#### Scenario: Required sheet context
+
+- GIVEN Document Review is ON
+- WHEN an internal user calls a review queue or mutation operation with a missing or
+  invalid sheet identifier
+- THEN the system MUST refuse
+- AND MUST NOT succeed as an empty queue
+
+#### Scenario: Stale membership
+
+- GIVEN Document Review is ON and a voucher that is no longer a member of the identified
+  saved sheet
+- WHEN an internal user attempts approve, reject, or rotation for that voucher with that
+  sheet identifier
+- THEN the system MUST refuse the mutation
+
+#### Scenario: OWL and RPC arguments include the sheet identifier
+
+- GIVEN Document Review opened from a saved sheet
+- WHEN the client loads the queue or performs approve, reject, or rotation
+- THEN each corresponding RPC MUST include that sheet's identifier
+
+### Requirement: Three-way raw, seller, and current comparison
+
+Payment Vouchers form and Document Review MUST present raw OCR, seller-confirmed, and
+current payment fields side by side. Current MUST remain the editable copy. Raw and
+seller-confirmed MUST be readonly. Type-specific visibility MUST apply to all three
+layers. Document Review MUST NOT show `document_id`. Empty provenance MUST still load.
+
+#### Scenario: Type-specific visibility and hidden document_id
+
+- GIVEN a queued `bank_transfer`, `check`, or `cash_deposit` voucher
+- WHEN shown in Document Review or on the voucher form
+- THEN type-specific fields MUST follow existing visibility on all three layers
+- AND Document Review MUST NOT show `document_id`
+
+#### Scenario: Reviewer correction diverges current only
+
+- GIVEN an eligible pending voucher with stored raw and seller-confirmed copies
+- WHEN the reviewer edits current fields and Document Review approve completes
+- THEN current MUST persist the correction
+- AND raw and seller-confirmed MUST remain unchanged
+- AND the appended snapshot MUST match current
+
+### Requirement: Queue payload includes readonly provenance
+
+The Document Review queue MUST include readonly raw and seller-confirmed payment fields
+for each eligible voucher. Missing provenance MUST be represented as empty, not
+fabricated.
+
+#### Scenario: Queue exposes provenance without fabricating
+
+- GIVEN eligible vouchers with and without stored provenance
+- WHEN the queue loads
+- THEN each item MUST include readonly raw and seller-confirmed copies
+- AND empty provenance MUST remain empty
+
+### Requirement: Document Review decisions append immutable snapshots
+
+Document Review approve MUST append a snapshot of the typed current payment fields even
+when those fields are unchanged. Document Review reject MUST also append a snapshot.
+Each snapshot MUST record revision, reviewer, time, and decision. Form Approve and
+Reject MUST NOT satisfy this requirement.
+
+#### Scenario: Unchanged Document Review approval still snapshots
+
+- GIVEN an eligible pending voucher with unchanged current fields
+- WHEN the reviewer approves in Document Review
+- THEN a snapshot MUST be appended
+- AND it MUST match the current payment fields
+
+#### Scenario: Document Review reject also snapshots
+
+- GIVEN an eligible pending voucher
+- WHEN the reviewer rejects in Document Review
+- THEN a snapshot MUST be appended
+- AND voucher state MUST become `rejected`
+
+### Requirement: Repeated Document Review appends another revision
+
+After a decided voucher is reopened to `pending`, a later Document Review approve or
+reject MUST append a new snapshot. Earlier snapshots MUST remain unchanged.
+
+#### Scenario: Reopen then re-review appends another revision
+
+- GIVEN a voucher with an existing snapshot that is `pending` again after reopen
+- WHEN Document Review approve or reject runs
+- THEN a new snapshot revision MUST be appended
+- AND earlier snapshots MUST remain unchanged
+
+### Requirement: Voucher review history is visible
+
+Payment Vouchers form MUST show the voucher's Document Review snapshot history in
+revision order. History rows MUST be readonly.
+
+#### Scenario: History list on the voucher form
+
+- GIVEN a voucher with one or more snapshots
+- WHEN an internal user opens the Payment Vouchers form
+- THEN the history MUST list those snapshots in revision order
+- AND the rows MUST be readonly

@@ -167,46 +167,185 @@
                             <field name="reviewed_at" readonly="1" />
                         </group>
                     </group>
-                    <group string="Payment">
-                        <field name="document_type" />
-                        <field name="document_id" />
-                        <field
-              name="amount"
-              invisible="document_type == 'unsupported'"
-            />
-                        <field
-              name="from_account"
-              invisible="document_type != 'bank_transfer'"
-            />
-                        <field
-              name="to_account"
-              invisible="document_type != 'bank_transfer'"
-            />
-                        <field
-              name="voucher_number"
-              invisible="document_type != 'bank_transfer'"
-            />
-                        <field
-              name="voucher_date"
-              invisible="document_type != 'bank_transfer'"
-            />
-                        <field
-              name="check_number"
-              invisible="document_type != 'check'"
-            />
-                        <field name="check_bank" invisible="document_type != 'check'" />
-                        <field name="check_type" invisible="document_type != 'check'" />
-                        <field
-              name="check_issue_date"
-              invisible="document_type != 'check'"
-            />
-                        <field
-              name="check_payment_date"
-              invisible="document_type != 'check'"
-            />
-                    </group>
+                    <notebook>
+                        <page string="Current">
+                            <group string="Payment">
+                                <field name="document_type" />
+                                <field name="document_id" />
+                                <field
+                  name="amount"
+                  invisible="document_type == 'unsupported'"
+                />
+                                <field
+                  name="from_account"
+                  invisible="document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="to_account"
+                  invisible="document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="voucher_number"
+                  invisible="document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="voucher_date"
+                  invisible="document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="check_number"
+                  invisible="document_type != 'check'"
+                />
+                                <field
+                  name="check_bank"
+                  invisible="document_type != 'check'"
+                />
+                                <field
+                  name="check_type"
+                  invisible="document_type != 'check'"
+                />
+                                <field
+                  name="check_issue_date"
+                  invisible="document_type != 'check'"
+                />
+                                <field
+                  name="check_payment_date"
+                  invisible="document_type != 'check'"
+                />
+                            </group>
+                        </page>
+                        <page string="Raw OCR">
+                            <group string="Payment">
+                                <field name="ocr_document_type" readonly="1" />
+                                <field
+                  name="ocr_amount"
+                  readonly="1"
+                  invisible="ocr_document_type == 'unsupported' and document_type == 'unsupported'"
+                />
+                                <field
+                  name="ocr_from_account"
+                  readonly="1"
+                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="ocr_to_account"
+                  readonly="1"
+                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="ocr_voucher_number"
+                  readonly="1"
+                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="ocr_voucher_date"
+                  readonly="1"
+                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="ocr_check_number"
+                  readonly="1"
+                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="ocr_check_bank"
+                  readonly="1"
+                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="ocr_check_type"
+                  readonly="1"
+                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="ocr_check_issue_date"
+                  readonly="1"
+                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="ocr_check_payment_date"
+                  readonly="1"
+                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                />
+                            </group>
+                        </page>
+                        <page string="Seller Confirmed">
+                            <group string="Payment">
+                                <field name="seller_document_type" readonly="1" />
+                                <field
+                  name="seller_amount"
+                  readonly="1"
+                  invisible="seller_document_type == 'unsupported' and document_type == 'unsupported'"
+                />
+                                <field
+                  name="seller_from_account"
+                  readonly="1"
+                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="seller_to_account"
+                  readonly="1"
+                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="seller_voucher_number"
+                  readonly="1"
+                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="seller_voucher_date"
+                  readonly="1"
+                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                />
+                                <field
+                  name="seller_check_number"
+                  readonly="1"
+                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="seller_check_bank"
+                  readonly="1"
+                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="seller_check_type"
+                  readonly="1"
+                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="seller_check_issue_date"
+                  readonly="1"
+                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                />
+                                <field
+                  name="seller_check_payment_date"
+                  readonly="1"
+                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                />
+                            </group>
+                        </page>
+                        <page string="History">
+                            <field name="review_snapshot_ids" readonly="1">
+                                <list
+                  create="false"
+                  delete="false"
+                  edit="false"
+                  default_order="revision"
+                >
+                                    <field name="revision" />
+                                    <field name="decision" />
+                                    <field name="reviewer_id" />
+                                    <field name="reviewed_at" />
+                                    <field name="document_type" />
+                                    <field name="amount" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
-                <chatter open_attachments="True" />
+                <div class="o_attachment_preview" />
+                <chatter open_attachments="True" reload_on_attachment="True" />
             </form>
         </field>
     </record>
@@ -334,6 +473,7 @@
                         </list>
                     </field>
                 </sheet>
+                <chatter />
             </form>
         </field>
     </record>

@@ -2,13 +2,15 @@
 
 ## Purpose
 
-Manual vouchers: sequence, New→Validated/Rejected, chatter/activities, Nebula payment lines. No WhatsApp/API/agent.
+Manual vouchers: sequence, New→Validated/Rejected, chatter/activities, Nebula payment
+lines. No WhatsApp/API/agent.
 
 ## ADDED Requirements
 
 ### Requirement: Voucher sequence naming
 
-The system MUST assign each new voucher a unique persisted name matching `NEB/<year>/<number>`.
+The system MUST assign each new voucher a unique persisted name matching
+`NEB/<year>/<number>`.
 
 #### Scenario: Sequence assigned on create
 
@@ -18,7 +20,9 @@ The system MUST assign each new voucher a unique persisted name matching `NEB/<y
 
 ### Requirement: Voucher header fields and defaults
 
-The system MUST require `customer_identification` and `received_date`. On create, `received_date` MUST default to today and `state` to `new`. Currency MUST be the company technical default (no multi-currency UX).
+The system MUST require `customer_identification` and `received_date`. On create,
+`received_date` MUST default to today and `state` to `new`. Currency MUST be the company
+technical default (no multi-currency UX).
 
 #### Scenario: Defaults on create
 
@@ -34,7 +38,8 @@ The system MUST require `customer_identification` and `received_date`. On create
 
 ### Requirement: Voucher state transitions
 
-States MUST be `new`, `validated`, and `rejected`. Validate and Reject MUST apply only from `new` and MUST NOT alter terminal states.
+States MUST be `new`, `validated`, and `rejected`. Validate and Reject MUST apply only
+from `new` and MUST NOT alter terminal states.
 
 #### Scenario: Validate from new
 
@@ -56,7 +61,8 @@ States MUST be `new`, `validated`, and `rejected`. Validate and Reject MUST appl
 
 ### Requirement: Mail thread and activities
 
-Each voucher MUST support messaging and activities. Header fields including `state` SHOULD be tracked in chatter.
+Each voucher MUST support messaging and activities. Header fields including `state`
+SHOULD be tracked in chatter.
 
 #### Scenario: Chatter and activities available
 
@@ -72,11 +78,16 @@ Each voucher MUST support messaging and activities. Header fields including `sta
 
 ### Requirement: Payment lines and Nebula field contract
 
-Vouchers MUST allow zero or more payment lines with `document_type` `bank_transfer` | `check` | `cash_deposit` | `unsupported`. Persist nullable fields (OCR validators NOT required): `amount`, `from_account`, `to_account`, `voucher_number`, `voucher_date`, `check_number`, `check_bank`, `check_issue_date`, `check_payment_date`, `check_type` Selection `common`/`deferred`. `unsupported` MUST persist without other payment fields.
+Vouchers MUST allow zero or more payment lines with `document_type` `bank_transfer` |
+`check` | `cash_deposit` | `unsupported`. Persist nullable fields (OCR validators NOT
+required): `amount`, `from_account`, `to_account`, `voucher_number`, `voucher_date`,
+`check_number`, `check_bank`, `check_issue_date`, `check_payment_date`, `check_type`
+Selection `common`/`deferred`. `unsupported` MUST persist without other payment fields.
 
 #### Scenario: Persist type-specific fields
 
-- GIVEN `bank_transfer`, `check`, and `cash_deposit` lines with Nebula fields filled (`check_type` `common` or `deferred`)
+- GIVEN `bank_transfer`, `check`, and `cash_deposit` lines with Nebula fields filled
+  (`check_type` `common` or `deferred`)
 - WHEN saved
 - THEN each line MUST persist those values
 
@@ -88,7 +99,8 @@ Vouchers MUST allow zero or more payment lines with `document_type` `bank_transf
 
 ### Requirement: Authorization for internal users
 
-Internal users (`base.group_user`) MUST have full CRUD on vouchers and payment lines. No dedicated groups or record rules.
+Internal users (`base.group_user`) MUST have full CRUD on vouchers and payment lines. No
+dedicated groups or record rules.
 
 #### Scenario: Internal user CRUD
 
@@ -104,18 +116,23 @@ Internal users (`base.group_user`) MUST have full CRUD on vouchers and payment l
 
 ### Requirement: Menu and backend UI
 
-The system MUST expose Nebula → Payment Vouchers. List/search MUST show reference, customer identification, received date, and status. Form MUST show statusbar, Validate/Reject when `new`, editable payment lines, and chatter/activity controls.
+The system MUST expose Nebula → Payment Vouchers. List/search MUST show reference,
+customer identification, received date, and status. Form MUST show statusbar,
+Validate/Reject when `new`, editable payment lines, and chatter/activity controls.
 
 #### Scenario: Menu and form behaviors
 
 - GIVEN the module installed and a voucher in `new`
 - WHEN an internal user opens Nebula → Payment Vouchers then the form
-- THEN list/search MUST show reference, customer identification, received date, and status
-- AND form MUST show statusbar, Validate/Reject, editable payment lines, and chatter/activity UI
+- THEN list/search MUST show reference, customer identification, received date, and
+  status
+- AND form MUST show statusbar, Validate/Reject, editable payment lines, and
+  chatter/activity UI
 
 ### Requirement: Deferred integrations not required
 
-Completeness MUST NOT require HTTP API, WhatsApp metadata, attachments, partner/CRM linkage, or Nebula agent calls.
+Completeness MUST NOT require HTTP API, WhatsApp metadata, attachments, partner/CRM
+linkage, or Nebula agent calls.
 
 #### Scenario: Completeness without deferred features
 

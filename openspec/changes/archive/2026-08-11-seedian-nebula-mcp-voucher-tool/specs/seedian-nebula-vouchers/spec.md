@@ -5,15 +5,15 @@
 ### Requirement: MCP tool create_nebula_voucher
 
 The system MUST expose `create_nebula_voucher` via `@mcp_tool` on `muk_mcp.mixin`
-(`category=write`, `registry=mcp`), method-discovered — MUST NOT use a DB
-`muk_mcp.tool` record. Calls MUST use the authenticated user (MUST NOT `sudo()`);
-voucher/payment ACL MUST apply. Input MUST require `customer_identification` and
-non-empty `payments`; MUST NOT accept `received_date`. Each MCP payment MUST include
-non-empty `document_id` and existing payment fields (`document_type` required). Create
-MUST persist voucher + lines atomically (`state=new`, company currency). Response MUST
-include voucher `id`/`name`/`state` and payment `id`/`document_id`. Idempotency by
-`document_id`: all-new → create; full same-voucher match → return existing; in-call
-duplicate, partial overlap, or cross-voucher match → reject with no writes.
+(`category=write`, `registry=mcp`), method-discovered — MUST NOT use a DB `muk_mcp.tool`
+record. Calls MUST use the authenticated user (MUST NOT `sudo()`); voucher/payment ACL
+MUST apply. Input MUST require `customer_identification` and non-empty `payments`; MUST
+NOT accept `received_date`. Each MCP payment MUST include non-empty `document_id` and
+existing payment fields (`document_type` required). Create MUST persist voucher + lines
+atomically (`state=new`, company currency). Response MUST include voucher
+`id`/`name`/`state` and payment `id`/`document_id`. Idempotency by `document_id`:
+all-new → create; full same-voucher match → return existing; in-call duplicate, partial
+overlap, or cross-voucher match → reject with no writes.
 
 #### Scenario: All-new create
 
@@ -54,8 +54,8 @@ duplicate, partial overlap, or cross-voucher match → reject with no writes.
 
 ### Requirement: Payment document_id uniqueness
 
-Payment lines MUST support nullable Char `document_id` unique among non-null values.
-UI lines without `document_id` MUST remain allowed. MCP MUST require non-empty
+Payment lines MUST support nullable Char `document_id` unique among non-null values. UI
+lines without `document_id` MUST remain allowed. MCP MUST require non-empty
 `document_id` per payment.
 
 #### Scenario: Manual payment without document_id still OK
@@ -98,8 +98,8 @@ default to `new`. Currency MUST be the company default (no multi-currency UX).
 The system MUST expose Nebula → Payment Vouchers. List/search MUST show reference,
 customer identification, readonly `create_date`, and status. Form MUST show statusbar,
 Validate/Reject when `new`, editable payment lines, readonly `create_date`, and
-chatter/activity controls. Views MUST NOT show `received_date`.
-(Previously: Views showed `received_date` instead of `create_date`.)
+chatter/activity controls. Views MUST NOT show `received_date`. (Previously: Views
+showed `received_date` instead of `create_date`.)
 
 #### Scenario: Menu and form behaviors
 

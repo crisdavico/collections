@@ -4,10 +4,10 @@
 
 ### Requirement: Per-company Document Review flag
 
-Each company MUST have a boolean Document Review flag defaulting to OFF. Settings
-admins MUST toggle it at `/odoo/settings#collections`. When ON, existing Document
-Review requirements MUST still apply. Line `state` and review audit columns MUST
-remain on payment-line views regardless of the flag.
+Each company MUST have a boolean Document Review flag defaulting to OFF. Settings admins
+MUST toggle it at `/odoo/settings#collections`. When ON, existing Document Review
+requirements MUST still apply. Line `state` and review audit columns MUST remain on
+payment-line views regardless of the flag.
 
 #### Scenario: Default off
 
@@ -30,10 +30,10 @@ remain on payment-line views regardless of the flag.
 ### Requirement: Document Review menu and RPCs when flag is off
 
 When OFF, the Document Review menu MUST NOT appear. Operations `get_review_queue`,
-`action_review_approve`, `action_review_reject`, and `action_review_set_rotation`
-MUST refuse, including for internal users, and MUST NOT succeed as an empty queue.
-Direct `/odoo/document-review` MUST still be refused via those operations. When ON,
-only internal users MUST access them.
+`action_review_approve`, `action_review_reject`, and `action_review_set_rotation` MUST
+refuse, including for internal users, and MUST NOT succeed as an empty queue. Direct
+`/odoo/document-review` MUST still be refused via those operations. When ON, only
+internal users MUST access them.
 
 #### Scenario: Menu hidden when off
 

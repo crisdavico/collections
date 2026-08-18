@@ -1,0 +1,15 @@
+# SDD change state — orchestrator-managed
+change: get-seller-id-by-mobile
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: grok-4.6
+phase: archive
+updated: 2026-08-18
+notes: |
+  Verify pass_with_warnings via fa4aee2e. 5/5 requirements, 10/10 scenarios.
+  Tests: 0 failed of 194 (/collection). Scoped pre-commit exit 0.
+  Attempt reset then verify acquire/settle complete. Native next: archive.
+  WARNING: Phase 3 fail-closed tests were written after production GREEN in 2.3.

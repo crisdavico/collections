@@ -25,4 +25,27 @@
             </xpath>
         </field>
     </record>
+
+    <record id="action_collection_config_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="context">{'module': 'collections', 'bin_size': False}</field>
+    </record>
+
+    <menuitem
+    id="menu_collection_config"
+    name="Configuration"
+    parent="menu_collection_root"
+    sequence="100"
+    groups="base.group_system"
+  />
+    <menuitem
+    id="menu_collection_settings"
+    name="Settings"
+    parent="menu_collection_config"
+    action="action_collection_config_settings"
+    sequence="0"
+    groups="base.group_system"
+  />
 </odoo>

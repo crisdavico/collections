@@ -39,30 +39,30 @@ None
 ## Approach
 
 Approach 1: company Boolean + settings related `readonly=False`; inherit
-`base.res_config_settings_view_form` (`<app name="collections"
-groups="base.group_system">`); `_load_menus_blacklist` (not `menu.active`); one
-`@api.private` helper; skip `_ensure_no_pending_attached_review` / refuse review RPCs
-when OFF; `self.env.company`; clear cache on write; additive `-u`.
+`base.res_config_settings_view_form`
+(`<app name="collections" groups="base.group_system">`); `_load_menus_blacklist` (not
+`menu.active`); one `@api.private` helper; skip `_ensure_no_pending_attached_review` /
+refuse review RPCs when OFF; `self.env.company`; clear cache on write; additive `-u`.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `models/res_company.py`, `res_config_settings.py`, `ir_ui_menu.py` | New | Flag, helper, menu blacklist |
-| `views/res_config_settings_views.xml` | New | `#collections` settings app |
-| `models/collection_voucher.py`, `collection_voucher_line.py` | Modified | Skip validate gate; refuse review RPCs when OFF |
-| `models/__init__.py`, `__manifest__.py` | Modified | Import + settings view |
-| `views/collection_document_review_views.xml` | Unchanged | xmlids stay; blacklist visibility |
-| `tests/test_collection_{document_review,voucher,acl,ui}.py` | Modified | Opt-in flag; `load_menus` + settings tests |
+| Area                                                               | Impact    | Description                                     |
+| ------------------------------------------------------------------ | --------- | ----------------------------------------------- |
+| `models/res_company.py`, `res_config_settings.py`, `ir_ui_menu.py` | New       | Flag, helper, menu blacklist                    |
+| `views/res_config_settings_views.xml`                              | New       | `#collections` settings app                     |
+| `models/collection_voucher.py`, `collection_voucher_line.py`       | Modified  | Skip validate gate; refuse review RPCs when OFF |
+| `models/__init__.py`, `__manifest__.py`                            | Modified  | Import + settings view                          |
+| `views/collection_document_review_views.xml`                       | Unchanged | xmlids stay; blacklist visibility               |
+| `tests/test_collection_{document_review,voucher,acl,ui}.py`        | Modified  | Opt-in flag; `load_menus` + settings tests      |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| `load_menus` cache not company-keyed | Med | Clear cache on write; RPC refuse is the gate |
-| Review tests assume always-on | High | Opt-in flag; new OFF tests |
-| Flag follows `env.company`, not voucher | Low | Accepted; no `company_id` |
-| OWL client action remains | Med | RPCs raise `UserError` (not empty queue) |
+| Risk                                    | Likelihood | Mitigation                                   |
+| --------------------------------------- | ---------- | -------------------------------------------- |
+| `load_menus` cache not company-keyed    | Med        | Clear cache on write; RPC refuse is the gate |
+| Review tests assume always-on           | High       | Opt-in flag; new OFF tests                   |
+| Flag follows `env.company`, not voucher | Low        | Accepted; no `company_id`                    |
+| OWL client action remains               | Med        | RPCs raise `UserError` (not empty queue)     |
 
 ## Rollback Plan
 

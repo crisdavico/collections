@@ -12,10 +12,10 @@ Ground truth order: source under this directory →
 - **What:** Manual payment vouchers for company sellers (cobranzas).
 - **Stack:** Odoo 19, PostgreSQL 17, Doodba (`seedian` compose project).
 - **Models:** `collection.voucher` (standalone per payment); `collection.sheet`
-  (`open`/`closed` grouping per seller).
-- **Integrations:** `mail.thread` / activities; MuK MCP tools on `muk_mcp.mixin`: write
-  `create_collection_vouchers` and read `get_seller_id`. Coordinated Nebula first-party
-  tool `register_latest_collection_voucher` lives in
+  (`open`/`closed` grouping per seller; chatter + activities).
+- **Integrations:** `mail.thread` / activities on vouchers and sheets; MuK MCP tools on
+  `muk_mcp.mixin`: write `create_collection_vouchers` and read `get_seller_id`.
+  Coordinated Nebula first-party tool `register_latest_collection_voucher` lives in
   `/home/crisd/projects/nebula/nebula-agent`.
 - **Attachments (in scope):** each `collection.voucher` MAY have one optional image or
   PDF designated proof (`message_main_attachment_id` via chatter / `ir.attachment`).
@@ -65,19 +65,20 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 ## Repository map
 
-| Path                                         | Role                                                            |
-| -------------------------------------------- | --------------------------------------------------------------- |
-| `__manifest__.py`                            | Module metadata; depends `base`, `mail`, `muk_mcp`              |
-| `models/collection_voucher.py`               | Voucher model, sequence on create, approve/reject, unlink guard |
-| `models/collection_sheet.py`                 | Sheet model, `open`/`closed`, Close/Reopen, one-open, freeze    |
-| `tools/collection_voucher.py`                | `@mcp_tool` `create_collection_vouchers` on `muk_mcp.mixin`     |
-| `tools/seller_lookup.py`                     | `@mcp_tool` `get_seller_id` (read) on `muk_mcp.mixin`           |
-| `views/collection_views.xml`                 | List/search/kanban/form + menus/actions                         |
-| `data/ir_sequence_data.xml`                  | Sequence `collection.voucher` → `COL/%(year)s/`                 |
-| `security/ir.model.access.csv`               | Full CRUD for `base.group_user` only                            |
-| `tests/test_collection_*.py`                 | TransactionCase coverage                                        |
-| `openspec/specs/collection-vouchers/spec.md` | Normative behavior                                              |
-| `readme/DESCRIPTION.md`                      | Source for generated `README.rst`                               |
+| Path                                           | Role                                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `__manifest__.py`                              | Module metadata; depends `base`, `mail`, `muk_mcp`                                 |
+| `models/collection_voucher.py`                 | Voucher model, sequence on create, approve/reject, unlink guard, provenance copies |
+| `models/collection_voucher_review_snapshot.py` | Immutable Document Review snapshots (`UNIQUE(voucher_id, revision)`)               |
+| `models/collection_sheet.py`                   | Sheet model, `open`/`closed`, Close/Reopen, one-open, freeze                       |
+| `tools/collection_voucher.py`                  | `@mcp_tool` `create_collection_vouchers` on `muk_mcp.mixin`                        |
+| `tools/seller_lookup.py`                       | `@mcp_tool` `get_seller_id` (read) on `muk_mcp.mixin`                              |
+| `views/collection_views.xml`                   | List/search/kanban/form + menus/actions                                            |
+| `data/ir_sequence_data.xml`                    | Sequence `collection.voucher` → `COL/%(year)s/`                                    |
+| `security/ir.model.access.csv`                 | Voucher/sheet CRUD; snapshot read + gated create                                   |
+| `tests/test_collection_*.py`                   | TransactionCase coverage                                                           |
+| `openspec/specs/collection-vouchers/spec.md`   | Normative behavior                                                                 |
+| `readme/DESCRIPTION.md`                        | Source for generated `README.rst`                                                  |
 
 ## Domain rules (do not break)
 
@@ -89,7 +90,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   immutable. Delete only when voucher `state == 'pending'` (`@api.ondelete`).
 - **Sheet lifecycle:** `collection.sheet` `state` is `open` or `closed`; default `open`;
   Close / Reopen actions. Existing rows become `open` on upgrade. Raw `state` write is
-  rejected except via Close/Reopen.
+  rejected except via Close/Reopen. Sheets inherit `mail.thread` +
+  `mail.activity.mixin`; Close/Reopen SHOULD be tracked in chatter.
 - **One-open:** at most one open sheet per seller on NEW ops only (sheet create, Reopen,
   list Action, auto-assign). Leftover `>1` open remains Closeable. No UNIQUE SQL.
 - **Closed freeze:** no add/remove/reassign of membership; voucher `unlink` still
@@ -117,15 +119,28 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   - Each MCP payment requires non-empty `document_id` and `document_type`.
   - Optional nested `attachment` per payment (`name`, `mimetype`, base64 `datas`);
     validate MIME vs content; create atomically inside the existing savepoint.
+  - Optional nested `raw_ocr` and `seller_confirmed` (typed `_REVIEW_EDITABLE_FIELDS`;
+    nest `document_type` required; no `document_id`/attachment/base64). Both nests
+    omitted → empty provenance (UI/ORM create still allowed). One-sided, malformed, or
+    seller≠top-level (minus `document_id`) → `UserError`, no writes. Seller-confirmed
+    MUST equal top-level; current initializes from seller; raw persists as submitted.
+    Parse on the create path only, after the existing-document check and before the
+    savepoint — never inside `_collection_parse_payment_vals`.
   - One voucher per payment. Response `{vouchers:[{id,name,state,document_id},...]}` (no
     `sheet_id`).
   - All-new create inherits ORM auto-assign (`seller_id` set, `sheet_id` omitted).
   - Idempotency: all-new → create N; exact set → replay ALL vouchers; in-call duplicate
     / partial overlap → `UserError`, no writes. Docs on different vouchers succeed as
     exact replay.
-  - Exact-retry replay MUST NOT add, replace, or compare attachments, and MUST NOT
-    attach or mutate sheets.
-  - Handle `UniqueViolation` races with invalidate + replay/reject.
+  - Exact-retry replay MUST NOT add, replace, or compare attachments, MUST NOT attach or
+    mutate sheets, and MUST ignore provenance nests (no backfill).
+  - Handle `UniqueViolation` races with invalidate + replay/reject (nests ignored).
+- **Provenance / review history:** `ocr_*`/`seller_*` copies of
+  `_REVIEW_EDITABLE_FIELDS` (`copy=False`). `write()` rejects those keys; `create()` may
+  stamp. Snapshots append only from `_write_review_decision` (Document Review approve
+  including empty vals, and reject). Form `action_approve`/`action_reject` do not
+  snapshot. Snapshot ACL: read+gated create (`collection_review_snapshot`); write/unlink
+  denied; no `sudo()`/ new groups/`ir.rule`.
 - **UI** may omit `document_id`; MCP may not.
 - **Odoo 19:** use `<list>` not `<tree>`; `models.Constraint` not `_sql_constraints`;
   `t-out` not `t-esc`; `@api.ondelete` for delete rules.
@@ -137,17 +152,17 @@ invoke test -m collection
 invoke test -m collection -d devel
 ```
 
-| File                                         | Focus                                                  |
-| -------------------------------------------- | ------------------------------------------------------ |
-| `tests/test_collection_voucher.py`           | Sequence, defaults, state transitions, unlink          |
-| `tests/test_collection_sheet.py`             | Sheet lifecycle, one-open, freeze, auto-assign         |
-| `tests/test_collection_payment.py`           | Line fields, `document_id` uniqueness                  |
-| `tests/test_collection_acl.py`               | Internal vs non-internal access                        |
-| `tests/test_collection_mail.py`              | Chatter / tracking                                     |
-| `tests/test_collection_ui.py`                | View arch; sheet statusbar, Close/Reopen, freeze       |
-| `tests/test_collection_document_review.py`   | Queue on designated proof; `/web/content/{id}`         |
-| `tests/test_collection_mcp_tool.py`          | MCP create, replay, inherit auto-assign, no `sheet_id` |
-| `tests/test_collection_mcp_seller_lookup.py` | MCP `get_seller_id` discovery, match, fail-closed      |
+| File                                         | Focus                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| `tests/test_collection_voucher.py`           | Sequence, defaults, state transitions, unlink                            |
+| `tests/test_collection_sheet.py`             | Sheet lifecycle, one-open, freeze, auto-assign                           |
+| `tests/test_collection_payment.py`           | Line fields, `document_id` uniqueness                                    |
+| `tests/test_collection_acl.py`               | Internal vs non-internal access; snapshot gated create                   |
+| `tests/test_collection_mail.py`              | Chatter / tracking on vouchers and sheets                                |
+| `tests/test_collection_ui.py`                | View arch; sheet statusbar, Close/Reopen, freeze                         |
+| `tests/test_collection_document_review.py`   | Queue on designated proof; `/web/content/{id}`; snapshots                |
+| `tests/test_collection_mcp_tool.py`          | MCP create, replay, inherit auto-assign, provenance nests, no `sheet_id` |
+| `tests/test_collection_mcp_seller_lookup.py` | MCP `get_seller_id` discovery, match, fail-closed                        |
 
 Strict TDD is enabled in `openspec/config.yaml`. Add or update tests in the same change
 as behavior.

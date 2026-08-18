@@ -53,6 +53,74 @@ _ATTACHMENT_NEST_SCHEMA = {
     "required": ["name", "mimetype", "datas"],
 }
 
+_PROVENANCE_NEST_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Typed payment review fields. Required together with the sibling nest. "
+        "Must include document_type. Must not include document_id, attachment, "
+        "or base64."
+    ),
+    "properties": {
+        "document_type": {
+            "type": "string",
+            "enum": list(_DOCUMENT_TYPES),
+            "description": "Payment document type.",
+        },
+        "amount": {
+            "type": "number",
+            "nullable": True,
+            "description": "Payment amount.",
+        },
+        "from_account": {
+            "type": "string",
+            "nullable": True,
+            "description": "Source account.",
+        },
+        "to_account": {
+            "type": "string",
+            "nullable": True,
+            "description": "Destination account.",
+        },
+        "voucher_number": {
+            "type": "string",
+            "nullable": True,
+            "description": "Bank voucher number.",
+        },
+        "voucher_date": {
+            "type": "string",
+            "nullable": True,
+            "description": "Bank voucher date (ISO).",
+        },
+        "check_number": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check number.",
+        },
+        "check_bank": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check bank name.",
+        },
+        "check_issue_date": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check issue date (ISO).",
+        },
+        "check_payment_date": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check payment date (ISO).",
+        },
+        "check_type": {
+            "type": "string",
+            "nullable": True,
+            "enum": list(_CHECK_TYPES),
+            "description": "Check type.",
+        },
+    },
+    "required": ["document_type"],
+}
+
 
 class CollectionMcpMixin(models.AbstractModel):
     """MuK MCP write tools for collection vouchers."""
@@ -70,6 +138,8 @@ class CollectionMcpMixin(models.AbstractModel):
             "Each payment must include a non-empty document_id and document_type. "
             "Each payment may include an optional attachment "
             "{name, mimetype, datas}. "
+            "Each payment may include raw_ocr and seller_confirmed nests "
+            "with typed payment fields (both required together). "
             "Does not accept received_date; registration time is automatic."
         ),
         input_schema={
@@ -154,6 +224,8 @@ class CollectionMcpMixin(models.AbstractModel):
                                 "description": "Check type.",
                             },
                             "attachment": _ATTACHMENT_NEST_SCHEMA,
+                            "raw_ocr": _PROVENANCE_NEST_SCHEMA,
+                            "seller_confirmed": _PROVENANCE_NEST_SCHEMA,
                         },
                         "required": ["document_id", "document_type"],
                     },
@@ -172,9 +244,10 @@ class CollectionMcpMixin(models.AbstractModel):
     ) -> dict[str, Any]:
         """Validate, resolve document_id idempotency, then create or replay.
 
-        Nested attachments are validated and mapped only on the all-new create
-        path. Exact-retry ignores attachment nests, customer, and seller_id
-        (no add/replace/compare; no writes to matching vouchers).
+        Nested attachments and provenance nests are validated and mapped only
+        on the all-new create path. Exact-retry ignores attachment nests,
+        provenance nests, customer, and seller_id (no add/replace/compare;
+        no writes to matching vouchers).
 
         :raise UserError: when required fields are missing/invalid or conflicts.
         :raise AccessError: when the caller lacks voucher create rights.
@@ -200,6 +273,9 @@ class CollectionMcpMixin(models.AbstractModel):
         try:
             # Create-only: validate nests before writes (fail-closed).
             sidecars = self._collection_parse_payment_attachments(payments)
+            provenances = self._collection_parse_payment_provenance(
+                payments, payment_vals_list
+            )
         except UserError:
             replayed = self._collection_replay_existing(document_ids)
             if replayed is not None:
@@ -208,7 +284,7 @@ class CollectionMcpMixin(models.AbstractModel):
 
         try:
             return self._collection_create_vouchers(
-                customer, payment_vals_list, seller.id, sidecars
+                customer, payment_vals_list, seller.id, sidecars, provenances
             )
         except UniqueViolation:
             # Race: concurrent create won the unique(document_id) race.
@@ -284,6 +360,119 @@ class CollectionMcpMixin(models.AbstractModel):
                 continue
             sidecars.append(self._collection_parse_attachment_nest(nest, index))
         return sidecars
+
+    @api.model
+    @api.private
+    def _collection_parse_payment_provenance(
+        self,
+        payments: list[dict[str, Any]],
+        payment_vals_list: list[dict[str, Any]],
+    ) -> list[dict[str, Any] | None]:
+        """Validate optional provenance nests on the all-new create path only."""
+        stamps: list[dict[str, Any] | None] = []
+        for index, (raw, current_vals) in enumerate(
+            zip(payments, payment_vals_list, strict=True)
+        ):
+            stamps.append(
+                self._collection_parse_provenance_nests(raw, current_vals, index)
+            )
+        return stamps
+
+    @api.model
+    @api.private
+    def _collection_parse_provenance_nests(
+        self,
+        raw: Any,
+        current_vals: dict[str, Any],
+        index: int,
+    ) -> dict[str, Any] | None:
+        """Return ocr_*/seller_* stamps, None when both nests are omitted."""
+        payload = raw if isinstance(raw, dict) else {}
+        raw_ocr = payload.get("raw_ocr")
+        seller = payload.get("seller_confirmed")
+        raw_present = raw_ocr not in (None, False, "")
+        seller_present = seller not in (None, False, "")
+        if not raw_present and not seller_present:
+            return None
+        if raw_present != seller_present:
+            raise UserError(
+                _(
+                    "Payment at index %(index)s requires both raw_ocr and "
+                    "seller_confirmed together.",
+                    index=index,
+                )
+            )
+        parsed_raw = self._collection_parse_provenance_nest(raw_ocr, index, "raw_ocr")
+        parsed_seller = self._collection_parse_provenance_nest(
+            seller, index, "seller_confirmed"
+        )
+        current_comparable = {
+            key: value for key, value in current_vals.items() if key != "document_id"
+        }
+        if parsed_seller != current_comparable:
+            raise UserError(
+                _(
+                    "seller_confirmed at index %(index)s must match the payment "
+                    "fields (except document_id).",
+                    index=index,
+                )
+            )
+        stamp: dict[str, Any] = {}
+        for name, value in parsed_raw.items():
+            stamp[f"ocr_{name}"] = value
+        for name, value in parsed_seller.items():
+            stamp[f"seller_{name}"] = value
+        return stamp
+
+    @api.model
+    @api.private
+    def _collection_parse_provenance_nest(
+        self, nest: Any, index: int, nest_name: str
+    ) -> dict[str, Any]:
+        """Parse one provenance nest with the same optional-field equality rules."""
+        if not isinstance(nest, dict):
+            raise UserError(
+                _(
+                    "Payment %(nest_name)s at index %(index)s must be an object.",
+                    nest_name=nest_name,
+                    index=index,
+                )
+            )
+        allowed = self.env["collection.voucher"]._REVIEW_EDITABLE_FIELDS
+        unknown = set(nest) - allowed
+        if unknown:
+            raise UserError(
+                _(
+                    "Payment %(nest_name)s at index %(index)s has unsupported "
+                    "keys: %(keys)s.",
+                    nest_name=nest_name,
+                    index=index,
+                    keys=", ".join(sorted(unknown)),
+                )
+            )
+        document_type = nest.get("document_type")
+        if document_type not in _DOCUMENT_TYPES:
+            raise UserError(
+                _(
+                    "Payment %(nest_name)s at index %(index)s requires document_type.",
+                    nest_name=nest_name,
+                    index=index,
+                )
+            )
+        check_type = nest.get("check_type")
+        if check_type not in (None, False, "") and check_type not in _CHECK_TYPES:
+            raise UserError(
+                _(
+                    "Invalid check_type in %(nest_name)s for payment index %(index)s.",
+                    nest_name=nest_name,
+                    index=index,
+                )
+            )
+        vals: dict[str, Any] = {"document_type": document_type}
+        for field_name in _PAYMENT_OPTIONAL_FIELDS:
+            if field_name in nest and nest[field_name] not in (None, ""):
+                vals[field_name] = nest[field_name]
+        return vals
 
     @api.model
     def _collection_parse_attachment_nest(
@@ -382,7 +571,8 @@ class CollectionMcpMixin(models.AbstractModel):
                 )
             )
         # Exact set of existing document_ids succeeds even across vouchers.
-        # Customer identification, nested attachments, and seller_id are ignored.
+        # Customer identification, nested attachments, provenance nests, and
+        # seller_id are ignored.
         return self._collection_vouchers_payload(existing, document_ids)
 
     @api.model
@@ -421,19 +611,22 @@ class CollectionMcpMixin(models.AbstractModel):
         payment_vals_list: list[dict[str, Any]],
         seller_id: int,
         sidecars: list[tuple[str, bytes] | None],
+        provenances: list[dict[str, Any] | None],
     ) -> dict[str, Any]:
         """Atomically create one voucher per payment inside a savepoint."""
         Voucher = self.env["collection.voucher"]
         document_ids = [vals["document_id"] for vals in payment_vals_list]
-        create_vals = [
-            {
+        create_vals = []
+        for vals, provenance in zip(payment_vals_list, provenances, strict=True):
+            row = {
                 **vals,
                 "customer_identification": customer,
                 "state": "pending",
                 "seller_id": seller_id,
             }
-            for vals in payment_vals_list
-        ]
+            if provenance:
+                row.update(provenance)
+            create_vals.append(row)
         with self.env.cr.savepoint():
             vouchers = Voucher.create(create_vals)
             for voucher, sidecar in zip(vouchers, sidecars, strict=True):

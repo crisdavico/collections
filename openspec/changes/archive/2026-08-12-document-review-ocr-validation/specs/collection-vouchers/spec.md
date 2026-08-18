@@ -59,9 +59,9 @@ NOT corrupt review or voucher state.
 
 ### Requirement: Attachment replacement resets review to pending
 
-Replacing a payment-line attachment (write of new Binary content) MUST reset that
-line’s review status to `pending` and MUST clear prior reviewer/time audit for a fresh
-review. Omit/empty and MIME validation rules remain unchanged.
+Replacing a payment-line attachment (write of new Binary content) MUST reset that line’s
+review status to `pending` and MUST clear prior reviewer/time audit for a fresh review.
+Omit/empty and MIME validation rules remain unchanged.
 
 #### Scenario: Attachment replacement resets review status
 

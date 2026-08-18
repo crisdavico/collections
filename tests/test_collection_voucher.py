@@ -568,3 +568,86 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
         self.assertEqual(attachment.name, "proof.bin")
         self.assertEqual(voucher.message_main_attachment_id, attachment)
         self.assertFalse(attachment.res_field)
+
+
+class TestCollectionVoucherProvenance(TransactionCase):
+    """RED/GREEN: typed ocr_*/seller_* copies; write() rejects; create may stamp."""
+
+    def _create_voucher(self, **extra):
+        vals = {
+            "customer_identification": "CUST-PROV",
+            "document_type": "bank_transfer",
+            "amount": 40.0,
+        }
+        vals.update(extra)
+        return self.env["collection.voucher"].create(vals)
+
+    def _assert_empty_provenance(self, voucher):
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_value = voucher[f"ocr_{name}"]
+            seller_value = voucher[f"seller_{name}"]
+            if name == "amount":
+                self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
+                self.assertEqual(seller_value, 0.0, f"seller_{name}")
+            else:
+                self.assertFalse(ocr_value, f"ocr_{name}")
+                self.assertFalse(seller_value, f"seller_{name}")
+
+    def test_write_rejects_ocr_and_seller_keys(self):
+        """Voucher write MUST reject provenance keys and leave stored copies."""
+        voucher = self._create_voucher(
+            ocr_amount=11.0,
+            seller_amount=40.0,
+            ocr_document_type="bank_transfer",
+            seller_document_type="bank_transfer",
+        )
+        self.assertAlmostEqual(voucher.ocr_amount, 11.0, places=2)
+        self.assertAlmostEqual(voucher.seller_amount, 40.0, places=2)
+        with self.assertRaises(UserError):
+            voucher.write({"ocr_amount": 99.0})
+        with self.assertRaises(UserError):
+            voucher.write({"seller_from_account": "HACKED"})
+        voucher.invalidate_recordset()
+        self.assertAlmostEqual(voucher.ocr_amount, 11.0, places=2)
+        self.assertAlmostEqual(voucher.seller_amount, 40.0, places=2)
+        self.assertFalse(voucher.seller_from_account)
+        self.assertAlmostEqual(voucher.amount, 40.0, places=2)
+
+    def test_create_may_stamp_provenance_and_copy_false(self):
+        """Create MAY stamp provenance; copy MUST leave the clone empty."""
+        voucher = self._create_voucher(
+            from_account="CUR-FROM",
+            ocr_amount=9.0,
+            ocr_from_account="OCR-FROM",
+            ocr_document_type="bank_transfer",
+            seller_amount=40.0,
+            seller_from_account="CUR-FROM",
+            seller_document_type="bank_transfer",
+        )
+        self.assertAlmostEqual(voucher.ocr_amount, 9.0, places=2)
+        self.assertEqual(voucher.ocr_from_account, "OCR-FROM")
+        self.assertAlmostEqual(voucher.seller_amount, 40.0, places=2)
+        self.assertEqual(voucher.seller_from_account, "CUR-FROM")
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            self.assertFalse(voucher._fields[f"ocr_{name}"].copy)
+            self.assertFalse(voucher._fields[f"seller_{name}"].copy)
+        clone = voucher.copy({"document_id": "DOC-PROV-CLONE"})
+        self.assertEqual(clone.from_account, "CUR-FROM")
+        self._assert_empty_provenance(clone)
+
+    def test_existing_rows_keep_current_with_null_provenance(self):
+        """Rows created without stamps keep current fields and zero snapshots."""
+        voucher = self._create_voucher(
+            customer_identification="CUST-PROV-EXISTING",
+            amount=77.0,
+            to_account="TO-KEEP",
+        )
+        self.assertAlmostEqual(voucher.amount, 77.0, places=2)
+        self.assertEqual(voucher.to_account, "TO-KEEP")
+        self._assert_empty_provenance(voucher)
+        self.assertEqual(
+            self.env["collection.voucher.review.snapshot"].search_count(
+                [("voucher_id", "=", voucher.id)]
+            ),
+            0,
+        )

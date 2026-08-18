@@ -19,6 +19,15 @@ CHECK_FIELDS = (
     "check_payment_date",
 )
 SHARED_PAYMENT_FIELDS = ("document_type", "document_id", "amount")
+CASH_DEPOSIT_KEYS = ("voucher_number", "voucher_date")
+NOTEBOOK_CURRENT = "Current"
+NOTEBOOK_RAW = "Raw OCR"
+NOTEBOOK_SELLER = "Seller Confirmed"
+NOTEBOOK_HISTORY = "History"
+PROVENANCE_LAYERS = (
+    (NOTEBOOK_RAW, "ocr_", "ocr_document_type"),
+    (NOTEBOOK_SELLER, "seller_", "seller_document_type"),
+)
 REMOVED_PAYMENT_LINE_XMLIDS = (
     "collection.view_collection_voucher_line_list",
     "collection.view_collection_voucher_line_search",
@@ -114,6 +123,23 @@ class TestCollectionUi(TransactionCase):
             "true",
             "form chatter must set open_attachments=True",
         )
+        self.assertEqual(
+            (chatter[0].get("reload_on_attachment") or "").lower(),
+            "true",
+            "form chatter must reload when designated proof is attached",
+        )
+
+    def _assert_form_attachment_preview(self, root):
+        preview = root.xpath('./div[contains(@class, "o_attachment_preview")]')
+        self.assertTrue(
+            preview,
+            "form must include o_attachment_preview like vendor bills",
+        )
+        self.assertEqual(
+            preview[0].getparent().tag,
+            "form",
+            "attachment preview must be a form sibling of sheet/chatter",
+        )
 
     def _assert_invisible_for_document_type(self, node, expected_type, field_name):
         invisible = node.get("invisible") or ""
@@ -131,6 +157,23 @@ class TestCollectionUi(TransactionCase):
             "attrs",
             node.attrib,
             f"{field_name} must use Odoo 19 invisible=, not attrs",
+        )
+
+    def _notebook_page(self, root, string):
+        pages = root.xpath(f'//notebook/page[@string="{string}"]')
+        self.assertTrue(pages, f"form notebook must include page {string!r}")
+        self.assertEqual(
+            len(pages),
+            1,
+            f"form notebook page {string!r} must appear once",
+        )
+        return pages[0]
+
+    def _assert_readonly_field(self, node, field_name):
+        self.assertIn(
+            node.get("readonly"),
+            ("1", "True", "true"),
+            f"{field_name} must be readonly (got {node.get('readonly')!r})",
         )
 
     def test_menu_and_action_xmlids(self):
@@ -336,16 +379,28 @@ class TestCollectionUi(TransactionCase):
         )
 
     def test_form_has_no_typed_payment_ids_tables(self):
-        """Standalone form MUST NOT embed typed payment_ids lists."""
+        """Standalone form MUST NOT embed payment_ids; history <list> is allowed."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
         self.assertFalse(
             form_root.xpath('//field[@name="payment_ids"]'),
             "form must not declare payment_ids",
         )
-        self.assertFalse(
-            form_root.xpath(".//list"),
-            "form must not embed typed payment-line tables",
+        history_lists = form_root.xpath('//field[@name="review_snapshot_ids"]//list')
+        self.assertTrue(
+            history_lists,
+            "form must embed a review history One2many <list>",
         )
+        self.assertEqual(history_lists[0].tag, "list")
+        self.assertNotEqual(history_lists[0].tag, "tree")
+        for list_node in form_root.xpath(".//list"):
+            ancestor_names = [
+                node.get("name") for node in list_node.xpath("ancestor::field[@name]")
+            ]
+            self.assertIn(
+                "review_snapshot_ids",
+                ancestor_names,
+                "form <list> must be the history One2many, not payment_ids",
+            )
 
     def test_form_typed_invisible_payment_fields(self):
         """Form MUST show type-specific payment fields via invisible=."""
@@ -373,6 +428,200 @@ class TestCollectionUi(TransactionCase):
         check_only = set(CHECK_FIELDS)
         self.assertFalse(bank_only & check_only)
 
+    def test_form_notebook_current_raw_seller_pages(self):
+        """Form MUST notebook Current, Raw OCR, Seller Confirmed, and History."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        notebook = form_root.xpath("//notebook")
+        self.assertTrue(notebook, "form must wrap payment layers in a notebook")
+        page_strings = [page.get("string") for page in notebook[0].xpath("./page")]
+        for expected in (
+            NOTEBOOK_CURRENT,
+            NOTEBOOK_RAW,
+            NOTEBOOK_SELLER,
+            NOTEBOOK_HISTORY,
+        ):
+            self.assertIn(
+                expected,
+                page_strings,
+                f"form notebook must include page {expected!r}",
+            )
+        current = self._notebook_page(form_root, NOTEBOOK_CURRENT)
+        current_fields = self._field_names(current)
+        self.assertIn("document_type", current_fields)
+        self.assertIn("amount", current_fields)
+        self.assertIn("document_id", current_fields)
+        amount = current.xpath('.//field[@name="amount"]')[0]
+        self.assertNotIn(
+            amount.get("readonly"),
+            ("1", "True", "true"),
+            "Current amount must stay editable",
+        )
+
+    def test_form_provenance_pages_hide_document_id(self):
+        """Raw OCR and Seller Confirmed MUST hide document_id and proof bytes."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        current = self._notebook_page(form_root, NOTEBOOK_CURRENT)
+        self.assertTrue(
+            current.xpath('.//field[@name="document_id"]'),
+            "Current page may keep document_id as identity",
+        )
+        for page_string, _prefix, _type_field in PROVENANCE_LAYERS:
+            page = self._notebook_page(form_root, page_string)
+            names = self._field_names(page)
+            self.assertNotIn(
+                "document_id",
+                names,
+                f"{page_string} must not show document_id",
+            )
+            self.assertNotIn("ocr_document_id", names)
+            self.assertNotIn("seller_document_id", names)
+            arch = etree.tostring(page, encoding="unicode")
+            self.assertNotIn("document_id", arch)
+            self.assertNotIn("attachment", arch)
+            self.assertNotIn("datas", arch)
+            self.assertNotIn("base64", arch)
+
+    def test_form_typed_invisible_on_all_provenance_layers(self):
+        """Type-specific invisible= MUST apply to Raw OCR and Seller Confirmed."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        current = self._notebook_page(form_root, NOTEBOOK_CURRENT)
+        current_amount = current.xpath('.//field[@name="amount"]')[0]
+        self._assert_invisible_for_document_type(
+            current_amount, "unsupported", "amount"
+        )
+        for page_string, prefix, type_field in PROVENANCE_LAYERS:
+            page = self._notebook_page(form_root, page_string)
+            amount_name = f"{prefix}amount"
+            amount_nodes = page.xpath(f'.//field[@name="{amount_name}"]')
+            self.assertTrue(
+                amount_nodes,
+                f"{page_string} must include {amount_name}",
+            )
+            amount_invisible = amount_nodes[0].get("invisible") or ""
+            self.assertIn(
+                type_field,
+                amount_invisible,
+                f"{amount_name} invisible= must use {type_field}",
+            )
+            self.assertIn(
+                " and document_type ==",
+                amount_invisible,
+                f"{amount_name} must stay visible when Current type is not unsupported",
+            )
+            self._assert_invisible_for_document_type(
+                amount_nodes[0], "unsupported", amount_name
+            )
+            self._assert_readonly_field(amount_nodes[0], amount_name)
+            for field_name in BANK_TRANSFER_FIELDS:
+                layered = f"{prefix}{field_name}"
+                nodes = page.xpath(f'.//field[@name="{layered}"]')
+                self.assertTrue(nodes, f"{page_string} must include {layered}")
+                invisible = nodes[0].get("invisible") or ""
+                self.assertIn(
+                    type_field,
+                    invisible,
+                    f"{layered} invisible= must use {type_field}",
+                )
+                self.assertIn(
+                    " and document_type !=",
+                    invisible,
+                    f"{layered} must stay visible when Current is bank_transfer",
+                )
+                self._assert_invisible_for_document_type(
+                    nodes[0], "bank_transfer", layered
+                )
+                self._assert_readonly_field(nodes[0], layered)
+            for field_name in CHECK_FIELDS:
+                layered = f"{prefix}{field_name}"
+                nodes = page.xpath(f'.//field[@name="{layered}"]')
+                self.assertTrue(nodes, f"{page_string} must include {layered}")
+                invisible = nodes[0].get("invisible") or ""
+                self.assertIn(
+                    type_field,
+                    invisible,
+                    f"{layered} invisible= must use {type_field}",
+                )
+                self.assertIn(
+                    " and document_type !=",
+                    invisible,
+                    f"{layered} must stay visible when Current is check",
+                )
+                self._assert_invisible_for_document_type(nodes[0], "check", layered)
+                self._assert_readonly_field(nodes[0], layered)
+
+    def test_form_cash_deposit_keys_present_on_all_layers(self):
+        """voucher_number/voucher_date MUST exist on all layers; UI MAY hide them."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        current = self._notebook_page(form_root, NOTEBOOK_CURRENT)
+        for field_name in CASH_DEPOSIT_KEYS:
+            nodes = current.xpath(f'.//field[@name="{field_name}"]')
+            self.assertTrue(
+                nodes,
+                f"Current page must declare stored {field_name}",
+            )
+            self._assert_invisible_for_document_type(
+                nodes[0], "bank_transfer", field_name
+            )
+        for page_string, prefix, type_field in PROVENANCE_LAYERS:
+            page = self._notebook_page(form_root, page_string)
+            for field_name in CASH_DEPOSIT_KEYS:
+                layered = f"{prefix}{field_name}"
+                nodes = page.xpath(f'.//field[@name="{layered}"]')
+                self.assertTrue(
+                    nodes,
+                    f"{page_string} must declare stored {layered}",
+                )
+                invisible = nodes[0].get("invisible") or ""
+                self.assertIn(
+                    type_field,
+                    invisible,
+                    f"{layered} invisible= must use {type_field}",
+                )
+                self.assertIn(
+                    " and document_type !=",
+                    invisible,
+                    f"{layered} must stay visible when Current is bank_transfer",
+                )
+                self._assert_invisible_for_document_type(
+                    nodes[0], "bank_transfer", layered
+                )
+
+    def test_form_review_history_list_readonly_by_revision(self):
+        """History page MUST list snapshots readonly, ordered by revision."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        history = self._notebook_page(form_root, NOTEBOOK_HISTORY)
+        fields = history.xpath('.//field[@name="review_snapshot_ids"]')
+        self.assertTrue(
+            fields,
+            "History page must declare review_snapshot_ids",
+        )
+        node = fields[0]
+        self._assert_readonly_field(node, "review_snapshot_ids")
+        lists = node.xpath("./list")
+        self.assertTrue(lists, "review_snapshot_ids must embed a <list>")
+        history_list = lists[0]
+        self.assertEqual(history_list.tag, "list")
+        self.assertNotEqual(history_list.tag, "tree")
+        default_order = history_list.get("default_order") or ""
+        self.assertIn(
+            "revision",
+            default_order,
+            f"history list default_order must include revision (got {default_order!r})",
+        )
+        list_fields = self._field_names(history_list)
+        self.assertIn("revision", list_fields)
+        for attr in ("create", "delete", "edit"):
+            self.assertEqual(
+                (history_list.get(attr) or "").lower(),
+                "false",
+                f"history list must set {attr}=false",
+            )
+        arch = etree.tostring(history, encoding="unicode")
+        self.assertNotIn("payment_ids", arch)
+        self.assertNotIn("attachment", arch)
+        self.assertNotIn("datas", arch)
+        self.assertNotIn("base64", arch)
+
     def test_payment_vouchers_views_omit_binary_widgets(self):
         """Form, list, and kanban MUST omit Binary widgets; form chatter remains."""
         for xmlid, label in (
@@ -383,6 +632,13 @@ class TestCollectionUi(TransactionCase):
             root = self._arch_root(xmlid)
             self._assert_no_attachment_binary_widgets(root, label)
         form_root = self._arch_root("collection.view_collection_voucher_form")
+        self._assert_form_chatter_open_attachments(form_root)
+        self._assert_form_attachment_preview(form_root)
+
+    def test_form_shows_large_attachment_preview(self):
+        """Form MUST use the side-panel previewer used on vendor bills."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        self._assert_form_attachment_preview(form_root)
         self._assert_form_chatter_open_attachments(form_root)
 
     def test_create_and_edit_enabled_on_payment_vouchers(self):
@@ -558,6 +814,10 @@ class TestCollectionUi(TransactionCase):
         self.assertNotIn(
             "received_date",
             etree.tostring(form_root, encoding="unicode"),
+        )
+        chatter = form_root.xpath("//chatter")
+        self.assertTrue(
+            chatter, "sheet form must include <chatter/> for messaging/activities"
         )
 
     def test_sheet_form_header_document_review_visible_when_saved_and_flag_on(self):

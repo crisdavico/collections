@@ -31,8 +31,8 @@ lines approved; line reject rejects voucher; evolve existing scaffolding.
 
 ### New Capabilities
 
-- `document-review`: Queue; OWL client (ORM, typed inputs, binary URLs, load/error/empty,
-  navigation, next-record); approve/reject without mocks
+- `document-review`: Queue; OWL client (ORM, typed inputs, binary URLs,
+  load/error/empty, navigation, next-record); approve/reject without mocks
 
 ### Modified Capabilities
 
@@ -48,23 +48,23 @@ Likely >400 LOC — stacked-to-main; ask-on-risk before `/sdd-apply`.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `models/collection_voucher_line.py` | Modified | Review status, audit, queue/approve/reject |
-| `models/collection_voucher.py` | Modified | Validate guard; aggregate transitions |
-| `static/src/document_review/*` | Modified | Real data/viewer; drop mocks |
-| `views/collection_document_review_views.xml` | Modified | Keep menu/action |
-| `tests/test_collection_*.py` | Modified/New | Acceptance tests |
-| `__manifest__.py` | Modified | Version bump on apply |
+| Area                                         | Impact       | Description                                |
+| -------------------------------------------- | ------------ | ------------------------------------------ |
+| `models/collection_voucher_line.py`          | Modified     | Review status, audit, queue/approve/reject |
+| `models/collection_voucher.py`               | Modified     | Validate guard; aggregate transitions      |
+| `static/src/document_review/*`               | Modified     | Real data/viewer; drop mocks               |
+| `views/collection_document_review_views.xml` | Modified     | Keep menu/action                           |
+| `tests/test_collection_*.py`                 | Modified/New | Acceptance tests                           |
+| `__manifest__.py`                            | Modified     | Version bump on apply                      |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Concurrent/stale review | Med | Guarded transitions; clear errors |
-| Diff >400 LOC | High | Stacked PRs; ask-on-risk |
-| Binary URL/auth edges | Med | Loading/error states; ACL tests |
-| Attachment vs reviewed | Med | Reset pending on attachment write |
+| Risk                    | Likelihood | Mitigation                        |
+| ----------------------- | ---------- | --------------------------------- |
+| Concurrent/stale review | Med        | Guarded transitions; clear errors |
+| Diff >400 LOC           | High       | Stacked PRs; ask-on-risk          |
+| Binary URL/auth edges   | Med        | Loading/error states; ACL tests   |
+| Attachment vs reviewed  | Med        | Reset pending on attachment write |
 
 ## Rollback Plan
 

@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Internal-user Document Review client: queue eligible payment-line proofs, correct
-OCR’d fields against the attachment, and approve/reject without mock data.
+Internal-user Document Review client: queue eligible payment-line proofs, correct OCR’d
+fields against the attachment, and approve/reject without mock data.
 
 ## Requirements
 
@@ -29,19 +29,19 @@ stamps, and reviewer-note persistence MUST NOT be required.
 
 ### Requirement: OWL client loads real ORM data
 
-The Document Review OWL client MUST load queue and line data via ORM (no mocks). It
-MUST support typed editable inputs, queue navigation, and advance to the next eligible
-record after a successful approve or reject.
+The Document Review OWL client MUST load queue and line data via ORM (no mocks). It MUST
+support typed editable inputs, queue navigation, and advance to the next eligible record
+after a successful approve or reject.
 
 #### Scenario: Typed editable fields by document type
 
 - GIVEN a queued `bank_transfer`, `check`, or `cash_deposit` line
 - WHEN shown in Document Review
 - THEN `document_type` and `amount` MUST be editable
-- AND type-specific fields MUST be editable: bank transfer
-  (`from_account`, `to_account`, `voucher_number`, `voucher_date`); check
-  (`check_number`, `check_bank`, `check_type`, `check_issue_date`,
-  `check_payment_date`); cash deposit (amount/`document_type` only beyond shared)
+- AND type-specific fields MUST be editable: bank transfer (`from_account`,
+  `to_account`, `voucher_number`, `voucher_date`); check (`check_number`, `check_bank`,
+  `check_type`, `check_issue_date`, `check_payment_date`); cash deposit
+  (amount/`document_type` only beyond shared)
 
 #### Scenario: Readonly context fields
 
@@ -58,8 +58,8 @@ record after a successful approve or reject.
 ### Requirement: Authenticated binary attachment viewer
 
 The client MUST render image and PDF proofs via an authenticated binary route. The OWL
-layer MUST NOT embed attachment base64. The viewer MUST present distinct loading,
-error, and empty-attachment states.
+layer MUST NOT embed attachment base64. The viewer MUST present distinct loading, error,
+and empty-attachment states.
 
 #### Scenario: Image via authenticated binary route
 
@@ -84,8 +84,8 @@ error, and empty-attachment states.
 ### Requirement: Approve and reject without mocks
 
 Approve and reject MUST call real server actions (no mock handlers). Approve MUST
-persist field corrections before updating review status. Reject and approve outcomes
-for voucher aggregate state are governed by `collection-vouchers`.
+persist field corrections before updating review status. Reject and approve outcomes for
+voucher aggregate state are governed by `collection-vouchers`.
 
 #### Scenario: Correction persistence on approve
 

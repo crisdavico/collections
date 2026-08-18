@@ -7,7 +7,7 @@ from .test_collection_payment import PNG_B64, post_voucher_proof
 
 
 class TestCollectionMail(TransactionCase):
-    """RED: mail thread / activities and state tracking on validate/reject."""
+    """Mail thread / activities and state tracking on vouchers and sheets."""
 
     def _flush_tracking(self):
         """Force mail.thread precommit tracking finalize (MailCommon.flush_tracking)."""
@@ -24,6 +24,13 @@ class TestCollectionMail(TransactionCase):
         # Clear create-time _track_discard residue before state writes
         self._flush_tracking()
         return voucher
+
+    def _create_sheet(self, **extra):
+        vals = {"seller_id": self.env.user.id}
+        vals.update(extra)
+        sheet = self.env["collection.sheet"].create(vals)
+        self._flush_tracking()
+        return sheet
 
     def test_message_post_persists_on_voucher(self):
         voucher = self._create_voucher()
@@ -102,6 +109,53 @@ class TestCollectionMail(TransactionCase):
         voucher.invalidate_recordset()
         self.assertEqual(voucher.message_main_attachment_id, proof)
         self.assertNotEqual(voucher.message_main_attachment_id, extra)
+
+    def test_message_post_persists_on_sheet(self):
+        sheet = self._create_sheet()
+        message = sheet.message_post(
+            body="Operator note on sheet",
+            message_type="comment",
+            subtype_xmlid="mail.mt_comment",
+        )
+        self.assertTrue(message.id)
+        self.assertIn(message, sheet.message_ids)
+        self.assertIn("Operator note on sheet", message.body)
+
+    def test_activity_schedule_persists_on_sheet(self):
+        sheet = self._create_sheet()
+        activity = sheet.activity_schedule(
+            "mail.mail_activity_data_todo",
+            summary="Review collection sheet",
+        )
+        self.assertTrue(activity.id)
+        self.assertIn(activity, sheet.activity_ids)
+        self.assertEqual(activity.summary, "Review collection sheet")
+
+    def test_close_tracks_state_in_chatter(self):
+        sheet = self._create_sheet()
+        sheet.action_close()
+        self._flush_tracking()
+        tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
+        tracked_fields = tracking.mapped("field_id.name")
+        self.assertIn("state", tracked_fields)
+        state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
+        self.assertTrue(state_tracking)
+        self.assertEqual(state_tracking[-1].old_value_char, "Open")
+        self.assertEqual(state_tracking[-1].new_value_char, "Closed")
+
+    def test_reopen_tracks_state_in_chatter(self):
+        sheet = self._create_sheet()
+        sheet.action_close()
+        self._flush_tracking()
+        sheet.action_reopen()
+        self._flush_tracking()
+        tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
+        state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
+        pairs = {
+            (row.old_value_char, row.new_value_char) for row in state_tracking
+        }
+        self.assertIn(("Open", "Closed"), pairs)
+        self.assertIn(("Closed", "Open"), pairs)
 
     def test_non_image_extra_cannot_become_proof(self):
         """A non-image/non-PDF chatter file MUST NOT become designated proof."""

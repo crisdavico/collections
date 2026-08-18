@@ -1,6 +1,8 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import inspect
+
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase
 
@@ -260,3 +262,96 @@ class TestCollectionAcl(TransactionCase):
         self.assertFalse(
             self.env["ir.rule"].search([("model_id.model", "=", "collection.sheet")])
         )
+
+    def _snapshot_vals(self, voucher, **extra):
+        vals = {
+            "voucher_id": voucher.id,
+            "revision": 1,
+            "reviewer_id": self.internal_user.id,
+            "reviewed_at": "2026-04-01 12:00:00",
+            "decision": "approved",
+            "document_type": voucher.document_type,
+            "amount": voucher.amount,
+        }
+        vals.update(extra)
+        return vals
+
+    def test_snapshot_acl_read_and_gated_create(self):
+        """Internal users read history; create requires collection_review_snapshot."""
+        voucher = (
+            self.env["collection.voucher"]
+            .with_user(self.internal_user)
+            .create(self._voucher_vals(customer_identification="ACL-SNAP"))
+        )
+        Snapshot = self.env["collection.voucher.review.snapshot"].with_user(
+            self.internal_user
+        )
+        with self.assertRaises(UserError):
+            Snapshot.create(self._snapshot_vals(voucher))
+        snap = Snapshot.with_context(collection_review_snapshot=True).create(
+            self._snapshot_vals(voucher)
+        )
+        self.assertTrue(snap.id)
+        self.assertEqual(snap.voucher_id, voucher)
+        self.assertEqual(snap.revision, 1)
+        read = Snapshot.browse(snap.id).read(["revision", "decision"])
+        self.assertEqual(read[0]["revision"], 1)
+        self.assertEqual(read[0]["decision"], "approved")
+
+    def test_snapshot_write_unlink_denied_and_portal_denied(self):
+        """Client write/unlink MUST be denied; portal MUST be denied; no sudo/groups."""
+        voucher = self.env["collection.voucher"].create(
+            self._voucher_vals(customer_identification="ACL-SNAP-DENY")
+        )
+        Snapshot = self.env["collection.voucher.review.snapshot"]
+        snap = Snapshot.with_context(collection_review_snapshot=True).create(
+            self._snapshot_vals(voucher, reviewer_id=self.env.user.id)
+        )
+        with self.assertRaises(UserError):
+            snap.write({"amount": 1.0})
+        with self.assertRaises(UserError):
+            snap.unlink()
+        self.assertTrue(snap.exists())
+        self.assertAlmostEqual(snap.amount, voucher.amount, places=2)
+
+        PortalSnap = Snapshot.with_user(self.portal_user)
+        with self.assertRaises(AccessError):
+            PortalSnap.browse(snap.id).read(["revision"])
+        with self.assertRaises(AccessError):
+            PortalSnap.with_context(collection_review_snapshot=True).create(
+                self._snapshot_vals(
+                    voucher, revision=2, reviewer_id=self.portal_user.id
+                )
+            )
+
+        acls = self.env["ir.model.access"].search(
+            [("model_id.model", "=", "collection.voucher.review.snapshot")]
+        )
+        self.assertEqual(len(acls), 1)
+        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertTrue(acls.perm_read)
+        self.assertTrue(acls.perm_create)
+        self.assertFalse(acls.perm_write)
+        self.assertFalse(acls.perm_unlink)
+        self.assertFalse(
+            self.env["ir.rule"].search(
+                [("model_id.model", "=", "collection.voucher.review.snapshot")]
+            )
+        )
+        snapshot_cls = type(self.env["collection.voucher.review.snapshot"])
+        voucher_cls = type(self.env["collection.voucher"])
+        sources = [
+            inspect.getsource(snapshot_cls.create),
+            inspect.getsource(snapshot_cls.write),
+            inspect.getsource(snapshot_cls._unlink_forbidden),
+            inspect.getsource(voucher_cls._append_review_snapshot),
+        ]
+        for source in sources:
+            code_lines = [
+                line
+                for line in source.splitlines()
+                if not line.lstrip().startswith("#")
+            ]
+            code = "\n".join(code_lines)
+            self.assertNotIn(".sudo(", code)
+            self.assertNotIn("sudo()", code)

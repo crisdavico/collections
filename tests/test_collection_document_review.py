@@ -132,6 +132,42 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(payload["attachment_url"], self._expected_content_url(voucher))
         self._assert_no_binary_in_payload(payload)
 
+    def _assert_payload_layer(self, payload, voucher, prefix):
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            key = f"{prefix}_{name}"
+            self.assertIn(key, payload, key)
+            actual = payload[key]
+            expected = voucher[key]
+            if name == "amount":
+                self.assertAlmostEqual(actual, expected, places=2, msg=key)
+            else:
+                self.assertEqual(actual, expected, key)
+
+    def _assert_empty_payload_provenance(self, payload, voucher):
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_key = f"ocr_{name}"
+            seller_key = f"seller_{name}"
+            self.assertIn(ocr_key, payload, ocr_key)
+            self.assertIn(seller_key, payload, seller_key)
+            if name == "amount":
+                self.assertEqual(payload[ocr_key], 0.0, ocr_key)
+                self.assertEqual(payload[seller_key], 0.0, seller_key)
+            else:
+                self.assertFalse(payload[ocr_key], ocr_key)
+                self.assertFalse(payload[seller_key], seller_key)
+            current = payload[name]
+            if name == "amount" or current:
+                self.assertNotEqual(
+                    payload[ocr_key],
+                    current,
+                    f"{ocr_key} must stay empty, not copy current {name}",
+                )
+                self.assertNotEqual(
+                    payload[seller_key],
+                    current,
+                    f"{seller_key} must stay empty, not copy current {name}",
+                )
+
     def _viewer_template_xml(self):
         path = _DOCUMENT_REVIEW_DIR / "document_review_action.xml"
         return path.read_text(encoding="utf-8")
@@ -1186,3 +1222,383 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.state, "pending")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
+
+    def _snapshots(self, voucher):
+        return self.env["collection.voucher.review.snapshot"].search(
+            [("voucher_id", "=", voucher.id)],
+            order="revision",
+        )
+
+    def test_document_review_approve_empty_vals_snapshots_current(self):
+        """Approve with empty vals MUST snapshot current payment fields."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-SNAP-EMPTY",
+            document_id="DOC-SNAP-EMPTY",
+            amount=100.0,
+            from_account="FROM-EMPTY",
+            ocr_amount=90.0,
+            ocr_from_account="OCR-FROM",
+            ocr_document_type="bank_transfer",
+            seller_amount=100.0,
+            seller_from_account="FROM-EMPTY",
+            seller_document_type="bank_transfer",
+        )
+        voucher.action_review_approve(self.review_sheet.id)
+        self.assertEqual(voucher.state, "approved")
+        snaps = self._snapshots(voucher)
+        self.assertEqual(len(snaps), 1)
+        self.assertEqual(snaps.revision, 1)
+        self.assertEqual(snaps.decision, "approved")
+        self.assertEqual(snaps.reviewer_id, self.env.user)
+        self.assertEqual(snaps.reviewed_at, voucher.reviewed_at)
+        self.assertAlmostEqual(snaps.amount, 100.0, places=2)
+        self.assertEqual(snaps.from_account, "FROM-EMPTY")
+        self.assertEqual(snaps.document_type, "bank_transfer")
+        self.assertAlmostEqual(voucher.ocr_amount, 90.0, places=2)
+        self.assertEqual(voucher.ocr_from_account, "OCR-FROM")
+        self.assertAlmostEqual(voucher.seller_amount, 100.0, places=2)
+
+    def test_document_review_reject_appends_snapshot(self):
+        """Document Review reject MUST append a snapshot and set rejected."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-SNAP-REJ",
+            document_id="DOC-SNAP-REJ",
+            amount=55.0,
+            ocr_amount=55.0,
+            ocr_document_type="bank_transfer",
+            seller_amount=55.0,
+            seller_document_type="bank_transfer",
+        )
+        voucher.action_review_reject(self.review_sheet.id)
+        self.assertEqual(voucher.state, "rejected")
+        snaps = self._snapshots(voucher)
+        self.assertEqual(len(snaps), 1)
+        self.assertEqual(snaps.decision, "rejected")
+        self.assertAlmostEqual(snaps.amount, 55.0, places=2)
+        self.assertEqual(snaps.reviewer_id, self.env.user)
+
+    def test_form_approve_and_reject_do_not_append_snapshots(self):
+        """Form Approve/Reject MUST change state and MUST NOT append snapshots."""
+        approved = self._create_attached_voucher(
+            customer_identification="CUST-SNAP-FORM-APPR",
+            document_id="DOC-SNAP-FORM-APPR",
+            ocr_amount=10.0,
+            ocr_document_type="bank_transfer",
+            seller_amount=100.0,
+            seller_document_type="bank_transfer",
+        )
+        approved.action_approve()
+        self.assertEqual(approved.state, "approved")
+        self.assertFalse(self._snapshots(approved))
+
+        rejected = self._create_attached_voucher(
+            customer_identification="CUST-SNAP-FORM-REJ",
+            document_id="DOC-SNAP-FORM-REJ",
+        )
+        rejected.action_reject()
+        self.assertEqual(rejected.state, "rejected")
+        self.assertFalse(self._snapshots(rejected))
+
+    def test_reopen_then_review_appends_another_revision(self):
+        """A later Document Review after reopen MUST append revision 2."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-SNAP-REOPEN",
+            document_id="DOC-SNAP-REOPEN",
+            amount=40.0,
+            ocr_amount=40.0,
+            ocr_document_type="bank_transfer",
+            seller_amount=40.0,
+            seller_document_type="bank_transfer",
+        )
+        voucher.action_review_approve(self.review_sheet.id)
+        first = self._snapshots(voucher)
+        self.assertEqual(len(first), 1)
+        first_id = first.id
+        first_amount = first.amount
+        self._replace_proof(voucher, "reopened.png", PNG_B64)
+        self.assertEqual(voucher.state, "pending")
+        voucher.action_review_reject(self.review_sheet.id)
+        snaps = self._snapshots(voucher)
+        self.assertEqual(len(snaps), 2)
+        self.assertEqual(snaps[0].id, first_id)
+        self.assertEqual(snaps[0].revision, 1)
+        self.assertAlmostEqual(snaps[0].amount, first_amount, places=2)
+        self.assertEqual(snaps[1].revision, 2)
+        self.assertEqual(snaps[1].decision, "rejected")
+        self.assertEqual(voucher.state, "rejected")
+
+    def test_reviewer_correction_matches_snapshot_current_only(self):
+        """Reviewer edits persist on current; snapshot matches; raw/seller stay."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-SNAP-EDIT",
+            document_id="DOC-SNAP-EDIT",
+            amount=100.0,
+            from_account="OLD-FROM",
+            ocr_amount=80.0,
+            ocr_from_account="OCR-FROM",
+            ocr_document_type="bank_transfer",
+            seller_amount=100.0,
+            seller_from_account="OLD-FROM",
+            seller_document_type="bank_transfer",
+        )
+        voucher.action_review_approve(
+            self.review_sheet.id,
+            {"amount": 250.75, "from_account": "NEW-FROM"},
+        )
+        self.assertAlmostEqual(voucher.amount, 250.75, places=2)
+        self.assertEqual(voucher.from_account, "NEW-FROM")
+        self.assertAlmostEqual(voucher.ocr_amount, 80.0, places=2)
+        self.assertEqual(voucher.ocr_from_account, "OCR-FROM")
+        self.assertAlmostEqual(voucher.seller_amount, 100.0, places=2)
+        self.assertEqual(voucher.seller_from_account, "OLD-FROM")
+        snaps = self._snapshots(voucher)
+        self.assertEqual(len(snaps), 1)
+        self.assertAlmostEqual(snaps.amount, 250.75, places=2)
+        self.assertEqual(snaps.from_account, "NEW-FROM")
+        self.assertEqual(snaps.decision, "approved")
+
+    # --- Phase 3: queue provenance + OWL three-way ---
+
+    def test_queue_includes_readonly_provenance_without_fabricating(self):
+        """Queue MUST expose stored ocr_*/seller_*; empty MUST stay empty."""
+        self._neutralize_preexisting_queue()
+        stamped = self._create_attached_voucher(
+            customer_identification="CUST-Q-PROV",
+            document_id="DOC-Q-PROV",
+            amount=100.0,
+            from_account="CUR-FROM",
+            to_account="CUR-TO",
+            voucher_number="TRF-CUR",
+            voucher_date=date(2026, 5, 1),
+            ocr_document_type="bank_transfer",
+            ocr_amount=90.0,
+            ocr_from_account="OCR-FROM",
+            ocr_to_account="OCR-TO",
+            ocr_voucher_number="TRF-OCR",
+            ocr_voucher_date=date(2026, 4, 1),
+            seller_document_type="bank_transfer",
+            seller_amount=100.0,
+            seller_from_account="CUR-FROM",
+            seller_to_account="CUR-TO",
+            seller_voucher_number="TRF-CUR",
+            seller_voucher_date=date(2026, 5, 1),
+        )
+        empty = self._create_attached_voucher(
+            customer_identification="CUST-Q-EMPTY",
+            document_id="DOC-Q-EMPTY",
+            amount=175.5,
+            from_account="EMPTY-FROM",
+            to_account="EMPTY-TO",
+            voucher_number="TRF-EMPTY",
+            voucher_date=date(2026, 6, 2),
+        )
+        queue = {
+            item["id"]: item
+            for item in self.env["collection.voucher"].get_review_queue(
+                self.review_sheet.id
+            )
+        }
+        stamped_payload = queue[stamped.id]
+        empty_payload = queue[empty.id]
+        self.assertAlmostEqual(stamped_payload["amount"], 100.0, places=2)
+        self.assertEqual(stamped_payload["from_account"], "CUR-FROM")
+        self._assert_payload_layer(stamped_payload, stamped, "ocr")
+        self._assert_payload_layer(stamped_payload, stamped, "seller")
+        self._assert_no_binary_in_payload(stamped_payload)
+        self.assertAlmostEqual(empty_payload["amount"], 175.5, places=2)
+        self.assertEqual(empty_payload["from_account"], "EMPTY-FROM")
+        self._assert_empty_payload_provenance(empty_payload, empty)
+        self._assert_no_binary_in_payload(empty_payload)
+
+    def test_queue_provenance_excludes_datas_identity_and_document_id_copies(self):
+        """Triangulation: provenance keys MUST omit datas, identity, and document_id."""
+        self._neutralize_preexisting_queue()
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-Q-NOBIN",
+            document_id="DOC-Q-NOBIN",
+            amount=40.0,
+            ocr_amount=11.0,
+            ocr_document_type="bank_transfer",
+            seller_amount=40.0,
+            seller_document_type="bank_transfer",
+        )
+        payload = next(
+            item
+            for item in self.env["collection.voucher"].get_review_queue(
+                self.review_sheet.id
+            )
+            if item["id"] == voucher.id
+        )
+        self.assertEqual(payload["document_id"], "DOC-Q-NOBIN")
+        forbidden = (
+            "ocr_document_id",
+            "seller_document_id",
+            "ocr_customer_identification",
+            "seller_customer_identification",
+            "ocr_seller_id",
+            "seller_seller_id",
+            "ocr_attachment",
+            "seller_attachment",
+            "ocr_datas",
+            "seller_datas",
+            "datas",
+        )
+        for key in forbidden:
+            self.assertNotIn(key, payload, key)
+        self._assert_no_binary_in_payload(payload)
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_key = f"ocr_{name}"
+            seller_key = f"seller_{name}"
+            self.assertIn(ocr_key, payload, ocr_key)
+            self.assertIn(seller_key, payload, seller_key)
+            rendered = str(payload[ocr_key]) + str(payload[seller_key])
+            self.assertNotIn(PNG_B64, rendered)
+            self.assertNotIn(PDF_B64, rendered)
+
+    def test_queue_check_and_cash_deposit_provenance_keys(self):
+        """Triangulation: type-specific provenance keys stay stored, not invented."""
+        self._neutralize_preexisting_queue()
+        check = self._create_attached_voucher(
+            customer_identification="CUST-Q-CHK",
+            document_id="DOC-Q-CHK",
+            document_type="check",
+            amount=20.0,
+            check_number="CHK-CUR",
+            check_bank="Banco Nación",
+            check_type="deferred",
+            check_issue_date=date(2026, 1, 10),
+            check_payment_date=date(2026, 2, 10),
+            ocr_document_type="check",
+            ocr_amount=10.0,
+            ocr_check_number="CHK-OCR",
+            ocr_check_bank="OCR Bank",
+            ocr_check_type="common",
+            ocr_check_issue_date=date(2026, 1, 1),
+            ocr_check_payment_date=date(2026, 1, 15),
+            seller_document_type="check",
+            seller_amount=20.0,
+            seller_check_number="CHK-CUR",
+            seller_check_bank="Banco Nación",
+            seller_check_type="deferred",
+            seller_check_issue_date=date(2026, 1, 10),
+            seller_check_payment_date=date(2026, 2, 10),
+        )
+        cash = self._create_attached_voucher(
+            customer_identification="CUST-Q-CASH",
+            document_id="DOC-Q-CASH",
+            document_type="cash_deposit",
+            amount=42.5,
+            voucher_number="CASH-CUR",
+            voucher_date=date(2026, 4, 1),
+            ocr_document_type="cash_deposit",
+            ocr_amount=40.0,
+            ocr_voucher_number="CASH-OCR",
+            ocr_voucher_date=date(2026, 3, 1),
+            seller_document_type="cash_deposit",
+            seller_amount=42.5,
+            seller_voucher_number="CASH-SEL",
+            seller_voucher_date=date(2026, 4, 1),
+        )
+        queue = {
+            item["id"]: item
+            for item in self.env["collection.voucher"].get_review_queue(
+                self.review_sheet.id
+            )
+        }
+        check_payload = queue[check.id]
+        cash_payload = queue[cash.id]
+        self.assertIn("ocr_check_number", check_payload)
+        self.assertEqual(check_payload["ocr_check_number"], "CHK-OCR")
+        self.assertEqual(check_payload["seller_check_number"], "CHK-CUR")
+        self.assertEqual(check_payload["check_number"], "CHK-CUR")
+        self._assert_payload_layer(check_payload, check, "ocr")
+        self._assert_payload_layer(check_payload, check, "seller")
+        self.assertEqual(cash_payload["ocr_voucher_number"], "CASH-OCR")
+        self.assertEqual(cash_payload["seller_voucher_number"], "CASH-SEL")
+        self.assertEqual(cash_payload["voucher_number"], "CASH-CUR")
+        self.assertEqual(cash_payload["ocr_voucher_date"], date(2026, 3, 1))
+        self.assertEqual(cash_payload["seller_voucher_date"], date(2026, 4, 1))
+        self._assert_payload_layer(cash_payload, cash, "ocr")
+        self._assert_payload_layer(cash_payload, cash, "seller")
+        self._assert_no_binary_in_payload(check_payload)
+        self._assert_no_binary_in_payload(cash_payload)
+
+    def test_owl_keeps_type_visibility_hides_document_id_and_shows_provenance(self):
+        """OWL MUST keep type getters, hide document_id, and bind readonly layers."""
+        xml = self._viewer_template_xml()
+        action_js = self._action_js()
+        self.assertIn("get isBankTransfer()", action_js)
+        self.assertIn("get isCheck()", action_js)
+        self.assertIn("_layerHasDocumentType", action_js)
+        self.assertIn("current.ocr_document_type", action_js)
+        self.assertIn("current.seller_document_type", action_js)
+        self.assertIn('t-if="isBankTransfer"', xml)
+        self.assertIn('t-if="isCheck"', xml)
+        bank_block = xml.split('t-if="isBankTransfer"')[1].split('t-if="isCheck"')[0]
+        self.assertIn("current.ocr_from_account", bank_block)
+        self.assertIn("current.seller_from_account", bank_block)
+        self.assertIn("current.from_account", bank_block)
+        self.assertIn("current.ocr_to_account", bank_block)
+        self.assertIn("current.seller_voucher_number", bank_block)
+        check_block = xml.split('t-if="isCheck"')[1]
+        self.assertIn("current.ocr_check_number", check_block)
+        self.assertIn("current.seller_check_number", check_block)
+        self.assertIn("current.check_number", check_block)
+        self.assertIn("current.ocr_check_bank", check_block)
+        self.assertIn("current.ocr_amount", xml)
+        self.assertIn("current.seller_amount", xml)
+        self.assertIn("current.ocr_document_type", xml)
+        self.assertIn("current.seller_document_type", xml)
+        self.assertNotIn("current.document_id", xml)
+        self.assertNotIn("ocr_document_id", xml)
+        self.assertNotIn("seller_document_id", xml)
+        self.assertNotIn("collection_review_document_id", xml)
+        self.assertNotIn("t-esc", xml)
+        root = self._viewer_template_root()
+        ocr_amount = root.xpath(".//*[@t-att-value='current.ocr_amount']")
+        seller_amount = root.xpath(".//*[@t-att-value='current.seller_amount']")
+        current_amount = root.xpath(
+            ".//*[@id='collection_review_amount' and @t-att-value='current.amount']"
+        )
+        self.assertTrue(ocr_amount, "OCR amount must bind as readonly value")
+        self.assertTrue(seller_amount, "seller amount must bind as readonly value")
+        self.assertTrue(current_amount, "current amount must stay editable")
+        for node in ocr_amount + seller_amount:
+            self.assertTrue(
+                node.get("readonly") or node.get("disabled"),
+                "provenance widgets must be readonly",
+            )
+            self.assertFalse(any(key.startswith("t-on-") for key in node.attrib))
+
+    def test_owl_empty_provenance_still_loads(self):
+        """Empty provenance MUST still bind; OWL MUST NOT gate the panel on OCR."""
+        xml = self._viewer_template_xml()
+        self.assertIn("current.ocr_amount", xml)
+        self.assertIn("current.seller_amount", xml)
+        self.assertIn("current.ocr_document_type", xml)
+        self.assertIn("current.seller_document_type", xml)
+        self.assertNotIn('t-if="current.ocr_document_type"', xml)
+        self.assertNotIn('t-if="current.ocr_amount"', xml)
+        self.assertNotIn('t-if="current.seller_document_type"', xml)
+        self.assertNotIn("t-esc", xml)
+
+    def test_build_approve_vals_sends_current_keys_only(self):
+        """buildApproveVals MUST send current payment keys and skip provenance."""
+        helpers = self._helpers_js()
+        self.assertIn("export function isProvenanceKey", helpers)
+        self.assertIn('key.startsWith("ocr_")', helpers)
+        self.assertIn('key.startsWith("seller_")', helpers)
+        self.assertIn("export function buildApproveVals", helpers)
+        approve_fn = helpers.split("export function buildApproveVals")[1].split(
+            "export function"
+        )[0]
+        self.assertIn("isProvenanceKey", approve_fn)
+        self.assertIn("editableKeysForType", approve_fn)
+        lists_src = helpers.split("export const BANK_TRANSFER_FIELDS")[0]
+        self.assertNotIn("ocr_", lists_src)
+        self.assertNotIn("seller_", lists_src)
+        compact_action = "".join(self._action_js().split())
+        self.assertRegex(
+            compact_action,
+            r'action_review_approve",\[\[this\.current\.id\],sheetId,buildApproveVals\(this\.current\),?\]',
+        )
