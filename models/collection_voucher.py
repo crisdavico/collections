@@ -13,7 +13,7 @@ from odoo.tools.translate import _
 class CollectionVoucher(models.Model):
     _name = "collection.voucher"
     _description = "Payment Voucher"
-    _inherit = ["mail.thread", "mail.activity.mixin"]
+    _inherit = ["mail.thread.main.attachment", "mail.activity.mixin"]
     _order = "id desc"
 
     name = fields.Char(
@@ -81,8 +81,6 @@ class CollectionVoucher(models.Model):
             ("deferred", "Deferred"),
         ],
     )
-    attachment = fields.Binary(attachment=True, copy=False)
-    attachment_filename = fields.Char(copy=False)
     attachment_rotation = fields.Integer(default=0, copy=False)
     reviewed_by = fields.Many2one(
         comodel_name="res.users",
@@ -128,7 +126,6 @@ class CollectionVoucher(models.Model):
             # Registration time is ORM-owned; callers must not forge create_date.
             vals.pop("create_date", None)
             vals.pop("write_date", None)
-            self._validate_attachment_payload(vals.get("attachment"))
             if vals.get("name", "/") in (False, "/", "New"):
                 vals["name"] = sequence.next_by_code("collection.voucher") or "/"
             if vals.get("sheet_id"):
@@ -149,10 +146,17 @@ class CollectionVoucher(models.Model):
                 vals["sheet_id"] = resolved_sheet_ids[seller_id]
 
     def write(self, vals):
+        if not self:
+            return True
         if "sheet_id" in vals:
             self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
-        if "attachment" in vals:
-            self._validate_attachment_payload(vals.get("attachment"))
+        if "message_main_attachment_id" in vals:
+            if len(self) > 1:
+                return all(rec.write(vals) for rec in self)
+            new_id = self._normalize_main_attachment_id(
+                vals.get("message_main_attachment_id")
+            )
+            self._validate_main_attachment_id(new_id)
             vals = self._vals_with_review_reset_on_new_attachment(vals)
         if "state" in vals and not self.env.context.get("collection_audited_state"):
             target = vals["state"]
@@ -163,7 +167,7 @@ class CollectionVoucher(models.Model):
                 if target == "approved":
                     return self.action_approve()
                 return self.action_reject()
-            if target == "pending" and "attachment" not in vals:
+            if target == "pending" and "message_main_attachment_id" not in vals:
                 raise UserError(
                     _(
                         "Cannot reopen a decided voucher without replacing "
@@ -257,9 +261,23 @@ class CollectionVoucher(models.Model):
         if any(voucher.state != "pending" for voucher in self):
             raise UserError(_("You can only delete vouchers in the Pending state."))
 
+    def _message_set_main_attachment_id(
+        self, attachments, force=False, filter_xml=True
+    ):
+        """Restrict designated proof to image/* and PDF; extras never steal."""
+        attachments = attachments.filtered(self._is_designated_proof_mimetype)
+        return super()._message_set_main_attachment_id(
+            attachments, force=force, filter_xml=filter_xml
+        )
+
+    @api.private
+    def _is_designated_proof_mimetype(self, attachment):
+        mime = attachment.mimetype or ""
+        return mime.startswith("image/") or mime == "application/pdf"
+
     @api.model
     def _validate_attachment_payload(self, attachment):
-        """Validate base64 + detected MIME before Binary/ir.attachment write."""
+        """Validate base64 + detected MIME before posting designated proof."""
         if not attachment:
             return
         raw = attachment
@@ -281,11 +299,6 @@ class CollectionVoucher(models.Model):
                 )
             )
 
-    @api.constrains("attachment")
-    def _check_attachment_content(self):
-        for voucher in self:
-            self._validate_attachment_payload(voucher.attachment)
-
     @api.constrains("attachment_rotation")
     def _check_attachment_rotation(self):
         for voucher in self:
@@ -302,7 +315,7 @@ class CollectionVoucher(models.Model):
         vouchers = self.search(
             [
                 ("state", "=", "pending"),
-                ("attachment", "!=", False),
+                ("message_main_attachment_id", "!=", False),
                 ("sheet_id", "=", sheet.id),
             ],
             order="id",
@@ -369,15 +382,46 @@ class CollectionVoucher(models.Model):
             )
 
     @api.private
+    def _normalize_main_attachment_id(self, value):
+        if not value:
+            return False
+        if isinstance(value, models.BaseModel):
+            return value.id or False
+        return int(value)
+
+    @api.private
+    def _validate_main_attachment_id(self, attachment_id):
+        if not attachment_id:
+            return
+        attachment = self.env["ir.attachment"].browse(attachment_id)
+        if not attachment.exists():
+            raise UserError(self.env._("Designated proof attachment was not found."))
+        if not self._is_designated_proof_mimetype(attachment):
+            raise UserError(
+                self.env._(
+                    "Attachment must be an image or a PDF "
+                    "(detected type: %(mimetype)s).",
+                    mimetype=attachment.mimetype or "unknown",
+                )
+            )
+
+    @api.private
     def _vals_with_review_reset_on_new_attachment(self, vals):
-        if "attachment" not in vals:
+        if "message_main_attachment_id" not in vals:
+            return vals
+        self.ensure_one()
+        new_id = self._normalize_main_attachment_id(
+            vals.get("message_main_attachment_id")
+        )
+        old_id = self.message_main_attachment_id.id or False
+        if old_id == (new_id or False):
             return vals
         vals = dict(vals)
-        if vals.get("attachment"):
+        vals["attachment_rotation"] = 0
+        if new_id:
             vals["state"] = "pending"
             vals["reviewed_by"] = False
             vals["reviewed_at"] = False
-        vals["attachment_rotation"] = 0
         return vals
 
     @api.private
@@ -442,24 +486,16 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _records_with_attachment(self):
-        """Return subset of ``self`` that has stored Binary attachment content."""
-        if not self:
-            return self.browse()
-        attachments = self.env["ir.attachment"].search(
-            [
-                ("res_model", "=", self._name),
-                ("res_id", "in", self.ids),
-                ("res_field", "=", "attachment"),
-            ]
-        )
-        return self.browse(attachments.mapped("res_id"))
+        """Return subset of ``self`` that has designated chatter proof."""
+        return self.filtered(lambda voucher: bool(voucher.message_main_attachment_id))
 
     @api.private
     def _attachment_content_url(self):
         self.ensure_one()
         url = f"/web/content?model=collection.voucher&id={self.id}&field=attachment"
-        if self.attachment_filename:
-            url = f"{url}&filename={self.attachment_filename}"
+        filename = self.message_main_attachment_id.name
+        if filename:
+            url = f"{url}&filename={filename}"
         return url
 
     @api.private
@@ -483,7 +519,7 @@ class CollectionVoucher(models.Model):
             "check_payment_date": self.check_payment_date,
             "position": position,
             "total": total,
-            "attachment_filename": self.attachment_filename,
+            "attachment_filename": self.message_main_attachment_id.name,
             "attachment_url": self._attachment_content_url(),
             "attachment_rotation": self.attachment_rotation,
         }

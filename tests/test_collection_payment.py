@@ -1,6 +1,8 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+from base64 import b64decode
+
 from psycopg2 import IntegrityError
 
 from odoo.exceptions import UserError
@@ -15,6 +17,19 @@ PNG_B64 = (
 PDF_B64 = "JVBERi0xLjEKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK"
 TXT_B64 = "aGVsbG8gd29ybGQ="
 INVALID_B64 = "!!!not-base64!!!"
+
+
+def post_voucher_proof(
+    voucher, name, datas_b64, body="Payment proof attached."
+):
+    """Post a chatter proof file onto a voucher (designated-proof path)."""
+    voucher.message_post(
+        body=body,
+        message_type="notification",
+        attachments=[(name, b64decode(datas_b64))],
+    )
+    voucher.invalidate_recordset()
+    return voucher.message_main_attachment_id
 
 
 class TestCollectionPaymentDocumentId(TransactionCase):
@@ -95,7 +110,7 @@ class TestCollectionPaymentDocumentId(TransactionCase):
 
 
 class TestCollectionPaymentAttachment(TransactionCase):
-    """RED/GREEN: optional Binary+filename attachment on standalone vouchers."""
+    """RED/GREEN: optional chatter designated proof on standalone vouchers."""
 
     def _voucher_vals(self, **extra):
         vals = {
@@ -111,7 +126,7 @@ class TestCollectionPaymentAttachment(TransactionCase):
             [
                 ("res_model", "=", "collection.voucher"),
                 ("res_id", "=", voucher.id),
-                ("res_field", "=", "attachment"),
+                ("res_field", "=", False),
             ]
         )
 
@@ -119,197 +134,147 @@ class TestCollectionPaymentAttachment(TransactionCase):
         """Omit attachment remains valid and persists the voucher."""
         voucher = self.env["collection.voucher"].create(self._voucher_vals())
         self.assertTrue(voucher.id)
-        self.assertFalse(voucher.attachment)
-        self.assertFalse(voucher.attachment_filename)
+        self.assertFalse(voucher.message_main_attachment_id)
         self.assertFalse(self._voucher_attachments(voucher))
 
     def test_valid_png_persists_via_ir_attachment(self):
-        """Valid PNG base64 + filename stores Binary via ir.attachment."""
+        """Valid PNG posted on chatter stores as designated proof."""
         voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(
-                customer_identification="CUST-ATT-PNG",
-                attachment=PNG_B64,
-                attachment_filename="proof.png",
-            )
+            self._voucher_vals(customer_identification="CUST-ATT-PNG")
         )
-        self.assertTrue(voucher.attachment)
-        self.assertEqual(voucher.attachment_filename, "proof.png")
+        proof = post_voucher_proof(voucher, "proof.png", PNG_B64)
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+        self.assertEqual(proof.name, "proof.png")
+        self.assertFalse(proof.res_field)
         attachments = self._voucher_attachments(voucher)
         self.assertEqual(len(attachments), 1)
-        self.assertEqual(attachments.res_model, "collection.voucher")
         self.assertEqual(attachments.datas, PNG_B64.encode())
 
     def test_valid_pdf_persists_via_ir_attachment(self):
-        """Triangulation: valid PDF also persists via ir.attachment."""
+        """Triangulation: valid PDF also persists as designated chatter proof."""
         voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(
-                customer_identification="CUST-ATT-PDF",
-                attachment=PDF_B64,
-                attachment_filename="receipt.pdf",
-            )
+            self._voucher_vals(customer_identification="CUST-ATT-PDF")
         )
-        self.assertTrue(voucher.attachment)
-        self.assertEqual(voucher.attachment_filename, "receipt.pdf")
+        proof = post_voucher_proof(voucher, "receipt.pdf", PDF_B64)
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+        self.assertEqual(proof.name, "receipt.pdf")
         attachments = self._voucher_attachments(voucher)
         self.assertEqual(len(attachments), 1)
-        self.assertEqual(attachments.res_model, "collection.voucher")
 
     def test_invalid_base64_raises_and_does_not_persist(self):
-        """Invalid base64 must raise UserError and not create the voucher/file."""
+        """Invalid base64 must raise UserError and not persist a designated proof."""
         Voucher = self.env["collection.voucher"]
         before = Voucher.search_count([])
         with self.assertRaises(UserError):
-            with self.env.cr.savepoint():
-                Voucher.create(
-                    self._voucher_vals(
-                        customer_identification="CUST-ATT-B64",
-                        attachment=INVALID_B64,
-                        attachment_filename="bad.bin",
-                    )
-                )
+            Voucher._validate_attachment_payload(INVALID_B64)
         self.assertEqual(Voucher.search_count([]), before)
-        self.assertFalse(
-            self.env["ir.attachment"].search(
-                [
-                    ("res_model", "=", "collection.voucher"),
-                    ("res_field", "=", "attachment"),
-                    ("name", "=", "bad.bin"),
-                ]
-            )
-        )
 
     def test_non_image_non_pdf_mime_raises_and_does_not_persist(self):
-        """Non-image/non-PDF detected MIME must raise UserError and not persist."""
+        """Non-image/non-PDF detected MIME must raise UserError."""
         Voucher = self.env["collection.voucher"]
         before = Voucher.search_count([])
         with self.assertRaises(UserError):
-            with self.env.cr.savepoint():
-                Voucher.create(
-                    self._voucher_vals(
-                        customer_identification="CUST-ATT-MIME",
-                        attachment=TXT_B64,
-                        attachment_filename="notes.txt",
-                    )
-                )
+            Voucher._validate_attachment_payload(TXT_B64)
         self.assertEqual(Voucher.search_count([]), before)
-        self.assertFalse(
-            self.env["ir.attachment"].search(
-                [
-                    ("res_model", "=", "collection.voucher"),
-                    ("res_field", "=", "attachment"),
-                    ("name", "=", "notes.txt"),
-                ]
-            )
-        )
 
     def test_write_replace_updates_attachment(self):
-        """Writing a new valid file replaces the stored attachment content."""
+        """Writing a new main attachment replaces designated proof."""
         voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(
-                customer_identification="CUST-ATT-REP",
-                attachment=PNG_B64,
-                attachment_filename="old.png",
-            )
+            self._voucher_vals(customer_identification="CUST-ATT-REP")
         )
-        voucher.write(
+        post_voucher_proof(voucher, "old.png", PNG_B64)
+        replacement = self.env["ir.attachment"].create(
             {
-                "attachment": PDF_B64,
-                "attachment_filename": "new.pdf",
+                "name": "new.pdf",
+                "raw": b64decode(PDF_B64),
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
             }
         )
-        self.assertEqual(voucher.attachment_filename, "new.pdf")
-        self.assertEqual(voucher.attachment, PDF_B64.encode())
-        attachments = self._voucher_attachments(voucher)
-        self.assertEqual(len(attachments), 1)
-        self.assertEqual(attachments.datas, PDF_B64.encode())
+        voucher.write({"message_main_attachment_id": replacement.id})
+        self.assertEqual(voucher.message_main_attachment_id, replacement)
+        self.assertEqual(voucher.message_main_attachment_id.name, "new.pdf")
 
     def test_write_replace_resets_approved_review_to_pending(self):
-        """Replacing Binary content must reopen review and clear audit."""
+        """Replacing designated proof must reopen review and clear audit."""
         voucher = self.env["collection.voucher"].create(
             self._voucher_vals(
                 customer_identification="CUST-ATT-RST",
                 document_id="DOC-ATT-RST",
-                attachment=PNG_B64,
-                attachment_filename="old.png",
             )
         )
+        post_voucher_proof(voucher, "old.png", PNG_B64)
         voucher.action_approve()
         self.assertEqual(voucher.state, "approved")
-        voucher.write(
+        replacement = self.env["ir.attachment"].create(
             {
-                "attachment": PDF_B64,
-                "attachment_filename": "new.pdf",
+                "name": "new.pdf",
+                "raw": b64decode(PDF_B64),
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
             }
         )
+        voucher.write({"message_main_attachment_id": replacement.id})
         self.assertEqual(voucher.state, "pending")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
-        self.assertEqual(voucher.attachment_filename, "new.pdf")
+        self.assertEqual(voucher.message_main_attachment_id.name, "new.pdf")
 
     def test_write_replace_resets_rejected_review_to_pending(self):
-        """Triangulation: replacing a rejected voucher's file also reopens review."""
+        """Triangulation: replacing a rejected voucher's proof also reopens review."""
         voucher = self.env["collection.voucher"].create(
             self._voucher_vals(
                 customer_identification="CUST-ATT-RST-REJ",
                 document_id="DOC-ATT-RST-REJ",
-                attachment=PNG_B64,
-                attachment_filename="rej.png",
             )
         )
+        post_voucher_proof(voucher, "rej.png", PNG_B64)
         voucher.action_reject()
-        voucher.write(
+        replacement = self.env["ir.attachment"].create(
             {
-                "attachment": PNG_B64,
-                "attachment_filename": "again.png",
+                "name": "again.png",
+                "raw": b64decode(PNG_B64),
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
             }
         )
+        voucher.write({"message_main_attachment_id": replacement.id})
         self.assertEqual(voucher.state, "pending")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
 
-    def test_clear_attachment_empties_binary_and_filename(self):
-        """Clearing attachment empties Binary and filename."""
+    def test_clear_attachment_empties_designated_proof(self):
+        """Clearing designated proof empties message_main_attachment_id."""
         voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(
-                customer_identification="CUST-ATT-CLR",
-                attachment=PNG_B64,
-                attachment_filename="clear-me.png",
-            )
+            self._voucher_vals(customer_identification="CUST-ATT-CLR")
         )
-        voucher.write({"attachment": False, "attachment_filename": False})
-        self.assertFalse(voucher.attachment)
-        self.assertFalse(voucher.attachment_filename)
-        self.assertFalse(self._voucher_attachments(voucher))
+        post_voucher_proof(voucher, "clear-me.png", PNG_B64)
+        voucher.write({"message_main_attachment_id": False})
+        self.assertFalse(voucher.message_main_attachment_id)
 
     def test_unlink_voucher_cascades_attachment_cleanup(self):
         """Unlinking a voucher must remove its stored attachment row."""
         voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(
-                customer_identification="CUST-ATT-UNL",
-                attachment=PNG_B64,
-                attachment_filename="gone.png",
-            )
+            self._voucher_vals(customer_identification="CUST-ATT-UNL")
         )
-        att_ids = self._voucher_attachments(voucher).ids
-        self.assertTrue(att_ids)
+        proof = post_voucher_proof(voucher, "gone.png", PNG_B64)
+        att_id = proof.id
         voucher.unlink()
-        self.assertFalse(self.env["ir.attachment"].browse(att_ids).exists())
+        self.assertFalse(self.env["ir.attachment"].browse(att_id).exists())
 
     def test_copy_does_not_copy_attachment(self):
-        """copy=False: duplicated voucher must not inherit Binary/filename."""
+        """copy=False: duplicated voucher must not inherit designated proof."""
         voucher = self.env["collection.voucher"].create(
             self._voucher_vals(
                 customer_identification="CUST-ATT-CPY",
                 document_id="DOC-ATT-SRC",
-                attachment=PNG_B64,
-                attachment_filename="source.png",
             )
         )
+        post_voucher_proof(voucher, "source.png", PNG_B64)
         clone = voucher.copy({"document_id": "DOC-ATT-CLONE"})
         self.assertTrue(clone.id)
         self.assertNotEqual(clone.id, voucher.id)
-        self.assertFalse(clone.attachment)
-        self.assertFalse(clone.attachment_filename)
-        self.assertFalse(self._voucher_attachments(clone))
-        self.assertTrue(voucher.attachment)
+        self.assertFalse(clone.message_main_attachment_id)
+        self.assertTrue(voucher.message_main_attachment_id)
         self.assertEqual(len(self._voucher_attachments(voucher)), 1)
+

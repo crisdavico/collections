@@ -197,14 +197,12 @@ class CollectionMcpMixin(models.AbstractModel):
             # Exact-retry / conflict: ignore attachment nests and seller_id.
             return self._collection_replay_or_reject(existing, document_ids)
 
-        # Create-only: validate nests and map into voucher vals after all-new.
-        payment_vals_list = self._collection_enrich_payment_attachments(
-            payments, payment_vals_list
-        )
+        # Create-only: validate nests as chatter sidecars after all-new.
+        sidecars = self._collection_parse_payment_attachments(payments)
 
         try:
             return self._collection_create_vouchers(
-                customer, payment_vals_list, seller.id
+                customer, payment_vals_list, seller.id, sidecars
             )
         except UniqueViolation:
             # Race: concurrent create won the unique(document_id) race.
@@ -268,33 +266,25 @@ class CollectionMcpMixin(models.AbstractModel):
         return payment_vals_list
 
     @api.model
-    def _collection_enrich_payment_attachments(
+    def _collection_parse_payment_attachments(
         self,
         payments: list[dict[str, Any]],
-        payment_vals_list: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Map optional attachment nests into voucher vals (create path only).
-
-        Declared ``mimetype`` must equal the detected allow-listed MIME from
-        ``datas``. Reuses ``collection.voucher._validate_attachment_payload``.
-        """
-        enriched: list[dict[str, Any]] = []
-        for index, (raw, vals) in enumerate(
-            zip(payments, payment_vals_list, strict=True)
-        ):
+    ) -> list[tuple[str, bytes] | None]:
+        """Validate optional nests; return chatter sidecars (create path only)."""
+        sidecars: list[tuple[str, bytes] | None] = []
+        for index, raw in enumerate(payments):
             nest = raw.get("attachment") if isinstance(raw, dict) else None
             if nest in (None, False, ""):
-                enriched.append(vals)
+                sidecars.append(None)
                 continue
-            attachment_vals = self._collection_parse_attachment_nest(nest, index)
-            enriched.append({**vals, **attachment_vals})
-        return enriched
+            sidecars.append(self._collection_parse_attachment_nest(nest, index))
+        return sidecars
 
     @api.model
     def _collection_parse_attachment_nest(
         self, nest: Any, index: int
-    ) -> dict[str, Any]:
-        """Validate nest shape + MIME/base64; return Binary/filename voucher vals."""
+    ) -> tuple[str, bytes]:
+        """Validate nest shape + MIME/base64; return (name, raw bytes) sidecar."""
         if not isinstance(nest, dict):
             raise UserError(
                 _(
@@ -346,10 +336,7 @@ class CollectionMcpMixin(models.AbstractModel):
                     detected=detected or "unknown",
                 )
             )
-        return {
-            "attachment": datas,
-            "attachment_filename": name.strip(),
-        }
+        return name.strip(), b64decode(raw, validate=True)
 
     @api.model
     def _collection_vouchers_by_document_ids(self, document_ids: list[str]):
@@ -419,6 +406,7 @@ class CollectionMcpMixin(models.AbstractModel):
         customer: str,
         payment_vals_list: list[dict[str, Any]],
         seller_id: int,
+        sidecars: list[tuple[str, bytes] | None],
     ) -> dict[str, Any]:
         """Atomically create one voucher per payment inside a savepoint."""
         Voucher = self.env["collection.voucher"]
@@ -434,4 +422,13 @@ class CollectionMcpMixin(models.AbstractModel):
         ]
         with self.env.cr.savepoint():
             vouchers = Voucher.create(create_vals)
+            for voucher, sidecar in zip(vouchers, sidecars, strict=True):
+                if not sidecar:
+                    continue
+                name, raw = sidecar
+                voucher.message_post(
+                    body="Payment proof attached.",
+                    message_type="notification",
+                    attachments=[(name, raw)],
+                )
         return self._collection_vouchers_payload(vouchers, document_ids)

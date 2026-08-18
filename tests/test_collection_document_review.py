@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 import inspect
+from base64 import b64decode
 from datetime import date
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from lxml import etree
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PDF_B64, PNG_B64
+from .test_collection_payment import PDF_B64, PNG_B64, post_voucher_proof
 
 _DOCUMENT_REVIEW_DIR = (
     Path(__file__).resolve().parents[1] / "static" / "src" / "document_review"
@@ -59,17 +60,32 @@ class TestCollectionDocumentReview(TransactionCase):
             opens.action_close()
 
     def _create_attached_voucher(self, **extra):
-        extra.setdefault("attachment", PNG_B64)
         extra.setdefault("attachment_filename", "proof.png")
+        datas = extra.pop("attachment", PNG_B64)
+        filename = extra.pop("attachment_filename")
         extra.setdefault("seller_id", self.env.user.id)
         extra.setdefault("sheet_id", self.review_sheet.id)
-        return self.env["collection.voucher"].create(self._voucher_vals(**extra))
+        voucher = self.env["collection.voucher"].create(self._voucher_vals(**extra))
+        post_voucher_proof(voucher, filename, datas)
+        return voucher
+
+    def _replace_proof(self, voucher, name, datas_b64):
+        replacement = self.env["ir.attachment"].create(
+            {
+                "name": name,
+                "raw": b64decode(datas_b64),
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
+            }
+        )
+        voucher.write({"message_main_attachment_id": replacement.id})
+        return replacement
 
     def _neutralize_preexisting_queue(self, sheet_id=None):
         """Make pre-existing devel rows ineligible so this transaction is isolated."""
         domain = [
             ("state", "=", "pending"),
-            ("attachment", "!=", False),
+            ("message_main_attachment_id", "!=", False),
             ("sheet_id", "=", sheet_id or self.review_sheet.id),
         ]
         queued = self.env["collection.voucher"].search(domain)
@@ -103,7 +119,7 @@ class TestCollectionDocumentReview(TransactionCase):
         return (
             "/web/content?model=collection.voucher"
             f"&id={voucher.id}&field=attachment"
-            f"&filename={voucher.attachment_filename}"
+            f"&filename={voucher.message_main_attachment_id.name}"
         )
 
     def _viewer_template_xml(self):
@@ -911,16 +927,11 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         voucher.action_review_set_rotation(self.review_sheet.id, 180)
         self.assertEqual(voucher.attachment_rotation, 180)
-        stored_bytes = voucher.attachment
-        voucher.write(
-            {
-                "attachment": PDF_B64,
-                "attachment_filename": "rotated-reset.pdf",
-            }
-        )
+        stored_id = voucher.message_main_attachment_id.id
+        self._replace_proof(voucher, "rotated-reset.pdf", PDF_B64)
         self.assertEqual(voucher.attachment_rotation, 0)
-        self.assertEqual(voucher.attachment_filename, "rotated-reset.pdf")
-        self.assertNotEqual(voucher.attachment, stored_bytes)
+        self.assertEqual(voucher.message_main_attachment_id.name, "rotated-reset.pdf")
+        self.assertNotEqual(voucher.message_main_attachment_id.id, stored_id)
 
     def test_document_review_hides_document_id(self):
         """Reviewer UI must not show document_id; voucher and position stay visible."""
@@ -1095,16 +1106,11 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.state, "approved")
         self.assertTrue(voucher.reviewed_by)
         self.assertTrue(voucher.reviewed_at)
-        voucher.write(
-            {
-                "attachment": PDF_B64,
-                "attachment_filename": "replaced.pdf",
-            }
-        )
+        self._replace_proof(voucher, "replaced.pdf", PDF_B64)
         self.assertEqual(voucher.state, "pending")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
-        self.assertEqual(voucher.attachment_filename, "replaced.pdf")
+        self.assertEqual(voucher.message_main_attachment_id.name, "replaced.pdf")
 
     def test_attachment_write_resets_rejected_voucher(self):
         """Triangulation: replacing a rejected voucher's file also reopens review."""
@@ -1114,12 +1120,7 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         voucher.action_review_reject(self.review_sheet.id)
         self.assertEqual(voucher.state, "rejected")
-        voucher.write(
-            {
-                "attachment": PNG_B64,
-                "attachment_filename": "again.png",
-            }
-        )
+        self._replace_proof(voucher, "again.png", PNG_B64)
         self.assertEqual(voucher.state, "pending")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)

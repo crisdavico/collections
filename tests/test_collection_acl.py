@@ -4,7 +4,7 @@
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64
+from .test_collection_payment import PNG_B64, post_voucher_proof
 
 
 class TestCollectionAcl(TransactionCase):
@@ -125,16 +125,20 @@ class TestCollectionAcl(TransactionCase):
         self, env, document_id, customer_identification
     ):
         self.env.company.write({"document_review_enabled": True})
-        return env["collection.voucher"].create(
+        seller = env.user
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        voucher = env["collection.voucher"].create(
             {
                 "customer_identification": customer_identification,
                 "document_type": "bank_transfer",
                 "amount": 100.0,
                 "document_id": document_id,
-                "attachment": PNG_B64,
-                "attachment_filename": "acl-proof.png",
+                "seller_id": seller.id,
+                "sheet_id": sheet.id,
             }
         )
+        post_voucher_proof(voucher, "acl-proof.png", PNG_B64)
+        return voucher
 
     def test_portal_user_review_queue_approve_reject_denied(self):
         """Non-internal users must be denied queue, approve, reject, and read."""
@@ -143,17 +147,20 @@ class TestCollectionAcl(TransactionCase):
             document_id="ACL-REV-PORTAL-DOC",
             customer_identification="ACL-REV-PORTAL",
         )
+        sheet_id = admin_voucher.sheet_id.id
         Voucher = self.env["collection.voucher"].with_user(self.portal_user)
         with self.assertRaises(AccessError):
-            Voucher.get_review_queue()
+            Voucher.get_review_queue(sheet_id)
         with self.assertRaises(AccessError):
             Voucher.browse(admin_voucher.id).read(["state"])
         with self.assertRaises(AccessError):
-            Voucher.browse(admin_voucher.id).action_review_approve({"amount": 1.0})
+            Voucher.browse(admin_voucher.id).action_review_approve(
+                sheet_id, {"amount": 1.0}
+            )
         with self.assertRaises(AccessError):
-            Voucher.browse(admin_voucher.id).action_review_reject()
+            Voucher.browse(admin_voucher.id).action_review_reject(sheet_id)
         with self.assertRaises(AccessError):
-            Voucher.browse(admin_voucher.id).action_review_set_rotation(90)
+            Voucher.browse(admin_voucher.id).action_review_set_rotation(sheet_id, 90)
 
     def test_internal_user_review_queue_and_approve_allowed(self):
         """Internal users must queue an attached pending voucher and approve it."""
@@ -164,10 +171,11 @@ class TestCollectionAcl(TransactionCase):
             customer_identification="ACL-REV-INT-APPROVE",
         )
         self.assertEqual(voucher.state, "pending")
-        queue = env["collection.voucher"].get_review_queue()
+        sheet_id = voucher.sheet_id.id
+        queue = env["collection.voucher"].get_review_queue(sheet_id)
         queued_ids = [item["id"] for item in queue]
         self.assertIn(voucher.id, queued_ids)
-        voucher.action_review_approve({"amount": 150.0})
+        voucher.action_review_approve(sheet_id, {"amount": 150.0})
         self.assertEqual(voucher.state, "approved")
         self.assertEqual(voucher.amount, 150.0)
         self.assertEqual(voucher.reviewed_by, self.internal_user)
@@ -182,7 +190,7 @@ class TestCollectionAcl(TransactionCase):
             customer_identification="ACL-REV-INT-REJECT",
         )
         self.assertEqual(voucher.state, "pending")
-        voucher.action_review_reject()
+        voucher.action_review_reject(voucher.sheet_id.id)
         self.assertEqual(voucher.state, "rejected")
         self.assertEqual(voucher.reviewed_by, self.internal_user)
         self.assertTrue(voucher.reviewed_at)
@@ -195,7 +203,7 @@ class TestCollectionAcl(TransactionCase):
             document_id="ACL-REV-INT-ROT-DOC",
             customer_identification="ACL-REV-INT-ROT",
         )
-        voucher.action_review_set_rotation(90)
+        voucher.action_review_set_rotation(voucher.sheet_id.id, 90)
         self.assertEqual(voucher.attachment_rotation, 90)
 
     def test_internal_user_form_approve_allowed_when_review_off(self):

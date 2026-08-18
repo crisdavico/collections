@@ -81,51 +81,38 @@ class TestCollectionUi(TransactionCase):
             f"{context} must keep edit enabled",
         )
 
-    def _assert_attachment_binary_widget(self, root, context):
-        """Assert arch has Binary attachment + filename with image/PDF accept."""
+    def _assert_no_attachment_binary_widgets(self, root, context):
+        """Assert arch has no Binary attachment/filename widgets."""
         attachment_nodes = root.xpath('.//field[@name="attachment"]')
-        self.assertTrue(
+        self.assertFalse(
             attachment_nodes,
-            f"{context} must declare an attachment field",
-        )
-        binary_nodes = [
-            node for node in attachment_nodes if node.get("widget") == "binary"
-        ]
-        self.assertTrue(
-            binary_nodes,
-            f"{context} attachment must use widget=binary",
-        )
-        node = binary_nodes[0]
-        self.assertEqual(
-            node.get("filename"),
-            "attachment_filename",
-            f"{context} attachment must set filename=attachment_filename",
-        )
-        options = node.get("options") or ""
-        self.assertIn(
-            "accepted_file_extensions",
-            options,
-            f"{context} attachment must set accepted_file_extensions",
-        )
-        self.assertIn("image/*", options, f"{context} accept must allow image/*")
-        self.assertIn(".pdf", options, f"{context} accept must allow PDF (.pdf)")
-        self.assertIn(
-            self.ATTACHMENT_ACCEPT,
-            options.replace(" ", ""),
-            (
-                f"{context} accepted_file_extensions must be "
-                f"{self.ATTACHMENT_ACCEPT!r} (got {options!r})"
-            ),
-        )
-        self.assertNotIn(
-            ".doc",
-            options,
-            f"{context} must not advertise non-image/PDF extensions",
+            f"{context} must not declare a Binary attachment field",
         )
         filename_nodes = root.xpath('.//field[@name="attachment_filename"]')
-        self.assertTrue(
+        self.assertFalse(
             filename_nodes,
-            f"{context} must declare attachment_filename field",
+            f"{context} must not declare attachment_filename",
+        )
+        for node in root.xpath(".//field[@widget='binary']"):
+            options = node.get("options") or ""
+            self.assertIn("image/*", options, f"{context} accept must allow image/*")
+            self.assertIn(".pdf", options, f"{context} accept must allow PDF (.pdf)")
+            self.assertIn(
+                self.ATTACHMENT_ACCEPT,
+                options.replace(" ", ""),
+                (
+                    f"{context} leftover file picker accept must be "
+                    f"{self.ATTACHMENT_ACCEPT!r} (got {options!r})"
+                ),
+            )
+
+    def _assert_form_chatter_open_attachments(self, root):
+        chatter = root.xpath(".//chatter")
+        self.assertTrue(chatter, "form must keep chatter for attaching after save")
+        self.assertEqual(
+            (chatter[0].get("open_attachments") or "").lower(),
+            "true",
+            "form chatter must set open_attachments=True",
         )
 
     def _assert_invisible_for_document_type(self, node, expected_type, field_name):
@@ -386,15 +373,17 @@ class TestCollectionUi(TransactionCase):
         check_only = set(CHECK_FIELDS)
         self.assertFalse(bank_only & check_only)
 
-    def test_payment_vouchers_views_include_attachment_binary_widgets(self):
-        """Form, list, and kanban MUST expose Binary attachment + filename widgets."""
+    def test_payment_vouchers_views_omit_binary_widgets(self):
+        """Form, list, and kanban MUST omit Binary widgets; form chatter remains."""
         for xmlid, label in (
             ("collection.view_collection_voucher_form", "form"),
             ("collection.view_collection_voucher_list", "list"),
             ("collection.view_collection_voucher_kanban", "kanban"),
         ):
             root = self._arch_root(xmlid)
-            self._assert_attachment_binary_widget(root, label)
+            self._assert_no_attachment_binary_widgets(root, label)
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        self._assert_form_chatter_open_attachments(form_root)
 
     def test_create_and_edit_enabled_on_payment_vouchers(self):
         """Payment Vouchers kanban/list/form and action MUST allow create and edit."""

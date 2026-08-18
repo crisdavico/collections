@@ -1,7 +1,10 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+from base64 import b64decode
 from datetime import date
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 
 from psycopg2 import IntegrityError
 
@@ -10,7 +13,7 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
-from .test_collection_payment import PDF_B64, PNG_B64
+from .test_collection_payment import PDF_B64, PNG_B64, post_voucher_proof
 
 
 class TestCollectionVoucher(TransactionCase):
@@ -304,7 +307,7 @@ class TestCollectionVoucher(TransactionCase):
         self.assertTrue(other.reviewed_at)
 
     def test_kanban_reopen_without_attachment_refused(self):
-        """state=pending without attachment in vals must refuse reopen."""
+        """state=pending without replacing designated proof must refuse reopen."""
         voucher = self._create_voucher()
         voucher.action_approve()
         with self.assertRaises(UserError):
@@ -312,26 +315,87 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(voucher.state, "approved")
         self.assertEqual(voucher.reviewed_by, self.env.user)
 
-    def test_attachment_replace_resets_pending_and_clears_audit(self):
-        """Replacing Binary content must reopen review and clear audit."""
+    def test_replace_main_resets_pending_clears_audit_and_rotation(self):
+        """Replacing message_main_attachment_id MUST reopen review and reset rotation."""
         voucher = self._create_voucher(
             customer_identification="CUST-ATT-RST",
             document_id="DOC-ATT-RST",
-            attachment=PNG_B64,
-            attachment_filename="old.png",
         )
+        first = post_voucher_proof(voucher, "old.png", PNG_B64)
+        voucher.write({"attachment_rotation": 90})
         voucher.action_approve()
         self.assertEqual(voucher.state, "approved")
-        voucher.write(
+        self.assertTrue(voucher.reviewed_by)
+        replacement = self.env["ir.attachment"].create(
             {
-                "attachment": PDF_B64,
-                "attachment_filename": "new.pdf",
+                "name": "new.pdf",
+                "raw": b64decode(PDF_B64),
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
             }
         )
+        voucher.write({"message_main_attachment_id": replacement.id})
         self.assertEqual(voucher.state, "pending")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
-        self.assertEqual(voucher.attachment_filename, "new.pdf")
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertEqual(voucher.message_main_attachment_id, replacement)
+        self.assertNotEqual(voucher.message_main_attachment_id, first)
+
+    def test_extra_chatter_does_not_reset_review_or_rotation(self):
+        """Extra chatter files MUST NOT reset review, audit, or rotation."""
+        voucher = self._create_voucher(customer_identification="CUST-ATT-EXTRA")
+        proof = post_voucher_proof(voucher, "keep.png", PNG_B64)
+        voucher.write({"attachment_rotation": 180})
+        voucher.action_reject()
+        extra = self.env["ir.attachment"].create(
+            {
+                "name": "notes.txt",
+                "raw": b"hello world",
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
+            }
+        )
+        extra._post_add_create()
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.state, "rejected")
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertTrue(voucher.reviewed_at)
+        self.assertEqual(voucher.attachment_rotation, 180)
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+
+    def test_clear_main_resets_rotation_keeps_decided(self):
+        """Clearing designated proof MUST reset rotation and MUST NOT reopen."""
+        voucher = self._create_voucher(customer_identification="CUST-ATT-CLR")
+        post_voucher_proof(voucher, "clear-me.png", PNG_B64)
+        voucher.write({"attachment_rotation": 270})
+        voucher.action_approve()
+        voucher.write({"message_main_attachment_id": False})
+        self.assertEqual(voucher.state, "approved")
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertFalse(voucher.message_main_attachment_id)
+
+    def test_omit_proof_remains_valid(self):
+        """Omit/empty designated proof MUST remain valid on create."""
+        voucher = self._create_voucher(customer_identification="CUST-ATT-OMIT")
+        self.assertTrue(voucher.id)
+        self.assertFalse(voucher.message_main_attachment_id)
+
+    def test_invalid_main_attachment_raises_user_error(self):
+        """Setting designated proof to a non-image/non-PDF MUST raise UserError."""
+        voucher = self._create_voucher(customer_identification="CUST-ATT-BAD")
+        extra = self.env["ir.attachment"].create(
+            {
+                "name": "notes.txt",
+                "raw": b"hello world",
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
+            }
+        )
+        with self.assertRaises(UserError):
+            voucher.write({"message_main_attachment_id": extra.id})
+        self.assertFalse(voucher.message_main_attachment_id)
 
     def test_assigned_without_seller_fails(self):
         """Assigned voucher MUST keep a non-null seller."""
@@ -344,3 +408,156 @@ class TestCollectionVoucher(TransactionCase):
             except (UserError, ValidationError, IntegrityError):
                 return
         self.fail("Assigning a seller-less voucher to a sheet must be rejected")
+
+    # --- Chatter designated proof ---
+
+    def _inherit_names(self):
+        inherit = self.env["collection.voucher"]._inherit
+        if isinstance(inherit, str):
+            return [inherit]
+        return list(inherit)
+
+    def test_proof_is_message_main_attachment_id(self):
+        """Designated proof MUST be message_main_attachment_id, not Binary fields."""
+        fields_map = self.env["collection.voucher"]._fields
+        self.assertIn("message_main_attachment_id", fields_map)
+        self.assertNotIn("attachment", fields_map)
+        self.assertNotIn("attachment_filename", fields_map)
+        self.assertIn("mail.thread.main.attachment", self._inherit_names())
+        voucher = self._create_voucher(customer_identification="CUST-PROOF-MAIN")
+        proof = post_voucher_proof(voucher, "proof.png", PNG_B64)
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+        self.assertEqual(proof.name, "proof.png")
+        self.assertFalse(proof.res_field)
+
+    def test_picker_promotes_pdf_when_main_empty(self):
+        """Triangulation: a valid PDF chatter file MUST become designated proof."""
+        voucher = self._create_voucher(customer_identification="CUST-PROOF-PDF")
+        proof = post_voucher_proof(voucher, "receipt.pdf", PDF_B64)
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+        self.assertEqual(proof.name, "receipt.pdf")
+        self.assertTrue(
+            (proof.mimetype or "").startswith("application/pdf")
+            or proof.mimetype == "application/pdf"
+        )
+
+    def test_picker_force_cannot_promote_non_image_pdf(self):
+        """MIME picker MUST refuse non-image/non-PDF even when force=True."""
+        voucher = self._create_voucher(customer_identification="CUST-PROOF-FORCE")
+        extra = self.env["ir.attachment"].create(
+            {
+                "name": "notes.txt",
+                "raw": b"hello world",
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
+            }
+        )
+        voucher._message_set_main_attachment_id(extra, force=True)
+        voucher.invalidate_recordset()
+        self.assertFalse(voucher.message_main_attachment_id)
+
+
+def _load_collection_migrate(filename):
+    path = (
+        Path(__file__).resolve().parents[1] / "migrations" / "19.0.1.13.0" / filename
+    )
+    spec = spec_from_file_location(filename, path)
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestCollectionVoucherAttachmentMigrate(TransactionCase):
+    """RED/GREEN: Binary field attachments migrate onto chatter designated proof."""
+
+    def _insert_field_attachment(self, voucher, name, datas_b64, filename=None):
+        attachment = self.env["ir.attachment"].create(
+            {
+                "name": name,
+                "raw": b64decode(datas_b64),
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
+                "res_field": "attachment",
+            }
+        )
+        if filename is not None and "attachment_filename" in voucher._fields:
+            self.env.cr.execute(
+                """
+                UPDATE collection_voucher
+                   SET attachment_filename = %s
+                 WHERE id = %s
+                """,
+                (filename or None, voucher.id),
+            )
+        elif filename is not None:
+            self.env.cr.execute(
+                """
+                SELECT 1
+                  FROM information_schema.columns
+                 WHERE table_name = 'collection_voucher'
+                   AND column_name = 'attachment_filename'
+                """
+            )
+            if self.env.cr.fetchone():
+                self.env.cr.execute(
+                    """
+                    UPDATE collection_voucher
+                       SET attachment_filename = %s
+                     WHERE id = %s
+                    """,
+                    (filename or None, voucher.id),
+                )
+        return attachment
+
+    def _run_migrate(self):
+        _load_collection_migrate("pre-migrate.py").migrate(self.env.cr, "19.0.1.12.0")
+        _load_collection_migrate("post-migrate.py").migrate(self.env.cr, "19.0.1.12.0")
+        self.env.invalidate_all()
+
+    def test_binary_field_attachment_migrates_to_chatter_main(self):
+        voucher = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "CUST-MIG-MAIN",
+                "document_type": "bank_transfer",
+            }
+        )
+        attachment = self._insert_field_attachment(
+            voucher, "attachment", PNG_B64, filename="migrated.png"
+        )
+        self._run_migrate()
+        attachment.invalidate_recordset()
+        voucher.invalidate_recordset()
+        self.assertFalse(attachment.res_field)
+        self.assertEqual(attachment.name, "migrated.png")
+        self.assertEqual(voucher.message_main_attachment_id, attachment)
+        self.assertTrue(
+            voucher.message_ids.filtered(
+                lambda message: attachment in message.attachment_ids
+            )
+        )
+        leftover = self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "collection.voucher"),
+                ("res_id", "=", voucher.id),
+                ("res_field", "=", "attachment"),
+            ]
+        )
+        self.assertFalse(leftover)
+
+    def test_empty_filename_falls_back_to_proof_bin(self):
+        """Triangulation: empty attachment_filename MUST become proof.bin."""
+        voucher = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "CUST-MIG-BIN",
+                "document_type": "cash_deposit",
+            }
+        )
+        attachment = self._insert_field_attachment(
+            voucher, "attachment", PDF_B64, filename=""
+        )
+        self._run_migrate()
+        attachment.invalidate_recordset()
+        voucher.invalidate_recordset()
+        self.assertEqual(attachment.name, "proof.bin")
+        self.assertEqual(voucher.message_main_attachment_id, attachment)
+        self.assertFalse(attachment.res_field)

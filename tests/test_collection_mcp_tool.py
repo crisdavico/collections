@@ -1082,22 +1082,25 @@ class TestCollectionMcpAttachment(TransactionCase):
             [
                 ("res_model", "=", "collection.voucher"),
                 ("res_id", "=", voucher.id),
-                ("res_field", "=", "attachment"),
+                ("res_field", "=", False),
+            ]
+        )
+
+    def _chatter_attachment_count(self):
+        return self.env["ir.attachment"].search_count(
+            [
+                ("res_model", "=", "collection.voucher"),
+                ("res_field", "=", False),
             ]
         )
 
     def _nest(self, name, mimetype, datas):
         return {"name": name, "mimetype": mimetype, "datas": datas}
 
-    def test_create_with_valid_png_nest_persists_atomically(self):
-        """All-new create with valid nested PNG persists voucher+file."""
+    def test_create_with_valid_png_nest_becomes_chatter_proof(self):
+        """All-new create with valid nested PNG becomes chatter designated proof."""
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_atts = self.env["ir.attachment"].search_count(
-            [
-                ("res_model", "=", "collection.voucher"),
-                ("res_field", "=", "attachment"),
-            ]
-        )
+        before_atts = self._chatter_attachment_count()
         result = self._call(
             {
                 "customer_identification": "MCP-ATT-PNG",
@@ -1115,24 +1118,17 @@ class TestCollectionMcpAttachment(TransactionCase):
         voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
         self.assertTrue(voucher.exists())
         self.assertEqual(result["vouchers"][0]["document_id"], "MCP-DOC-ATT-PNG")
-        self.assertEqual(voucher.attachment_filename, "proof.png")
-        self.assertTrue(voucher.attachment)
+        self.assertEqual(voucher.message_main_attachment_id.name, "proof.png")
+        self.assertTrue(voucher.message_main_attachment_id)
         attachments = self._voucher_attachments(voucher)
         self.assertEqual(len(attachments), 1)
         self.assertEqual(attachments.datas, PNG_B64.encode())
+        self.assertFalse(attachments.res_field)
         self.assertEqual(
             self.env["collection.voucher"].search_count([]),
             before_vouchers + 1,
         )
-        self.assertEqual(
-            self.env["ir.attachment"].search_count(
-                [
-                    ("res_model", "=", "collection.voucher"),
-                    ("res_field", "=", "attachment"),
-                ]
-            ),
-            before_atts + 1,
-        )
+        self.assertEqual(self._chatter_attachment_count(), before_atts + 1)
 
     def test_create_with_valid_pdf_nest_persists(self):
         """Triangulation: valid nested PDF also persists via ir.attachment."""
@@ -1152,7 +1148,7 @@ class TestCollectionMcpAttachment(TransactionCase):
             },
         )
         voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
-        self.assertEqual(voucher.attachment_filename, "receipt.pdf")
+        self.assertEqual(voucher.message_main_attachment_id.name, "receipt.pdf")
         self.assertEqual(len(self._voucher_attachments(voucher)), 1)
         self.assertEqual(self._voucher_attachments(voucher).datas, PDF_B64.encode())
 
@@ -1173,19 +1169,13 @@ class TestCollectionMcpAttachment(TransactionCase):
         )
         voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
         self.assertTrue(voucher.exists())
-        self.assertFalse(voucher.attachment)
-        self.assertFalse(voucher.attachment_filename)
+        self.assertFalse(voucher.message_main_attachment_id)
         self.assertFalse(self._voucher_attachments(voucher))
 
     def test_create_mime_mismatch_rejects_no_writes(self):
         """Declared MIME mismatch / non-allow-list must UserError with no writes."""
         before_vouchers = self.env["collection.voucher"].search_count([])
-        before_atts = self.env["ir.attachment"].search_count(
-            [
-                ("res_model", "=", "collection.voucher"),
-                ("res_field", "=", "attachment"),
-            ]
-        )
+        before_atts = self._chatter_attachment_count()
         with self.assertRaises(UserError) as err:
             self._call(
                 {
@@ -1209,12 +1199,7 @@ class TestCollectionMcpAttachment(TransactionCase):
             before_vouchers,
         )
         self.assertEqual(
-            self.env["ir.attachment"].search_count(
-                [
-                    ("res_model", "=", "collection.voucher"),
-                    ("res_field", "=", "attachment"),
-                ]
-            ),
+            self._chatter_attachment_count(),
             before_atts,
         )
         self.assertFalse(
@@ -1300,14 +1285,11 @@ class TestCollectionMcpAttachment(TransactionCase):
         voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
         original_att_ids = self._voucher_attachments(voucher).ids
         self.assertEqual(len(original_att_ids), 1)
-        self.assertEqual(voucher.attachment_filename, "original.png")
-        self.assertEqual(voucher.attachment, PNG_B64.encode())
-        before_atts = self.env["ir.attachment"].search_count(
-            [
-                ("res_model", "=", "collection.voucher"),
-                ("res_field", "=", "attachment"),
-            ]
+        self.assertEqual(voucher.message_main_attachment_id.name, "original.png")
+        self.assertEqual(
+            voucher.message_main_attachment_id.datas, PNG_B64.encode()
         )
+        before_atts = self._chatter_attachment_count()
 
         second = self._call(
             {
@@ -1326,16 +1308,13 @@ class TestCollectionMcpAttachment(TransactionCase):
         )
         self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
         voucher.invalidate_recordset()
-        self.assertEqual(voucher.attachment_filename, "original.png")
-        self.assertEqual(voucher.attachment, PNG_B64.encode())
+        self.assertEqual(voucher.message_main_attachment_id.name, "original.png")
+        self.assertEqual(
+            voucher.message_main_attachment_id.datas, PNG_B64.encode()
+        )
         self.assertEqual(self._voucher_attachments(voucher).ids, original_att_ids)
         self.assertEqual(
-            self.env["ir.attachment"].search_count(
-                [
-                    ("res_model", "=", "collection.voucher"),
-                    ("res_field", "=", "attachment"),
-                ]
-            ),
+            self._chatter_attachment_count(),
             before_atts,
         )
 
@@ -1354,13 +1333,8 @@ class TestCollectionMcpAttachment(TransactionCase):
             },
         )
         voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
-        self.assertFalse(voucher.attachment)
-        before_atts = self.env["ir.attachment"].search_count(
-            [
-                ("res_model", "=", "collection.voucher"),
-                ("res_field", "=", "attachment"),
-            ]
-        )
+        self.assertFalse(voucher.message_main_attachment_id)
+        before_atts = self._chatter_attachment_count()
 
         second = self._call(
             {
@@ -1377,16 +1351,10 @@ class TestCollectionMcpAttachment(TransactionCase):
         )
         self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
         voucher.invalidate_recordset()
-        self.assertFalse(voucher.attachment)
-        self.assertFalse(voucher.attachment_filename)
+        self.assertFalse(voucher.message_main_attachment_id)
         self.assertFalse(self._voucher_attachments(voucher))
         self.assertEqual(
-            self.env["ir.attachment"].search_count(
-                [
-                    ("res_model", "=", "collection.voucher"),
-                    ("res_field", "=", "attachment"),
-                ]
-            ),
+            self._chatter_attachment_count(),
             before_atts,
         )
 
@@ -1424,6 +1392,8 @@ class TestCollectionMcpAttachment(TransactionCase):
         )
         self.assertEqual(second["vouchers"][0]["id"], first["vouchers"][0]["id"])
         voucher.invalidate_recordset()
-        self.assertEqual(voucher.attachment_filename, "keep.pdf")
-        self.assertEqual(voucher.attachment, PDF_B64.encode())
+        self.assertEqual(voucher.message_main_attachment_id.name, "keep.pdf")
+        self.assertEqual(
+            voucher.message_main_attachment_id.datas, PDF_B64.encode()
+        )
         self.assertEqual(len(self._voucher_attachments(voucher)), 1)

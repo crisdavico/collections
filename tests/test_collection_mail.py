@@ -3,6 +3,8 @@
 
 from odoo.tests import TransactionCase
 
+from .test_collection_payment import PNG_B64, post_voucher_proof
+
 
 class TestCollectionMail(TransactionCase):
     """RED: mail thread / activities and state tracking on validate/reject."""
@@ -67,3 +69,57 @@ class TestCollectionMail(TransactionCase):
         self.assertTrue(state_tracking)
         self.assertEqual(state_tracking[-1].old_value_char, "Pending")
         self.assertEqual(state_tracking[-1].new_value_char, "Rejected")
+
+    def test_message_post_image_becomes_designated_proof(self):
+        """MCP/chatter nest of a valid image MUST become message_main_attachment_id."""
+        voucher = self._create_voucher(customer_identification="MAIL-PROOF-PNG")
+        proof = post_voucher_proof(voucher, "proof.png", PNG_B64)
+        self.assertTrue(proof)
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+        self.assertEqual(proof.name, "proof.png")
+        self.assertFalse(proof.res_field)
+        self.assertEqual(proof.res_model, "collection.voucher")
+        self.assertEqual(proof.res_id, voucher.id)
+        self.assertTrue(
+            voucher.message_ids.filtered(
+                lambda message: proof in message.attachment_ids
+            )
+        )
+
+    def test_extra_chatter_file_does_not_steal_proof(self):
+        """Extra chatter files with force=False MUST NOT steal designated proof."""
+        voucher = self._create_voucher(customer_identification="MAIL-PROOF-KEEP")
+        proof = post_voucher_proof(voucher, "proof.png", PNG_B64)
+        extra = self.env["ir.attachment"].create(
+            {
+                "name": "notes.txt",
+                "raw": b"hello world",
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
+            }
+        )
+        extra._post_add_create()
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+        self.assertNotEqual(voucher.message_main_attachment_id, extra)
+
+    def test_non_image_extra_cannot_become_proof(self):
+        """A non-image/non-PDF chatter file MUST NOT become designated proof."""
+        voucher = self._create_voucher(customer_identification="MAIL-PROOF-TXT")
+        self.assertFalse(voucher.message_main_attachment_id)
+        voucher.message_post(
+            body="Extra notes",
+            message_type="notification",
+            attachments=[("notes.txt", b"hello world")],
+        )
+        voucher.invalidate_recordset()
+        self.assertFalse(voucher.message_main_attachment_id)
+        leftover = self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "collection.voucher"),
+                ("res_id", "=", voucher.id),
+                ("name", "=", "notes.txt"),
+            ]
+        )
+        self.assertTrue(leftover, "extra file may exist; it must not be designated")
+        self.assertNotIn(leftover, voucher.message_main_attachment_id)

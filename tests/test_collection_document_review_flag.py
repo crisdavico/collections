@@ -6,7 +6,7 @@ from lxml import etree
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64
+from .test_collection_payment import PNG_B64, post_voucher_proof
 
 _REVIEW_DISABLED_MSG = "Document Review is not enabled."
 
@@ -17,17 +17,23 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
     def _force_document_review_enabled(self, enabled):
         self.env.company.write({"document_review_enabled": enabled})
 
-    def _create_pending_attached(self, customer, document_id):
-        return self.env["collection.voucher"].create(
-            {
-                "customer_identification": customer,
-                "document_type": "bank_transfer",
-                "document_id": document_id,
-                "amount": 100.0,
-                "attachment": PNG_B64,
-                "attachment_filename": "pending.png",
-            }
-        )
+    def _create_sheet(self, **extra):
+        vals = {"seller_id": self.env.user.id, **extra}
+        return self.env["collection.sheet"].create(vals)
+
+    def _create_pending_attached(self, customer, document_id, sheet_id=None):
+        vals = {
+            "customer_identification": customer,
+            "document_type": "bank_transfer",
+            "document_id": document_id,
+            "amount": 100.0,
+        }
+        if sheet_id:
+            vals["seller_id"] = self.env.user.id
+            vals["sheet_id"] = sheet_id
+        voucher = self.env["collection.voucher"].create(vals)
+        post_voucher_proof(voucher, "pending.png", PNG_B64)
+        return voucher
 
     def test_document_review_enabled_defaults_false_on_env_company(self):
         field = self.env["res.company"]._fields["document_review_enabled"]
@@ -133,6 +139,59 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
         self.assertEqual(voucher.attachment_rotation, 0)
 
+    def test_review_rpcs_refuse_when_off_with_or_without_sheet_id(self):
+        """When OFF, all four RPCs refuse whether a sheet id is passed or omitted."""
+        self._force_document_review_enabled(False)
+        sheet = self._create_sheet()
+        voucher = self._create_pending_attached(
+            "CUST-FLAG-OFF-BOTH", "DOC-FLAG-OFF-BOTH", sheet_id=sheet.id
+        )
+        Voucher = self.env["collection.voucher"]
+        with self.assertRaises(UserError) as error:
+            Voucher.get_review_queue()
+        self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
+        with self.assertRaises(UserError) as error:
+            Voucher.get_review_queue(sheet.id)
+        self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
+        for call in (
+            lambda: voucher.action_review_approve({"amount": 1.0}),
+            lambda: voucher.action_review_approve(sheet.id, {"amount": 1.0}),
+            lambda: voucher.action_review_reject(),
+            lambda: voucher.action_review_reject(sheet.id),
+            lambda: voucher.action_review_set_rotation(90),
+            lambda: voucher.action_review_set_rotation(sheet.id, 90),
+        ):
+            with self.assertRaises(UserError) as error:
+                call()
+            self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
+        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
+
+    def test_review_rpcs_refuse_invalid_sheet_id_when_review_on(self):
+        """When ON, missing/0/False/bad sheet ids must UserError, not empty queue."""
+        self._force_document_review_enabled(True)
+        sheet = self._create_sheet()
+        voucher = self._create_pending_attached(
+            "CUST-FLAG-BAD-SHEET", "DOC-FLAG-BAD-SHEET", sheet_id=sheet.id
+        )
+        Voucher = self.env["collection.voucher"]
+        with self.assertRaises(UserError):
+            Voucher.get_review_queue()
+        for invalid_id in (None, 0, False, sheet.id + 10**6):
+            with self.subTest(sheet_id=invalid_id):
+                with self.assertRaises(UserError):
+                    Voucher.get_review_queue(invalid_id)
+                with self.assertRaises(UserError):
+                    voucher.action_review_approve(invalid_id, {"amount": 1.0})
+                with self.assertRaises(UserError):
+                    voucher.action_review_reject(invalid_id)
+                with self.assertRaises(UserError):
+                    voucher.action_review_set_rotation(invalid_id, 90)
+        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
+
     def test_form_approve_works_when_review_off(self):
         """Payment Vouchers Approve must work even when Document Review is OFF."""
         self._force_document_review_enabled(False)
@@ -171,9 +230,14 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def test_document_review_xmlids_kept(self):
         action = self.env.ref("collection.action_collection_document_review")
-        menu = self.env.ref("collection.menu_collection_document_review")
         self.assertEqual(action.tag, "collection.document_review")
-        self.assertEqual(menu.action, action)
+        self.assertFalse(
+            self.env.ref(
+                "collection.menu_collection_document_review",
+                raise_if_not_found=False,
+            ),
+            "Document Review menu xmlid must be gone",
+        )
 
     def _assert_payment_voucher_views_keep_state_and_audit(self):
         list_root = etree.fromstring(
