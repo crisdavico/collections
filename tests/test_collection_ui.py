@@ -502,13 +502,13 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(search_root.tag, "search")
         list_fields = self._field_names(list_root)
         search_fields = self._field_names(search_root)
-        for field_name in ("name", "seller_id", "date_from", "date_to"):
+        for field_name in ("name", "seller_id", "date_from", "date_to", "state"):
             self.assertIn(field_name, list_fields, f"list must show {field_name}")
             self.assertIn(field_name, search_fields, f"search must show {field_name}")
         self._assert_create_edit_enabled(list_root, "sheet list")
 
-    def test_collection_sheets_form_without_statusbar(self):
-        """Sheet form: required seller readonly after create, dates, membership."""
+    def test_collection_sheets_form_statusbar_close_reopen(self):
+        """Sheet form: required seller, dates, non-clickable statusbar, Close/Reopen."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
         self.assertEqual(form_root.tag, "form")
         self._assert_create_edit_enabled(form_root, "sheet form")
@@ -531,37 +531,183 @@ class TestCollectionUi(TransactionCase):
         )
         membership = self._field_nodes(form_root, "voucher_ids")[0]
         self.assertEqual(membership.get("widget"), "many2many")
-        self.assertFalse(
-            form_root.xpath('//field[@widget="statusbar"]'),
-            "sheet form must not include a workflow statusbar",
+        statusbar = form_root.xpath(
+            '//header/field[@name="state" and @widget="statusbar"]'
+        )
+        self.assertTrue(statusbar, "sheet form must include state statusbar in header")
+        self.assertEqual(statusbar[0].get("statusbar_visible"), "open,closed")
+        options = statusbar[0].get("options") or ""
+        self.assertIn("clickable", options)
+        self.assertIn("False", options)
+        close = form_root.xpath(
+            '//header/button[@name="action_close" and @type="object"]'
+        )
+        reopen = form_root.xpath(
+            '//header/button[@name="action_reopen" and @type="object"]'
+        )
+        self.assertTrue(close, "form must include Close button")
+        self.assertTrue(reopen, "form must include Reopen button")
+        self.assertIn(
+            "state != 'open'",
+            close[0].get("invisible", ""),
+            "Close must be invisible when not open",
+        )
+        self.assertIn(
+            "state != 'closed'",
+            reopen[0].get("invisible", ""),
+            "Reopen must be invisible when not closed",
+        )
+        self.assertTrue(
+            form_root.xpath('./header/button[@name="action_open_document_review"]'),
+            "Document Review header button must remain on the sheet form",
         )
         self.assertNotIn(
             "received_date",
             etree.tostring(form_root, encoding="unicode"),
         )
 
-    # --- Document Review client action (kept; OWL retarget is Phase 3) ---
+    def test_sheet_form_header_document_review_visible_when_saved_and_flag_on(self):
+        """Header object action is available when the sheet is saved and flag is ON."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        buttons = form_root.xpath(
+            './header/button[@name="action_open_document_review"]'
+        )
+        self.assertEqual(
+            len(buttons),
+            1,
+            "sheet form header must expose Document Review object action",
+        )
+        button = buttons[0]
+        self.assertEqual(button.get("type"), "object")
+        self.assertEqual(
+            button.get("invisible"),
+            "not id or not document_review_enabled",
+        )
+        helpers = form_root.xpath('.//field[@name="document_review_enabled"]')
+        self.assertTrue(
+            helpers,
+            "sheet form must include document_review_enabled for the header modifier",
+        )
+        self.assertIn(
+            helpers[0].get("invisible"),
+            ("1", "True", "true"),
+            "document_review_enabled helper must stay invisible on the sheet form",
+        )
+        self.env.company.write({"document_review_enabled": True})
+        sheet = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        self.assertIsInstance(sheet.id, int)
+        self.assertGreater(sheet.id, 0)
+        self.assertTrue(sheet.document_review_enabled)
+
+    def test_sheet_form_header_document_review_hidden_when_flag_off_or_unsaved(self):
+        """Header stays hidden when the flag is OFF or the sheet is unsaved."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        buttons = form_root.xpath(
+            './header/button[@name="action_open_document_review"]'
+        )
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(
+            buttons[0].get("invisible"),
+            "not id or not document_review_enabled",
+        )
+        self.env.company.write({"document_review_enabled": False})
+        saved = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        self.assertFalse(saved.document_review_enabled)
+        self.env.company.write({"document_review_enabled": True})
+        unsaved = self.env["collection.sheet"].new({"seller_id": self.env.user.id})
+        self.assertFalse(bool(unsaved.id))
+        self.assertTrue(unsaved.document_review_enabled)
+
+    # --- Document Review client action (sheet-scoped; no Collections menu) ---
 
     def test_document_review_menu_and_client_action(self):
-        """Collections → Document Review must keep the client action tag."""
-        root_menu = self.env.ref("collection.menu_collection_root")
-        review_menu = self.env.ref("collection.menu_collection_document_review")
+        """Client action xmlid stays; Document Review menu xmlid MUST be gone."""
         action = self.env.ref("collection.action_collection_document_review")
-
-        self.assertEqual(review_menu.name, "Document Review")
-        self.assertEqual(review_menu.parent_id, root_menu)
-        self.assertEqual(review_menu.action, action)
+        self.assertFalse(
+            self.env.ref(
+                "collection.menu_collection_document_review",
+                raise_if_not_found=False,
+            ),
+            "Document Review menu xmlid must be removed",
+        )
+        leftover = self.env["ir.ui.menu"].search([("name", "=", "Document Review")])
+        self.assertFalse(
+            leftover,
+            "Document Review menu record must not exist",
+        )
         self.assertEqual(action.type, "ir.actions.client")
         self.assertEqual(action.tag, "collection.document_review")
 
     def test_document_review_client_action_path_and_name(self):
-        """Triangulation: client action keeps English name and document-review path."""
+        """Triangulation: client action keeps English name/tag and clears path."""
         action = self.env.ref("collection.action_collection_document_review")
         self.assertEqual(action.name, "Document Review")
-        self.assertEqual(action.path, "document-review")
+        self.assertEqual(action.tag, "collection.document_review")
+        self.assertFalse(
+            action.path,
+            "client action path must be cleared (no /odoo/document-review shortcut)",
+        )
         self.assertNotEqual(action._name, "ir.actions.act_window")
         self.assertEqual(action._name, "ir.actions.client")
         self.assertFalse(getattr(action, "res_model", False))
+
+    def test_configuration_settings_menu_and_action(self):
+        """Collections → Configuration → Settings must open Collections settings."""
+        root_menu = self.env.ref("collection.menu_collection_root")
+        config_menu = self.env.ref("collection.menu_collection_config")
+        settings_menu = self.env.ref("collection.menu_collection_settings")
+        action = self.env.ref("collection.action_collection_config_settings")
+        system = self.env.ref("base.group_system")
+
+        self.assertEqual(config_menu.name, "Configuration")
+        self.assertEqual(config_menu.parent_id, root_menu)
+        self.assertFalse(config_menu.action)
+        self.assertIn(system, config_menu.group_ids)
+
+        self.assertEqual(settings_menu.name, "Settings")
+        self.assertEqual(settings_menu.parent_id, config_menu)
+        self.assertEqual(settings_menu.action, action)
+        self.assertIn(system, settings_menu.group_ids)
+
+        self.assertEqual(action.type, "ir.actions.act_window")
+        self.assertEqual(action.name, "Settings")
+        self.assertEqual(action.res_model, "res.config.settings")
+        self.assertEqual(action.view_mode, "form")
+        context = action.context or {}
+        if isinstance(context, str):
+            self.assertIn("collections", context)
+            self.assertIn("module", context)
+        else:
+            self.assertEqual(context.get("module"), "collections")
+
+    def test_load_menus_includes_configuration_settings(self):
+        """Admin load_menus MUST include Collections → Configuration → Settings."""
+        root_menu = self.env.ref("collection.menu_collection_root")
+        config_menu = self.env.ref("collection.menu_collection_config")
+        settings_menu = self.env.ref("collection.menu_collection_settings")
+        menus = self.env["ir.ui.menu"].load_menus(False)
+        self.assertIn("root", menus)
+        self.assertIn(root_menu.id, menus)
+        self.assertIn(
+            config_menu.id,
+            menus,
+            "Configuration menu must be present in load_menus for admin",
+        )
+        self.assertIn(
+            settings_menu.id,
+            menus,
+            "Settings menu must be present in load_menus for admin",
+        )
+        self.assertEqual(menus[config_menu.id].get("name"), "Configuration")
+        self.assertEqual(menus[settings_menu.id].get("name"), "Settings")
+        self.assertEqual(
+            menus[settings_menu.id].get("action_model"),
+            "ir.actions.act_window",
+        )
+        self.assertEqual(
+            menus[settings_menu.id].get("action_id"),
+            self.env.ref("collection.action_collection_config_settings").id,
+        )
 
     def test_settings_arch_has_collections_app_and_flag_field(self):
         """Settings inherit MUST expose app name=collections and the related flag."""
@@ -598,28 +744,56 @@ class TestCollectionUi(TransactionCase):
         """When Document Review is OFF, load_menus MUST omit the review menu."""
         self.env.company.write({"document_review_enabled": False})
         self.assertFalse(self.env.company.document_review_enabled)
-        review_menu = self.env.ref("collection.menu_collection_document_review")
+        self.assertFalse(
+            self.env.ref(
+                "collection.menu_collection_document_review",
+                raise_if_not_found=False,
+            ),
+            "Document Review menu xmlid must be gone",
+        )
         root_menu = self.env.ref("collection.menu_collection_root")
         voucher_menu = self.env.ref("collection.menu_collection_voucher")
+        leftover = self.env["ir.ui.menu"].search([("name", "=", "Document Review")])
+        self.assertFalse(
+            leftover,
+            "Document Review menu record must not exist when flag is OFF",
+        )
         menus = self.env["ir.ui.menu"].load_menus(False)
         self.assertIn("root", menus)
         self.assertIn(root_menu.id, menus)
         self.assertIn(voucher_menu.id, menus)
-        self.assertNotIn(
-            review_menu.id,
-            menus,
-            "Document Review menu must be absent from load_menus when flag is OFF",
-        )
+        for menu_id, data in menus.items():
+            if menu_id == "root" or not isinstance(data, dict):
+                continue
+            self.assertNotEqual(
+                data.get("name"),
+                "Document Review",
+                "load_menus must omit Document Review when flag is OFF",
+            )
 
     def test_load_menus_includes_document_review_when_flag_on(self):
-        """When Document Review is ON, load_menus MUST include the review menu."""
+        """When Document Review is ON, load_menus MUST still omit the review menu."""
         self.env.company.write({"document_review_enabled": True})
         self.assertTrue(self.env.company.document_review_enabled)
-        review_menu = self.env.ref("collection.menu_collection_document_review")
+        self.assertFalse(
+            self.env.ref(
+                "collection.menu_collection_document_review",
+                raise_if_not_found=False,
+            ),
+            "Document Review menu xmlid must be gone",
+        )
+        leftover = self.env["ir.ui.menu"].search([("name", "=", "Document Review")])
+        self.assertFalse(
+            leftover,
+            "Document Review menu record must not exist when flag is ON",
+        )
         menus = self.env["ir.ui.menu"].load_menus(False)
         self.assertIn("root", menus)
-        self.assertIn(
-            review_menu.id,
-            menus,
-            "Document Review menu must be present in load_menus when flag is ON",
-        )
+        for menu_id, data in menus.items():
+            if menu_id == "root" or not isinstance(data, dict):
+                continue
+            self.assertNotEqual(
+                data.get("name"),
+                "Document Review",
+                "load_menus must omit Document Review when flag is ON",
+            )

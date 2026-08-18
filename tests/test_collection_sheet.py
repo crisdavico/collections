@@ -12,7 +12,7 @@ from odoo.tools import mute_logger
 
 
 class TestCollectionSheet(TransactionCase):
-    """RED/GREEN: collection.sheet sequence, frozen seller, no workflow."""
+    """RED/GREEN: collection.sheet sequence, frozen seller, open/closed lifecycle."""
 
     def _other_internal_seller(self):
         seller = self.env["res.users"].search(
@@ -58,7 +58,10 @@ class TestCollectionSheet(TransactionCase):
             rf"^CS/{year}/\d{{4}}$",
             "Sheet name must match CS/<year>/<padded number>",
         )
-        self.assertNotIn("state", self.env["collection.sheet"]._fields)
+        self.assertEqual(sheet.state, "open")
+        state_field = self.env["collection.sheet"]._fields["state"]
+        state_keys = {key for key, _label in state_field.selection}
+        self.assertEqual(state_keys, {"open", "closed"})
 
     def test_sequence_names_are_unique(self):
         first = self._create_sheet()
@@ -66,6 +69,64 @@ class TestCollectionSheet(TransactionCase):
         self.assertNotEqual(first.name, second.name)
         self.assertRegex(first.name, r"^CS/\d{4}/\d{4}$")
         self.assertRegex(second.name, r"^CS/\d{4}/\d{4}$")
+        self.assertEqual(first.state, "open")
+        self.assertEqual(second.state, "open")
+        self.assertEqual(first.seller_id, second.seller_id)
+
+    def test_action_close_from_open(self):
+        sheet = self._create_sheet()
+        self.assertEqual(sheet.state, "open")
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+
+    def test_action_close_rejected_when_already_closed(self):
+        sheet = self._create_sheet()
+        sheet.action_close()
+        with self.assertRaises(UserError):
+            sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+
+    def test_action_reopen_from_closed(self):
+        sheet = self._create_sheet()
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        sheet.action_reopen()
+        self.assertEqual(sheet.state, "open")
+
+    def test_action_reopen_rejected_when_already_open(self):
+        sheet = self._create_sheet()
+        with self.assertRaises(UserError):
+            sheet.action_reopen()
+        self.assertEqual(sheet.state, "open")
+
+    def test_raw_state_write_routes_to_close_and_reopen(self):
+        """write({state}) without collection_sheet_audited_state must run Close/Reopen."""
+        sheet = self._create_sheet()
+        sheet.write({"state": "closed"})
+        self.assertEqual(sheet.state, "closed")
+        sheet.write({"state": "open"})
+        self.assertEqual(sheet.state, "open")
+
+    def test_raw_state_write_invalid_transition_rejected(self):
+        """Intercepted write still enforces Close/Reopen preconditions."""
+        sheet = self._create_sheet()
+        with self.assertRaises(UserError):
+            sheet.write({"state": "open"})
+        self.assertEqual(sheet.state, "open")
+        sheet.action_close()
+        with self.assertRaises(UserError):
+            sheet.write({"state": "closed"})
+        self.assertEqual(sheet.state, "closed")
+
+    def test_audited_state_write_allowed_with_context(self):
+        """collection_sheet_audited_state allows the write used by Close/Reopen."""
+        sheet = self._create_sheet()
+        sheet.with_context(collection_sheet_audited_state=True).write(
+            {"state": "closed"}
+        )
+        self.assertEqual(sheet.state, "closed")
+        sheet.with_context(collection_sheet_audited_state=True).write({"state": "open"})
+        self.assertEqual(sheet.state, "open")
 
     def test_create_without_seller_is_rejected(self):
         with mute_logger("odoo.sql_db"):
@@ -212,3 +273,56 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(action.type, "ir.actions.server")
         self.assertEqual(action.binding_view_types, "list")
         self.assertEqual(action.binding_model_id.model, "collection.voucher")
+
+    def test_action_open_document_review_returns_client_action_with_sheet_id(self):
+        """Saved sheet + flag ON must open Document Review with that sheet_id."""
+        self.env.company.write({"document_review_enabled": True})
+        sheet = self._create_sheet()
+        self.assertIsInstance(sheet.id, int)
+        self.assertGreater(sheet.id, 0)
+        action = sheet.action_open_document_review()
+        self.assertEqual(action["type"], "ir.actions.client")
+        self.assertEqual(action["tag"], "collection.document_review")
+        self.assertEqual(action["params"]["sheet_id"], sheet.id)
+
+    def test_action_open_document_review_params_match_each_saved_sheet(self):
+        """Triangulation: params.sheet_id is the invoked sheet, not a constant."""
+        self.env.company.write({"document_review_enabled": True})
+        sheet_a = self._create_sheet()
+        sheet_b = self._create_sheet()
+        self.assertNotEqual(sheet_a.id, sheet_b.id)
+        action_a = sheet_a.action_open_document_review()
+        action_b = sheet_b.action_open_document_review()
+        self.assertEqual(action_a["params"]["sheet_id"], sheet_a.id)
+        self.assertEqual(action_b["params"]["sheet_id"], sheet_b.id)
+        self.assertEqual(action_a["tag"], "collection.document_review")
+        self.assertEqual(action_b["tag"], "collection.document_review")
+
+    def test_action_open_document_review_refused_when_flag_off(self):
+        """Saved sheet + flag OFF must raise the voucher Document Review UserError."""
+        self.env.company.write({"document_review_enabled": False})
+        sheet = self._create_sheet()
+        with self.assertRaises(UserError) as error:
+            sheet.action_open_document_review()
+        self.assertEqual(str(error.exception), "Document Review is not enabled.")
+
+    def test_action_open_document_review_refused_on_new_id(self):
+        """Unsaved .new() records (NewId) must not open Document Review."""
+        self.env.company.write({"document_review_enabled": True})
+        unsaved = self.env["collection.sheet"].new({"seller_id": self.env.user.id})
+        self.assertFalse(isinstance(unsaved.id, int))
+        self.assertFalse(unsaved.id)
+        with self.assertRaises(UserError):
+            unsaved.action_open_document_review()
+
+    def test_document_review_enabled_helper_is_non_stored_and_follows_flag(self):
+        """Non-stored helper mirrors company._document_review_enabled() (no DDL)."""
+        field = self.env["collection.sheet"]._fields["document_review_enabled"]
+        self.assertTrue(field.compute)
+        self.assertFalse(field.store)
+        self.env.company.write({"document_review_enabled": True})
+        on_sheet = self._create_sheet()
+        self.assertTrue(on_sheet.document_review_enabled)
+        self.env.company.write({"document_review_enabled": False})
+        off_sheet = self._create_sheet()
+        self.assertFalse(off_sheet.document_review_enabled)

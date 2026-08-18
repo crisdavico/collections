@@ -1,0 +1,12 @@
+# SDD change state — orchestrator-managed
+change: auto-assign-open-sheet
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: interactive
+planning_depth: standard
+subagent_model: cursor-grok-4.6-high-fast
+phase: apply
+updated: 2026-08-18
+notes: |
+  Maintainer: go + stacked-to-main. Apply Unit 1 next on feat/auto-assign-open-sheet-01-lifecycle.
