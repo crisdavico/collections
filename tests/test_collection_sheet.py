@@ -176,7 +176,10 @@ class TestCollectionSheet(TransactionCase):
         with self.assertRaises(UserError):
             closed.action_reopen()
         self.assertEqual(closed.state, "closed")
-        voucher = self._create_voucher(customer_identification="CUST-LEFT-ACT")
+        voucher = self._create_voucher(
+            customer_identification="CUST-LEFT-ACT", seller_id=False
+        )
+        voucher.write({"seller_id": self.env.user.id})
         with self.assertRaises(UserError):
             voucher.action_create_collection_sheet()
         self.assertEqual(self._sheet_count(), before + 1)
@@ -214,8 +217,14 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.seller_id, self.env.user)
 
     def test_action_creates_sheet_for_unassigned_same_seller_any_state(self):
-        pending = self._create_voucher(customer_identification="CUST-ACT-P")
-        approved = self._create_voucher(customer_identification="CUST-ACT-A")
+        pending = self._create_voucher(
+            customer_identification="CUST-ACT-P", seller_id=False
+        )
+        approved = self._create_voucher(
+            customer_identification="CUST-ACT-A", seller_id=False
+        )
+        pending.write({"seller_id": self.env.user.id})
+        approved.write({"seller_id": self.env.user.id})
         approved.action_approve()
         before = self._sheet_count()
         action = (pending | approved).action_create_collection_sheet()
@@ -229,11 +238,18 @@ class TestCollectionSheet(TransactionCase):
 
     def test_action_rejects_ineligible_selection(self):
         other = self._other_internal_seller()
-        mixed_a = self._create_voucher(customer_identification="CUST-MIX-A")
-        mixed_b = self._create_voucher(
-            customer_identification="CUST-MIX-B", seller_id=other.id
+        mixed_a = self._create_voucher(
+            customer_identification="CUST-MIX-A", seller_id=False
         )
-        assigned = self._create_voucher(customer_identification="CUST-ASG")
+        mixed_b = self._create_voucher(
+            customer_identification="CUST-MIX-B", seller_id=False
+        )
+        assigned = self._create_voucher(
+            customer_identification="CUST-ASG", seller_id=False
+        )
+        mixed_a.write({"seller_id": self.env.user.id})
+        mixed_b.write({"seller_id": other.id})
+        assigned.write({"seller_id": self.env.user.id})
         sheet = self._create_sheet()
         assigned.sheet_id = sheet.id
         before = self._sheet_count()
@@ -258,8 +274,14 @@ class TestCollectionSheet(TransactionCase):
 
     def test_action_rejected_when_open_sheet_exists(self):
         open_sheet = self._create_sheet()
-        pending = self._create_voucher(customer_identification="CUST-ACT-OPEN-P")
-        approved = self._create_voucher(customer_identification="CUST-ACT-OPEN-A")
+        pending = self._create_voucher(
+            customer_identification="CUST-ACT-OPEN-P", seller_id=False
+        )
+        approved = self._create_voucher(
+            customer_identification="CUST-ACT-OPEN-A", seller_id=False
+        )
+        pending.write({"seller_id": self.env.user.id})
+        approved.write({"seller_id": self.env.user.id})
         approved.action_approve()
         before = self._sheet_count()
         with self.assertRaises(UserError):
@@ -302,8 +324,12 @@ class TestCollectionSheet(TransactionCase):
         self.assertNotIn("received_date", self.env["collection.voucher"]._fields)
 
     def test_dates_from_utc_member_create_date(self):
-        first = self._create_voucher(customer_identification="CUST-DT-1")
-        second = self._create_voucher(customer_identification="CUST-DT-2")
+        first = self._create_voucher(
+            customer_identification="CUST-DT-1", seller_id=False
+        )
+        second = self._create_voucher(
+            customer_identification="CUST-DT-2", seller_id=False
+        )
         self.env.cr.execute(
             "UPDATE collection_voucher SET create_date = %s WHERE id = %s",
             ["2026-08-16 23:30:00", first.id],
@@ -314,7 +340,7 @@ class TestCollectionSheet(TransactionCase):
         )
         self.env.invalidate_all()
         sheet = self._create_sheet()
-        (first | second).write({"sheet_id": sheet.id})
+        (first | second).write({"seller_id": self.env.user.id, "sheet_id": sheet.id})
         self.assertEqual(sheet.date_from, date(2026, 8, 16))
         self.assertEqual(sheet.date_to, date(2026, 8, 17))
 
@@ -344,7 +370,10 @@ class TestCollectionSheet(TransactionCase):
         member = self._create_voucher(
             customer_identification="CUST-FRZ-MEM", sheet_id=sheet.id
         )
-        outsider = self._create_voucher(customer_identification="CUST-FRZ-OUT")
+        outsider = self._create_voucher(
+            customer_identification="CUST-FRZ-OUT", seller_id=False
+        )
+        outsider.write({"seller_id": self.env.user.id})
         sheet.action_close()
         with self.assertRaises(UserError):
             outsider.write({"sheet_id": sheet.id})
@@ -439,3 +468,148 @@ class TestCollectionSheet(TransactionCase):
         self.env.company.write({"document_review_enabled": False})
         off_sheet = self._create_sheet()
         self.assertFalse(off_sheet.document_review_enabled)
+
+    def test_create_with_seller_assigns_unique_open_sheet(self):
+        """Unique open sheet MUST receive vouchers created with that seller."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(customer_identification="CUST-AA-UNIQ")
+        self.assertEqual(voucher.sheet_id, sheet)
+        self.assertEqual(sheet.voucher_ids, voucher)
+
+    def test_create_with_seller_creates_open_sheet_when_none(self):
+        """Zero opens MUST create one open sheet and assign the voucher."""
+        before = self._sheet_count()
+        voucher = self._create_voucher(customer_identification="CUST-AA-NONE")
+        self.assertEqual(self._sheet_count(), before + 1)
+        self.assertTrue(voucher.sheet_id)
+        self.assertEqual(voucher.sheet_id.seller_id, self.env.user)
+        self.assertEqual(voucher.sheet_id.state, "open")
+        self.assertIn(voucher, voucher.sheet_id.voucher_ids)
+
+    def test_create_with_seller_rejected_when_multiple_opens(self):
+        """More than one open MUST raise UserError with no voucher written."""
+        first = self._create_sheet()
+        leftover = self._create_sheet(state="closed")
+        leftover.with_context(collection_sheet_audited_state=True).write(
+            {"state": "open"}
+        )
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_sheets = self._sheet_count()
+        with self.assertRaises(UserError):
+            self._create_voucher(customer_identification="CUST-AA-MULTI")
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+        self.assertEqual(self._sheet_count(), before_sheets)
+        self.assertEqual(first.state, "open")
+        self.assertEqual(leftover.state, "open")
+
+    def test_create_honors_explicit_open_sheet_id(self):
+        """Explicit open same-seller sheet_id MUST be used instead of resolving."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-AA-EXPL", sheet_id=sheet.id
+        )
+        self.assertEqual(voucher.sheet_id, sheet)
+        falsey = self._create_voucher(
+            customer_identification="CUST-AA-FALSEY", sheet_id=False
+        )
+        self.assertEqual(falsey.sheet_id, sheet)
+
+    def test_create_with_closed_sheet_id_fails(self):
+        """Assigning a closed sheet on create MUST fail (Phase 2 freeze)."""
+        sheet = self._create_sheet()
+        sheet.action_close()
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._create_voucher(
+                customer_identification="CUST-AA-CLOSED", sheet_id=sheet.id
+            )
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+        self.assertFalse(sheet.voucher_ids)
+
+    def test_create_without_seller_stays_unassigned(self):
+        """Null seller_id MUST leave the voucher unassigned even if an open exists."""
+        sheet = self._create_sheet()
+        omitted = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "CUST-AA-OMIT",
+                "document_type": "unsupported",
+            }
+        )
+        null = self._create_voucher(
+            customer_identification="CUST-AA-NULL", seller_id=False
+        )
+        self.assertFalse(omitted.seller_id)
+        self.assertFalse(omitted.sheet_id)
+        self.assertFalse(null.seller_id)
+        self.assertFalse(null.sheet_id)
+        self.assertFalse(sheet.voucher_ids)
+
+    def test_later_seller_write_does_not_auto_assign(self):
+        """Writing seller_id on an existing voucher MUST NOT auto-assign."""
+        sheet = self._create_sheet()
+        omitted = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "CUST-AA-WRITE-OMIT",
+                "document_type": "unsupported",
+            }
+        )
+        omitted.write({"seller_id": self.env.user.id})
+        self.assertFalse(omitted.sheet_id)
+
+        member = self._create_voucher(
+            customer_identification="CUST-AA-WRITE-UNASG", sheet_id=sheet.id
+        )
+        member.write({"sheet_id": False})
+        self.assertFalse(member.sheet_id)
+        member.write({"seller_id": self.env.user.id})
+        self.assertFalse(member.sheet_id)
+
+        linked = self._create_voucher(
+            customer_identification="CUST-AA-WRITE-UNL",
+            seller_id=False,
+        )
+        other = self._other_internal_seller()
+        other_sheet = self._create_sheet(seller_id=other.id)
+        linked.write({"seller_id": other.id, "sheet_id": other_sheet.id})
+        other_sheet.unlink()
+        self.assertFalse(linked.sheet_id)
+        linked.write({"seller_id": other.id})
+        self.assertFalse(linked.sheet_id)
+        self.assertEqual(sheet.state, "open")
+        self.assertNotIn(omitted, sheet.voucher_ids)
+        self.assertNotIn(member, sheet.voucher_ids)
+
+    def test_batch_create_resolves_one_open_per_seller(self):
+        """Batch create MUST resolve once per seller and share that sheet."""
+        before = self._sheet_count()
+        other = self._other_internal_seller()
+        vouchers = self.env["collection.voucher"].create(
+            [
+                {
+                    "customer_identification": "CUST-AA-BATCH-A",
+                    "document_type": "unsupported",
+                    "seller_id": self.env.user.id,
+                },
+                {
+                    "customer_identification": "CUST-AA-BATCH-B",
+                    "document_type": "unsupported",
+                    "seller_id": self.env.user.id,
+                },
+                {
+                    "customer_identification": "CUST-AA-BATCH-C",
+                    "document_type": "unsupported",
+                    "seller_id": other.id,
+                },
+            ]
+        )
+        self.assertEqual(self._sheet_count(), before + 2)
+        first, second, third = vouchers
+        self.assertTrue(first.sheet_id)
+        self.assertEqual(first.sheet_id, second.sheet_id)
+        self.assertEqual(first.sheet_id.seller_id, self.env.user)
+        self.assertEqual(first.sheet_id.state, "open")
+        self.assertNotEqual(third.sheet_id, first.sheet_id)
+        self.assertEqual(third.sheet_id.seller_id, other)
+        self.assertEqual(third.sheet_id.state, "open")

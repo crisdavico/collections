@@ -42,10 +42,10 @@ Threat matrix N/A. No UNIQUE. `tools/collection_voucher.py` unchanged. Tests fro
 
 ## Phase 3: Auto-assign + MCP (Unit 3 / PR3)
 
-- [ ] 3.1 RED `tests/test_collection_sheet.py`: unique open assigns; none → create then assign; `>1` no voucher; explicit open `sheet_id` honored; closed `sheet_id` fails; null seller unassigned; later `seller_id` write does not assign. Unassigned: omit seller / unassign / unlink.
-- [ ] 3.2 GREEN `models/collection_voucher.py` `create` before `super`: seller set + omitted `sheet_id` → `pg_advisory_xact_lock(hashtext('collection.sheet.open'), seller_id)` then `_open_sheets_for_seller` (0/1/>1). Same lock on sheet create-open.
-- [ ] 3.3 RED `tests/test_collection_mcp_tool.py`: all-new unique open assigns; none creates one sheet; `>1` no writes; exact replay leaves `sheet_id`/`write_date`; response `{id,name,state,document_id}` only.
-- [ ] 3.4 `invoke test -m collection`.
+- [x] 3.1 RED `tests/test_collection_sheet.py`: unique open assigns; none → create then assign; `>1` no voucher; explicit open `sheet_id` honored; closed `sheet_id` fails; null seller unassigned; later `seller_id` write does not assign. Unassigned: omit seller / unassign / unlink.
+- [x] 3.2 GREEN `models/collection_voucher.py` `create` before `super`: seller set + omitted `sheet_id` → `pg_advisory_xact_lock(hashtext('collection.sheet.open'), seller_id)` then `_open_sheets_for_seller` (0/1/>1). Same lock on sheet create-open.
+- [x] 3.3 RED `tests/test_collection_mcp_tool.py`: all-new unique open assigns; none creates one sheet; `>1` no writes; exact replay leaves `sheet_id`/`write_date`; response `{id,name,state,document_id}` only.
+- [x] 3.4 `invoke test -m collection`.
 
 ## Phase 4: Verify
 

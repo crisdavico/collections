@@ -873,6 +873,193 @@ class TestCollectionMcpTool(TransactionCase):
             )
         )
 
+    def _assert_mcp_voucher_payload_keys(self, result):
+        for item in result["vouchers"]:
+            self.assertEqual(set(item), {"id", "name", "state", "document_id"})
+            self.assertNotIn("sheet_id", item)
+
+    def test_all_new_unique_open_assigns_all_payments(self):
+        """All-new MCP create MUST assign every voucher to the unique open sheet."""
+        sheet = self.env["collection.sheet"].create(
+            {"seller_id": self.internal_user.id}
+        )
+        result = self._call(
+            self._payload(
+                customer="MCP-CUST-AA-UNIQ",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-AA-UNIQ-A",
+                        "document_type": "bank_transfer",
+                        "amount": 11.0,
+                    },
+                    {
+                        "document_id": "MCP-DOC-AA-UNIQ-B",
+                        "document_type": "check",
+                        "amount": 22.0,
+                        "check_type": "common",
+                    },
+                ],
+            )
+        )
+        self._assert_voucher_list(result, ["MCP-DOC-AA-UNIQ-A", "MCP-DOC-AA-UNIQ-B"])
+        self._assert_mcp_voucher_payload_keys(result)
+        first = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
+        self.assertEqual(first.sheet_id, sheet)
+        self.assertEqual(second.sheet_id, sheet)
+        self.assertEqual(first.seller_id, self.internal_user)
+        self.assertEqual(second.seller_id, self.internal_user)
+
+    def test_all_new_no_open_creates_one_sheet_and_assigns_all(self):
+        """Zero opens MUST create one open sheet and assign the whole MCP batch."""
+        opens_before = self.env["collection.sheet"].search_count(
+            [("seller_id", "=", self.internal_user.id), ("state", "=", "open")]
+        )
+        self.assertEqual(opens_before, 0)
+        result = self._call(
+            self._payload(
+                customer="MCP-CUST-AA-NONE",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-AA-NONE-A",
+                        "document_type": "bank_transfer",
+                        "amount": 3.0,
+                    },
+                    {
+                        "document_id": "MCP-DOC-AA-NONE-B",
+                        "document_type": "cash_deposit",
+                        "amount": 4.0,
+                    },
+                ],
+            )
+        )
+        self._assert_voucher_list(result, ["MCP-DOC-AA-NONE-A", "MCP-DOC-AA-NONE-B"])
+        self._assert_mcp_voucher_payload_keys(result)
+        first = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
+        self.assertTrue(first.sheet_id)
+        self.assertEqual(first.sheet_id, second.sheet_id)
+        self.assertEqual(first.sheet_id.seller_id, self.internal_user)
+        self.assertEqual(first.sheet_id.state, "open")
+        self.assertEqual(
+            self.env["collection.sheet"].search_count(
+                [("seller_id", "=", self.internal_user.id), ("state", "=", "open")]
+            ),
+            1,
+        )
+
+    def test_all_new_multiple_opens_rejects_no_writes(self):
+        """More than one open MUST raise UserError with no MCP voucher writes."""
+        first_sheet = self.env["collection.sheet"].create(
+            {"seller_id": self.internal_user.id}
+        )
+        leftover = self.env["collection.sheet"].create(
+            {"seller_id": self.internal_user.id, "state": "closed"}
+        )
+        leftover.with_context(collection_sheet_audited_state=True).write(
+            {"state": "open"}
+        )
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_sheets = self.env["collection.sheet"].search_count([])
+        with self.assertRaises(UserError):
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-AA-MULTI",
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-AA-MULTI-A",
+                            "document_type": "unsupported",
+                        },
+                        {
+                            "document_id": "MCP-DOC-AA-MULTI-B",
+                            "document_type": "unsupported",
+                        },
+                    ],
+                )
+            )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+        self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "in", ["MCP-DOC-AA-MULTI-A", "MCP-DOC-AA-MULTI-B"])]
+            )
+        )
+        self.assertEqual(first_sheet.state, "open")
+        self.assertEqual(leftover.state, "open")
+
+    def test_exact_replay_leaves_sheet_id_and_write_date(self):
+        """Exact replay MUST NOT attach, move, or clear sheets (incl. leftover)."""
+        assigned = self._call(
+            self._payload(
+                customer="MCP-CUST-AA-REPLAY",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-AA-REPLAY-A",
+                        "document_type": "bank_transfer",
+                        "amount": 8.0,
+                    }
+                ],
+            )
+        )
+        voucher = self.env["collection.voucher"].browse(assigned["vouchers"][0]["id"])
+        self.assertTrue(voucher.sheet_id)
+        sheet_id = voucher.sheet_id.id
+        write_date = voucher.write_date
+
+        leftover = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "MCP-CUST-AA-REPLAY-LEFT",
+                "document_type": "cash_deposit",
+                "document_id": "MCP-DOC-AA-REPLAY-LEFT",
+                "amount": 1.0,
+            }
+        )
+        self.assertFalse(leftover.seller_id)
+        self.assertFalse(leftover.sheet_id)
+        leftover_write = leftover.write_date
+        before_sheets = self.env["collection.sheet"].search_count([])
+
+        retried_assigned = self._call(
+            self._payload(
+                customer="MCP-CUST-AA-REPLAY-OTHER",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-AA-REPLAY-A",
+                        "document_type": "bank_transfer",
+                        "amount": 999.0,
+                    }
+                ],
+            )
+        )
+        self._assert_mcp_voucher_payload_keys(retried_assigned)
+        self.assertEqual(retried_assigned["vouchers"][0]["id"], voucher.id)
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.sheet_id.id, sheet_id)
+        self.assertEqual(voucher.write_date, write_date)
+        self.assertEqual(voucher.customer_identification, "MCP-CUST-AA-REPLAY")
+
+        retried_left = self._call(
+            self._payload(
+                customer="MCP-CUST-AA-REPLAY-LEFT-OTHER",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-AA-REPLAY-LEFT",
+                        "document_type": "cash_deposit",
+                        "amount": 999.0,
+                    }
+                ],
+            )
+        )
+        self._assert_mcp_voucher_payload_keys(retried_left)
+        leftover.invalidate_recordset()
+        self.assertEqual(retried_left["vouchers"][0]["id"], leftover.id)
+        self.assertFalse(leftover.sheet_id)
+        self.assertFalse(leftover.seller_id)
+        self.assertEqual(leftover.write_date, leftover_write)
+        self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+
 
 class TestCollectionMcpAttachment(TransactionCase):
     """RED/GREEN: optional nested MCP attachment on create; exact-retry ignore."""

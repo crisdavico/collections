@@ -4,6 +4,7 @@
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.fields import Command
+from odoo.tools import SQL
 from odoo.tools.translate import _
 
 
@@ -74,11 +75,34 @@ class CollectionSheet(models.Model):
         )
 
     @api.private
+    def _lock_open_sheet_for_seller(self, seller):
+        seller_id = seller.id if isinstance(seller, models.Model) else seller
+        self.env.cr.execute(
+            SQL(
+                "SELECT pg_advisory_xact_lock(hashtext(%s), %s)",
+                "collection.sheet.open",
+                int(seller_id),
+            )
+        )
+
+    @api.private
     def _raise_if_seller_has_open_sheet(self, seller):
         if self._open_sheets_for_seller(seller):
             raise UserError(
                 _("This seller already has an open collection sheet.")
             )
+
+    @api.private
+    def _resolve_open_sheet_id_for_create(self, seller_id):
+        self._lock_open_sheet_for_seller(seller_id)
+        opens = self._open_sheets_for_seller(seller_id)
+        if len(opens) > 1:
+            raise UserError(
+                _("This seller has more than one open collection sheet.")
+            )
+        if len(opens) == 1:
+            return opens.id
+        return self.create({"seller_id": seller_id}).id
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -98,6 +122,7 @@ class CollectionSheet(models.Model):
                     raise UserError(
                         _("This seller already has an open collection sheet.")
                     )
+                self._lock_open_sheet_for_seller(seller_id)
                 self._raise_if_seller_has_open_sheet(seller_id)
                 opening_sellers.add(seller_id)
         return super().create(vals_list)

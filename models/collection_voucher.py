@@ -123,6 +123,7 @@ class CollectionVoucher(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
+        self._apply_open_sheet_auto_assign(vals_list)
         for vals in vals_list:
             # Registration time is ORM-owned; callers must not forge create_date.
             vals.pop("create_date", None)
@@ -133,6 +134,19 @@ class CollectionVoucher(models.Model):
             if vals.get("sheet_id"):
                 self._ensure_sheet_membership_unlocked(vals["sheet_id"])
         return super().create(vals_list)
+
+    @api.private
+    def _apply_open_sheet_auto_assign(self, vals_list):
+        Sheet = self.env["collection.sheet"]
+        resolved_sheet_ids = {}
+        for vals in vals_list:
+            seller_id = vals.get("seller_id")
+            if seller_id and not vals.get("sheet_id"):
+                if seller_id not in resolved_sheet_ids:
+                    resolved_sheet_ids[seller_id] = (
+                        Sheet._resolve_open_sheet_id_for_create(seller_id)
+                    )
+                vals["sheet_id"] = resolved_sheet_ids[seller_id]
 
     def write(self, vals):
         if "sheet_id" in vals:
