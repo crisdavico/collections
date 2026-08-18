@@ -505,6 +505,15 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
                     """,
                     (filename or None, voucher.id),
                 )
+            elif filename:
+                self.env.cr.execute(
+                    """
+                    UPDATE ir_attachment
+                       SET name = %s
+                     WHERE id = %s
+                    """,
+                    (filename, attachment.id),
+                )
         return attachment
 
     def _run_migrate(self):
