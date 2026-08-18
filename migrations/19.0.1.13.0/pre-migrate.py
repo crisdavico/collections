@@ -18,9 +18,6 @@ def _has_column(cr, table, column):
 def migrate(cr, version):
     """Convert Binary field attachments into chatter files before the field drop."""
     has_filename = _has_column(cr, "collection_voucher", "attachment_filename")
-    filename_select = (
-        "v.attachment_filename" if has_filename else "NULL::varchar"
-    )
     cr.execute(
         """
         SELECT res_id FROM ir_model_data
@@ -29,23 +26,32 @@ def migrate(cr, version):
     )
     subtype_row = cr.fetchone()
     subtype_id = subtype_row[0] if subtype_row else None
-    cr.execute(
-        f"""
-        SELECT a.id, a.res_id, a.name, {filename_select}
-          FROM ir_attachment a
-     LEFT JOIN collection_voucher v ON v.id = a.res_id
-         WHERE a.res_model = 'collection.voucher'
-           AND a.res_field = 'attachment'
-        """
-    )
+    if has_filename:
+        cr.execute(
+            """
+            SELECT a.id, a.res_id, a.name, v.attachment_filename
+              FROM ir_attachment a
+         LEFT JOIN collection_voucher v ON v.id = a.res_id
+             WHERE a.res_model = 'collection.voucher'
+               AND a.res_field = 'attachment'
+            """
+        )
+    else:
+        cr.execute(
+            """
+            SELECT a.id, a.res_id, a.name, NULL::varchar
+              FROM ir_attachment a
+         LEFT JOIN collection_voucher v ON v.id = a.res_id
+             WHERE a.res_model = 'collection.voucher'
+               AND a.res_field = 'attachment'
+            """
+        )
     rows = cr.fetchall()
     for attachment_id, res_id, current_name, stored_filename in rows:
         new_name = (stored_filename or "").strip()
         if not new_name:
             current = (current_name or "").strip()
-            new_name = (
-                "proof.bin" if current in ("", "attachment") else current
-            )
+            new_name = "proof.bin" if current in ("", "attachment") else current
         cr.execute(
             """
             UPDATE ir_attachment

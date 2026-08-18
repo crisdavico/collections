@@ -1,11 +1,12 @@
 # Apply Progress: chatter-voucher-attachments
 
 **Change**: chatter-voucher-attachments
-**Mode**: Strict TDD
-**Batch**: Work Unit 3 / PR 3 (Phase 3, tasks 3.1–3.3) — Phase 1 (1.1–1.11) and
-Phase 2 (2.1–2.4) complete
-**Branch**: `feat/chatter-voucher-attachments-03-document-review` (stacked on
-`feat/chatter-voucher-attachments-02-mcp-tests` @ `78c3f96`; local only; not pushed)
+**Mode**: Strict TDD (Phases 1–3); Phase 4 is upgrade/lint/full tests (no new product TDD)
+**Batch**: Work Unit 4 / Phase 4 (tasks 4.1–4.2 complete; 4.3 blocked)
+**Branch**: `feat/chatter-voucher-attachments-04-upgrade` (stacked on
+`feat/chatter-voucher-attachments-03-document-review` @ `68d5bfc`; local only; not
+pushed). Attempt `sha256:5b15764c5c6a8dce3e3754e62be24205d16d5b5146edd22c39d7159462b51d6f`
+acquired (`proceed`); **not settled**.
 
 ## Completed Tasks
 
@@ -30,13 +31,22 @@ Phase 2 (2.1–2.4) complete
 - [x] 2.3 RED exact-retry with/without nest: return all; no add/replace/compare
 - [x] 2.4 GREEN exact-retry / UniqueViolation replay: no post, no nest compare
 
-### Phase 3 (PR 3)
+### Phase 3 (PR 3) — preserved
 
 - [x] 3.1 RED `tests/test_collection_document_review.py`: queue pending+main; empty/cross-sheet; `/web/content/{id}` (no `field=`); image+PDF; OWL no base64; viewer states; extras skip rotation reset; replace/clear → 0; stale if proof missing
 - [x] 3.2 GREEN `models/collection_voucher.py`: eligibility on main; `_attachment_content_url` → `/web/content/{id}`; payload from `ir.attachment`. OWL keeps `current.attachment_url`
 - [x] 3.3 GREEN `AGENTS.md` + `readme/DESCRIPTION.md`: chatter proof; no Binary
 
+### Phase 4 (this batch)
+
+- [x] 4.1 Module upgrade on `devel` (exit 0)
+- [x] 4.2 Scoped pre-commit on change files (exit 0 after hook-only fixes)
+- [ ] 4.3 Full `invoke test -m collection` — **not marked complete** (new failure)
+
 ## TDD Cycle Evidence
+
+Preserved from Phases 1–3 (see prior apply-progress batches). Phase 4 has no product
+RED→GREEN cycle.
 
 | Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
 |------|-----------|-------|------------|-----|-------|-------------|----------|
@@ -59,7 +69,7 @@ Phase 2 (2.1–2.4) complete
 | 3.2 | `models/collection_voucher.py` | Unit | (3.1 net) | (3.1 RED) | ✅ `_attachment_content_url` → `/web/content/{id}`; payload filename/mimetype/url from designated `ir.attachment`; eligibility already `pending` + main. OWL unchanged (`current.attachment_url`). Focused class: **0 failed, 0 error(s) of 39 tests** (exit 0) | ✅ image vs PDF mimetype; extras vs replace vs clear | ➖ None needed |
 | 3.3 | `AGENTS.md`, `readme/DESCRIPTION.md` | Docs | N/A | N/A (docs) | ✅ Chatter designated proof; no Binary `attachment` field; review `/web/content/{id}` | ➖ Single | ➖ None needed |
 
-### Test Summary
+### Test Summary (Phases 1–3 preserved)
 
 - **Safety net (Phase 3 start)**: `TestCollectionDocumentReview` → **0 failed, 0 error(s) of 36 tests**
 - **3.1 RED execute**: **2 failed, 4 error(s) of 39 tests** (old Binary `field=attachment` URLs + missing payload `mimetype`)
@@ -78,7 +88,7 @@ Phase 2 (2.1–2.4) complete
 | Runtime harness command/scenario and exact result | N/A — Odoo `TransactionCase` rolls back; no extra runtime boundary beyond the focused module tests |
 | Rollback boundary | Revert PR 2 branch/commit: `tests/test_collection_mcp_tool.py`, `tools/collection_voucher.py`, and Phase 2 marks. Does **not** revert Phase 1 mixin/migration/views |
 
-### Phase 3 (this batch)
+### Phase 3 (preserved)
 
 | Evidence | Required value |
 |---|---|
@@ -86,26 +96,36 @@ Phase 2 (2.1–2.4) complete
 | Runtime harness command/scenario and exact result | N/A — Odoo `TransactionCase` rolls back; no extra runtime boundary beyond the focused module tests. Attempt acquired (`sha256:b705bd143693cae895ba2aceef292d0002d71f185e7bd3d6f0a34e8d9e48c348`); not settled |
 | Rollback boundary | Revert this branch/commit: `tests/test_collection_document_review.py`, `models/collection_voucher.py` (`_attachment_content_url` + payload), `AGENTS.md`, `readme/DESCRIPTION.md`, and Phase 3 marks in this change folder. Does **not** revert Phase 1/2 mixin/MCP persist |
 
+### Phase 4 (this batch)
+
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `invoke test -m collection` (default `-i`) → **exit 0**, `0 failed, 0 error(s) of 0 tests` (no-op: module already installed). Follow-up `invoke test -m collection --mode=update` → **exit 1**, **`1 failed, 0 error(s) of 242 tests`** (`TestCollectionVoucherAttachmentMigrate.test_binary_field_attachment_migrates_to_chatter_main`: `'proof.bin' != 'migrated.png'`). `TestCollectionDocumentReviewFlag.test_settings_toggle_persists_*` did **not** error in this run |
+| Runtime harness command/scenario and exact result | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --workers=0 --http-port=18069` → **exit 0** (module `collection` loaded; views/security/data applied; no Traceback). Scoped `pre-commit run --files` on change model/tools/views/migrations/tests/AGENTS.md/readme → **exit 0**. Attempt acquired (`sha256:5b15764c5c6a8dce3e3754e62be24205d16d5b5146edd22c39d7159462b51d6f`); **not settled** |
+| Rollback boundary | Revert Phase 4 commit/branch: `openspec/changes/chatter-voucher-attachments/{tasks.md,apply-progress.md}`, prettier wrap in `AGENTS.md`, ruff-format in `tests/test_collection_{payment,voucher}.py`, E501 docstring wrap, pylint E8103 split of filename SELECT in `migrations/19.0.1.13.0/pre-migrate.py`. Does **not** revert Phases 1–3 product behavior |
+
 ## Installability coupling (Phase 1, preserved)
 
-Binary field drop cannot `-u collection` while views still declare `attachment`. Widget strip (1.8) and MCP `message_post` glue (1.10) traveled with 1.2 so the upgrade loads. Queue eligibility uses `message_main_attachment_id`. Review URL is now `/web/content/{id}` of designated proof (Phase 3).
+Binary field drop cannot `-u collection` while views still declare `attachment`. Widget strip (1.8) and MCP `message_post` glue (1.10) traveled with 1.2 so the upgrade loads. Queue eligibility uses `message_main_attachment_id`. Review URL is now `/web/content/{id}` of designated proof (Phase 3). Phase 4.1 upgrade on `devel` completed with exit 0 after that drop.
 
 ## Deviations from Design
 
-None on proof pointer, picker, MCP persist, nest schema, exact-retry ignore, or review `/web/content/{id}`. Phase 2 added a search-miss + nest-`UserError` re-lookup so UniqueViolation-style replay does not compare nests; true all-new invalid nests still fail-closed. OWL `static/src/document_review/*` was not edited; it already binds `current.attachment_url` and reads `mimetype`.
+None on proof pointer, picker, MCP persist, nest schema, exact-retry ignore, or review `/web/content/{id}`. Phase 2 added a search-miss + nest-`UserError` re-lookup so UniqueViolation-style replay does not compare nests; true all-new invalid nests still fail-closed. OWL `static/src/document_review/*` was not edited; it already binds `current.attachment_url` and reads `mimetype`. Phase 4 lint-only: split `pre-migrate.py` filename SELECT into two static queries (pylint E8103); no product behavior change intended.
 
 ## Issues Found
 
-- Phase 1: `TestCollectionDocumentReviewFlag` settings-toggle tests error on `res_config_settings.default_picking_policy` NOT NULL. Pre-existing stock/settings schema issue; not fixed in this batch.
+- Phase 1: `TestCollectionDocumentReviewFlag` settings-toggle tests error on `res_config_settings.default_picking_policy` NOT NULL. Pre-existing stock/settings schema issue; **not reproduced** in the Phase 4 full run (those two methods started and the suite reported **0 errors**).
 - Phase 2: `message_post` body was wrapped with `_()` (pylint C8107) because that slice edits `tools/collection_voucher.py`. Nest schema unchanged.
+- Phase 4.2: optional pylint C8101 (`manifest-required-author` expects `Eynes`) remains a warning; hook still Passed. Not fixed (pre-existing author).
+- **Phase 4.3 NEW failure (do not mark 4.3 complete):** `TestCollectionVoucherAttachmentMigrate.test_binary_field_attachment_migrates_to_chatter_main` — `AssertionError: 'proof.bin' != 'migrated.png'`. After 4.1 `-u collection`, `attachment_filename` is gone from the live schema, so the migrate helper cannot inject `migrated.png` and falls back to `proof.bin` because `ir.attachment.name` is `"attachment"`. `test_empty_filename_falls_back_to_proof_bin` still passed. Stopped per apply instructions; no product-feature fix applied.
 
 ## Remaining Tasks
 
-- [ ] Phase 4 upgrade/verify (4.1–4.3)
+- [ ] 4.3 `invoke test -m collection` (blocked on migrate named-filename assertion after live schema drop)
 
 ## Workload / PR Boundary
 
 - Mode: stacked PR slice (`auto-chain` / `stacked-to-main`)
-- Current work unit: PR 3 document review + docs
-- Boundary: starts from PR 2 `feat/chatter-voucher-attachments-02-mcp-tests` (`78c3f96`); ends with review `/web/content/{id}` payload, extras/clear/stale rotation tests, AGENTS/readme
-- Estimated review budget impact: authored 119 insertions / 49 deletions on tests+model+docs (under 400 review budget and 800 attempt cap)
+- Current work unit: Phase 4 upgrade / lint / full tests
+- Boundary: starts from PR 3 `feat/chatter-voucher-attachments-03-document-review` (`68d5bfc`); ends with upgrade evidence, scoped pre-commit, hook-only lint fixes, and 4.3 blocker report
+- Estimated review budget impact: lint/docs/progress only (well under 400)

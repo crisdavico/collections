@@ -102,8 +102,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 - **ACL:** internal users only; no extra groups or record rules.
 - **Attachment:** optional one image/PDF designated proof per voucher
   (`message_main_attachment_id`, chatter `ir.attachment`, `copy=False` on rotation);
-  extras do not steal proof; server validates base64 and detected MIME on MCP nest;
-  omit remains valid. Document Review serves `/web/content/{id}` (no Binary
+  extras do not steal proof; server validates base64 and detected MIME on MCP nest; omit
+  remains valid. Document Review serves `/web/content/{id}` (no Binary
   `field=attachment`).
 - **MCP:**
   - Method-discovered `@mcp_tool` `create_collection_vouchers` (`category=write`,

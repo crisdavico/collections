@@ -57,6 +57,6 @@ Nebula/`auto-assign-open-sheet` out of scope. Threat matrix N/A.
 
 ## Phase 4: Upgrade / verify
 
-- [ ] 4.1 Seedian root: `invoke install -m collection` (pre before drop).
-- [ ] 4.2 Scoped `pre-commit run --files` on changed paths.
+- [x] 4.1 Seedian root: `invoke install -m collection` (pre before drop).
+- [x] 4.2 Scoped `pre-commit run --files` on changed paths.
 - [ ] 4.3 `invoke test -m collection`.

@@ -19,9 +19,7 @@ TXT_B64 = "aGVsbG8gd29ybGQ="
 INVALID_B64 = "!!!not-base64!!!"
 
 
-def post_voucher_proof(
-    voucher, name, datas_b64, body="Payment proof attached."
-):
+def post_voucher_proof(voucher, name, datas_b64, body="Payment proof attached."):
     """Post a chatter proof file onto a voucher (designated-proof path)."""
     voucher.message_post(
         body=body,
@@ -277,4 +275,3 @@ class TestCollectionPaymentAttachment(TransactionCase):
         self.assertFalse(clone.message_main_attachment_id)
         self.assertTrue(voucher.message_main_attachment_id)
         self.assertEqual(len(self._voucher_attachments(voucher)), 1)
-

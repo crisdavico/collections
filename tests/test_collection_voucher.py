@@ -316,7 +316,7 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(voucher.reviewed_by, self.env.user)
 
     def test_replace_main_resets_pending_clears_audit_and_rotation(self):
-        """Replacing message_main_attachment_id MUST reopen review and reset rotation."""
+        """Replacing the designated proof MUST reopen review and reset rotation."""
         voucher = self._create_voucher(
             customer_identification="CUST-ATT-RST",
             document_id="DOC-ATT-RST",
@@ -458,9 +458,7 @@ class TestCollectionVoucher(TransactionCase):
 
 
 def _load_collection_migrate(filename):
-    path = (
-        Path(__file__).resolve().parents[1] / "migrations" / "19.0.1.13.0" / filename
-    )
+    path = Path(__file__).resolve().parents[1] / "migrations" / "19.0.1.13.0" / filename
     spec = spec_from_file_location(filename, path)
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
