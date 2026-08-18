@@ -18,7 +18,8 @@ Ground truth order: source under this directory →
   tool `register_latest_collection_voucher` lives in
   `/home/crisd/projects/nebula/nebula-agent`.
 - **Attachments (in scope):** each `collection.voucher` MAY have one optional image or
-  PDF (`fields.Binary` + filename via `ir.attachment`).
+  PDF designated proof (`message_main_attachment_id` via chatter / `ir.attachment`).
+  There is no Binary `attachment` field.
 - **Out of scope (do not invent):** WhatsApp connector inside this addon (MCP `mobile`
   argument **is allowed**), HTTP public API, partner/CRM linkage, multi-file or
   non-image/non-PDF attachments, multi-currency UX, agent LLM code inside this addon.
@@ -99,9 +100,11 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 - **List Action:** still create-new-sheet; reject if the seller has any open sheet.
 - **Currency:** company default; no multi-currency UX.
 - **ACL:** internal users only; no extra groups or record rules.
-- **Attachment:** optional one image/PDF per voucher (`Binary` + filename,
-  `attachment=True`, `copy=False`); server validates base64 and detected MIME; omit
-  remains valid.
+- **Attachment:** optional one image/PDF designated proof per voucher
+  (`message_main_attachment_id`, chatter `ir.attachment`, `copy=False` on rotation);
+  extras do not steal proof; server validates base64 and detected MIME on MCP nest;
+  omit remains valid. Document Review serves `/web/content/{id}` (no Binary
+  `field=attachment`).
 - **MCP:**
   - Method-discovered `@mcp_tool` `create_collection_vouchers` (`category=write`,
     `registry=mcp`).
@@ -142,6 +145,7 @@ invoke test -m collection -d devel
 | `tests/test_collection_acl.py`               | Internal vs non-internal access                        |
 | `tests/test_collection_mail.py`              | Chatter / tracking                                     |
 | `tests/test_collection_ui.py`                | View arch; sheet statusbar, Close/Reopen, freeze       |
+| `tests/test_collection_document_review.py`   | Queue on designated proof; `/web/content/{id}`         |
 | `tests/test_collection_mcp_tool.py`          | MCP create, replay, inherit auto-assign, no `sheet_id` |
 | `tests/test_collection_mcp_seller_lookup.py` | MCP `get_seller_id` discovery, match, fail-closed      |
 

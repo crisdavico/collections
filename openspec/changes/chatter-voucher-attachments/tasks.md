@@ -51,9 +51,9 @@ Nebula/`auto-assign-open-sheet` out of scope. Threat matrix N/A.
 
 ## Phase 3: Document review + docs (PR 3)
 
-- [ ] 3.1 RED `tests/test_collection_document_review.py`: queue pending+main; empty/cross-sheet; `/web/content/{id}` (no `field=`); image+PDF; OWL no base64; viewer states; extras skip rotation reset; replace/clear → 0; stale if proof missing.
-- [ ] 3.2 GREEN `models/collection_voucher.py`: eligibility on main; `_attachment_content_url` → `/web/content/{id}`; payload from `ir.attachment`. OWL keeps `current.attachment_url`.
-- [ ] 3.3 GREEN `AGENTS.md` + `readme/DESCRIPTION.md`: chatter proof; no Binary.
+- [x] 3.1 RED `tests/test_collection_document_review.py`: queue pending+main; empty/cross-sheet; `/web/content/{id}` (no `field=`); image+PDF; OWL no base64; viewer states; extras skip rotation reset; replace/clear → 0; stale if proof missing.
+- [x] 3.2 GREEN `models/collection_voucher.py`: eligibility on main; `_attachment_content_url` → `/web/content/{id}`; payload from `ir.attachment`. OWL keeps `current.attachment_url`.
+- [x] 3.3 GREEN `AGENTS.md` + `readme/DESCRIPTION.md`: chatter proof; no Binary.
 
 ## Phase 4: Upgrade / verify
 

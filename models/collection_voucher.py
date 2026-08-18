@@ -492,15 +492,15 @@ class CollectionVoucher(models.Model):
     @api.private
     def _attachment_content_url(self):
         self.ensure_one()
-        url = f"/web/content?model=collection.voucher&id={self.id}&field=attachment"
-        filename = self.message_main_attachment_id.name
-        if filename:
-            url = f"{url}&filename={filename}"
-        return url
+        attachment = self.message_main_attachment_id
+        if not attachment:
+            return ""
+        return f"/web/content/{attachment.id}"
 
     @api.private
     def _review_queue_payload(self, position, total):
         self.ensure_one()
+        attachment = self.message_main_attachment_id
         return {
             "id": self.id,
             "voucher_id": self.id,
@@ -519,7 +519,8 @@ class CollectionVoucher(models.Model):
             "check_payment_date": self.check_payment_date,
             "position": position,
             "total": total,
-            "attachment_filename": self.message_main_attachment_id.name,
+            "attachment_filename": attachment.name,
+            "mimetype": attachment.mimetype,
             "attachment_url": self._attachment_content_url(),
             "attachment_rotation": self.attachment_rotation,
         }

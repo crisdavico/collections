@@ -99,12 +99,16 @@ class TestCollectionDocumentReview(TransactionCase):
         url = item.get("attachment_url")
         self.assertIsInstance(url, str)
         self.assertTrue(
-            url.startswith("/web/content?"),
-            f"attachment_url must be a /web/content route, got {url!r}",
+            url.startswith("/web/content/"),
+            f"attachment_url must be /web/content/{{id}}, got {url!r}",
         )
-        self.assertIn("model=collection.voucher", url)
+        self.assertFalse(
+            url.startswith("/web/content?"),
+            f"attachment_url must not use query-style Binary serving, got {url!r}",
+        )
+        self.assertNotIn("field=", url)
+        self.assertNotIn("model=", url)
         self.assertNotIn("collection.voucher.line", url)
-        self.assertIn("field=attachment", url)
         self.assertNotIn("datas", url)
         self.assertNotIn("base64", url.lower())
         self.assertFalse(url.startswith("data:"))
@@ -116,11 +120,17 @@ class TestCollectionDocumentReview(TransactionCase):
             self.assertNotIn("data:application/pdf", rendered)
 
     def _expected_content_url(self, voucher):
-        return (
-            "/web/content?model=collection.voucher"
-            f"&id={voucher.id}&field=attachment"
-            f"&filename={voucher.message_main_attachment_id.name}"
-        )
+        attachment = voucher.message_main_attachment_id
+        self.assertTrue(attachment, "expected designated proof for content URL")
+        return f"/web/content/{attachment.id}"
+
+    def _assert_payload_from_ir_attachment(self, payload, voucher):
+        attachment = voucher.message_main_attachment_id
+        self.assertTrue(attachment, "queue payload requires designated proof")
+        self.assertEqual(payload["attachment_filename"], attachment.name)
+        self.assertEqual(payload["mimetype"], attachment.mimetype)
+        self.assertEqual(payload["attachment_url"], self._expected_content_url(voucher))
+        self._assert_no_binary_in_payload(payload)
 
     def _viewer_template_xml(self):
         path = _DOCUMENT_REVIEW_DIR / "document_review_action.xml"
@@ -403,15 +413,10 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(payload["to_account"], "ACC-TO")
         self.assertEqual(payload["voucher_number"], "TRF-1")
         self.assertEqual(payload["voucher_date"], date(2026, 3, 15))
-        self.assertEqual(payload["attachment_filename"], "proof.png")
         self.assertEqual(payload["attachment_rotation"], 0)
         self.assertEqual(payload["position"], 1)
         self.assertEqual(payload["total"], 1)
-        self.assertEqual(
-            payload["attachment_url"],
-            self._expected_content_url(eligible),
-        )
-        self._assert_no_binary_in_payload(payload)
+        self._assert_payload_from_ir_attachment(payload, eligible)
 
     def test_queue_empty_when_no_eligible_vouchers(self):
         """Triangulation: ineligible-only setup yields an empty queue."""
@@ -474,21 +479,12 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(queue[1]["check_number"], "CHK-1")
         self.assertEqual(queue[1]["check_bank"], "Banco Nación")
         self.assertEqual(queue[1]["check_type"], "common")
-        self.assertEqual(queue[1]["attachment_filename"], "b.pdf")
         self.assertEqual(queue[0]["voucher_id"], png_voucher.id)
         self.assertEqual(queue[0]["voucher_name"], png_voucher.name)
         self.assertEqual(queue[1]["voucher_id"], pdf_voucher.id)
         self.assertEqual(queue[1]["voucher_name"], pdf_voucher.name)
-        self.assertEqual(
-            queue[0]["attachment_url"],
-            self._expected_content_url(png_voucher),
-        )
-        self.assertEqual(
-            queue[1]["attachment_url"],
-            self._expected_content_url(pdf_voucher),
-        )
-        for item in queue:
-            self._assert_no_binary_in_payload(item)
+        self._assert_payload_from_ir_attachment(queue[0], png_voucher)
+        self._assert_payload_from_ir_attachment(queue[1], pdf_voucher)
 
     def test_queue_image_payload_is_web_content_url_only(self):
         """Image proofs expose /web/content URLs, never datas/base64."""
@@ -515,13 +511,14 @@ class TestCollectionDocumentReview(TransactionCase):
         ):
             payload = queue[voucher.id]
             self.assertEqual(payload["attachment_filename"], filename)
-            self.assertEqual(
+            self.assertIn(
+                f"/web/content/{voucher.message_main_attachment_id.id}",
                 payload["attachment_url"],
-                self._expected_content_url(voucher),
             )
-            self.assertIn(f"id={voucher.id}", payload["attachment_url"])
-            self.assertIn(f"filename={filename}", payload["attachment_url"])
-            self._assert_no_binary_in_payload(payload)
+            self.assertNotIn(f"id={voucher.id}", payload["attachment_url"])
+            self.assertNotIn("field=", payload["attachment_url"])
+            self.assertTrue(payload["mimetype"].startswith("image/"))
+            self._assert_payload_from_ir_attachment(payload, voucher)
 
     def test_queue_pdf_payload_is_web_content_url_only(self):
         """Triangulation: PDF proofs use the same content route, never base64."""
@@ -540,14 +537,15 @@ class TestCollectionDocumentReview(TransactionCase):
             if item["id"] == pdf_voucher.id
         )
         self.assertEqual(payload["attachment_filename"], "comprobante.pdf")
-        self.assertEqual(
+        self.assertIn(
+            f"/web/content/{pdf_voucher.message_main_attachment_id.id}",
             payload["attachment_url"],
-            self._expected_content_url(pdf_voucher),
         )
-        self.assertIn(f"id={pdf_voucher.id}", payload["attachment_url"])
-        self.assertIn("filename=comprobante.pdf", payload["attachment_url"])
+        self.assertNotIn(f"id={pdf_voucher.id}", payload["attachment_url"])
+        self.assertNotIn("field=", payload["attachment_url"])
+        self.assertEqual(payload["mimetype"], "application/pdf")
         self.assertNotEqual(payload["attachment_url"], PNG_B64)
-        self._assert_no_binary_in_payload(payload)
+        self._assert_payload_from_ir_attachment(payload, pdf_voucher)
 
     def test_owl_line_model_is_collection_voucher(self):
         """OWL must call review RPCs on collection.voucher, not the dropped line."""
@@ -898,7 +896,7 @@ class TestCollectionDocumentReview(TransactionCase):
             if item["id"] == voucher.id
         )
         self.assertEqual(payload["attachment_rotation"], 90)
-        self._assert_no_binary_in_payload(payload)
+        self._assert_payload_from_ir_attachment(payload, voucher)
         voucher.action_review_set_rotation(self.review_sheet.id, 270)
         self.assertEqual(voucher.attachment_rotation, 270)
         voucher.action_review_set_rotation(self.review_sheet.id, 0)
@@ -932,6 +930,70 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.attachment_rotation, 0)
         self.assertEqual(voucher.message_main_attachment_id.name, "rotated-reset.pdf")
         self.assertNotEqual(voucher.message_main_attachment_id.id, stored_id)
+
+    def test_extra_chatter_files_do_not_reset_rotation(self):
+        """Extra chatter files MUST NOT reset saved rotation or designated proof."""
+        self._neutralize_preexisting_queue()
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-ROT-EXTRA",
+            document_id="DOC-REV-ROT-EXTRA",
+        )
+        voucher.action_review_set_rotation(self.review_sheet.id, 90)
+        proof = voucher.message_main_attachment_id
+        extra = self.env["ir.attachment"].create(
+            {
+                "name": "notes.txt",
+                "raw": b"hello world",
+                "res_model": "collection.voucher",
+                "res_id": voucher.id,
+            }
+        )
+        extra._post_add_create()
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.attachment_rotation, 90)
+        self.assertEqual(voucher.message_main_attachment_id, proof)
+        payload = next(
+            item
+            for item in voucher.get_review_queue(self.review_sheet.id)
+            if item["id"] == voucher.id
+        )
+        self.assertEqual(payload["attachment_rotation"], 90)
+        self._assert_payload_from_ir_attachment(payload, voucher)
+
+    def test_clear_designated_proof_resets_rotation(self):
+        """Clearing message_main_attachment_id MUST reset rotation to 0."""
+        self._neutralize_preexisting_queue()
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-ROT-CLEAR",
+            document_id="DOC-REV-ROT-CLEAR",
+        )
+        voucher.action_review_set_rotation(self.review_sheet.id, 270)
+        self.assertEqual(voucher.attachment_rotation, 270)
+        voucher.write({"message_main_attachment_id": False})
+        self.assertEqual(voucher.attachment_rotation, 0)
+        self.assertFalse(voucher.message_main_attachment_id)
+        queue = self.env["collection.voucher"].get_review_queue(self.review_sheet.id)
+        self.assertNotIn(voucher.id, [item["id"] for item in queue])
+
+    def test_stale_review_when_designated_proof_missing(self):
+        """Mutations MUST refuse a pending voucher after designated proof is cleared."""
+        voucher = self._create_attached_voucher(
+            customer_identification="CUST-REV-STALE-PROOF",
+            document_id="DOC-REV-STALE-PROOF",
+        )
+        voucher.write({"attachment_rotation": 90})
+        voucher.write({"message_main_attachment_id": False})
+        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(voucher.message_main_attachment_id)
+        with self.assertRaises(UserError):
+            voucher.action_review_approve(self.review_sheet.id, {"amount": 1.0})
+        with self.assertRaises(UserError):
+            voucher.action_review_reject(self.review_sheet.id)
+        with self.assertRaises(UserError):
+            voucher.action_review_set_rotation(self.review_sheet.id, 180)
+        self.assertEqual(voucher.state, "pending")
+        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
+        self.assertEqual(voucher.attachment_rotation, 0)
 
     def test_document_review_hides_document_id(self):
         """Reviewer UI must not show document_id; voucher and position stay visible."""
