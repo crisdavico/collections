@@ -6,7 +6,12 @@ chain_strategy: stacked-to-main
 execution_mode: interactive
 planning_depth: standard
 subagent_model: cursor-grok-4.6-high-fast
-phase: apply
+phase: verify
 updated: 2026-08-18
 notes: |
-  Maintainer: go + stacked-to-main. Apply Unit 1 next on feat/auto-assign-open-sheet-01-lifecycle.
+  Apply complete on stacked branches:
+  feat/auto-assign-open-sheet-01-lifecycle (c7bcbb7)
+  feat/auto-assign-open-sheet-02-one-open (c7bac90)
+  feat/auto-assign-open-sheet-03-auto-assign (5b036c6)
+  feat/auto-assign-open-sheet-04-docs-verify (this branch)
+  Next: sdd-verify. No push.

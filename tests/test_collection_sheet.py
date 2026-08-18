@@ -101,7 +101,7 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.state, "open")
 
     def test_raw_state_write_routes_to_close_and_reopen(self):
-        """write({state}) without collection_sheet_audited_state must run Close/Reopen."""
+        """write({state}) without audited-state context runs Close/Reopen."""
         sheet = self._create_sheet()
         sheet.write({"state": "closed"})
         self.assertEqual(sheet.state, "closed")
