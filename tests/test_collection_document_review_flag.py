@@ -305,3 +305,30 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         self.env.company.write({"document_review_enabled": True})
         self.assertTrue(self.env.company.document_review_enabled)
         self._assert_payment_voucher_views_keep_state_and_audit()
+
+    def test_saving_other_collection_settings_preserves_document_review_on(self):
+        """Saving other Collection Settings MUST NOT clear Document Review ON."""
+        self.env.company.write({"document_review_enabled": True})
+        self.assertTrue(self.env.company.document_review_enabled)
+        settings = self.env["res.config.settings"].create({"auto_create_sheet": False})
+        settings.execute()
+        self.assertTrue(
+            self.env.company.document_review_enabled,
+            "document_review_enabled must remain ON when other settings are saved",
+        )
+        self.assertFalse(
+            self.env.company.auto_create_sheet,
+            "auto_create_sheet must persist False from Collection Settings",
+        )
+
+    def test_saving_other_collection_settings_preserves_document_review_off(self):
+        """Triangulation: Document Review OFF stays OFF when other settings save."""
+        self._force_document_review_enabled(False)
+        self.assertFalse(self.env.company.document_review_enabled)
+        settings = self.env["res.config.settings"].create({"auto_create_sheet": False})
+        settings.execute()
+        self.assertFalse(
+            self.env.company.document_review_enabled,
+            "document_review_enabled must remain OFF when other settings are saved",
+        )
+        self.assertFalse(self.env.company.auto_create_sheet)

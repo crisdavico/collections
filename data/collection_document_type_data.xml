@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="document_type_bank_transfer" model="collection.document.type">
+        <field name="code">bank_transfer</field>
+        <field name="name">Bank Transfer</field>
+    </record>
+    <record id="document_type_check" model="collection.document.type">
+        <field name="code">check</field>
+        <field name="name">Check</field>
+    </record>
+    <record id="document_type_cash_deposit" model="collection.document.type">
+        <field name="code">cash_deposit</field>
+        <field name="name">Cash Deposit</field>
+    </record>
+    <record id="document_type_unsupported" model="collection.document.type">
+        <field name="code">unsupported</field>
+        <field name="name">Unsupported</field>
+    </record>
+    <function model="res.company" name="_collection_seed_allowed_document_types" />
+</odoo>

@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from . import test_collection_acl
+from . import test_collection_company_settings
 from . import test_collection_document_review
 from . import test_collection_document_review_flag
 from . import test_collection_mail

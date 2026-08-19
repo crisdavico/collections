@@ -905,8 +905,15 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(action._name, "ir.actions.client")
         self.assertFalse(getattr(action, "res_model", False))
 
+    SETTINGS_FIELD_NAMES = (
+        "document_review_enabled",
+        "enabled_seller_ids",
+        "auto_create_sheet",
+        "allowed_document_type_ids",
+    )
+
     def test_configuration_settings_menu_and_action(self):
-        """Collections → Configuration → Settings must open Collections settings."""
+        """Collections → Configuration → Collection Settings must keep XMLID."""
         root_menu = self.env.ref("collection.menu_collection_root")
         config_menu = self.env.ref("collection.menu_collection_config")
         settings_menu = self.env.ref("collection.menu_collection_settings")
@@ -918,13 +925,13 @@ class TestCollectionUi(TransactionCase):
         self.assertFalse(config_menu.action)
         self.assertIn(system, config_menu.group_ids)
 
-        self.assertEqual(settings_menu.name, "Settings")
+        self.assertEqual(settings_menu.name, "Collection Settings")
         self.assertEqual(settings_menu.parent_id, config_menu)
         self.assertEqual(settings_menu.action, action)
         self.assertIn(system, settings_menu.group_ids)
 
         self.assertEqual(action.type, "ir.actions.act_window")
-        self.assertEqual(action.name, "Settings")
+        self.assertEqual(action.name, "Collection Settings")
         self.assertEqual(action.res_model, "res.config.settings")
         self.assertEqual(action.view_mode, "form")
         context = action.context or {}
@@ -935,7 +942,7 @@ class TestCollectionUi(TransactionCase):
             self.assertEqual(context.get("module"), "collections")
 
     def test_load_menus_includes_configuration_settings(self):
-        """Admin load_menus MUST include Collections → Configuration → Settings."""
+        """Admin load_menus MUST include Collections → Collection Settings."""
         root_menu = self.env.ref("collection.menu_collection_root")
         config_menu = self.env.ref("collection.menu_collection_config")
         settings_menu = self.env.ref("collection.menu_collection_settings")
@@ -950,10 +957,10 @@ class TestCollectionUi(TransactionCase):
         self.assertIn(
             settings_menu.id,
             menus,
-            "Settings menu must be present in load_menus for admin",
+            "Collection Settings menu must be present in load_menus for admin",
         )
         self.assertEqual(menus[config_menu.id].get("name"), "Configuration")
-        self.assertEqual(menus[settings_menu.id].get("name"), "Settings")
+        self.assertEqual(menus[settings_menu.id].get("name"), "Collection Settings")
         self.assertEqual(
             menus[settings_menu.id].get("action_model"),
             "ir.actions.act_window",
@@ -964,7 +971,7 @@ class TestCollectionUi(TransactionCase):
         )
 
     def test_settings_arch_has_collections_app_and_flag_field(self):
-        """Settings inherit MUST expose app name=collections and the related flag."""
+        """Settings inherit MUST expose Collections app and Collection Settings."""
         root = self._arch_root("collection.res_config_settings_view_form")
         apps = root.xpath("//app[@name='collections']")
         self.assertEqual(
@@ -972,15 +979,16 @@ class TestCollectionUi(TransactionCase):
             1,
             "Settings inherit must declare <app name='collections'>",
         )
-        fields = apps[0].xpath(".//field[@name='document_review_enabled']")
-        self.assertEqual(
-            len(fields),
-            1,
-            "Collections settings app must include document_review_enabled",
-        )
+        for field_name in self.SETTINGS_FIELD_NAMES:
+            fields = apps[0].xpath(f".//field[@name='{field_name}']")
+            self.assertEqual(
+                len(fields),
+                1,
+                f"Collections settings app must include {field_name}",
+            )
 
     def test_settings_combined_view_exposes_collections_flag(self):
-        """Triangulation: combined Settings form via get_view includes the flag."""
+        """Triangulation: combined Settings form includes Collection Settings."""
         result = self.env["res.config.settings"].get_view(view_type="form")
         arch = etree.fromstring(result["arch"])
         apps = arch.xpath("//app[@name='collections']")
@@ -988,11 +996,12 @@ class TestCollectionUi(TransactionCase):
             apps,
             "combined Settings view must include app name=collections",
         )
-        fields = apps[0].xpath(".//field[@name='document_review_enabled']")
-        self.assertTrue(
-            fields,
-            "combined Settings view must include document_review_enabled",
-        )
+        for field_name in self.SETTINGS_FIELD_NAMES:
+            fields = apps[0].xpath(f".//field[@name='{field_name}']")
+            self.assertTrue(
+                fields,
+                f"combined Settings view must include {field_name}",
+            )
 
     def test_load_menus_omits_document_review_when_flag_off(self):
         """When Document Review is OFF, load_menus MUST omit the review menu."""
