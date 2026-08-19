@@ -1,17 +1,17 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:e7befcc4dc6f0281b1cf18b87926ceee385bc6b85cfeb46564e8bea5b262de88
-verdict: fail
-blockers: 4
-critical_findings: 4
-requirements: 25/27
-scenarios: 94/98
+evidence_revision: sha256:2d567b8e9806a908880ffe5a9755e32f92fa6da66c5f552fa216193b85e44f0b
+verdict: pass_with_warnings
+blockers: 0
+critical_findings: 0
+requirements: 27/27
+scenarios: 98/98
 test_command: invoke test -m collection --mode=update
 test_exit_code: 0
-test_output_hash: sha256:23102429c605c9903a921a021d0918d9be3ed1d015eeac9ba5b2140b9cc93691
+test_output_hash: sha256:f53c94a632527e062e0058f37ae976c18cfe71528a4366864b0b8323ef61f652
 build_command: "pre-commit run --files odoo/custom/src/private/collection/__manifest__.py odoo/custom/src/private/collection/AGENTS.md odoo/custom/src/private/collection/README.rst odoo/custom/src/private/collection/models/__init__.py odoo/custom/src/private/collection/models/collection_document_type.py odoo/custom/src/private/collection/models/collection_voucher.py odoo/custom/src/private/collection/models/collection_sheet.py odoo/custom/src/private/collection/models/collection_voucher_review_snapshot.py odoo/custom/src/private/collection/models/res_company.py odoo/custom/src/private/collection/models/res_config_settings.py odoo/custom/src/private/collection/tools/collection_voucher.py odoo/custom/src/private/collection/data/collection_document_type_data.xml odoo/custom/src/private/collection/data/ir_sequence_data.xml odoo/custom/src/private/collection/security/collection_security.xml odoo/custom/src/private/collection/security/ir.model.access.csv odoo/custom/src/private/collection/views/collection_views.xml odoo/custom/src/private/collection/views/res_config_settings_views.xml odoo/custom/src/private/collection/migrations/19.0.1.17.0/post-migrate.py odoo/custom/src/private/collection/readme/DESCRIPTION.md odoo/custom/src/private/collection/static/description/index.html odoo/custom/src/private/collection/tests/__init__.py odoo/custom/src/private/collection/tests/test_collection_ui.py odoo/custom/src/private/collection/tests/test_collection_document_review_flag.py odoo/custom/src/private/collection/tests/test_collection_company_settings.py odoo/custom/src/private/collection/tests/test_collection_acl.py odoo/custom/src/private/collection/tests/test_collection_company_migration.py odoo/custom/src/private/collection/tests/test_collection_voucher.py odoo/custom/src/private/collection/tests/test_collection_sheet.py odoo/custom/src/private/collection/tests/test_collection_payment.py odoo/custom/src/private/collection/tests/test_collection_mail.py odoo/custom/src/private/collection/tests/test_collection_document_review.py odoo/custom/src/private/collection/tests/test_collection_mcp_tool.py odoo/custom/src/private/collection/tests/test_collection_mcp_seller_lookup.py"
 build_exit_code: 0
-build_output_hash: sha256:2488e7c81d3c2410c7af3d5216437ac1768cf9ca0ee018b565258575f718d08a
+build_output_hash: sha256:c79ce1002758912d022a814cda4bf0c879807cd1d8da41e012f1c4fa59268eaa
 ```
 
 ## Verification Report
@@ -20,13 +20,13 @@ build_output_hash: sha256:2488e7c81d3c2410c7af3d5216437ac1768cf9ca0ee018b5652585
 **Version**: 19.0.1.17.0
 **Mode**: Strict TDD
 
-Engram was unavailable (orchestrator). CodeGraph MCP server `user-codegraph` was not listed; verification used filesystem inspection of `odoo/custom/src/private/collection` plus this session's runtime suite. `invoke img-build` was skipped (Python/XML change; image rebuild not required). Quality/build evidence is scoped pre-commit.
+Re-verify after Phase 8 covering tests (no production change). Engram was unavailable (orchestrator). CodeGraph MCP server `user-codegraph` was not listed; verification used filesystem inspection of `odoo/custom/src/private/collection` plus this session's runtime suite. `invoke img-build` was skipped (Python/XML change; image rebuild not required). Quality/build evidence is scoped pre-commit. Spec totals counted from `### Requirement:` / `#### Scenario:` headings in the four delta specs: collection-vouchers 15/60, collection-sheets 9/27, document-review 2/8, seller-lookup 1/3.
 
 ### Completeness
 | Metric | Value |
 |--------|-------|
-| Tasks total | 14 |
-| Tasks complete | 14 |
+| Tasks total | 15 |
+| Tasks complete | 15 |
 | Tasks incomplete | 0 |
 
 ### Build & Tests Execution
@@ -39,11 +39,17 @@ pylint optional C8101 manifest-required-author (Seedian vs Eynes) — hook still
 exit 0
 ```
 
-**Tests**: ✅ 387 passed / ❌ 0 failed / ⚠️ 0 skipped
+**Tests**: ✅ 392 passed / ❌ 0 failed / ⚠️ 0 skipped
 ```text
 invoke test -m collection --mode=update
-collection: 387 tests 14.40s 22835 queries
-0 failed, 0 error(s) of 351 tests when loading database 'devel'
+collection: 392 tests 14.87s 23243 queries
+0 failed, 0 error(s) of 356 tests when loading database 'devel'
+This session started and passed:
+TestCollectionMcpTool.test_all_new_empty_enabled_sellers_rejects_no_writes
+TestCollectionMcpTool.test_all_new_disabled_seller_rejects_no_writes
+TestCollectionMcpTool.test_all_new_disallowed_type_rejects_no_writes
+TestCollectionMcpTool.test_all_new_auto_create_off_stays_unassigned
+TestCollectionSheet.test_action_rejected_for_disabled_seller
 exit 0
 ```
 
@@ -90,9 +96,9 @@ exit 0
 | MCP tool create_collection_vouchers | All-new with no open creates one open sheet and assigns all | `tests/test_collection_mcp_tool.py > test_all_new_no_open_creates_one_sheet_and_assigns_all` | ✅ COMPLIANT |
 | MCP tool create_collection_vouchers | All-new with more than one open rejected | `tests/test_collection_mcp_tool.py > test_all_new_multiple_opens_rejects_no_writes` | ✅ COMPLIANT |
 | MCP tool create_collection_vouchers | Exact replay does not change sheet_id | `tests/test_collection_mcp_tool.py > test_exact_replay_leaves_sheet_id_and_write_date` | ✅ COMPLIANT |
-| MCP tool create_collection_vouchers | All-new empty or disabled seller rejected | (none found: no `create_collection_vouchers` call with unused document_ids after empty/disabled list) | ❌ UNTESTED |
-| MCP tool create_collection_vouchers | All-new disallowed type rejected | (none found: no MCP all-new `_call` with a disabled `document_type`) | ❌ UNTESTED |
-| MCP tool create_collection_vouchers | All-new with auto_create_sheet off stays unassigned | (none found: no MCP all-new success asserting empty `sheet_id` when auto is OFF) | ❌ UNTESTED |
+| MCP tool create_collection_vouchers | All-new empty or disabled seller rejected | `tests/test_collection_mcp_tool.py > test_all_new_empty_enabled_sellers_rejects_no_writes` / `test_all_new_disabled_seller_rejects_no_writes` | ✅ COMPLIANT |
+| MCP tool create_collection_vouchers | All-new disallowed type rejected | `tests/test_collection_mcp_tool.py > test_all_new_disallowed_type_rejects_no_writes` | ✅ COMPLIANT |
+| MCP tool create_collection_vouchers | All-new with auto_create_sheet off stays unassigned | `tests/test_collection_mcp_tool.py > test_all_new_auto_create_off_stays_unassigned` | ✅ COMPLIANT |
 | Voucher seller field | Legacy null remains valid | `tests/test_collection_voucher.py > test_orm_write_does_not_backfill_null_seller` | ✅ COMPLIANT |
 | Voucher seller field | ORM create without seller | `tests/test_collection_voucher.py > test_orm_create_without_seller_is_rejected` | ✅ COMPLIANT |
 | Voucher seller field | Form create requires seller | `tests/test_collection_ui.py > test_form_seller_id_is_required` | ✅ COMPLIANT |
@@ -126,7 +132,7 @@ exit 0
 | Create sheet Action | Ineligible selection rejected | `tests/test_collection_sheet.py > test_action_rejects_ineligible_selection` | ✅ COMPLIANT |
 | Create sheet Action | Action rejected when an open sheet exists | `tests/test_collection_sheet.py > test_action_rejected_when_open_sheet_exists` | ✅ COMPLIANT |
 | Create sheet Action | Action remains when auto-create is off | `tests/test_collection_sheet.py > test_action_creates_sheet_when_auto_create_off` | ✅ COMPLIANT |
-| Create sheet Action | Action rejected for a disabled seller | (none found: no `action_create_collection_sheet` after seller removed from enabled list) | ❌ UNTESTED |
+| Create sheet Action | Action rejected for a disabled seller | `tests/test_collection_sheet.py > test_action_rejected_for_disabled_seller` | ✅ COMPLIANT |
 | Authorization for internal users (sheets) | Internal user CRUD | `tests/test_collection_acl.py > test_internal_user_sheet_crud_allowed` | ✅ COMPLIANT |
 | Authorization for internal users (sheets) | Non-internal user denied | `tests/test_collection_acl.py > test_portal_user_sheet_crud_denied` | ✅ COMPLIANT |
 | Open/closed lifecycle | Default open on create | `tests/test_collection_sheet.py > test_sequence_assigned_on_create` | ✅ COMPLIANT |
@@ -151,7 +157,7 @@ exit 0
 | Per-company Document Review flag | Flag preserved when Collection Settings are saved | `tests/test_collection_document_review_flag.py > test_saving_other_collection_settings_preserves_document_review_on` / `_off` | ✅ COMPLIANT |
 | Per-company Document Review flag | Flag still gates review when ON or OFF | `tests/test_collection_document_review_flag.py > test_get_review_queue_raises_when_review_off`; `tests/test_collection_acl.py > test_internal_user_review_queue_and_approve_allowed` | ✅ COMPLIANT |
 
-**Compliance summary**: 94/98 scenarios compliant
+**Compliance summary**: 98/98 scenarios compliant
 
 ### Correctness (Static Evidence)
 | Requirement | Status | Notes |
@@ -161,8 +167,8 @@ exit 0
 | New-work helper | ✅ Implemented | `@api.private` `_assert_new_work`; voucher create/write; sheet create |
 | Cross-company document_id | ✅ Implemented | Classifier + generic UniqueViolation; no `sudo()` |
 | Upgrade + sequences | ✅ Implemented | `migrations/19.0.1.17.0/post-migrate.py` steps 1–6; `with_company` |
-| MCP all-new gates | ⚠️ Path exists, untested at tool | `_collection_create_vouchers` → `Voucher.create` → helper; no MCP `_call` cases for empty seller / disallowed type / auto OFF |
-| Create sheet Action disabled seller | ⚠️ Path exists, untested | Action calls `Sheet.create` which runs helper |
+| MCP all-new gates | ✅ Implemented | `_call` covering tests this session: empty sellers, disabled seller, disallowed type, auto OFF unassigned |
+| Create sheet Action disabled seller | ✅ Implemented | `test_action_rejected_for_disabled_seller` calls `action_create_collection_sheet` after `Command.set` other seller |
 | `get_seller_id` unfiltered | ✅ Implemented | `tools/seller_lookup.py` unchanged; lookup tests passed |
 | Catalog + snapshot isolation | ✅ Implemented | `UNIQUE(code)`; related stored snapshot `company_id` + `ir.rule` |
 
@@ -178,7 +184,7 @@ exit 0
 | Global UNIQUE; reject-not-replay | ✅ Yes | Generic message, no ids |
 | Per-company sequences | ✅ Yes | Convert False→main; copies `number_next=1` |
 | One-open `(company, seller)` | ✅ Yes | Advisory lock includes company |
-| auto OFF skips create and assign | ✅ Yes (ORM tested) | MCP all-new OFF untested |
+| auto OFF skips create and assign | ✅ Yes | ORM and MCP `_call` covering tests passed this session |
 | `get_seller_id` unchanged | ✅ Yes | |
 | Labels only; keep XMLID | ✅ Yes | |
 | Migrate folder `19.0.1.16.0` | ⚠️ Deviates | Shipped `19.0.1.17.0` so devel already at 1.16.0 still runs it |
@@ -188,11 +194,11 @@ exit 0
 ### TDD Compliance
 | Check | Result | Details |
 |-------|--------|---------|
-| TDD Evidence reported | ✅ | Found in apply-progress TDD Cycle Evidence table |
-| All tasks have tests | ⚠️ | 13/14 tasks have test files; 7.1 is docs-only with suite safety net |
-| RED confirmed (tests exist) | ✅ | Listed test files exist on disk |
-| GREEN confirmed (tests pass) | ✅ | 14/14 GREEN claims: this session `387 tests` / `0 failed` |
-| Triangulation adequate | ⚠️ | Most tasks multi-case; WU6.1 recorded that same-co disabled replay, UniqueViolation hidden, and unfiltered lookup already passed (never RED) |
+| TDD Evidence reported | ✅ | Found in apply-progress TDD Cycle Evidence table including Unit 8 |
+| All tasks have tests | ⚠️ | 14/15 tasks have test files; 7.1 is docs-only with suite safety net |
+| RED confirmed (tests exist) | ✅ | Listed test files exist on disk, including Phase 8 MCP/Action methods |
+| GREEN confirmed (tests pass) | ✅ | This session `392 tests` / `0 failed` |
+| Triangulation adequate | ⚠️ | Phase 8 triangulates empty vs disabled seller, type, auto OFF, Action; WU6.1 and WU8.1 recorded already-green RED (helper already on create) |
 | Safety Net for modified files | ✅ | RED tasks show prior suite counts; GREEN rows N/A (implements prior RED) |
 
 **TDD Compliance**: 4/6 checks passed (2 warnings)
@@ -202,10 +208,10 @@ exit 0
 ### Test Layer Distribution
 | Layer | Tests | Files | Tools |
 |-------|-------|-------|-------|
-| Unit | 387 (module suite; 351 methods in 12 `test_collection_*.py` files) | 12 | Odoo TransactionCase |
+| Unit | 392 (module suite; 356 methods in 12 `test_collection_*.py` files) | 12 | Odoo TransactionCase |
 | Integration | 0 dedicated HttpCase/tours | 0 | Containerized Odoo+Postgres available; suite remains TransactionCase |
 | E2E | 0 | 0 | not installed |
-| **Total** | **387** | **12** | |
+| **Total** | **392** | **12** | |
 
 ---
 
@@ -220,9 +226,9 @@ Coverage analysis skipped — no coverage tool detected
 | `tests/test_collection_mcp_seller_lookup.py` | 307–320 | `self.assertNotIn("sudo()", code)` | Source-scan rather than runtime behavior (companion `_call` tests still assert live lookup) | WARNING |
 | `tests/test_collection_acl.py` | 436–437 | `self.assertNotIn(".sudo(", code)` | Same source-scan pattern | WARNING |
 
-**Assertion quality**: 0 CRITICAL, 2 WARNING
+Phase 8 covering tests call production `_call` / `action_create_collection_sheet`, assert `UserError` text, and assert no voucher/sheet writes (or unassigned vouchers when auto is OFF). No tautologies, ghost loops, or empty-only assertions.
 
-No tautologies, ghost loops, or empty-only assertions found in change tests.
+**Assertion quality**: 0 CRITICAL, 2 WARNING
 
 ---
 
@@ -231,25 +237,19 @@ No tautologies, ghost loops, or empty-only assertions found in change tests.
 **Type Checker**: ➖ Not available
 
 ### Issues Found
-**CRITICAL**:
-1. UNTESTED: MCP `All-new empty or disabled seller rejected` — no `create_collection_vouchers` call with unused `document_id`s after an empty/disabled enabled-seller list. ORM helper tests passed; MCP When was not exercised.
-2. UNTESTED: MCP `All-new disallowed type rejected` — no MCP all-new `_call` with a disabled `document_type`.
-3. UNTESTED: MCP `All-new with auto_create_sheet off stays unassigned` — no MCP all-new success asserting vouchers stay unassigned and no sheet is created/attached.
-4. UNTESTED: `Action rejected for a disabled seller` — no `action_create_collection_sheet` after the selection seller is removed from `enabled_seller_ids`.
+**CRITICAL**: None
 
 **WARNING**:
 1. Design migrate path `migrations/19.0.1.16.0/` shipped as `migrations/19.0.1.17.0/` with manifest `19.0.1.17.0` (devel already at 1.16.0).
 2. Snapshot `company_id` uses `required=True` and `precompute=True` beyond the design `currency_id` related-stored pattern.
 3. `_assert_new_work` is called on `sheet.create` (seller only); design file-change table emphasized voucher, while the enforcement matrix includes explicit sheet create.
 4. Catalog read ACL shipped in WU1 (design listed ACL flips with WU2). No extra groups.
-5. Strict TDD: WU6.1 triangulation includes cases that already passed before RED (no-regression), not newly failing tests.
+5. Strict TDD: WU6.1 and WU8.1 include covering tests that already passed on first run (no-regression / helper already on create), not newly failing RED.
 6. Optional pylint `manifest-required-author` (Seedian vs hook expected Eynes).
 
 **SUGGESTION**:
-1. Add three MCP `_call` tests for all-new empty/disabled seller, disallowed type, and auto-create OFF unassigned.
-2. Add one list-Action test that creates historical unassigned vouchers, disables the seller, then asserts Action reject and no sheet.
-3. Optional mixed-company list-Action test (design note; not a delta scenario).
+1. Optional mixed-company list-Action test (design note; not a delta scenario).
 
 ### Verdict
-FAIL
-Four required spec scenarios have no covering test that invoked their When path this session, despite 387 passing tests and complete tasks.
+PASS WITH WARNINGS
+All 98 delta scenarios have covering tests that passed this session (392/0), including the four previously UNTESTED MCP/Action When-paths. Remaining warnings are documented design/TDD deviations that do not break specs.
