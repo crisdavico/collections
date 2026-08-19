@@ -6,6 +6,11 @@ designated proof (`message_main_attachment_id` on chatter `ir.attachment`; no Bi
 `attachment` field), and a pending → approved/rejected lifecycle. Collection sheets
 group a seller’s vouchers (`open`/`closed`) and have their own chatter and activities.
 
+Per-company Collection Settings (`res.company` + related `res.config.settings`; XMLID
+`collection.action_collection_config_settings`) control enabled sellers (empty = none
+for new work), auto-create sheet (default ON), allowed document types, and Document
+Review. Voucher (`COL/`) and sheet (`CS/`) sequences are per company.
+
 MCP `create_collection_vouchers` creates N vouchers in one savepoint and returns
 `{vouchers:[{id,name,state,document_id},...]}`. Each payment may nest `raw_ocr` and
 `seller_confirmed` (typed review fields; both omitted leaves empty provenance).

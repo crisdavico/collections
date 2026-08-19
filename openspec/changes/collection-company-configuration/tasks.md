@@ -62,4 +62,4 @@ PR ≤~400; stacked-to-main. No nebula-agent. Threat-matrix N/A. Verify: upgrade
 
 ## Phase 7: Docs
 
-- [ ] 7.1 Update `AGENTS.md` (helper, sequences, `ir.rule`, MCP replay) + pre-commit + tests.
+- [x] 7.1 Update `AGENTS.md` (helper, sequences, `ir.rule`, MCP replay) + pre-commit + tests.

@@ -2,7 +2,7 @@
 
 **Change**: collection-company-configuration
 **Mode**: Strict TDD
-**Batch**: Work unit 6 / PR 6 (stacked-to-main)
+**Batch**: Work unit 7 / PR 7 (stacked-to-main)
 **Updated**: 2026-08-19
 
 ## Completed Tasks
@@ -19,6 +19,7 @@
 - [x] 5.2 GREEN: Gate auto-assign (OFF skips both); lock `(company_id, seller_id)`; list Action uses company + helper.
 - [x] 6.1 RED: Flip global replay (`test_collection_mcp_tool.py`); same-co replay; other-co reject; UniqueViolation hidden; no B replay; unfiltered `get_seller_id`.
 - [x] 6.2 GREEN: Classifier in `tools/collection_voucher.py`; no `sudo()`; generic `UserError`; all-new via helper; leave `seller_lookup.py`.
+- [x] 7.1 Update `AGENTS.md` (helper, sequences, `ir.rule`, MCP replay) + pre-commit + tests.
 
 ## Files Changed
 
@@ -98,7 +99,7 @@
 | `models/collection_voucher.py` | Modified | Gate auto-assign on company `auto_create_sheet`; resolve by `(company_id, seller_id)`; list Action uses selection company + helper |
 | `models/collection_sheet.py` | Modified | Open-sheet search + advisory lock scoped to `(company_id, seller_id)`; create/reopen keys by company+seller; auto-created sheets stamp voucher company |
 
-### Unit 6 (this batch)
+### Unit 6 (prior)
 
 | File | Action | What Was Done |
 |------|--------|---------------|
@@ -106,6 +107,15 @@
 | `tests/test_collection_mcp_seller_lookup.py` | Modified | `get_seller_id` still matches when not enabled, empty list, or enabled only on another company |
 | `tests/test_collection_sheet.py` | Modified | Sequence regex allows 4+ digits (`CS/year/number` overflow on long-lived devel) |
 | `tools/collection_voucher.py` | Modified | Visible-hit classifier: same-company exact replay; other-company generic UserError; UniqueViolation invalidate then same classify; no `sudo()` |
+
+### Unit 7 (this batch)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `AGENTS.md` | Modified | Domain rules for Collection Settings, `_assert_new_work`, per-company sequences, `ir.rule`, one-open `(company, seller)`, auto-sheet OFF, same-company MCP replay; repo map + `--mode=update` testing |
+| `readme/DESCRIPTION.md` | Modified | Per-company Collection Settings + sequences (was omitted) |
+| `README.rst` | Modified | Regenerated from fragment by OCA readme hook |
+| `static/description/index.html` | Modified | Regenerated from fragment by OCA readme hook |
 
 ## TDD Cycle Evidence
 
@@ -123,22 +133,31 @@
 | 5.2 | same + `tests/test_collection_company_migration.py` | Unit | N/A (implements 5.1) | ✅ Tests first | ✅ 380 tests / 0 failed | ✅ Covered by 5.1 cases; isolation test retargeted with auto OFF | ✅ Extract `_company_id_of`; lock `hashtext('collection.sheet.open.' \|\| company_id)` |
 | 6.1 | `tests/test_collection_mcp_tool.py`, `tests/test_collection_mcp_seller_lookup.py` | Unit (TransactionCase) | ✅ 380 tests / 0 failed (`invoke test -m collection --mode=update`) | ✅ Written (2 FAIL: visible other-company still replayed). Same-co disabled-seller replay, UniqueViolation hidden, and unfiltered `get_seller_id` already passed (no-regression) | ✅ Passed | ✅ Same-co replay with disabled seller + disallowed type; other-co visible reject; multi-company no B replay; UniqueViolation hidden; lookup not-enabled / empty / other-co enabled | ➖ E501 wraps |
 | 6.2 | `tools/collection_voucher.py` | Unit | N/A (implements 6.1) | ✅ Tests first | ✅ 387 tests / 0 failed | ✅ Covered by 6.1 cases | ✅ Extract `_collection_document_conflict_error` + `_collection_classify_visible` |
+| 7.1 | `AGENTS.md`, `readme/DESCRIPTION.md` | Docs | ✅ 387 tests / 0 failed (`invoke test -m collection --mode=update`) | ✅ Stale domain rules (no `ir.rule`, nullable seller, global sequences, per-seller one-open, global MCP replay) | ✅ Docs match shipped WU1–6; scoped pre-commit Passed | ✅ Settings XMLID, helper skip paths, `with_company`, same-co replay, `--mode=update` | ➖ Restored OpenSpec wrap after prettier; generated README only |
 
 ### Test Summary
 
-- **Total tests written this slice**: 4 MCP classifier methods + 3 seller-lookup no-regression methods
+- **Total tests written this slice**: 0 (docs-only; no production behavior)
 - **Total tests passing**: 387 (`invoke test -m collection --mode=update`: `0 failed, 0 error(s) of 351 tests when loading database 'devel'`)
-- **Layers used**: Unit (7 new this slice), Integration (0), E2E (0)
-- **Approval tests** (refactoring): 3 seller-lookup no-regression cases (production `seller_lookup.py` unchanged)
-- **Pure functions created**: 0 (classifier is ORM-bound on `env.company` + visible recordset)
+- **Layers used**: Unit (0 new this slice), Integration (0), E2E (0)
+- **Approval tests** (refactoring): full collection suite as no-regression net
+- **Pure functions created**: 0
 
-## Work Unit Evidence
+## Work Unit Evidence (Unit 6, prior)
 
 | Evidence | Value |
 |---|---|
 | Focused test command and exact result | `invoke test -m collection --mode=update` from `/home/crisd/projects/seedian/seedian` → SAFETY NET: `collection: 380 tests` / `0 failed`. RED: `2 failed` (`test_other_company_visible_hit_rejects_generic_no_ids`, `test_multi_company_reader_does_not_replay_other_company` still replayed). GREEN: `collection: 387 tests` / `0 failed, 0 error(s) of 351 tests when loading database 'devel'` |
 | Runtime harness command/scenario and exact result | GREEN `-u collection` on devel ran the MCP classifier + seller-lookup tests. Scoped pre-commit on touched collection paths: Passed |
 | Rollback boundary | Revert `tools/collection_voucher.py` classifier, WU6 MCP/seller-lookup tests, and the sheet sequence `\d{4,}` regex. Does not remove helper (WU4), catalog/settings (WU1), `company_id`/`ir.rule` (WU2), migrate/sequences (WU3), auto-sheet (WU5), or `AGENTS.md` (WU7). Does not change `seller_lookup.py` |
+
+## Work Unit Evidence (Unit 7)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | Scoped `pre-commit run --files` on `AGENTS.md` + `readme/DESCRIPTION.md`: Passed (prettier, OCA gen-addon-readme). `invoke test -m collection --mode=update` → `collection: 387 tests` / `0 failed, 0 error(s) of 351 tests when loading database 'devel'` |
+| Runtime harness command/scenario and exact result | N/A — docs-only; no runtime boundary. Regression suite above is the safety net. |
+| Rollback boundary | Revert `AGENTS.md`, `readme/DESCRIPTION.md`, generated `README.rst` / `static/description/index.html`, and this OpenSpec 7.1 checkbox. Does not change production, `seller_lookup.py`, or Nebula docs. |
 
 ## Deviations from Design
 
@@ -173,15 +192,15 @@ None of these change stamp order, repair, four-type union, `with_company` number
 
 ## Remaining Tasks
 
-- [ ] 7.1 `AGENTS.md` domain-rule rewrite
+None.
 
 ## Workload / PR Boundary
 
 - Mode: stacked PR slice (stacked-to-main)
-- Current work unit: Unit 6 — MCP same-co replay vs reject
-- Boundary: starts from WU5 branch (`feat/collection-company-config-05-auto-sheet`); ends with company-scoped MCP classifier in `tools/collection_voucher.py` (same-company exact replay; other-company / hidden UniqueViolation generic UserError; all-new still ORM helper). Does **not** include `AGENTS.md` (WU7). Does not change `seller_lookup.py`.
-- Estimated review budget impact: production ~37 authored added+deleted lines (`tools/collection_voucher.py`); tests ~330. Under the 400-line review budget for production; tests are the bulk. OpenSpec progress checkboxes excluded from authored risk.
+- Current work unit: Unit 7 — Docs / `AGENTS.md`
+- Boundary: starts from WU6 branch (`feat/collection-company-config-06-mcp` / current `feat/collection-company-config-07-docs`); ends with agent/human docs matching shipped WU1–6. Does not change production Python, `seller_lookup.py`, or Nebula docs.
+- Estimated review budget impact: authored docs (`AGENTS.md` + `readme/DESCRIPTION.md`) well under 400 lines; generated `README.rst` / `index.html` from OCA hook. OpenSpec progress checkboxes excluded from authored risk.
 
 ## Status
 
-12/14 phase tasks complete (unit 6 of 7). Ready for next batch: **sdd-apply work unit 7**.
+14/14 phase tasks complete (unit 7 of 7). Ready for **sdd-verify**.
