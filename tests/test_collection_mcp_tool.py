@@ -13,7 +13,7 @@ from odoo.tools import mute_logger
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
-from .test_collection_payment import ensure_enabled_seller
+from .test_collection_payment import create_internal_seller, ensure_enabled_seller
 
 TOOL_NAME = "create_collection_vouchers"
 OLD_TOOL_NAME = "create_collection_voucher"
@@ -1009,6 +1009,157 @@ class TestCollectionMcpTool(TransactionCase):
         )
         self.assertEqual(first_sheet.state, "open")
         self.assertEqual(leftover.state, "open")
+
+    def test_all_new_empty_enabled_sellers_rejects_no_writes(self):
+        """All-new MCP MUST reject unused docs when the enabled-seller list is empty."""
+        self.env.company.write({"enabled_seller_ids": [Command.clear()]})
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_sheets = self.env["collection.sheet"].search_count([])
+        document_ids = ["MCP-DOC-EMPTY-SELLERS-A", "MCP-DOC-EMPTY-SELLERS-B"]
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-EMPTY-SELLERS",
+                    payments=[
+                        {
+                            "document_id": document_ids[0],
+                            "document_type": "bank_transfer",
+                            "amount": 10.0,
+                        },
+                        {
+                            "document_id": document_ids[1],
+                            "document_type": "check",
+                            "amount": 20.0,
+                            "check_type": "common",
+                        },
+                    ],
+                )
+            )
+        self.assertIn("seller", str(err.exception).lower())
+        self.assertNotIn("tool not found", str(err.exception).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+        self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+        self.assertFalse(
+            self.env["collection.voucher"].search([("document_id", "in", document_ids)])
+        )
+
+    def test_all_new_disabled_seller_rejects_no_writes(self):
+        """Triangulation: all-new MCP MUST reject a seller missing from the list."""
+        disabled = create_internal_seller(self.env, "mcp_all_new_disabled_seller")
+        self.env.company.write(
+            {"enabled_seller_ids": [Command.set([self.internal_user.id])]}
+        )
+        self.assertNotIn(disabled, self.env.company.enabled_seller_ids)
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_sheets = self.env["collection.sheet"].search_count([])
+        document_ids = ["MCP-DOC-DISABLED-SELLER-A", "MCP-DOC-DISABLED-SELLER-B"]
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-DISABLED-SELLER",
+                    payments=[
+                        {
+                            "document_id": document_ids[0],
+                            "document_type": "bank_transfer",
+                            "amount": 11.0,
+                        },
+                        {
+                            "document_id": document_ids[1],
+                            "document_type": "cash_deposit",
+                            "amount": 12.0,
+                        },
+                    ],
+                    seller_id=disabled.id,
+                )
+            )
+        self.assertIn("seller", str(err.exception).lower())
+        self.assertNotIn("tool not found", str(err.exception).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+        self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+        self.assertFalse(
+            self.env["collection.voucher"].search([("document_id", "in", document_ids)])
+        )
+
+    def test_all_new_disallowed_type_rejects_no_writes(self):
+        """All-new MCP MUST reject unused docs whose document_type is not allowed."""
+        bank = self.env["collection.document.type"].search(
+            [("code", "=", "bank_transfer")], limit=1
+        )
+        self.assertTrue(bank)
+        self.env.company.write({"allowed_document_type_ids": [Command.unlink(bank.id)]})
+        self.assertIn(self.internal_user, self.env.company.enabled_seller_ids)
+        self.assertNotIn(
+            "bank_transfer",
+            self.env.company.allowed_document_type_ids.mapped("code"),
+        )
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_sheets = self.env["collection.sheet"].search_count([])
+        document_id = "MCP-DOC-DISALLOWED-TYPE"
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-DISALLOWED-TYPE",
+                    payments=[
+                        {
+                            "document_id": document_id,
+                            "document_type": "bank_transfer",
+                            "amount": 13.0,
+                        }
+                    ],
+                )
+            )
+        message = str(err.exception).lower()
+        self.assertIn("document type", message)
+        self.assertNotIn("tool not found", message)
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+        self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+        self.assertFalse(
+            self.env["collection.voucher"].search([("document_id", "=", document_id)])
+        )
+
+    def test_all_new_auto_create_off_stays_unassigned(self):
+        """All-new MCP with auto_create_sheet OFF MUST create unassigned vouchers."""
+        self.env.company.write({"auto_create_sheet": False})
+        self.assertIn(self.internal_user, self.env.company.enabled_seller_ids)
+        before_sheets = self.env["collection.sheet"].search_count([])
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        document_ids = ["MCP-DOC-AUTO-OFF-A", "MCP-DOC-AUTO-OFF-B"]
+        result = self._call(
+            self._payload(
+                customer="MCP-CUST-AUTO-OFF",
+                payments=[
+                    {
+                        "document_id": document_ids[0],
+                        "document_type": "bank_transfer",
+                        "amount": 14.0,
+                    },
+                    {
+                        "document_id": document_ids[1],
+                        "document_type": "check",
+                        "amount": 15.0,
+                        "check_type": "common",
+                    },
+                ],
+            )
+        )
+        self._assert_voucher_list(result, document_ids)
+        self._assert_mcp_voucher_payload_keys(result)
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers + 2
+        )
+        self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+        first = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
+        self.assertFalse(first.sheet_id)
+        self.assertFalse(second.sheet_id)
+        self.assertEqual(first.seller_id, self.internal_user)
+        self.assertEqual(second.seller_id, self.internal_user)
 
     def test_exact_replay_leaves_sheet_id_and_write_date(self):
         """Exact replay MUST NOT attach, move, or clear sheets (incl. leftover)."""

@@ -820,6 +820,23 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.state, "open")
         self.assertEqual(voucher.sheet_id, sheet)
 
+    def test_action_rejected_for_disabled_seller(self):
+        """List Action MUST reject after the seller is removed from the enabled list."""
+        self.env.company.write({"auto_create_sheet": False})
+        seller = self._seller()
+        voucher = self._create_voucher(customer_identification="CUST-ACT-DISABLED")
+        self.assertEqual(voucher.seller_id, seller)
+        self.assertFalse(voucher.sheet_id)
+        other = self._other_internal_seller()
+        self._enable_sellers(other)
+        self.assertNotIn(seller, self.env.company.enabled_seller_ids)
+        before = self._sheet_count()
+        with self.assertRaises(UserError) as err:
+            voucher.action_create_collection_sheet()
+        self.assertIn("seller", str(err.exception).lower())
+        self.assertEqual(self._sheet_count(), before)
+        self.assertFalse(voucher.sheet_id)
+
     def test_same_seller_may_be_open_in_two_companies(self):
         """One-open is per (company, seller): A and B MAY both have one open."""
         seller = self._seller()
