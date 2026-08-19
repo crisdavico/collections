@@ -6,9 +6,10 @@ chain_strategy: stacked-to-main
 execution_mode: automatic
 planning_depth: standard
 subagent_model: grok-4.6
-phase: verify
+phase: archive
 updated: 2026-08-19
 notes: |
-  Verify FAIL: 94/98 scenarios; 4 UNTESTED MCP/list-Action When-paths.
-  Suite 387/0. Next: sdd-apply covering tests, then re-verify. Nothing pushed.
+  Re-verify PASS WITH WARNINGS (27/27 req, 98/98 scenarios, 392 tests / 0 failed).
+  Phase 8 covering tests closed the prior FAIL UNTESTED rows. Launching sdd-archive.
+  reviewGate absent. Nothing pushed.
 
