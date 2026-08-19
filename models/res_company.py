@@ -2,7 +2,9 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models
+from odoo.exceptions import UserError
 from odoo.fields import Command
+from odoo.tools.translate import _
 
 COLLECTION_SEQUENCE_SPECS = (
     ("collection.voucher", "Payment Voucher", "COL/%(year)s/", 4),
@@ -41,6 +43,22 @@ class ResCompany(models.Model):
         string="Allowed Document Types",
         default=_default_allowed_document_type_ids,
     )
+
+    @api.private
+    def _assert_new_work(self, seller, document_type=None):
+        """Reject NEW work when seller or type is missing, empty, or not allowed."""
+        self.ensure_one()
+        seller_record = seller
+        if seller and not isinstance(seller, models.Model):
+            seller_record = self.env["res.users"].browse(seller)
+        if not seller_record:
+            raise UserError(_("A seller is required."))
+        if seller_record not in self.enabled_seller_ids:
+            raise UserError(_("Seller is not enabled for this company."))
+        if document_type is not None:
+            allowed_codes = set(self.allowed_document_type_ids.mapped("code"))
+            if document_type not in allowed_codes:
+                raise UserError(_("Document type is not allowed for this company."))
 
     @api.model
     @api.private

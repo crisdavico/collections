@@ -10,20 +10,50 @@ from psycopg2 import IntegrityError
 
 from odoo import fields
 from odoo.exceptions import UserError, ValidationError
+from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
-from .test_collection_payment import PDF_B64, PNG_B64, post_voucher_proof
+from .test_collection_payment import (
+    PDF_B64,
+    PNG_B64,
+    ensure_enabled_seller,
+    post_voucher_proof,
+)
 
 
 class TestCollectionVoucher(TransactionCase):
     """RED/GREEN tests for standalone collection.voucher lifecycle."""
+
+    def _ensure_enabled_seller(self, seller=None):
+        seller = seller or self.env.ref("base.user_admin")
+        company = self.env.company
+        if seller not in company.enabled_seller_ids:
+            company.write({"enabled_seller_ids": [Command.link(seller.id)]})
+            if seller not in company.enabled_seller_ids:
+                self.env.cr.execute(
+                    """
+                    INSERT INTO res_company_collection_enabled_seller_rel
+                        (company_id, user_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (company.id, seller.id),
+                )
+                company.invalidate_recordset(["enabled_seller_ids"])
+        return seller
 
     def _create_voucher(self, **extra):
         vals = {
             "customer_identification": "CUST-001",
             "document_type": "bank_transfer",
         }
+        if "seller_id" not in extra:
+            vals["seller_id"] = self._ensure_enabled_seller().id
+        elif extra.get("seller_id"):
+            self._ensure_enabled_seller(
+                self.env["res.users"].browse(extra["seller_id"])
+            )
         vals.update(extra)
         return self.env["collection.voucher"].create(vals)
 
@@ -34,7 +64,7 @@ class TestCollectionVoucher(TransactionCase):
         voucher = self._create_voucher()
         self.assertRegex(
             voucher.name,
-            rf"^COL/{year}/\d{{4}}$",
+            rf"^COL/{year}/\d{{4,}}$",
             "Voucher name must match COL/<year>/<padded number>",
         )
 
@@ -75,8 +105,11 @@ class TestCollectionVoucher(TransactionCase):
 
     def test_customer_identification_required(self):
         # Odoo 19 enforces required Char via DB NOT NULL on create({})
+        seller = self._ensure_enabled_seller()
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
-            self.env["collection.voucher"].create({"document_type": "unsupported"})
+            self.env["collection.voucher"].create(
+                {"document_type": "unsupported", "seller_id": seller.id}
+            )
 
     def test_received_date_field_absent(self):
         """Triangulation: field must not exist on the model registry."""
@@ -89,6 +122,7 @@ class TestCollectionVoucher(TransactionCase):
                 {
                     "customer_identification": "CUST-NO-RECV",
                     "document_type": "unsupported",
+                    "seller_id": ensure_enabled_seller(self.env).id,
                     "received_date": fields.Date.today(),
                 }
             )
@@ -100,6 +134,7 @@ class TestCollectionVoucher(TransactionCase):
             {
                 "customer_identification": "CUST-CREATE-DATE",
                 "document_type": "unsupported",
+                "seller_id": ensure_enabled_seller(self.env).id,
                 "create_date": forged,
             }
         )
@@ -110,36 +145,57 @@ class TestCollectionVoucher(TransactionCase):
         )
         self.assertTrue(voucher.create_date)
 
-    # --- Voucher seller_id (nullable, no backfill) ---
+    # --- Voucher seller_id (required on NEW create; historical null stays) ---
 
-    def test_orm_create_without_seller_stays_null(self):
-        """ORM create without seller_id MUST persist a null seller (no backfill)."""
+    def test_orm_create_without_seller_is_rejected(self):
+        """NEW ORM create without seller_id MUST be rejected with no write."""
         fields_map = self.env["collection.voucher"]._fields
         self.assertIn("seller_id", fields_map)
         seller_field = fields_map["seller_id"]
         self.assertEqual(seller_field.comodel_name, "res.users")
         self.assertFalse(
             seller_field.required,
-            "ORM seller_id must stay nullable (no NOT NULL / no backfill)",
+            "ORM seller_id must stay nullable for historical null rows",
         )
         self.assertEqual(seller_field.domain, [("share", "=", False)])
 
-        voucher = self._create_voucher(customer_identification="CUST-NO-SELLER")
-        self.assertFalse(
-            voucher.seller_id,
-            "ORM create without seller_id must leave seller null",
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self.env["collection.voucher"].create(
+                {
+                    "customer_identification": "CUST-NO-SELLER",
+                    "document_type": "bank_transfer",
+                }
+            )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before,
+            "rejected create must not persist a voucher",
         )
 
     def test_orm_write_does_not_backfill_null_seller(self):
-        """Triangulation: explicit seller persists; write does not backfill null."""
-        seller = self.env.user
+        """Triangulation: enabled seller persists; historical null is not backfilled."""
+        seller = self.env.ref("base.user_admin")
+        self.env.company.write({"enabled_seller_ids": [Command.link(seller.id)]})
         with_seller = self._create_voucher(
             customer_identification="CUST-WITH-SELLER",
             seller_id=seller.id,
         )
         self.assertEqual(with_seller.seller_id, seller)
 
-        legacy = self._create_voucher(customer_identification="CUST-LEGACY-NULL")
+        legacy = self._create_voucher(
+            customer_identification="CUST-LEGACY-NULL",
+            seller_id=seller.id,
+        )
+        self.env.cr.execute(
+            """
+            UPDATE collection_voucher
+               SET seller_id = NULL, sheet_id = NULL
+             WHERE id = %s
+            """,
+            (legacy.id,),
+        )
+        legacy.invalidate_recordset(["seller_id", "sheet_id"])
         self.assertFalse(legacy.seller_id)
         legacy.write({"amount": 10.0})
         self.assertFalse(
@@ -399,8 +455,18 @@ class TestCollectionVoucher(TransactionCase):
 
     def test_assigned_without_seller_fails(self):
         """Assigned voucher MUST keep a non-null seller."""
-        sheet = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        seller = self._ensure_enabled_seller()
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
         voucher = self._create_voucher(customer_identification="CUST-SHEET-NO-SELLER")
+        self.env.cr.execute(
+            """
+            UPDATE collection_voucher
+               SET seller_id = NULL, sheet_id = NULL
+             WHERE id = %s
+            """,
+            (voucher.id,),
+        )
+        voucher.invalidate_recordset(["seller_id", "sheet_id"])
         self.assertFalse(voucher.seller_id)
         with mute_logger("odoo.sql_db"):
             try:
@@ -526,6 +592,7 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
             {
                 "customer_identification": "CUST-MIG-MAIN",
                 "document_type": "bank_transfer",
+                "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
         attachment = self._insert_field_attachment(
@@ -557,6 +624,7 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
             {
                 "customer_identification": "CUST-MIG-BIN",
                 "document_type": "cash_deposit",
+                "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
         attachment = self._insert_field_attachment(
@@ -579,6 +647,12 @@ class TestCollectionVoucherProvenance(TransactionCase):
             "document_type": "bank_transfer",
             "amount": 40.0,
         }
+        if "seller_id" not in extra:
+            vals["seller_id"] = ensure_enabled_seller(self.env).id
+        elif extra.get("seller_id"):
+            ensure_enabled_seller(
+                self.env, self.env["res.users"].browse(extra["seller_id"])
+            )
         vals.update(extra)
         return self.env["collection.voucher"].create(vals)
 
@@ -651,3 +725,235 @@ class TestCollectionVoucherProvenance(TransactionCase):
             ),
             0,
         )
+
+
+class TestCollectionNewWorkHelper(TransactionCase):
+    """NEW-work helper: enabled seller + allowed type; historical stays operable."""
+
+    def _admin_seller(self):
+        return self.env.ref("base.user_admin")
+
+    def _enable_sellers(self, *sellers):
+        self.env.company.write(
+            {"enabled_seller_ids": [Command.set([seller.id for seller in sellers])]}
+        )
+
+    def _clear_enabled_sellers(self):
+        self.env.company.write({"enabled_seller_ids": [Command.clear()]})
+
+    def _partner_has_autopost_bills_column(self):
+        self.env.cr.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_name = 'res_partner'
+               AND column_name = 'autopost_bills'
+            """
+        )
+        return bool(self.env.cr.fetchone())
+
+    def _create_internal_seller(self, login):
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        partner_vals = {
+            "name": login,
+            "email": f"{login}@example.com",
+        }
+        if "autopost_bills" in Partner._fields:
+            partner_vals["autopost_bills"] = "ask"
+            partner = Partner.create(partner_vals)
+        elif self._partner_has_autopost_bills_column():
+            self.env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, autopost_bills,
+                    create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (login, partner_vals["email"], login),
+            )
+            partner = Partner.browse(self.env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+        return (
+            self.env["res.users"]
+            .with_context(no_reset_password=True, tracking_disable=True)
+            .create(
+                {
+                    "name": login,
+                    "login": login,
+                    "email": partner_vals["email"],
+                    "partner_id": partner.id,
+                    "group_ids": [(6, 0, [self.env.ref("base.group_user").id])],
+                }
+            )
+        )
+
+    def _voucher_vals(self, **extra):
+        vals = {
+            "customer_identification": extra.pop(
+                "customer_identification", "CUST-NEW-WORK"
+            ),
+            "document_type": extra.pop("document_type", "bank_transfer"),
+        }
+        vals.update(extra)
+        return vals
+
+    def _create_voucher(self, **extra):
+        return self.env["collection.voucher"].create(self._voucher_vals(**extra))
+
+    def test_empty_enabled_sellers_rejects_voucher_create(self):
+        """Empty enabled-seller list MUST mean none for NEW voucher work."""
+        seller = self._admin_seller()
+        self._clear_enabled_sellers()
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._create_voucher(seller_id=seller.id)
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+    def test_disabled_seller_rejects_voucher_create(self):
+        """A seller not on the company enabled list MUST be rejected on create."""
+        enabled = self._admin_seller()
+        disabled = self._create_internal_seller("nw_disabled_voucher_seller")
+        self._enable_sellers(enabled)
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._create_voucher(
+                customer_identification="CUST-NW-DISABLED",
+                seller_id=disabled.id,
+            )
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+    def test_enabled_seller_create_succeeds(self):
+        """Triangulation: an enabled seller MUST be accepted on voucher create."""
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        voucher = self._create_voucher(seller_id=seller.id)
+        self.assertEqual(voucher.seller_id, seller)
+        self.assertTrue(voucher.id)
+
+    def test_disallowed_type_rejects_voucher_create(self):
+        unsupported = self.env.ref("collection.document_type_unsupported")
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        others = self.env.company.allowed_document_type_ids - unsupported
+        self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._create_voucher(
+                customer_identification="CUST-NW-BAD-TYPE",
+                seller_id=seller.id,
+                document_type="unsupported",
+            )
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+    def test_seller_write_to_disabled_seller_rejected(self):
+        enabled = self._admin_seller()
+        disabled = self._create_internal_seller("nw_write_disabled_seller")
+        self._enable_sellers(enabled)
+        voucher = self._create_voucher(
+            customer_identification="CUST-NW-WRITE-SELLER",
+            seller_id=enabled.id,
+        )
+        with self.assertRaises(UserError):
+            voucher.write({"seller_id": disabled.id})
+        self.assertEqual(voucher.seller_id, enabled)
+
+    def test_document_type_write_to_disallowed_type_rejected(self):
+        unsupported = self.env.ref("collection.document_type_unsupported")
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        voucher = self._create_voucher(
+            customer_identification="CUST-NW-WRITE-TYPE",
+            seller_id=seller.id,
+            document_type="bank_transfer",
+        )
+        others = self.env.company.allowed_document_type_ids - unsupported
+        self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
+        with self.assertRaises(UserError):
+            voucher.write({"document_type": "unsupported"})
+        self.assertEqual(voucher.document_type, "bank_transfer")
+
+    def test_disabled_seller_voucher_stays_visible_and_approvable(self):
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        voucher = self._create_voucher(
+            customer_identification="CUST-NW-HIST-APPROVE",
+            seller_id=seller.id,
+        )
+        self._enable_sellers()  # clear: empty set
+        found = self.env["collection.voucher"].search([("id", "=", voucher.id)])
+        self.assertEqual(found, voucher, "disabled-seller voucher must stay listed")
+        voucher.action_approve()
+        self.assertEqual(voucher.state, "approved")
+        self.assertTrue(voucher.exists())
+
+    def test_disabled_seller_voucher_reject_skips_helper(self):
+        """Triangulation: Reject without seller/type write MUST skip the helper."""
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        voucher = self._create_voucher(
+            customer_identification="CUST-NW-HIST-REJECT",
+            seller_id=seller.id,
+        )
+        self._clear_enabled_sellers()
+        voucher.action_reject()
+        self.assertEqual(voucher.state, "rejected")
+        self.assertTrue(voucher.exists())
+
+    def test_document_type_selection_is_allowed_union_current(self):
+        """Type choices MUST be allowed types plus the current value if dropped."""
+        unsupported = self.env.ref("collection.document_type_unsupported")
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        voucher = self._create_voucher(
+            customer_identification="CUST-NW-TYPE-UNION",
+            seller_id=seller.id,
+            document_type="unsupported",
+        )
+        others = self.env.company.allowed_document_type_ids - unsupported
+        self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
+
+        new_codes = {code for code, _label in voucher._selection_document_type()}
+        empty_codes = {
+            code
+            for code, _label in self.env[
+                "collection.voucher"
+            ]._selection_document_type()
+        }
+        self.assertNotIn(
+            "unsupported",
+            empty_codes,
+            "new work must not offer a disabled document type",
+        )
+        self.assertIn("bank_transfer", empty_codes)
+        self.assertIn(
+            "unsupported",
+            new_codes,
+            "historical current type must remain in choices",
+        )
+
+    def test_document_type_selection_empty_recordset_excludes_disabled(self):
+        """Triangulation: empty recordset type choices follow the company allow-list."""
+        unsupported = self.env.ref("collection.document_type_unsupported")
+        others = self.env.company.allowed_document_type_ids - unsupported
+        self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
+        empty_codes = {
+            code
+            for code, _label in self.env[
+                "collection.voucher"
+            ]._selection_document_type()
+        }
+        self.assertNotIn("unsupported", empty_codes)
+        self.assertIn("bank_transfer", empty_codes)

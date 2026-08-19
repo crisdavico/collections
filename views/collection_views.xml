@@ -20,7 +20,11 @@
             <list string="Payment Vouchers">
                 <field name="name" />
                 <field name="customer_identification" />
-                <field name="seller_id" />
+                <field
+          name="seller_id"
+          domain="[('id', 'in', company_id.enabled_seller_ids)]"
+        />
+                <field name="company_id" optional="hide" />
                 <field name="create_date" readonly="1" />
                 <field name="state" />
                 <field name="reviewed_by" optional="hide" />
@@ -158,7 +162,12 @@
                     <group>
                         <group>
                             <field name="customer_identification" />
-                            <field name="seller_id" required="1" />
+                            <field name="company_id" invisible="1" />
+                            <field
+                name="seller_id"
+                required="1"
+                domain="[('id', 'in', company_id.enabled_seller_ids)]"
+              />
                             <field name="create_date" readonly="1" />
                         </group>
                         <group>
@@ -391,7 +400,11 @@
         <field name="arch" type="xml">
             <list string="Collection Sheets">
                 <field name="name" />
-                <field name="seller_id" />
+                <field
+          name="seller_id"
+          domain="[('id', 'in', company_id.enabled_seller_ids)]"
+        />
+                <field name="company_id" optional="hide" />
                 <field name="date_from" />
                 <field name="date_to" />
                 <field name="state" />
@@ -456,7 +469,13 @@
                     </div>
                     <group>
                         <group>
-                            <field name="seller_id" required="1" readonly="id" />
+                            <field name="company_id" invisible="1" />
+                            <field
+                name="seller_id"
+                required="1"
+                readonly="id"
+                domain="[('id', 'in', company_id.enabled_seller_ids)]"
+              />
                             <field name="date_from" readonly="1" />
                             <field name="date_to" readonly="1" />
                         </group>

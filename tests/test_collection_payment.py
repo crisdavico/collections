@@ -6,6 +6,7 @@ from base64 import b64decode
 from psycopg2 import IntegrityError
 
 from odoo.exceptions import UserError
+from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
@@ -19,7 +20,108 @@ TXT_B64 = "aGVsbG8gd29ybGQ="
 INVALID_B64 = "!!!not-base64!!!"
 
 
-def post_voucher_proof(voucher, name, datas_b64, body="Payment proof attached."):
+def ensure_enabled_seller(env, seller=None, company=None):
+    """Enable a seller on a company so NEW-work helper tests can create rows.
+
+    SUPERUSER is not a valid M2M target (share domain). Default to Administrator.
+    Also enable on env.company so auto-created sheets (no company_id in vals)
+    pass the same helper.
+    """
+    seller = seller or env.ref("base.user_admin")
+    company = company or env.company
+    targets = company
+    if company != env.company:
+        targets = company | env.company
+    for target in targets:
+        _link_enabled_seller(env, target, seller)
+    return seller
+
+
+def _link_enabled_seller(env, company, seller):
+    if seller in company.enabled_seller_ids:
+        return
+    company.write({"enabled_seller_ids": [Command.link(seller.id)]})
+    company.flush_recordset(["enabled_seller_ids"])
+    company.invalidate_recordset(["enabled_seller_ids"])
+    if seller in company.enabled_seller_ids:
+        return
+    env.cr.execute(
+        """
+        SELECT 1
+          FROM res_company_collection_enabled_seller_rel
+         WHERE company_id = %s AND user_id = %s
+        """,
+        (company.id, seller.id),
+    )
+    if not env.cr.fetchone():
+        env.cr.execute(
+            """
+            INSERT INTO res_company_collection_enabled_seller_rel
+                (company_id, user_id)
+            VALUES (%s, %s)
+            """,
+            (company.id, seller.id),
+        )
+    company.invalidate_recordset(["enabled_seller_ids"])
+
+
+def create_internal_seller(env, login):
+    """Create an internal user suitable as an enabled-seller M2M target."""
+    Partner = env["res.partner"].with_context(
+        tracking_disable=True,
+        mail_create_nolog=True,
+        mail_notrack=True,
+        mail_create_nosubscribe=True,
+    )
+    partner_vals = {"name": login, "email": f"{login}@example.com"}
+    if "autopost_bills" in Partner._fields:
+        partner_vals["autopost_bills"] = "ask"
+        partner = Partner.create(partner_vals)
+    else:
+        env.cr.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_name = 'res_partner'
+               AND column_name = 'autopost_bills'
+            """
+        )
+        if env.cr.fetchone():
+            env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, autopost_bills,
+                    create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (login, partner_vals["email"], login),
+            )
+            partner = Partner.browse(env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+    return (
+        env["res.users"]
+        .with_context(no_reset_password=True, tracking_disable=True)
+        .create(
+            {
+                "name": login,
+                "login": login,
+                "email": partner_vals["email"],
+                "partner_id": partner.id,
+                "group_ids": [(6, 0, [env.ref("base.group_user").id])],
+            }
+        )
+    )
+
+
+def post_voucher_proof(voucher, name, datas_b64, body="Proof"):
     """Post a chatter proof file onto a voucher (designated-proof path)."""
     voucher.message_post(
         body=body,
@@ -34,10 +136,12 @@ class TestCollectionPaymentDocumentId(TransactionCase):
     """RED/GREEN: nullable unique document_id on standalone vouchers."""
 
     def _voucher_vals(self, **extra):
+        seller = ensure_enabled_seller(self.env)
         vals = {
             "customer_identification": "CUST-DOC",
             "document_type": "bank_transfer",
             "amount": 100.0,
+            "seller_id": seller.id,
         }
         vals.update(extra)
         return vals
@@ -111,10 +215,12 @@ class TestCollectionPaymentAttachment(TransactionCase):
     """RED/GREEN: optional chatter designated proof on standalone vouchers."""
 
     def _voucher_vals(self, **extra):
+        seller = ensure_enabled_seller(self.env)
         vals = {
             "customer_identification": "CUST-ATT",
             "document_type": "bank_transfer",
             "amount": 100.0,
+            "seller_id": seller.id,
         }
         vals.update(extra)
         return vals

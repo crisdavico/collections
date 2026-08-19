@@ -5,6 +5,8 @@ from lxml import etree
 
 from odoo.tests import TransactionCase
 
+from .test_collection_payment import ensure_enabled_seller
+
 BANK_TRANSFER_FIELDS = (
     "from_account",
     "to_account",
@@ -333,6 +335,7 @@ class TestCollectionUi(TransactionCase):
             {
                 "customer_identification": "UI-MENU-001",
                 "document_type": "cash_deposit",
+                "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
         self.assertEqual(voucher.state, "pending")
@@ -679,6 +682,7 @@ class TestCollectionUi(TransactionCase):
                 "customer_identification": "UI-UNSUPPORTED-MENU-001",
                 "document_type": "unsupported",
                 "document_id": "UI-UNSUP-DOC-002",
+                "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
         found = self.env["collection.voucher"].search(
@@ -692,13 +696,14 @@ class TestCollectionUi(TransactionCase):
             {
                 "customer_identification": "UI-TYPED-DEFAULT-002",
                 "document_type": "cash_deposit",
+                "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
         self.assertEqual(voucher.document_type, "cash_deposit")
         self.assertFalse(voucher.document_id)
 
     def test_form_seller_id_is_required(self):
-        """Payment Vouchers form MUST require seller_id (ORM stays nullable)."""
+        """Payment Vouchers form MUST require seller_id (field stays nullable)."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
         nodes = self._field_nodes(form_root, "seller_id")
         self.assertTrue(nodes, "form must include seller_id")
@@ -708,6 +713,42 @@ class TestCollectionUi(TransactionCase):
             ("1", "True", "true"),
             f"form seller_id must be required (got {required!r})",
         )
+
+    def _assert_enabled_seller_domain(self, node, context):
+        domain = node.get("domain") or ""
+        self.assertIn(
+            "enabled_seller_ids",
+            domain,
+            f"{context} seller_id domain must use company enabled "
+            f"sellers (got {domain!r})",
+        )
+        self.assertIn(
+            "company_id",
+            domain,
+            f"{context} seller_id domain must be scoped to company_id (got {domain!r})",
+        )
+
+    def test_voucher_form_seller_domain_is_company_enabled_list(self):
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        seller = self._field_nodes(form_root, "seller_id")[0]
+        self._assert_enabled_seller_domain(seller, "voucher form")
+
+    def test_voucher_list_seller_domain_is_company_enabled_list(self):
+        """Triangulation: list seller_id uses the same enabled-seller domain."""
+        list_root = self._arch_root("collection.view_collection_voucher_list")
+        self.assertEqual(list_root.tag, "list")
+        seller = self._field_nodes(list_root, "seller_id")[0]
+        self._assert_enabled_seller_domain(seller, "voucher list")
+
+    def test_sheet_form_seller_domain_is_company_enabled_list(self):
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        seller = self._field_nodes(form_root, "seller_id")[0]
+        self._assert_enabled_seller_domain(seller, "sheet form")
+
+    def test_voucher_views_keep_list_tag(self):
+        list_root = self._arch_root("collection.view_collection_voucher_list")
+        self.assertEqual(list_root.tag, "list")
+        self.assertNotEqual(list_root.tag, "tree")
 
     def test_list_form_search_expose_seller_id(self):
         """Triangulation: list, form, and search MUST show seller_id."""
@@ -848,7 +889,9 @@ class TestCollectionUi(TransactionCase):
             "document_review_enabled helper must stay invisible on the sheet form",
         )
         self.env.company.write({"document_review_enabled": True})
-        sheet = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        sheet = self.env["collection.sheet"].create(
+            {"seller_id": ensure_enabled_seller(self.env).id}
+        )
         self.assertIsInstance(sheet.id, int)
         self.assertGreater(sheet.id, 0)
         self.assertTrue(sheet.document_review_enabled)
@@ -865,7 +908,9 @@ class TestCollectionUi(TransactionCase):
             "not id or not document_review_enabled",
         )
         self.env.company.write({"document_review_enabled": False})
-        saved = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        saved = self.env["collection.sheet"].create(
+            {"seller_id": ensure_enabled_seller(self.env).id}
+        )
         self.assertFalse(saved.document_review_enabled)
         self.env.company.write({"document_review_enabled": True})
         unsaved = self.env["collection.sheet"].new({"seller_id": self.env.user.id})

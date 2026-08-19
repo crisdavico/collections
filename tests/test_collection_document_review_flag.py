@@ -6,7 +6,7 @@ from lxml import etree
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64, post_voucher_proof
+from .test_collection_payment import PNG_B64, ensure_enabled_seller, post_voucher_proof
 
 _REVIEW_DISABLED_MSG = "Document Review is not enabled."
 
@@ -18,18 +18,21 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         self.env.company.write({"document_review_enabled": enabled})
 
     def _create_sheet(self, **extra):
-        vals = {"seller_id": self.env.user.id, **extra}
+        seller_id = extra.get("seller_id", ensure_enabled_seller(self.env).id)
+        ensure_enabled_seller(self.env, self.env["res.users"].browse(seller_id))
+        vals = {"seller_id": seller_id, **extra}
         return self.env["collection.sheet"].create(vals)
 
     def _create_pending_attached(self, customer, document_id, sheet_id=None):
+        seller = ensure_enabled_seller(self.env)
         vals = {
             "customer_identification": customer,
             "document_type": "bank_transfer",
             "document_id": document_id,
             "amount": 100.0,
+            "seller_id": seller.id,
         }
         if sheet_id:
-            vals["seller_id"] = self.env.user.id
             vals["sheet_id"] = sheet_id
         voucher = self.env["collection.voucher"].create(vals)
         post_voucher_proof(voucher, "pending.png", PNG_B64)
@@ -201,6 +204,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
                 "customer_identification": "CUST-FLAG-FORM-APPR",
                 "document_type": "bank_transfer",
                 "amount": 10.0,
+                "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
         with self.assertRaises(UserError):
@@ -219,6 +223,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
                 "customer_identification": "CUST-FLAG-FORM-REJ",
                 "document_type": "check",
                 "amount": 20.0,
+                "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
         with self.assertRaises(UserError):

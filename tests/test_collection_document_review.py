@@ -11,7 +11,13 @@ from lxml import etree
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PDF_B64, PNG_B64, post_voucher_proof
+from .test_collection_payment import (
+    PDF_B64,
+    PNG_B64,
+    create_internal_seller,
+    ensure_enabled_seller,
+    post_voucher_proof,
+)
 
 _DOCUMENT_REVIEW_DIR = (
     Path(__file__).resolve().parents[1] / "static" / "src" / "document_review"
@@ -26,11 +32,17 @@ class TestCollectionDocumentReview(TransactionCase):
         self.env.company.write({"document_review_enabled": True})
         self.review_sheet = self._create_sheet()
 
+    def _seller(self):
+        return ensure_enabled_seller(self.env)
+
     def _voucher_vals(self, **extra):
+        seller = extra.get("seller_id") or self._seller().id
+        ensure_enabled_seller(self.env, self.env["res.users"].browse(seller))
         vals = {
             "customer_identification": "CUST-REV",
             "document_type": "bank_transfer",
             "amount": 100.0,
+            "seller_id": seller,
         }
         vals.update(extra)
         if "document_id" not in vals:
@@ -39,20 +51,16 @@ class TestCollectionDocumentReview(TransactionCase):
         return vals
 
     def _create_sheet(self, **extra):
-        vals = {"seller_id": self.env.user.id, **extra}
+        seller_id = extra.get("seller_id", self._seller().id)
+        ensure_enabled_seller(self.env, self.env["res.users"].browse(seller_id))
+        vals = {"seller_id": seller_id, **extra}
         return self.env["collection.sheet"].create(vals)
 
     def _other_internal_seller(self):
-        seller = self.env["res.users"].search(
-            [("share", "=", False), ("id", "!=", self.env.uid)],
-            order="id",
-            limit=1,
-        )
-        self.assertTrue(seller, "Need a second internal user")
-        return seller
+        return create_internal_seller(self.env, f"review_other_{self._testMethodName}")
 
     def _close_open_sheets(self, seller=None):
-        seller_id = (seller or self.env.user).id
+        seller_id = (seller or self._seller()).id
         opens = self.env["collection.sheet"].search(
             [("seller_id", "=", seller_id), ("state", "=", "open")]
         )
@@ -63,7 +71,7 @@ class TestCollectionDocumentReview(TransactionCase):
         extra.setdefault("attachment_filename", "proof.png")
         datas = extra.pop("attachment", PNG_B64)
         filename = extra.pop("attachment_filename")
-        extra.setdefault("seller_id", self.env.user.id)
+        extra.setdefault("seller_id", self._seller().id)
         extra.setdefault("sheet_id", self.review_sheet.id)
         voucher = self.env["collection.voucher"].create(self._voucher_vals(**extra))
         post_voucher_proof(voucher, filename, datas)
@@ -222,7 +230,7 @@ class TestCollectionDocumentReview(TransactionCase):
         voucher_a = self._create_attached_voucher(
             customer_identification="CUST-SHEET-A",
             document_id="DOC-SHEET-A",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=sheet_a.id,
         )
         voucher_b = self._create_attached_voucher(
@@ -248,14 +256,14 @@ class TestCollectionDocumentReview(TransactionCase):
             self._voucher_vals(
                 customer_identification="CUST-SHEET-NONE",
                 document_id="DOC-SHEET-NONE",
-                seller_id=self.env.user.id,
+                seller_id=self._seller().id,
                 sheet_id=ineligible_sheet.id,
             )
         )
         approved = self._create_attached_voucher(
             customer_identification="CUST-SHEET-APPR",
             document_id="DOC-SHEET-APPR",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=ineligible_sheet.id,
         )
         approved.action_approve()
@@ -264,7 +272,7 @@ class TestCollectionDocumentReview(TransactionCase):
         other_eligible = self._create_attached_voucher(
             customer_identification="CUST-SHEET-OTHER",
             document_id="DOC-SHEET-OTHER",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=other_sheet.id,
         )
         Voucher = self.env["collection.voucher"]
@@ -285,7 +293,7 @@ class TestCollectionDocumentReview(TransactionCase):
         self._create_attached_voucher(
             customer_identification="CUST-SHEET-VALID-Q",
             document_id="DOC-SHEET-VALID-Q",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=valid_sheet.id,
         )
         with self.assertRaises(UserError):
@@ -302,7 +310,7 @@ class TestCollectionDocumentReview(TransactionCase):
         voucher = self._create_attached_voucher(
             customer_identification="CUST-SHEET-VALID-M",
             document_id="DOC-SHEET-VALID-M",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=sheet.id,
         )
         for invalid_id in (None, 0, False, sheet.id + 10**6):
@@ -346,7 +354,7 @@ class TestCollectionDocumentReview(TransactionCase):
         voucher = self._create_attached_voucher(
             customer_identification="CUST-STALE-SHEET",
             document_id="DOC-STALE-SHEET",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=sheet.id,
         )
         voucher.write({"sheet_id": False})
@@ -368,7 +376,7 @@ class TestCollectionDocumentReview(TransactionCase):
         rotatable = self._create_attached_voucher(
             customer_identification="CUST-SAME-ROT",
             document_id="DOC-SAME-ROT",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=sheet.id,
         )
         rotatable.action_review_set_rotation(sheet.id, 90)
@@ -376,7 +384,7 @@ class TestCollectionDocumentReview(TransactionCase):
         approved = self._create_attached_voucher(
             customer_identification="CUST-SAME-APPR",
             document_id="DOC-SAME-APPR",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=sheet.id,
         )
         approved.action_review_approve(sheet.id, {"amount": 55.0})
@@ -385,7 +393,7 @@ class TestCollectionDocumentReview(TransactionCase):
         rejected = self._create_attached_voucher(
             customer_identification="CUST-SAME-REJ",
             document_id="DOC-SAME-REJ",
-            seller_id=self.env.user.id,
+            seller_id=self._seller().id,
             sheet_id=sheet.id,
         )
         rejected.action_review_reject(sheet.id)
@@ -415,7 +423,7 @@ class TestCollectionDocumentReview(TransactionCase):
             self._voucher_vals(
                 customer_identification="CUST-REV-NONE",
                 document_id="DOC-REV-NONE",
-                seller_id=self.env.user.id,
+                seller_id=self._seller().id,
                 sheet_id=self.review_sheet.id,
             )
         )
@@ -462,7 +470,7 @@ class TestCollectionDocumentReview(TransactionCase):
             self._voucher_vals(
                 customer_identification="CUST-REV-EMPTY",
                 document_id="DOC-REV-EMPTY-NONE",
-                seller_id=self.env.user.id,
+                seller_id=self._seller().id,
                 sheet_id=self.review_sheet.id,
             )
         )
@@ -1185,7 +1193,7 @@ class TestCollectionDocumentReview(TransactionCase):
             self._voucher_vals(
                 customer_identification="CUST-REV-STALE3",
                 document_id="DOC-REV-STALE3",
-                seller_id=self.env.user.id,
+                seller_id=self._seller().id,
                 sheet_id=self.review_sheet.id,
             )
         )

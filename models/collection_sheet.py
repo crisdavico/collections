@@ -114,6 +114,10 @@ class CollectionSheet(models.Model):
         sequence = self.env["ir.sequence"]
         opening_sellers = set()
         for vals in vals_list:
+            company = self.env["res.company"].browse(
+                vals.get("company_id") or self.env.company.id
+            )
+            company._assert_new_work(vals.get("seller_id"))
             if vals.get("name", "/") in (False, "/", "New"):
                 company_id = vals.get("company_id") or self.env.company.id
                 vals["name"] = (

@@ -8,6 +8,8 @@ from re import fullmatch
 
 from odoo.tests import TransactionCase
 
+from .test_collection_payment import ensure_enabled_seller
+
 ALL_TYPE_CODES = frozenset({"bank_transfer", "check", "cash_deposit", "unsupported"})
 MIGRATE_PATH = (
     Path(__file__).resolve().parents[1]
@@ -82,7 +84,7 @@ class TestCollectionCompanyMigration(TransactionCase):
 
     def _create_seller(self, login, company):
         partner = self._create_partner(login, email=f"{login}@example.com")
-        return (
+        seller = (
             self.env["res.users"]
             .with_context(no_reset_password=True, tracking_disable=True)
             .create(
@@ -97,6 +99,9 @@ class TestCollectionCompanyMigration(TransactionCase):
                 }
             )
         )
+        ensure_enabled_seller(self.env, seller, company=company)
+        ensure_enabled_seller(self.env, seller, company=self.env.company)
+        return seller
 
     def _run_migrate(self):
         _load_company_config_migrate().migrate(self.env.cr, "19.0.1.16.0")
@@ -104,7 +109,7 @@ class TestCollectionCompanyMigration(TransactionCase):
 
     def _seq_number(self, name, prefix):
         year = date.today().year
-        match = fullmatch(rf"{prefix}/{year}/(\d{{4}})", name)
+        match = fullmatch(rf"{prefix}/{year}/(\d{{4,}})", name)
         self.assertTrue(match, f"{name!r} must match {prefix}/<year>/<number>")
         return int(match.group(1))
 
@@ -117,6 +122,23 @@ class TestCollectionCompanyMigration(TransactionCase):
             """
         )
         self.env.invalidate_all()
+
+    def _create_voucher(self, vals):
+        company = self.env["res.company"].browse(
+            vals.get("company_id") or self.env.company.id
+        )
+        if not vals.get("seller_id"):
+            vals = dict(
+                vals,
+                seller_id=ensure_enabled_seller(self.env, company=company).id,
+            )
+        else:
+            ensure_enabled_seller(
+                self.env,
+                self.env["res.users"].browse(vals["seller_id"]),
+                company=company,
+            )
+        return self.env["collection.voucher"].create(vals)
 
     def test_sequence_xml_binds_to_main_company(self):
         xml_path = Path(__file__).resolve().parents[1] / "data" / "ir_sequence_data.xml"
@@ -137,6 +159,7 @@ class TestCollectionCompanyMigration(TransactionCase):
             {"seller_id": seller_b.id, "company_id": main.id}
         )
         seller_main = self._create_seller("stamp_sheet_seller_main", main)
+        ensure_enabled_seller(self.env, seller_main, company=company_b)
         sheet_default = self.env["collection.sheet"].create(
             {"seller_id": seller_main.id, "company_id": company_b.id}
         )
@@ -153,7 +176,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         sheet_b = self.env["collection.sheet"].create(
             {"seller_id": seller_b.id, "company_id": company_b.id}
         )
-        from_sheet = self.env["collection.voucher"].create(
+        from_sheet = self._create_voucher(
             {
                 "customer_identification": "STAMP-SHEET",
                 "document_type": "bank_transfer",
@@ -162,7 +185,7 @@ class TestCollectionCompanyMigration(TransactionCase):
                 "company_id": main.id,
             }
         )
-        no_sheet = self.env["collection.voucher"].create(
+        no_sheet = self._create_voucher(
             {
                 "customer_identification": "STAMP-SELLER",
                 "document_type": "check",
@@ -177,7 +200,7 @@ class TestCollectionCompanyMigration(TransactionCase):
             """,
             (seller_b.id, main.id, no_sheet.id),
         )
-        null_seller = self.env["collection.voucher"].create(
+        null_seller = self._create_voucher(
             {
                 "customer_identification": "STAMP-MAIN",
                 "document_type": "cash_deposit",
@@ -205,7 +228,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         sheet_b = self.env["collection.sheet"].create(
             {"seller_id": seller_b.id, "company_id": company_b.id}
         )
-        member = self.env["collection.voucher"].create(
+        member = self._create_voucher(
             {
                 "customer_identification": "REPAIR-MEMBER",
                 "document_type": "bank_transfer",
@@ -227,7 +250,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.env["collection.sheet"].create(
             {"seller_id": seller_sheet.id, "company_id": company_b.id}
         )
-        orphan = self.env["collection.voucher"].create(
+        orphan = self._create_voucher(
             {
                 "customer_identification": "SEED-VOUCHER",
                 "document_type": "check",
@@ -242,7 +265,7 @@ class TestCollectionCompanyMigration(TransactionCase):
             """,
             (seller_voucher.id, company_b.id, orphan.id),
         )
-        disabled_voucher = self.env["collection.voucher"].create(
+        disabled_voucher = self._create_voucher(
             {
                 "customer_identification": "SEED-DISABLED",
                 "document_type": "cash_deposit",
@@ -322,13 +345,13 @@ class TestCollectionCompanyMigration(TransactionCase):
     def test_voucher_and_sheet_numbers_isolated_per_company(self):
         company_b = self._create_company("Number Isol Co B")
         seller_b = self._create_seller("isol_sheet_seller_b", company_b)
-        voucher_a = self.env["collection.voucher"].create(
+        voucher_a = self._create_voucher(
             {
                 "customer_identification": "ISO-A",
                 "document_type": "bank_transfer",
             }
         )
-        voucher_b = self.env["collection.voucher"].create(
+        voucher_b = self._create_voucher(
             {
                 "customer_identification": "ISO-B",
                 "document_type": "check",
@@ -337,13 +360,13 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         n_a = self._seq_number(voucher_a.name, "COL")
         self.assertEqual(self._seq_number(voucher_b.name, "COL"), 1)
-        voucher_a2 = self.env["collection.voucher"].create(
+        voucher_a2 = self._create_voucher(
             {
                 "customer_identification": "ISO-A2",
                 "document_type": "cash_deposit",
             }
         )
-        voucher_b2 = self.env["collection.voucher"].create(
+        voucher_b2 = self._create_voucher(
             {
                 "customer_identification": "ISO-B2",
                 "document_type": "unsupported",
@@ -352,14 +375,16 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         self.assertEqual(self._seq_number(voucher_a2.name, "COL"), n_a + 1)
         self.assertEqual(self._seq_number(voucher_b2.name, "COL"), 2)
-        sheet_a = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        self.env["collection.sheet"].search([("state", "=", "open")]).action_close()
+        seller = ensure_enabled_seller(self.env)
+        sheet_a = self.env["collection.sheet"].create({"seller_id": seller.id})
         sheet_b = self.env["collection.sheet"].create(
             {"seller_id": seller_b.id, "company_id": company_b.id}
         )
         n_sheet_a = self._seq_number(sheet_a.name, "CS")
         self.assertEqual(self._seq_number(sheet_b.name, "CS"), 1)
         sheet_a.action_close()
-        sheet_a2 = self.env["collection.sheet"].create({"seller_id": self.env.user.id})
+        sheet_a2 = self.env["collection.sheet"].create({"seller_id": seller.id})
         self.assertEqual(self._seq_number(sheet_a2.name, "CS"), n_sheet_a + 1)
 
     def test_leftover_false_sequence_does_not_steal_company_numbers(self):
@@ -374,7 +399,7 @@ class TestCollectionCompanyMigration(TransactionCase):
                 "number_next": 9999,
             }
         )
-        voucher_b = self.env["collection.voucher"].create(
+        voucher_b = self._create_voucher(
             {
                 "customer_identification": "THIEF-B",
                 "document_type": "bank_transfer",

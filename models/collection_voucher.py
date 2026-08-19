@@ -65,12 +65,7 @@ class CollectionVoucher(models.Model):
     )
     document_id = fields.Char(string="Document ID", index=True)
     document_type = fields.Selection(
-        selection=[
-            ("bank_transfer", "Bank Transfer"),
-            ("check", "Check"),
-            ("cash_deposit", "Cash Deposit"),
-            ("unsupported", "Unsupported"),
-        ],
+        selection="_selection_document_type",
         required=True,
     )
     amount = fields.Monetary()
@@ -176,6 +171,12 @@ class CollectionVoucher(models.Model):
         }
     )
     _ALLOWED_ROTATIONS = frozenset({0, 90, 180, 270})
+    _DOCUMENT_TYPE_SELECTION = (
+        ("bank_transfer", "Bank Transfer"),
+        ("check", "Check"),
+        ("cash_deposit", "Cash Deposit"),
+        ("unsupported", "Unsupported"),
+    )
 
     _document_id_uniq = models.Constraint(
         "UNIQUE(document_id)",
@@ -193,6 +194,11 @@ class CollectionVoucher(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
+        for vals in vals_list:
+            company = self.env["res.company"].browse(
+                vals.get("company_id") or self.env.company.id
+            )
+            company._assert_new_work(vals.get("seller_id"), vals.get("document_type"))
         self._apply_open_sheet_auto_assign(vals_list)
         for vals in vals_list:
             # Registration time is ORM-owned; callers must not forge create_date.
@@ -207,6 +213,13 @@ class CollectionVoucher(models.Model):
             if vals.get("sheet_id"):
                 self._ensure_sheet_membership_unlocked(vals["sheet_id"])
         return super().create(vals_list)
+
+    def _selection_document_type(self):
+        """Allowed company types, plus each record's current value if later dropped."""
+        allowed_codes = set(self.env.company.allowed_document_type_ids.mapped("code"))
+        current_codes = {rec.document_type for rec in self if rec.document_type}
+        keep = allowed_codes | current_codes
+        return [item for item in self._DOCUMENT_TYPE_SELECTION if item[0] in keep]
 
     @api.private
     def _apply_open_sheet_auto_assign(self, vals_list):
@@ -235,6 +248,13 @@ class CollectionVoucher(models.Model):
             )
         if "sheet_id" in vals:
             self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
+        if "seller_id" in vals or "document_type" in vals:
+            for voucher in self:
+                seller = vals["seller_id"] if "seller_id" in vals else voucher.seller_id
+                document_type = (
+                    vals["document_type"] if "document_type" in vals else None
+                )
+                voucher.company_id._assert_new_work(seller, document_type)
         if "message_main_attachment_id" in vals:
             if len(self) > 1:
                 return all(rec.write(vals) for rec in self)

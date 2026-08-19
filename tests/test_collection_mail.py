@@ -3,7 +3,7 @@
 
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64, post_voucher_proof
+from .test_collection_payment import PNG_B64, ensure_enabled_seller, post_voucher_proof
 
 
 class TestCollectionMail(TransactionCase):
@@ -15,9 +15,15 @@ class TestCollectionMail(TransactionCase):
         self.cr.flush()
 
     def _create_voucher(self, **extra):
+        seller = extra.get("seller_id") or ensure_enabled_seller(self.env).id
+        if extra.get("seller_id"):
+            ensure_enabled_seller(
+                self.env, self.env["res.users"].browse(extra["seller_id"])
+            )
         vals = {
             "customer_identification": "MAIL-CUST",
             "document_type": "bank_transfer",
+            "seller_id": seller,
         }
         vals.update(extra)
         voucher = self.env["collection.voucher"].create(vals)
@@ -26,7 +32,9 @@ class TestCollectionMail(TransactionCase):
         return voucher
 
     def _create_sheet(self, **extra):
-        vals = {"seller_id": self.env.user.id}
+        seller_id = extra.get("seller_id", ensure_enabled_seller(self.env).id)
+        ensure_enabled_seller(self.env, self.env["res.users"].browse(seller_id))
+        vals = {"seller_id": seller_id}
         vals.update(extra)
         sheet = self.env["collection.sheet"].create(vals)
         self._flush_tracking()
@@ -151,9 +159,7 @@ class TestCollectionMail(TransactionCase):
         self._flush_tracking()
         tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
-        pairs = {
-            (row.old_value_char, row.new_value_char) for row in state_tracking
-        }
+        pairs = {(row.old_value_char, row.new_value_char) for row in state_tracking}
         self.assertIn(("Open", "Closed"), pairs)
         self.assertIn(("Closed", "Open"), pairs)
 

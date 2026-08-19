@@ -47,8 +47,8 @@ PR ≤~400; stacked-to-main. No nebula-agent. Threat-matrix N/A. Verify: upgrade
 
 ## Phase 4: New-work helper
 
-- [ ] 4.1 RED: Flip nullable-ORM-seller (`test_collection_voucher.py`); empty/disabled/disallowed-type, seller/type write, historical-operable, UI domains.
-- [ ] 4.2 GREEN: `res.company._assert_new_work` on create + seller/type write; skip Approve/Close/Reopen; `collection_views.xml` domains.
+- [x] 4.1 RED: Flip nullable-ORM-seller (`test_collection_voucher.py`); empty/disabled/disallowed-type, seller/type write, historical-operable, UI domains.
+- [x] 4.2 GREEN: `res.company._assert_new_work` on create + seller/type write; skip Approve/Close/Reopen; `collection_views.xml` domains.
 
 ## Phase 5: auto_create_sheet + one-open
 

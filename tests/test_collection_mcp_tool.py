@@ -12,6 +12,8 @@ from odoo.tools import mute_logger
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
+from .test_collection_payment import ensure_enabled_seller
+
 TOOL_NAME = "create_collection_vouchers"
 OLD_TOOL_NAME = "create_collection_voucher"
 
@@ -36,6 +38,7 @@ class TestCollectionMcpTool(TransactionCase):
             "collection_mcp_internal", "base.group_user"
         )
         cls.portal_user = cls._create_user("collection_mcp_portal", "base.group_portal")
+        ensure_enabled_seller(cls.env, cls.internal_user)
 
     @classmethod
     def _partner_has_autopost_bills_column(cls):
@@ -99,6 +102,24 @@ class TestCollectionMcpTool(TransactionCase):
                 }
             )
         )
+
+    def _create_legacy_null_seller_voucher(self, **vals):
+        """Create via ORM then SQL-null seller/sheet (historical row)."""
+        vals.setdefault(
+            "seller_id",
+            ensure_enabled_seller(self.env, self.internal_user).id,
+        )
+        voucher = self.env["collection.voucher"].create(vals)
+        self.env.cr.execute(
+            """
+            UPDATE collection_voucher
+               SET seller_id = NULL, sheet_id = NULL
+             WHERE id = %s
+            """,
+            (voucher.id,),
+        )
+        voucher.invalidate_recordset(["seller_id", "sheet_id"])
+        return voucher
 
     def _call(self, arguments, user=None):
         """Run the N-voucher MCP tool in-process and return decoded JSON."""
@@ -700,13 +721,11 @@ class TestCollectionMcpTool(TransactionCase):
 
     def test_exact_retry_does_not_mutate_null_seller(self):
         """Exact replay MUST ignore seller_id and MUST NOT fill a legacy null seller."""
-        legacy = self.env["collection.voucher"].create(
-            {
-                "customer_identification": "MCP-CUST-LEGACY-NULL",
-                "document_type": "bank_transfer",
-                "document_id": "MCP-DOC-LEGACY-NULL",
-                "amount": 9.0,
-            }
+        legacy = self._create_legacy_null_seller_voucher(
+            customer_identification="MCP-CUST-LEGACY-NULL",
+            document_type="bank_transfer",
+            document_id="MCP-DOC-LEGACY-NULL",
+            amount=9.0,
         )
         self.assertFalse(legacy.seller_id)
         before_vouchers = self.env["collection.voucher"].search_count([])
@@ -1009,13 +1028,11 @@ class TestCollectionMcpTool(TransactionCase):
         sheet_id = voucher.sheet_id.id
         write_date = voucher.write_date
 
-        leftover = self.env["collection.voucher"].create(
-            {
-                "customer_identification": "MCP-CUST-AA-REPLAY-LEFT",
-                "document_type": "cash_deposit",
-                "document_id": "MCP-DOC-AA-REPLAY-LEFT",
-                "amount": 1.0,
-            }
+        leftover = self._create_legacy_null_seller_voucher(
+            customer_identification="MCP-CUST-AA-REPLAY-LEFT",
+            document_type="cash_deposit",
+            document_id="MCP-DOC-AA-REPLAY-LEFT",
+            amount=1.0,
         )
         self.assertFalse(leftover.seller_id)
         self.assertFalse(leftover.sheet_id)
@@ -1070,6 +1087,7 @@ class TestCollectionMcpAttachment(TransactionCase):
         super().setUpClass()
         cls.tool_model = cls.env["muk_mcp.tool"]
         cls.internal_user = cls.env.ref("base.user_admin")
+        ensure_enabled_seller(cls.env, cls.internal_user)
 
     def _call(self, arguments, user=None):
         env = self.env(user=user) if user else self.env(user=self.internal_user)
@@ -1770,6 +1788,7 @@ class TestCollectionMcpProvenance(TransactionCase):
         super().setUpClass()
         cls.tool_model = cls.env["muk_mcp.tool"]
         cls.internal_user = cls.env.ref("base.user_admin")
+        ensure_enabled_seller(cls.env, cls.internal_user)
 
     def _call(self, arguments, user=None):
         env = self.env(user=user) if user else self.env(user=self.internal_user)
@@ -1898,6 +1917,7 @@ class TestCollectionMcpProvenance(TransactionCase):
                 "document_type": "check",
                 "amount": 12.0,
                 "check_number": "CHK-ORM",
+                "seller_id": ensure_enabled_seller(self.env, self.internal_user).id,
             }
         )
         self.assertTrue(voucher.id)
@@ -2285,6 +2305,7 @@ class TestCollectionMcpProvenance(TransactionCase):
                 "document_type": "cash_deposit",
                 "document_id": "MCP-DOC-PROV-REPLAY-EMPTY",
                 "amount": 4.0,
+                "seller_id": ensure_enabled_seller(self.env, self.internal_user).id,
             }
         )
         self._assert_empty_provenance(empty)

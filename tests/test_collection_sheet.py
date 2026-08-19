@@ -10,34 +10,88 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from .test_collection_payment import create_internal_seller
+
 
 class TestCollectionSheet(TransactionCase):
     """RED/GREEN: collection.sheet sequence, frozen seller, open/closed lifecycle."""
 
     def _other_internal_seller(self):
-        seller = self.env["res.users"].search(
-            [("share", "=", False), ("id", "!=", self.env.uid)],
-            order="id",
-            limit=1,
-        )
-        self.assertTrue(
-            seller,
-            "Need a second internal user to prove seller is not create_uid",
-        )
+        return create_internal_seller(self.env, f"other_{self._testMethodName}")
+
+    def _ensure_enabled_seller(self, seller=None):
+        seller = seller or self.env.ref("base.user_admin")
+        company = self.env.company
+        if seller not in company.enabled_seller_ids:
+            company.write({"enabled_seller_ids": [Command.link(seller.id)]})
+            if seller not in company.enabled_seller_ids:
+                self.env.cr.execute(
+                    """
+                    INSERT INTO res_company_collection_enabled_seller_rel
+                        (company_id, user_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (company.id, seller.id),
+                )
+                company.invalidate_recordset(["enabled_seller_ids"])
         return seller
 
+    def _seller(self):
+        return self._ensure_enabled_seller()
+
     def _create_sheet(self, **extra):
-        vals = {"seller_id": self.env.user.id, **extra}
+        seller_id = extra.get("seller_id", self._seller().id)
+        self._ensure_enabled_seller(self.env["res.users"].browse(seller_id))
+        vals = {"seller_id": seller_id, **extra}
         return self.env["collection.sheet"].create(vals)
 
     def _create_voucher(self, **extra):
+        null_seller = extra.get("seller_id") is False
+        if null_seller:
+            extra = {key: value for key, value in extra.items() if key != "seller_id"}
+            if not extra.get("sheet_id"):
+                existing_open = self.env["collection.sheet"].search(
+                    [
+                        ("seller_id", "=", self._seller().id),
+                        ("state", "=", "open"),
+                    ],
+                    limit=1,
+                )
+                if existing_open:
+                    extra["sheet_id"] = existing_open.id
+        seller_id = extra.get("seller_id", self._seller().id)
+        if seller_id:
+            self._ensure_enabled_seller(self.env["res.users"].browse(seller_id))
         vals = {
             "customer_identification": "CUST-SHEET",
             "document_type": "unsupported",
-            "seller_id": self.env.user.id,
+            "seller_id": seller_id or self._seller().id,
         }
         vals.update(extra)
-        return self.env["collection.voucher"].create(vals)
+        before_sheets = self.env["collection.sheet"].browse(
+            self.env["collection.sheet"].search([]).ids
+        )
+        voucher = self.env["collection.voucher"].create(vals)
+        if null_seller:
+            leftover_sheet = voucher.sheet_id
+            self.env.cr.execute(
+                """
+                UPDATE collection_voucher
+                   SET seller_id = NULL, sheet_id = NULL
+                 WHERE id = %s
+                """,
+                (voucher.id,),
+            )
+            voucher.invalidate_recordset(["seller_id", "sheet_id"])
+            leftover_sheet.invalidate_recordset(["voucher_ids"])
+            if (
+                leftover_sheet
+                and leftover_sheet not in before_sheets
+                and not leftover_sheet.voucher_ids
+            ):
+                leftover_sheet.unlink()
+        return voucher
 
     def _sheet_count(self):
         return self.env["collection.sheet"].search_count([])
@@ -179,7 +233,7 @@ class TestCollectionSheet(TransactionCase):
         voucher = self._create_voucher(
             customer_identification="CUST-LEFT-ACT", seller_id=False
         )
-        voucher.write({"seller_id": self.env.user.id})
+        voucher.write({"seller_id": self._seller().id})
         with self.assertRaises(UserError):
             voucher.action_create_collection_sheet()
         self.assertEqual(self._sheet_count(), before + 1)
@@ -214,7 +268,7 @@ class TestCollectionSheet(TransactionCase):
         sheet = self._create_sheet()
         with self.assertRaises(UserError):
             sheet.write({"seller_id": sheet.seller_id.id})
-        self.assertEqual(sheet.seller_id, self.env.user)
+        self.assertEqual(sheet.seller_id, self._seller())
 
     def test_action_creates_sheet_for_unassigned_same_seller_any_state(self):
         pending = self._create_voucher(
@@ -223,14 +277,14 @@ class TestCollectionSheet(TransactionCase):
         approved = self._create_voucher(
             customer_identification="CUST-ACT-A", seller_id=False
         )
-        pending.write({"seller_id": self.env.user.id})
-        approved.write({"seller_id": self.env.user.id})
+        pending.write({"seller_id": self._seller().id})
+        approved.write({"seller_id": self._seller().id})
         approved.action_approve()
         before = self._sheet_count()
         action = (pending | approved).action_create_collection_sheet()
         self.assertEqual(self._sheet_count(), before + 1)
         sheet = self.env["collection.sheet"].browse(action["res_id"])
-        self.assertEqual(sheet.seller_id, self.env.user)
+        self.assertEqual(sheet.seller_id, self._seller())
         self.assertEqual(set(sheet.voucher_ids.ids), {pending.id, approved.id})
         self.assertEqual(pending.sheet_id, sheet)
         self.assertEqual(approved.sheet_id, sheet)
@@ -238,6 +292,7 @@ class TestCollectionSheet(TransactionCase):
 
     def test_action_rejects_ineligible_selection(self):
         other = self._other_internal_seller()
+        self._ensure_enabled_seller(other)
         mixed_a = self._create_voucher(
             customer_identification="CUST-MIX-A", seller_id=False
         )
@@ -247,9 +302,9 @@ class TestCollectionSheet(TransactionCase):
         assigned = self._create_voucher(
             customer_identification="CUST-ASG", seller_id=False
         )
-        mixed_a.write({"seller_id": self.env.user.id})
+        mixed_a.write({"seller_id": self._seller().id})
         mixed_b.write({"seller_id": other.id})
-        assigned.write({"seller_id": self.env.user.id})
+        assigned.write({"seller_id": self._seller().id})
         sheet = self._create_sheet()
         assigned.sheet_id = sheet.id
         before = self._sheet_count()
@@ -280,8 +335,8 @@ class TestCollectionSheet(TransactionCase):
         approved = self._create_voucher(
             customer_identification="CUST-ACT-OPEN-A", seller_id=False
         )
-        pending.write({"seller_id": self.env.user.id})
-        approved.write({"seller_id": self.env.user.id})
+        pending.write({"seller_id": self._seller().id})
+        approved.write({"seller_id": self._seller().id})
         approved.action_approve()
         before = self._sheet_count()
         with self.assertRaises(UserError):
@@ -340,7 +395,7 @@ class TestCollectionSheet(TransactionCase):
         )
         self.env.invalidate_all()
         sheet = self._create_sheet()
-        (first | second).write({"seller_id": self.env.user.id, "sheet_id": sheet.id})
+        (first | second).write({"seller_id": self._seller().id, "sheet_id": sheet.id})
         self.assertEqual(sheet.date_from, date(2026, 8, 16))
         self.assertEqual(sheet.date_to, date(2026, 8, 17))
 
@@ -373,7 +428,7 @@ class TestCollectionSheet(TransactionCase):
         outsider = self._create_voucher(
             customer_identification="CUST-FRZ-OUT", seller_id=False
         )
-        outsider.write({"seller_id": self.env.user.id})
+        outsider.write({"seller_id": self._seller().id})
         sheet.action_close()
         with self.assertRaises(UserError):
             outsider.write({"sheet_id": sheet.id})
@@ -450,7 +505,7 @@ class TestCollectionSheet(TransactionCase):
     def test_action_open_document_review_refused_on_new_id(self):
         """Unsaved .new() records (NewId) must not open Document Review."""
         self.env.company.write({"document_review_enabled": True})
-        unsaved = self.env["collection.sheet"].new({"seller_id": self.env.user.id})
+        unsaved = self.env["collection.sheet"].new({"seller_id": self._seller().id})
         self.assertFalse(isinstance(unsaved.id, int))
         self.assertFalse(unsaved.id)
         with self.assertRaises(UserError):
@@ -482,7 +537,7 @@ class TestCollectionSheet(TransactionCase):
         voucher = self._create_voucher(customer_identification="CUST-AA-NONE")
         self.assertEqual(self._sheet_count(), before + 1)
         self.assertTrue(voucher.sheet_id)
-        self.assertEqual(voucher.sheet_id.seller_id, self.env.user)
+        self.assertEqual(voucher.sheet_id.seller_id, self._seller())
         self.assertEqual(voucher.sheet_id.state, "open")
         self.assertIn(voucher, voucher.sheet_id.voucher_ids)
 
@@ -531,31 +586,41 @@ class TestCollectionSheet(TransactionCase):
     def test_create_without_seller_stays_unassigned(self):
         """Null seller_id MUST leave the voucher unassigned even if an open exists."""
         sheet = self._create_sheet()
-        omitted = self.env["collection.voucher"].create(
-            {
-                "customer_identification": "CUST-AA-OMIT",
-                "document_type": "unsupported",
-            }
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self.env["collection.voucher"].create(
+                {
+                    "customer_identification": "CUST-AA-OMIT",
+                    "document_type": "unsupported",
+                }
+            )
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+        historical = self._create_voucher(
+            customer_identification="CUST-AA-HIST-NULL", seller_id=False
         )
-        null = self._create_voucher(
-            customer_identification="CUST-AA-NULL", seller_id=False
+        self.env.cr.execute(
+            """
+            UPDATE collection_voucher
+               SET seller_id = NULL, sheet_id = NULL
+             WHERE id = %s
+            """,
+            (historical.id,),
         )
-        self.assertFalse(omitted.seller_id)
-        self.assertFalse(omitted.sheet_id)
-        self.assertFalse(null.seller_id)
-        self.assertFalse(null.sheet_id)
-        self.assertFalse(sheet.voucher_ids)
+        historical.invalidate_recordset(["seller_id", "sheet_id"])
+        self.assertFalse(historical.seller_id)
+        self.assertFalse(historical.sheet_id)
+        self.assertNotIn(historical, sheet.voucher_ids)
 
     def test_later_seller_write_does_not_auto_assign(self):
         """Writing seller_id on an existing voucher MUST NOT auto-assign."""
         sheet = self._create_sheet()
-        omitted = self.env["collection.voucher"].create(
-            {
-                "customer_identification": "CUST-AA-WRITE-OMIT",
-                "document_type": "unsupported",
-            }
+        omitted = self._create_voucher(
+            customer_identification="CUST-AA-WRITE-OMIT",
+            sheet_id=sheet.id,
         )
-        omitted.write({"seller_id": self.env.user.id})
+        omitted.write({"sheet_id": False})
+        omitted.write({"seller_id": self._seller().id})
         self.assertFalse(omitted.sheet_id)
 
         member = self._create_voucher(
@@ -563,16 +628,16 @@ class TestCollectionSheet(TransactionCase):
         )
         member.write({"sheet_id": False})
         self.assertFalse(member.sheet_id)
-        member.write({"seller_id": self.env.user.id})
+        member.write({"seller_id": self._seller().id})
         self.assertFalse(member.sheet_id)
 
-        linked = self._create_voucher(
-            customer_identification="CUST-AA-WRITE-UNL",
-            seller_id=False,
-        )
         other = self._other_internal_seller()
         other_sheet = self._create_sheet(seller_id=other.id)
-        linked.write({"seller_id": other.id, "sheet_id": other_sheet.id})
+        linked = self._create_voucher(
+            customer_identification="CUST-AA-WRITE-UNL",
+            seller_id=other.id,
+            sheet_id=other_sheet.id,
+        )
         other_sheet.unlink()
         self.assertFalse(linked.sheet_id)
         linked.write({"seller_id": other.id})
@@ -583,19 +648,27 @@ class TestCollectionSheet(TransactionCase):
 
     def test_batch_create_resolves_one_open_per_seller(self):
         """Batch create MUST resolve once per seller and share that sheet."""
-        before = self._sheet_count()
+        seller = self._seller()
         other = self._other_internal_seller()
+        self._ensure_enabled_seller(other)
+        self.env["collection.sheet"].search(
+            [
+                ("seller_id", "in", [seller.id, other.id]),
+                ("state", "=", "open"),
+            ]
+        ).action_close()
+        before = self._sheet_count()
         vouchers = self.env["collection.voucher"].create(
             [
                 {
                     "customer_identification": "CUST-AA-BATCH-A",
                     "document_type": "unsupported",
-                    "seller_id": self.env.user.id,
+                    "seller_id": seller.id,
                 },
                 {
                     "customer_identification": "CUST-AA-BATCH-B",
                     "document_type": "unsupported",
-                    "seller_id": self.env.user.id,
+                    "seller_id": seller.id,
                 },
                 {
                     "customer_identification": "CUST-AA-BATCH-C",
@@ -608,8 +681,57 @@ class TestCollectionSheet(TransactionCase):
         first, second, third = vouchers
         self.assertTrue(first.sheet_id)
         self.assertEqual(first.sheet_id, second.sheet_id)
-        self.assertEqual(first.sheet_id.seller_id, self.env.user)
+        self.assertEqual(first.sheet_id.seller_id, seller)
         self.assertEqual(first.sheet_id.state, "open")
         self.assertNotEqual(third.sheet_id, first.sheet_id)
         self.assertEqual(third.sheet_id.seller_id, other)
         self.assertEqual(third.sheet_id.state, "open")
+
+    def _enable_sellers(self, *sellers):
+        self.env.company.write(
+            {"enabled_seller_ids": [Command.set([seller.id for seller in sellers])]}
+        )
+
+    def _clear_enabled_sellers(self):
+        self.env.company.write({"enabled_seller_ids": [Command.clear()]})
+
+    def test_sheet_create_empty_enabled_sellers_rejected(self):
+        """NEW sheet create MUST reject a seller when the enabled list is empty."""
+        seller = self.env.ref("base.user_admin")
+        self._clear_enabled_sellers()
+        before = self._sheet_count()
+        with self.assertRaises(UserError):
+            self.env["collection.sheet"].create({"seller_id": seller.id})
+        self.assertEqual(self._sheet_count(), before)
+
+    def test_sheet_create_disabled_seller_rejected(self):
+        """Triangulation: a seller missing from the enabled list MUST be rejected."""
+        enabled = self.env.ref("base.user_admin")
+        disabled = create_internal_seller(self.env, "sheet_disabled_seller")
+        self._enable_sellers(enabled)
+        before = self._sheet_count()
+        with self.assertRaises(UserError):
+            self.env["collection.sheet"].create({"seller_id": disabled.id})
+        self.assertEqual(self._sheet_count(), before)
+
+    def test_disabled_seller_sheet_stays_visible_and_closeable(self):
+        seller = self.env.ref("base.user_admin")
+        self._enable_sellers(seller)
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        self._clear_enabled_sellers()
+        found = self.env["collection.sheet"].search([("id", "=", sheet.id)])
+        self.assertEqual(found, sheet, "disabled-seller sheet must stay listed")
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertTrue(sheet.exists())
+
+    def test_disabled_seller_sheet_reopen_skips_helper(self):
+        """Triangulation: Reopen MUST skip the new-work helper."""
+        seller = self.env.ref("base.user_admin")
+        self._enable_sellers(seller)
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        sheet.action_close()
+        self._clear_enabled_sellers()
+        sheet.action_reopen()
+        self.assertEqual(sheet.state, "open")
+        self.assertTrue(sheet.exists())

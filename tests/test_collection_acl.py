@@ -6,7 +6,7 @@ import inspect
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64, post_voucher_proof
+from .test_collection_payment import PNG_B64, ensure_enabled_seller, post_voucher_proof
 
 
 class TestCollectionAcl(TransactionCase):
@@ -156,9 +156,17 @@ class TestCollectionAcl(TransactionCase):
         )
 
     def _voucher_vals(self, **extra):
+        seller = extra.get("seller_id") or self.internal_user.id
+        company = self.env["res.company"].browse(
+            extra.get("company_id") or self.env.company.id
+        )
+        ensure_enabled_seller(
+            self.env, self.env["res.users"].browse(seller), company=company
+        )
         vals = {
             "customer_identification": "ACL-CUST",
             "document_type": "bank_transfer",
+            "seller_id": seller,
         }
         vals.update(extra)
         return vals
@@ -200,7 +208,7 @@ class TestCollectionAcl(TransactionCase):
         self, env, document_id, customer_identification
     ):
         self.env.company.write({"document_review_enabled": True})
-        seller = env.user
+        seller = ensure_enabled_seller(self.env)
         sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
         voucher = env["collection.voucher"].create(
             {
@@ -296,6 +304,11 @@ class TestCollectionAcl(TransactionCase):
     def _sheet_vals(self, **extra):
         vals = {"seller_id": self.internal_user.id}
         vals.update(extra)
+        seller = self.env["res.users"].browse(vals["seller_id"])
+        company = self.env["res.company"].browse(
+            vals.get("company_id") or self.env.company.id
+        )
+        ensure_enabled_seller(self.env, seller, company=company)
         return vals
 
     def test_internal_user_sheet_crud_allowed(self):
@@ -491,15 +504,20 @@ class TestCollectionAcl(TransactionCase):
     def test_allowed_company_voucher_sheet_snapshot_visible(self):
         """Happy path: allowed-company user can read A's voucher, sheet, snapshot."""
         self._restrict_user_to_company(self.internal_user, self.env.company)
-        voucher = (
-            self.env["collection.voucher"]
-            .with_user(self.internal_user)
-            .create(self._voucher_vals(customer_identification="SHOW-A-VOUCHER"))
-        )
         sheet = (
             self.env["collection.sheet"]
             .with_user(self.internal_user)
             .create(self._sheet_vals())
+        )
+        voucher = (
+            self.env["collection.voucher"]
+            .with_user(self.internal_user)
+            .create(
+                self._voucher_vals(
+                    customer_identification="SHOW-A-VOUCHER",
+                    sheet_id=sheet.id,
+                )
+            )
         )
         snap = (
             self.env["collection.voucher.review.snapshot"]
