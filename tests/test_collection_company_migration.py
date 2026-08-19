@@ -344,6 +344,10 @@ class TestCollectionCompanyMigration(TransactionCase):
 
     def test_voucher_and_sheet_numbers_isolated_per_company(self):
         company_b = self._create_company("Number Isol Co B")
+        # Auto-assign would consume CS/ numbers in the voucher company; this
+        # test measures sequence isolation, not sheet auto-create.
+        self.env.company.write({"auto_create_sheet": False})
+        company_b.write({"auto_create_sheet": False})
         seller_b = self._create_seller("isol_sheet_seller_b", company_b)
         voucher_a = self._create_voucher(
             {

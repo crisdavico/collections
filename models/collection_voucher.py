@@ -228,11 +228,16 @@ class CollectionVoucher(models.Model):
         for vals in vals_list:
             seller_id = vals.get("seller_id")
             if seller_id and not vals.get("sheet_id"):
-                if seller_id not in resolved_sheet_ids:
-                    resolved_sheet_ids[seller_id] = (
-                        Sheet._resolve_open_sheet_id_for_create(seller_id)
+                company_id = vals.get("company_id") or self.env.company.id
+                company = self.env["res.company"].browse(company_id)
+                if not company.auto_create_sheet:
+                    continue
+                key = (company_id, seller_id)
+                if key not in resolved_sheet_ids:
+                    resolved_sheet_ids[key] = Sheet._resolve_open_sheet_id_for_create(
+                        seller_id, company_id
                     )
-                vals["sheet_id"] = resolved_sheet_ids[seller_id]
+                vals["sheet_id"] = resolved_sheet_ids[key]
 
     def write(self, vals):
         if not self:
@@ -305,8 +310,13 @@ class CollectionVoucher(models.Model):
 
     def action_create_collection_sheet(self):
         seller = self._seller_for_sheet_action()
-        self.env["collection.sheet"]._raise_if_seller_has_open_sheet(seller)
-        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        companies = self.mapped("company_id")
+        if len(companies) != 1:
+            raise UserError(_("All selected vouchers must belong to the same company."))
+        company = companies
+        Sheet = self.env["collection.sheet"]
+        Sheet._raise_if_seller_has_open_sheet(seller, company)
+        sheet = Sheet.create({"seller_id": seller.id, "company_id": company.id})
         self.sheet_id = sheet
         return {
             "type": "ir.actions.act_window",

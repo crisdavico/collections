@@ -52,8 +52,8 @@ PR ≤~400; stacked-to-main. No nebula-agent. Threat-matrix N/A. Verify: upgrade
 
 ## Phase 5: auto_create_sheet + one-open
 
-- [ ] 5.1 RED: Flip always-on auto-assign + per-seller one-open (`test_collection_sheet.py`); OFF skip both; Action still creates; open in A+B.
-- [ ] 5.2 GREEN: Gate auto-assign (OFF skips both); lock `(company_id, seller_id)`; list Action uses company + helper.
+- [x] 5.1 RED: Flip always-on auto-assign + per-seller one-open (`test_collection_sheet.py`); OFF skip both; Action still creates; open in A+B.
+- [x] 5.2 GREEN: Gate auto-assign (OFF skips both); lock `(company_id, seller_id)`; list Action uses company + helper.
 
 ## Phase 6: MCP replay vs reject
 

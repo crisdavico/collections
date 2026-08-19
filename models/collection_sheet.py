@@ -74,52 +74,58 @@ class CollectionSheet(models.Model):
             sheet.document_review_enabled = enabled
 
     @api.private
-    def _open_sheets_for_seller(self, seller):
+    def _company_id_of(self, company):
+        return company.id if isinstance(company, models.Model) else company
+
+    @api.private
+    def _open_sheets_for_seller(self, seller, company):
         seller_id = seller.id if isinstance(seller, models.Model) else seller
+        company_id = self._company_id_of(company)
         return self.search(
             [
                 ("seller_id", "=", seller_id),
+                ("company_id", "=", company_id),
                 ("state", "=", "open"),
             ]
         )
 
     @api.private
-    def _lock_open_sheet_for_seller(self, seller):
+    def _lock_open_sheet_for_seller(self, seller, company):
         seller_id = seller.id if isinstance(seller, models.Model) else seller
+        company_id = int(self._company_id_of(company))
         self.env.cr.execute(
             SQL(
-                "SELECT pg_advisory_xact_lock(hashtext(%s), %s)",
-                "collection.sheet.open",
+                "SELECT pg_advisory_xact_lock(hashtext(%s || %s), %s)",
+                "collection.sheet.open.",
+                str(company_id),
                 int(seller_id),
             )
         )
 
     @api.private
-    def _raise_if_seller_has_open_sheet(self, seller):
-        if self._open_sheets_for_seller(seller):
+    def _raise_if_seller_has_open_sheet(self, seller, company):
+        if self._open_sheets_for_seller(seller, company):
             raise UserError(_("This seller already has an open collection sheet."))
 
     @api.private
-    def _resolve_open_sheet_id_for_create(self, seller_id):
-        self._lock_open_sheet_for_seller(seller_id)
-        opens = self._open_sheets_for_seller(seller_id)
+    def _resolve_open_sheet_id_for_create(self, seller_id, company_id):
+        self._lock_open_sheet_for_seller(seller_id, company_id)
+        opens = self._open_sheets_for_seller(seller_id, company_id)
         if len(opens) > 1:
             raise UserError(_("This seller has more than one open collection sheet."))
         if len(opens) == 1:
             return opens.id
-        return self.create({"seller_id": seller_id}).id
+        return self.create({"seller_id": seller_id, "company_id": company_id}).id
 
     @api.model_create_multi
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
-        opening_sellers = set()
+        opening_keys = set()
         for vals in vals_list:
-            company = self.env["res.company"].browse(
-                vals.get("company_id") or self.env.company.id
-            )
+            company_id = vals.get("company_id") or self.env.company.id
+            company = self.env["res.company"].browse(company_id)
             company._assert_new_work(vals.get("seller_id"))
             if vals.get("name", "/") in (False, "/", "New"):
-                company_id = vals.get("company_id") or self.env.company.id
                 vals["name"] = (
                     sequence.with_company(company_id).next_by_code("collection.sheet")
                     or "/"
@@ -131,13 +137,14 @@ class CollectionSheet(models.Model):
             resulting_state = vals.get("state") or "open"
             seller_id = vals.get("seller_id")
             if resulting_state == "open" and seller_id:
-                if seller_id in opening_sellers:
+                key = (company_id, seller_id)
+                if key in opening_keys:
                     raise UserError(
                         _("This seller already has an open collection sheet.")
                     )
-                self._lock_open_sheet_for_seller(seller_id)
-                self._raise_if_seller_has_open_sheet(seller_id)
-                opening_sellers.add(seller_id)
+                self._lock_open_sheet_for_seller(seller_id, company_id)
+                self._raise_if_seller_has_open_sheet(seller_id, company_id)
+                opening_keys.add(key)
         return super().create(vals_list)
 
     def write(self, vals):
@@ -184,13 +191,13 @@ class CollectionSheet(models.Model):
     def action_reopen(self):
         if any(sheet.state != "closed" for sheet in self):
             raise UserError(_("Only closed sheets can be reopened."))
-        seen_sellers = set()
+        seen_keys = set()
         for sheet in self:
-            seller_id = sheet.seller_id.id
-            if seller_id in seen_sellers:
+            key = (sheet.company_id.id, sheet.seller_id.id)
+            if key in seen_keys:
                 raise UserError(_("This seller already has an open collection sheet."))
-            self._raise_if_seller_has_open_sheet(sheet.seller_id)
-            seen_sellers.add(seller_id)
+            self._raise_if_seller_has_open_sheet(sheet.seller_id, sheet.company_id)
+            seen_keys.add(key)
         return self.with_context(collection_sheet_audited_state=True).write(
             {"state": "open"}
         )

@@ -10,7 +10,7 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
-from .test_collection_payment import create_internal_seller
+from .test_collection_payment import create_internal_seller, ensure_enabled_seller
 
 
 class TestCollectionSheet(TransactionCase):
@@ -735,3 +735,173 @@ class TestCollectionSheet(TransactionCase):
         sheet.action_reopen()
         self.assertEqual(sheet.state, "open")
         self.assertTrue(sheet.exists())
+
+    def _partner_has_autopost_bills_column(self):
+        self.env.cr.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_name = 'res_partner'
+               AND column_name = 'autopost_bills'
+            """
+        )
+        return bool(self.env.cr.fetchone())
+
+    def _create_company(self, name):
+        """Persist a second company; satisfy partner.autopost_bills when present."""
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        partner_vals = {"name": name, "is_company": True}
+        if "autopost_bills" in Partner._fields:
+            partner_vals["autopost_bills"] = "ask"
+            partner = Partner.create(partner_vals)
+        elif self._partner_has_autopost_bills_column():
+            self.env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, is_company,
+                    autopost_bills, create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', true, 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (name, f"{name}@example.com", name),
+            )
+            partner = Partner.browse(self.env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+        return self.env["res.company"].create(
+            {
+                "name": name,
+                "partner_id": partner.id,
+            }
+        )
+
+    def test_auto_create_off_skips_create_and_assign(self):
+        """OFF + omitted sheet_id MUST persist unassigned and not create a sheet."""
+        self.env.company.write({"auto_create_sheet": False})
+        before = self._sheet_count()
+        voucher = self._create_voucher(customer_identification="CUST-AA-OFF")
+        self.assertFalse(voucher.sheet_id)
+        self.assertEqual(self._sheet_count(), before)
+
+    def test_auto_create_off_skips_assign_when_open_exists(self):
+        """Triangulation: OFF MUST skip assign even when an open sheet exists."""
+        sheet = self._create_sheet()
+        self.env.company.write({"auto_create_sheet": False})
+        before = self._sheet_count()
+        voucher = self._create_voucher(customer_identification="CUST-AA-OFF-OPEN")
+        self.assertFalse(voucher.sheet_id)
+        self.assertNotIn(voucher, sheet.voucher_ids)
+        self.assertEqual(self._sheet_count(), before)
+        self.assertEqual(sheet.state, "open")
+
+    def test_action_creates_sheet_when_auto_create_off(self):
+        """List Action MUST still create one open sheet when auto-create is OFF."""
+        self.env.company.write({"auto_create_sheet": False})
+        before = self._sheet_count()
+        voucher = self._create_voucher(customer_identification="CUST-ACT-OFF")
+        self.assertFalse(voucher.sheet_id)
+        self.assertEqual(self._sheet_count(), before)
+        action = voucher.action_create_collection_sheet()
+        self.assertEqual(self._sheet_count(), before + 1)
+        sheet = self.env["collection.sheet"].browse(action["res_id"])
+        self.assertEqual(sheet.seller_id, self._seller())
+        self.assertEqual(sheet.company_id, voucher.company_id)
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(voucher.sheet_id, sheet)
+
+    def test_same_seller_may_be_open_in_two_companies(self):
+        """One-open is per (company, seller): A and B MAY both have one open."""
+        seller = self._seller()
+        sheet_a = self._create_sheet()
+        company_b = self._create_company("One Open Co B")
+        ensure_enabled_seller(self.env, seller, company_b)
+        sheet_b = self.env["collection.sheet"].create(
+            {
+                "seller_id": seller.id,
+                "company_id": company_b.id,
+            }
+        )
+        self.assertEqual(sheet_a.state, "open")
+        self.assertEqual(sheet_b.state, "open")
+        self.assertEqual(sheet_a.company_id, self.env.company)
+        self.assertEqual(sheet_b.company_id, company_b)
+        self.assertEqual(sheet_a.seller_id, seller)
+        self.assertEqual(sheet_b.seller_id, seller)
+        with self.assertRaises(UserError):
+            self._create_sheet()
+        self.assertEqual(sheet_a.state, "open")
+        self.assertEqual(sheet_b.state, "open")
+
+    def test_auto_assign_creates_open_in_voucher_company(self):
+        """ON auto-assign MUST resolve open sheets in the voucher company only."""
+        seller = self._seller()
+        sheet_a = self._create_sheet()
+        company_b = self._create_company("Auto Assign Co B")
+        ensure_enabled_seller(self.env, seller, company_b)
+        voucher = self.env["collection.voucher"].create(
+            {
+                "customer_identification": "CUST-AA-COB",
+                "document_type": "unsupported",
+                "seller_id": seller.id,
+                "company_id": company_b.id,
+            }
+        )
+        self.assertEqual(voucher.company_id, company_b)
+        self.assertTrue(voucher.sheet_id)
+        self.assertEqual(voucher.sheet_id.company_id, company_b)
+        self.assertEqual(voucher.sheet_id.seller_id, seller)
+        self.assertEqual(voucher.sheet_id.state, "open")
+        self.assertNotEqual(voucher.sheet_id, sheet_a)
+        self.assertEqual(sheet_a.state, "open")
+
+    def test_action_creates_sheet_in_selection_company(self):
+        """List Action MUST stamp the vouchers' company, not env.company."""
+        company_b = self._create_company("Action Co B")
+        seller = self._seller()
+        ensure_enabled_seller(self.env, seller, company_b)
+        voucher = self._create_voucher(
+            customer_identification="CUST-ACT-COB",
+            seller_id=False,
+            company_id=company_b.id,
+        )
+        voucher.write({"seller_id": seller.id})
+        self.assertFalse(voucher.sheet_id)
+        action = voucher.action_create_collection_sheet()
+        sheet = self.env["collection.sheet"].browse(action["res_id"])
+        self.assertEqual(sheet.company_id, company_b)
+        self.assertEqual(sheet.seller_id, seller)
+        self.assertEqual(voucher.sheet_id, sheet)
+
+    def test_action_allowed_when_seller_open_in_other_company(self):
+        """Triangulation: an open sheet in B MUST NOT block the Action in A."""
+        seller = self._seller()
+        company_b = self._create_company("Action Other Co")
+        ensure_enabled_seller(self.env, seller, company_b)
+        sheet_b = self.env["collection.sheet"].create(
+            {
+                "seller_id": seller.id,
+                "company_id": company_b.id,
+            }
+        )
+        voucher = self._create_voucher(
+            customer_identification="CUST-ACT-OTHER", seller_id=False
+        )
+        voucher.write({"seller_id": seller.id})
+        action = voucher.action_create_collection_sheet()
+        sheet_a = self.env["collection.sheet"].browse(action["res_id"])
+        self.assertEqual(sheet_a.company_id, self.env.company)
+        self.assertEqual(sheet_a.seller_id, seller)
+        self.assertEqual(voucher.sheet_id, sheet_a)
+        self.assertEqual(sheet_b.state, "open")
+        self.assertNotEqual(sheet_a, sheet_b)
