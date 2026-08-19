@@ -56,6 +56,13 @@ class CollectionVoucher(models.Model):
         required=True,
         default=lambda self: self.env.company.currency_id,
     )
+    company_id = fields.Many2one(
+        comodel_name="res.company",
+        string="Company",
+        required=True,
+        index=True,
+        default=lambda self: self.env.company,
+    )
     document_id = fields.Char(string="Document ID", index=True)
     document_type = fields.Selection(
         selection=[

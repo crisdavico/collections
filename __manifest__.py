@@ -9,6 +9,7 @@
     "website": "https://seedian.ai",
     "depends": ["base", "mail", "muk_mcp"],
     "data": [
+        "security/collection_security.xml",
         "security/ir.model.access.csv",
         "data/ir_sequence_data.xml",
         "data/collection_document_type_data.xml",

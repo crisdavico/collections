@@ -9,6 +9,6 @@ subagent_model: grok-4.6
 phase: apply
 updated: 2026-08-19
 notes: |
-  User confirmed stacked-to-main. Apply work unit 1 only (Settings + catalog + labels).
+  User confirmed stacked-to-main. Applying remaining work units 2–7, one subagent each.
   Nebula-agent out of scope. Allowed edit root: collection addon.
 

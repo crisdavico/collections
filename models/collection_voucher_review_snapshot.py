@@ -46,6 +46,13 @@ class CollectionVoucherReviewSnapshot(models.Model):
         related="voucher_id.currency_id",
         store=True,
     )
+    company_id = fields.Many2one(
+        related="voucher_id.company_id",
+        store=True,
+        required=True,
+        precompute=True,
+        index=True,
+    )
     document_type = fields.Selection(selection=_DOCUMENT_TYPE_SELECTION)
     amount = fields.Monetary(currency_field="currency_id")
     from_account = fields.Char()

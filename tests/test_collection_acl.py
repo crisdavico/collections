@@ -82,6 +82,79 @@ class TestCollectionAcl(TransactionCase):
             )
         )
 
+    def _create_company(self, name):
+        """Persist a second company; satisfy partner.autopost_bills when present."""
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        partner_vals = {"name": name, "is_company": True}
+        if "autopost_bills" in Partner._fields:
+            partner_vals["autopost_bills"] = "ask"
+            partner = Partner.create(partner_vals)
+        elif self._partner_has_autopost_bills_column():
+            self.env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, is_company,
+                    autopost_bills, create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', true, 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (name, f"{name}@example.com", name),
+            )
+            partner = Partner.browse(self.env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+        return self.env["res.company"].create(
+            {
+                "name": name,
+                "partner_id": partner.id,
+            }
+        )
+
+    def _restrict_user_to_company(self, user, company):
+        user.write(
+            {
+                "company_id": company.id,
+                "company_ids": [(6, 0, [company.id])],
+            }
+        )
+
+    def _assert_global_company_rule(self, model_name):
+        rules = self.env["ir.rule"].search([("model_id.model", "=", model_name)])
+        self.assertEqual(
+            len(rules), 1, f"{model_name} must have exactly one record rule"
+        )
+        self.assertFalse(rules.groups, f"{model_name} company rule must be global")
+        compact = "".join(rules.domain_force.split())
+        self.assertEqual(
+            compact,
+            "[('company_id','in',company_ids)]",
+            f"{model_name} rule must hide companies outside company_ids",
+        )
+
+    def _assert_hidden_from_user(self, user, record, read_fields):
+        Model = self.env[record._name].with_user(user)
+        self.assertFalse(
+            Model.search([("id", "=", record.id)]),
+            f"{record._name} {record.id} must not be searchable from the other company",
+        )
+        with self.assertRaises(AccessError):
+            Model.browse(record.id).read(read_fields)
+        self.assertEqual(
+            Model.search_read([("id", "=", record.id)], read_fields),
+            [],
+        )
+
     def _voucher_vals(self, **extra):
         vals = {
             "customer_identification": "ACL-CUST",
@@ -249,7 +322,7 @@ class TestCollectionAcl(TransactionCase):
             Sheet.browse(admin_sheet.id).unlink()
 
     def test_sheet_acl_internal_group_only(self):
-        """Triangulation: sheets use one base.group_user ACL row and no record rules."""
+        """Sheets use one base.group_user ACL row plus a global company rule."""
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.sheet")]
         )
@@ -259,9 +332,7 @@ class TestCollectionAcl(TransactionCase):
         self.assertTrue(acls.perm_write)
         self.assertTrue(acls.perm_create)
         self.assertTrue(acls.perm_unlink)
-        self.assertFalse(
-            self.env["ir.rule"].search([("model_id.model", "=", "collection.sheet")])
-        )
+        self._assert_global_company_rule("collection.sheet")
 
     def _snapshot_vals(self, voucher, **extra):
         vals = {
@@ -333,11 +404,7 @@ class TestCollectionAcl(TransactionCase):
         self.assertTrue(acls.perm_create)
         self.assertFalse(acls.perm_write)
         self.assertFalse(acls.perm_unlink)
-        self.assertFalse(
-            self.env["ir.rule"].search(
-                [("model_id.model", "=", "collection.voucher.review.snapshot")]
-            )
-        )
+        self._assert_global_company_rule("collection.voucher.review.snapshot")
         snapshot_cls = type(self.env["collection.voucher.review.snapshot"])
         voucher_cls = type(self.env["collection.voucher"])
         sources = [
@@ -355,3 +422,140 @@ class TestCollectionAcl(TransactionCase):
             code = "\n".join(code_lines)
             self.assertNotIn(".sudo(", code)
             self.assertNotIn("sudo()", code)
+
+    def test_voucher_acl_internal_group_and_company_rule(self):
+        """Vouchers use one base.group_user ACL row plus a global company rule."""
+        acls = self.env["ir.model.access"].search(
+            [("model_id.model", "=", "collection.voucher")]
+        )
+        self.assertEqual(len(acls), 1)
+        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertTrue(acls.perm_read)
+        self.assertTrue(acls.perm_write)
+        self.assertTrue(acls.perm_create)
+        self.assertTrue(acls.perm_unlink)
+        self._assert_global_company_rule("collection.voucher")
+
+    def test_catalog_acl_read_only_no_extra_groups(self):
+        """Catalog stays read-only for internal users; no extra groups or rules."""
+        acls = self.env["ir.model.access"].search(
+            [("model_id.model", "=", "collection.document.type")]
+        )
+        self.assertEqual(len(acls), 1)
+        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertTrue(acls.perm_read)
+        self.assertFalse(acls.perm_write)
+        self.assertFalse(acls.perm_create)
+        self.assertFalse(acls.perm_unlink)
+        self.assertFalse(
+            self.env["ir.rule"].search(
+                [("model_id.model", "=", "collection.document.type")]
+            )
+        )
+        self.assertFalse(
+            self.env["ir.model.data"].search(
+                [("module", "=", "collection"), ("model", "=", "res.groups")]
+            )
+        )
+
+    def test_voucher_company_id_required_defaults_to_env_company(self):
+        field = self.env["collection.voucher"]._fields["company_id"]
+        self.assertTrue(field.required)
+        voucher = self.env["collection.voucher"].create(
+            self._voucher_vals(customer_identification="CO-REQ-V")
+        )
+        self.assertEqual(voucher.company_id, self.env.company)
+
+    def test_sheet_company_id_required_defaults_to_env_company(self):
+        field = self.env["collection.sheet"]._fields["company_id"]
+        self.assertTrue(field.required)
+        sheet = self.env["collection.sheet"].create(self._sheet_vals())
+        self.assertEqual(sheet.company_id, self.env.company)
+
+    def test_snapshot_company_id_related_stored_from_voucher(self):
+        field = self.env["collection.voucher.review.snapshot"]._fields["company_id"]
+        self.assertTrue(field.required)
+        self.assertEqual(field.related, "voucher_id.company_id")
+        self.assertTrue(field.store)
+        voucher = self.env["collection.voucher"].create(
+            self._voucher_vals(customer_identification="CO-REQ-SNAP")
+        )
+        snap = (
+            self.env["collection.voucher.review.snapshot"]
+            .with_context(collection_review_snapshot=True)
+            .create(self._snapshot_vals(voucher, reviewer_id=self.env.user.id))
+        )
+        self.assertEqual(snap.company_id, voucher.company_id)
+        self.assertEqual(snap.company_id, self.env.company)
+
+    def test_allowed_company_voucher_sheet_snapshot_visible(self):
+        """Happy path: allowed-company user can read A's voucher, sheet, snapshot."""
+        self._restrict_user_to_company(self.internal_user, self.env.company)
+        voucher = (
+            self.env["collection.voucher"]
+            .with_user(self.internal_user)
+            .create(self._voucher_vals(customer_identification="SHOW-A-VOUCHER"))
+        )
+        sheet = (
+            self.env["collection.sheet"]
+            .with_user(self.internal_user)
+            .create(self._sheet_vals())
+        )
+        snap = (
+            self.env["collection.voucher.review.snapshot"]
+            .with_user(self.internal_user)
+            .with_context(collection_review_snapshot=True)
+            .create(self._snapshot_vals(voucher))
+        )
+        Voucher = self.env["collection.voucher"].with_user(self.internal_user)
+        Sheet = self.env["collection.sheet"].with_user(self.internal_user)
+        Snapshot = self.env["collection.voucher.review.snapshot"].with_user(
+            self.internal_user
+        )
+        self.assertEqual(Voucher.search([("id", "=", voucher.id)]), voucher)
+        self.assertEqual(voucher.company_id, self.env.company)
+        self.assertTrue(Voucher.browse(voucher.id).read(["name"])[0]["name"])
+        self.assertEqual(Sheet.search([("id", "=", sheet.id)]), sheet)
+        self.assertEqual(sheet.company_id, self.env.company)
+        self.assertTrue(Sheet.browse(sheet.id).read(["name"])[0]["name"])
+        self.assertEqual(Snapshot.search([("id", "=", snap.id)]), snap)
+        self.assertEqual(snap.company_id, voucher.company_id)
+        self.assertEqual(Snapshot.browse(snap.id).read(["revision"])[0]["revision"], 1)
+
+    def test_other_company_vouchers_hidden(self):
+        company_b = self._create_company("Hide Voucher Co B")
+        self._restrict_user_to_company(self.internal_user, self.env.company)
+        voucher_b = self.env["collection.voucher"].create(
+            self._voucher_vals(
+                customer_identification="HIDE-B-VOUCHER",
+                company_id=company_b.id,
+            )
+        )
+        self.assertEqual(voucher_b.company_id, company_b)
+        self._assert_hidden_from_user(self.internal_user, voucher_b, ["name", "id"])
+
+    def test_other_company_sheets_hidden(self):
+        company_b = self._create_company("Hide Sheet Co B")
+        self._restrict_user_to_company(self.internal_user, self.env.company)
+        sheet_b = self.env["collection.sheet"].create(
+            self._sheet_vals(company_id=company_b.id)
+        )
+        self.assertEqual(sheet_b.company_id, company_b)
+        self._assert_hidden_from_user(self.internal_user, sheet_b, ["name", "id"])
+
+    def test_other_company_snapshots_hidden(self):
+        company_b = self._create_company("Hide Snapshot Co B")
+        self._restrict_user_to_company(self.internal_user, self.env.company)
+        voucher_b = self.env["collection.voucher"].create(
+            self._voucher_vals(
+                customer_identification="HIDE-B-SNAP",
+                company_id=company_b.id,
+            )
+        )
+        snap_b = (
+            self.env["collection.voucher.review.snapshot"]
+            .with_context(collection_review_snapshot=True)
+            .create(self._snapshot_vals(voucher_b, reviewer_id=self.env.user.id))
+        )
+        self.assertEqual(snap_b.company_id, company_b)
+        self._assert_hidden_from_user(self.internal_user, snap_b, ["revision", "id"])

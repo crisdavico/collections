@@ -37,8 +37,8 @@ PR ≤~400; stacked-to-main. No nebula-agent. Threat-matrix N/A. Verify: upgrade
 
 ## Phase 2: company_id + ir.rule
 
-- [ ] 2.1 RED: Flip no-`ir.rule` (`test_collection_acl.py`); required `company_id` + hide-other-company (voucher/sheet/snapshot).
-- [ ] 2.2 GREEN: Required `company_id` on voucher/sheet/snapshot; `collection_security.xml` `ir.rule`; catalog ACL; no extra groups.
+- [x] 2.1 RED: Flip no-`ir.rule` (`test_collection_acl.py`); required `company_id` + hide-other-company (voucher/sheet/snapshot).
+- [x] 2.2 GREEN: Required `company_id` on voucher/sheet/snapshot; `collection_security.xml` `ir.rule`; catalog ACL; no extra groups.
 
 ## Phase 3: Migration + sequences
 
