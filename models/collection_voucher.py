@@ -199,7 +199,11 @@ class CollectionVoucher(models.Model):
             vals.pop("create_date", None)
             vals.pop("write_date", None)
             if vals.get("name", "/") in (False, "/", "New"):
-                vals["name"] = sequence.next_by_code("collection.voucher") or "/"
+                company_id = vals.get("company_id") or self.env.company.id
+                vals["name"] = (
+                    sequence.with_company(company_id).next_by_code("collection.voucher")
+                    or "/"
+                )
             if vals.get("sheet_id"):
                 self._ensure_sheet_membership_unlocked(vals["sheet_id"])
         return super().create(vals_list)

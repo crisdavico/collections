@@ -5,13 +5,13 @@
         <field name="code">collection.voucher</field>
         <field name="prefix">COL/%(year)s/</field>
         <field name="padding">4</field>
-        <field name="company_id" eval="False" />
+        <field name="company_id" ref="base.main_company" />
     </record>
     <record id="seq_collection_sheet" model="ir.sequence">
         <field name="name">Collection Sheet</field>
         <field name="code">collection.sheet</field>
         <field name="prefix">CS/%(year)s/</field>
         <field name="padding">4</field>
-        <field name="company_id" eval="False" />
+        <field name="company_id" ref="base.main_company" />
     </record>
 </odoo>

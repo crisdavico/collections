@@ -42,8 +42,8 @@ PR ≤~400; stacked-to-main. No nebula-agent. Threat-matrix N/A. Verify: upgrade
 
 ## Phase 3: Migration + sequences
 
-- [ ] 3.1 RED: Stamp/repair/seed/four-types; per-company `COL/` `CS/` (no `company_id=False` thief).
-- [ ] 3.2 GREEN: `post-migrate.py` steps 1–6; seq → `base.main_company`; `with_company` `next_by_code`; company create copies seq+types.
+- [x] 3.1 RED: Stamp/repair/seed/four-types; per-company `COL/` `CS/` (no `company_id=False` thief).
+- [x] 3.2 GREEN: `post-migrate.py` steps 1–6; seq → `base.main_company`; `with_company` `next_by_code`; company create copies seq+types.
 
 ## Phase 4: New-work helper
 

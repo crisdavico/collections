@@ -4,6 +4,17 @@
 from odoo import api, fields, models
 from odoo.fields import Command
 
+COLLECTION_SEQUENCE_SPECS = (
+    ("collection.voucher", "Payment Voucher", "COL/%(year)s/", 4),
+    ("collection.sheet", "Collection Sheet", "CS/%(year)s/", 4),
+)
+COLLECTION_TYPE_CODES = (
+    "bank_transfer",
+    "check",
+    "cash_deposit",
+    "unsupported",
+)
+
 
 class ResCompany(models.Model):
     _inherit = "res.company"
@@ -46,6 +57,74 @@ class ResCompany(models.Model):
         if companies:
             companies.write({"allowed_document_type_ids": [Command.set(types.ids)]})
         return True
+
+    @api.private
+    def _collection_catalog_types(self):
+        return self.env["collection.document.type"].search(
+            [("code", "in", list(COLLECTION_TYPE_CODES))]
+        )
+
+    @api.private
+    def _collection_enable_all_document_types(self):
+        """Union all four catalog types onto each company; keep extras."""
+        types = self._collection_catalog_types()
+        if not types or not self:
+            return True
+        self.write(
+            {
+                "allowed_document_type_ids": [
+                    Command.link(type_id) for type_id in types.ids
+                ]
+            }
+        )
+        return True
+
+    @api.private
+    def _collection_copy_sequences(self):
+        """Ensure each company has voucher and sheet sequences."""
+        Sequence = self.env["ir.sequence"]
+        main = self.env.ref("base.main_company")
+        for company in self:
+            for code, name, prefix, padding in COLLECTION_SEQUENCE_SPECS:
+                existing = Sequence.search(
+                    [("code", "=", code), ("company_id", "=", company.id)],
+                    limit=1,
+                )
+                if existing:
+                    continue
+                template = Sequence.search(
+                    [("code", "=", code), ("company_id", "=", main.id)],
+                    limit=1,
+                )
+                if not template:
+                    template = Sequence.search([("code", "=", code)], limit=1)
+                Sequence.create(
+                    {
+                        "name": template.name if template else name,
+                        "code": code,
+                        "prefix": template.prefix if template else prefix,
+                        "padding": template.padding if template else padding,
+                        "implementation": (
+                            template.implementation if template else "standard"
+                        ),
+                        "number_increment": (
+                            template.number_increment if template else 1
+                        ),
+                        "number_next": 1,
+                        "company_id": company.id,
+                        "use_date_range": bool(
+                            template.use_date_range if template else False
+                        ),
+                    }
+                )
+        return True
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        companies = super().create(vals_list)
+        companies._collection_copy_sequences()
+        companies._collection_enable_all_document_types()
+        return companies
 
     def write(self, vals):
         result = super().write(vals)

@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 {
     "name": "Collections",
-    "version": "19.0.1.16.0",
+    "version": "19.0.1.17.0",
     "category": "Sales/CRM",
     "summary": "Manual payment vouchers for cobranzas",
     "author": "Seedian",

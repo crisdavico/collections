@@ -115,7 +115,11 @@ class CollectionSheet(models.Model):
         opening_sellers = set()
         for vals in vals_list:
             if vals.get("name", "/") in (False, "/", "New"):
-                vals["name"] = sequence.next_by_code("collection.sheet") or "/"
+                company_id = vals.get("company_id") or self.env.company.id
+                vals["name"] = (
+                    sequence.with_company(company_id).next_by_code("collection.sheet")
+                    or "/"
+                )
             if "voucher_ids" in vals:
                 vals["voucher_ids"] = self._sanitize_voucher_commands(
                     vals["voucher_ids"]

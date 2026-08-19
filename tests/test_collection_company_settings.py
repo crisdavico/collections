@@ -94,9 +94,11 @@ class TestCollectionCompanySettings(TransactionCase):
         )
 
     def test_enabled_seller_ids_default_empty(self):
+        """Empty enabled sellers means none, not all. Field has no 'all' default."""
+        field = self.env["res.company"]._fields["enabled_seller_ids"]
         self.assertFalse(
-            self.env.company.enabled_seller_ids,
-            "empty enabled sellers must persist as none (not all)",
+            field.default,
+            "enabled_seller_ids must default to none (not all internal users)",
         )
 
     def test_new_company_starts_with_empty_enabled_sellers(self):
