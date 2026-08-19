@@ -57,8 +57,8 @@ PR ≤~400; stacked-to-main. No nebula-agent. Threat-matrix N/A. Verify: upgrade
 
 ## Phase 6: MCP replay vs reject
 
-- [ ] 6.1 RED: Flip global replay (`test_collection_mcp_tool.py`); same-co replay; other-co reject; UniqueViolation hidden; no B replay; unfiltered `get_seller_id`.
-- [ ] 6.2 GREEN: Classifier in `tools/collection_voucher.py`; no `sudo()`; generic `UserError`; all-new via helper; leave `seller_lookup.py`.
+- [x] 6.1 RED: Flip global replay (`test_collection_mcp_tool.py`); same-co replay; other-co reject; UniqueViolation hidden; no B replay; unfiltered `get_seller_id`.
+- [x] 6.2 GREEN: Classifier in `tools/collection_voucher.py`; no `sudo()`; generic `UserError`; all-new via helper; leave `seller_lookup.py`.
 
 ## Phase 7: Docs
 

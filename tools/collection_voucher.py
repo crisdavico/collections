@@ -266,9 +266,10 @@ class CollectionMcpMixin(models.AbstractModel):
 
         # Caller env only — never sudo(); ORM ACL enforces base.group_user rights.
         existing = self._collection_vouchers_by_document_ids(document_ids)
-        if existing:
-            # Exact-retry / conflict: ignore attachment nests and seller_id.
-            return self._collection_replay_or_reject(existing, document_ids)
+        classified = self._collection_classify_visible(existing, document_ids)
+        if classified is not None:
+            # Exact same-company retry: ignore nests, seller, type, and sheets.
+            return classified
 
         try:
             # Create-only: validate nests before writes (fail-closed).
@@ -293,12 +294,7 @@ class CollectionMcpMixin(models.AbstractModel):
             replayed = self._collection_replay_existing(document_ids)
             if replayed is not None:
                 return replayed
-            raise UserError(
-                _(
-                    "Payment document_id conflict could not be resolved after "
-                    "a concurrent create."
-                )
-            ) from None
+            raise self._collection_document_conflict_error() from None
 
     @api.model
     def _collection_parse_payment_vals(
@@ -559,6 +555,23 @@ class CollectionMcpMixin(models.AbstractModel):
         }
 
     @api.model
+    @api.private
+    def _collection_document_conflict_error(self) -> UserError:
+        """Return a generic document_id conflict UserError (no id or name)."""
+        return UserError(_("Payment document_id conflict could not be resolved."))
+
+    @api.model
+    @api.private
+    def _collection_classify_visible(self, existing, document_ids: list[str]):
+        """Return replay payload, raise on other-company/partial, or None if new."""
+        if not existing:
+            return None
+        current_id = self.env.company.id
+        if any(voucher.company_id.id != current_id for voucher in existing):
+            raise self._collection_document_conflict_error()
+        return self._collection_replay_or_reject(existing, document_ids)
+
+    @api.model
     def _collection_replay_or_reject(
         self, existing, document_ids: list[str]
     ) -> dict[str, Any]:
@@ -577,12 +590,10 @@ class CollectionMcpMixin(models.AbstractModel):
 
     @api.model
     def _collection_replay_existing(self, document_ids: list[str]):
-        """Invalidate and replay if document_ids already exist; else None."""
+        """Invalidate caches and classify visible document_id rows, or return None."""
         self.env.invalidate_all()
         raced = self._collection_vouchers_by_document_ids(document_ids)
-        if raced:
-            return self._collection_replay_or_reject(raced, document_ids)
-        return None
+        return self._collection_classify_visible(raced, document_ids)
 
     @api.model
     def _collection_require_internal_seller(self, seller_id: Any):

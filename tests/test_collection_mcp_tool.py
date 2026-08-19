@@ -7,6 +7,7 @@ from datetime import date
 from unittest.mock import patch
 
 from odoo.exceptions import AccessError, UserError
+from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
@@ -1077,6 +1078,262 @@ class TestCollectionMcpTool(TransactionCase):
         self.assertFalse(leftover.seller_id)
         self.assertEqual(leftover.write_date, leftover_write)
         self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+
+    # --- company-scoped MCP replay classifier ---
+
+    def _create_company(self, name):
+        """Persist a second company; satisfy partner.autopost_bills when present."""
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        partner_vals = {"name": name, "is_company": True}
+        if "autopost_bills" in Partner._fields:
+            partner_vals["autopost_bills"] = "ask"
+            partner = Partner.create(partner_vals)
+        elif self._partner_has_autopost_bills_column():
+            self.env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, is_company,
+                    autopost_bills, create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', true, 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (name, f"{name}@example.com", name),
+            )
+            partner = Partner.browse(self.env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+        return self.env["res.company"].create(
+            {
+                "name": name,
+                "partner_id": partner.id,
+            }
+        )
+
+    def _create_voucher_in_company(self, company, document_id, **extra):
+        """Create a voucher stamped on ``company`` (seller enabled there)."""
+        seller = extra.pop("seller_id", self.internal_user)
+        ensure_enabled_seller(self.env, seller, company=company)
+        vals = {
+            "customer_identification": extra.pop(
+                "customer_identification", "MCP-OTHER-CO"
+            ),
+            "document_type": extra.pop("document_type", "bank_transfer"),
+            "document_id": document_id,
+            "seller_id": seller.id,
+            "company_id": company.id,
+        }
+        vals.update(extra)
+        company.write({"auto_create_sheet": False})
+        return self.env["collection.voucher"].with_company(company).create(vals)
+
+    def _grant_companies(self, user, companies, current):
+        user.write(
+            {
+                "company_id": current.id,
+                "company_ids": [(6, 0, companies.ids)],
+            }
+        )
+
+    def _assert_generic_document_conflict(self, err, voucher, company):
+        """Conflict UserError must not disclose voucher id/name or company."""
+        message = str(err.exception)
+        lowered = message.lower()
+        self.assertIn("conflict", lowered)
+        self.assertNotIn("tool not found", lowered)
+        self.assertNotIn(str(voucher.id), message)
+        self.assertNotIn(voucher.name, message)
+        self.assertNotIn(company.name, message)
+
+    def test_same_company_replay_skips_disabled_seller_and_disallowed_type(self):
+        """Same-company exact replay MUST skip seller/type gates and sheet mutate."""
+        first = self._call(
+            self._payload(
+                customer="MCP-CUST-REPLAY-GATES",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-REPLAY-GATES",
+                        "document_type": "bank_transfer",
+                        "amount": 3.0,
+                    }
+                ],
+            )
+        )
+        voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
+        self.assertEqual(voucher.company_id, self.env.company)
+        sheet_id = voucher.sheet_id.id
+        write_date = voucher.write_date
+        bank = self.env["collection.document.type"].search(
+            [("code", "=", "bank_transfer")], limit=1
+        )
+        self.assertTrue(bank)
+        self.env.company.write(
+            {
+                "enabled_seller_ids": [Command.clear()],
+                "allowed_document_type_ids": [Command.unlink(bank.id)],
+            }
+        )
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        before_sheets = self.env["collection.sheet"].search_count([])
+
+        replayed = self._call(
+            self._payload(
+                customer="MCP-CUST-REPLAY-GATES-OTHER",
+                payments=[
+                    {
+                        "document_id": "MCP-DOC-REPLAY-GATES",
+                        "document_type": "bank_transfer",
+                        "amount": 999.0,
+                    }
+                ],
+            )
+        )
+
+        self._assert_voucher_list(replayed, ["MCP-DOC-REPLAY-GATES"])
+        self._assert_mcp_voucher_payload_keys(replayed)
+        self.assertEqual(replayed["vouchers"][0]["id"], voucher.id)
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+        self.assertEqual(self.env["collection.sheet"].search_count([]), before_sheets)
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.sheet_id.id, sheet_id)
+        self.assertEqual(voucher.write_date, write_date)
+        self.assertEqual(voucher.seller_id, self.internal_user)
+        self.assertEqual(voucher.document_type, "bank_transfer")
+        self.assertEqual(voucher.customer_identification, "MCP-CUST-REPLAY-GATES")
+        self.assertEqual(voucher.amount, 3.0)
+
+    def test_other_company_visible_hit_rejects_generic_no_ids(self):
+        """Visible other-company document_id MUST reject, not replay, with no ids."""
+        company_a = self.env.company
+        company_b = self._create_company("MCP-OtherCo-Visible")
+        self._grant_companies(
+            self.internal_user, company_a | company_b, current=company_a
+        )
+        voucher_b = self._create_voucher_in_company(company_b, "MCP-DOC-OTHER-VISIBLE")
+        self.assertEqual(voucher_b.company_id, company_b)
+        visible = (
+            self.env["collection.voucher"]
+            .with_user(self.internal_user)
+            .search([("document_id", "=", "MCP-DOC-OTHER-VISIBLE")])
+        )
+        self.assertEqual(visible, voucher_b)
+        before_vouchers = self.env["collection.voucher"].search_count([])
+
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-OTHER-VISIBLE",
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-OTHER-VISIBLE",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                        }
+                    ],
+                )
+            )
+
+        self._assert_generic_document_conflict(err, voucher_b, company_b)
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [
+                    ("document_id", "=", "MCP-DOC-OTHER-VISIBLE"),
+                    ("company_id", "=", company_a.id),
+                ]
+            )
+        )
+
+    def test_multi_company_reader_does_not_replay_other_company(self):
+        """Triangulation: a reader of A and B MUST NOT replay B when creating in A."""
+        company_a = self.env.company
+        company_b = self._create_company("MCP-OtherCo-NoReplay")
+        self._grant_companies(
+            self.internal_user, company_a | company_b, current=company_a
+        )
+        voucher_b = self._create_voucher_in_company(company_b, "MCP-DOC-NO-B-REPLAY")
+        before_vouchers = self.env["collection.voucher"].search_count([])
+
+        with self.assertRaises(UserError) as err:
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-NO-B-REPLAY",
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-NO-B-REPLAY",
+                            "document_type": "check",
+                            "amount": 2.0,
+                            "check_type": "common",
+                        }
+                    ],
+                )
+            )
+
+        self._assert_generic_document_conflict(err, voucher_b, company_b)
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]), before_vouchers
+        )
+
+    def test_unique_violation_hidden_other_company_generic_error(self):
+        """UniqueViolation with a rule-hidden other-company row MUST generic-reject."""
+        company_a = self.env.company
+        company_b = self._create_company("MCP-OtherCo-Hidden")
+        self.internal_user.write(
+            {
+                "company_id": company_a.id,
+                "company_ids": [(6, 0, [company_a.id])],
+            }
+        )
+        voucher_b = self._create_voucher_in_company(company_b, "MCP-DOC-UV-HIDDEN")
+        hidden = (
+            self.env["collection.voucher"]
+            .with_user(self.internal_user)
+            .search([("document_id", "=", "MCP-DOC-UV-HIDDEN")])
+        )
+        self.assertFalse(hidden, "Caller must not see company B's voucher")
+        self.env.company.write({"auto_create_sheet": False})
+        before_a = self.env["collection.voucher"].search_count(
+            [("company_id", "=", company_a.id)]
+        )
+
+        with mute_logger("odoo.sql_db"), self.assertRaises(UserError) as err:
+            self._call(
+                self._payload(
+                    customer="MCP-CUST-UV-HIDDEN",
+                    payments=[
+                        {
+                            "document_id": "MCP-DOC-UV-HIDDEN",
+                            "document_type": "bank_transfer",
+                            "amount": 4.0,
+                        }
+                    ],
+                )
+            )
+
+        self._assert_generic_document_conflict(err, voucher_b, company_b)
+        self.assertEqual(
+            self.env["collection.voucher"].search_count(
+                [("company_id", "=", company_a.id)]
+            ),
+            before_a,
+        )
+        voucher_b.invalidate_recordset()
+        self.assertTrue(voucher_b.exists())
+        self.assertEqual(voucher_b.company_id, company_b)
 
 
 class TestCollectionMcpAttachment(TransactionCase):

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from odoo.exceptions import AccessError, UserError
+from odoo.fields import Command
 from odoo.tests import TransactionCase
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
@@ -226,6 +227,73 @@ class TestCollectionMcpSellerLookup(TransactionCase):
         self.assertFalse(user.has_group("base.group_user"))
         with self.assertRaises(UserError):
             self._call({"mobile": "5491155550888"})
+
+    def test_unique_match_not_on_enabled_list_still_returns(self):
+        """Lookup MUST still return a unique internal match not on enabled sellers."""
+        company = self.env.company
+        if self.internal_user in company.enabled_seller_ids:
+            company.write(
+                {"enabled_seller_ids": [Command.unlink(self.internal_user.id)]}
+            )
+        self.assertNotIn(self.internal_user, company.enabled_seller_ids)
+        result = self._call({"mobile": SELLER_MOBILE_QUERY})
+        self.assertEqual(result, {"seller_id": self.internal_user.id})
+
+    def test_empty_enabled_list_does_not_block_lookup(self):
+        """Empty enabled-seller list MUST NOT block a unique internal match."""
+        self.env.company.write({"enabled_seller_ids": [Command.clear()]})
+        self.assertFalse(self.env.company.enabled_seller_ids)
+        result = self._call({"mobile": SELLER_MOBILE_QUERY})
+        self.assertEqual(result, {"seller_id": self.internal_user.id})
+
+    def test_other_company_enabled_lists_do_not_filter_lookup(self):
+        """Enabled-only-on-another-company MUST still resolve the unique match."""
+        self.env.company.write({"enabled_seller_ids": [Command.clear()]})
+        other = self._create_lookup_company("Lookup-OtherCo-Enabled")
+        other.write({"enabled_seller_ids": [Command.set([self.internal_user.id])]})
+        self.assertNotIn(self.internal_user, self.env.company.enabled_seller_ids)
+        self.assertIn(self.internal_user, other.enabled_seller_ids)
+        result = self._call({"mobile": SELLER_MOBILE_QUERY})
+        self.assertEqual(result, {"seller_id": self.internal_user.id})
+
+    def _create_lookup_company(self, name):
+        """Persist a second company; satisfy partner.autopost_bills when present."""
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        partner_vals = {"name": name, "is_company": True}
+        if "autopost_bills" in Partner._fields:
+            partner_vals["autopost_bills"] = "ask"
+            partner = Partner.create(partner_vals)
+        elif self._partner_has_autopost_bills_column():
+            self.env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, is_company,
+                    autopost_bills, create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', true, 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (name, f"{name}@example.com", name),
+            )
+            partner = Partner.browse(self.env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+        return self.env["res.company"].create(
+            {
+                "name": name,
+                "partner_id": partner.id,
+            }
+        )
 
     def test_seller_lookup_source_omits_mobile_phone_and_sudo(self):
         """tools/seller_lookup.py MUST NOT use mobile_phone or sudo (no hr install)."""

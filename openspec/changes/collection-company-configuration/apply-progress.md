@@ -2,7 +2,7 @@
 
 **Change**: collection-company-configuration
 **Mode**: Strict TDD
-**Batch**: Work unit 5 / PR 5 (stacked-to-main)
+**Batch**: Work unit 6 / PR 6 (stacked-to-main)
 **Updated**: 2026-08-19
 
 ## Completed Tasks
@@ -17,6 +17,8 @@
 - [x] 4.2 GREEN: `res.company._assert_new_work` on create + seller/type write; skip Approve/Close/Reopen; `collection_views.xml` domains.
 - [x] 5.1 RED: Flip always-on auto-assign + per-seller one-open (`test_collection_sheet.py`); OFF skip both; Action still creates; open in A+B.
 - [x] 5.2 GREEN: Gate auto-assign (OFF skips both); lock `(company_id, seller_id)`; list Action uses company + helper.
+- [x] 6.1 RED: Flip global replay (`test_collection_mcp_tool.py`); same-co replay; other-co reject; UniqueViolation hidden; no B replay; unfiltered `get_seller_id`.
+- [x] 6.2 GREEN: Classifier in `tools/collection_voucher.py`; no `sudo()`; generic `UserError`; all-new via helper; leave `seller_lookup.py`.
 
 ## Files Changed
 
@@ -68,7 +70,7 @@
 | `README.rst` | Modified | Generated source digest from OCA readme hook |
 | `static/description/index.html` | Modified | Generated source digest from OCA readme hook |
 
-### Unit 4 (this batch)
+### Unit 4 (prior)
 
 | File | Action | What Was Done |
 |------|--------|---------------|
@@ -87,7 +89,7 @@
 | `models/collection_sheet.py` | Modified | Helper on create (seller only); Close/Reopen unchanged |
 | `views/collection_views.xml` | Modified | Seller domain = company enabled list; optional `company_id` column; keep `<list>` |
 
-### Unit 5 (this batch)
+### Unit 5 (prior)
 
 | File | Action | What Was Done |
 |------|--------|---------------|
@@ -95,6 +97,15 @@
 | `tests/test_collection_company_migration.py` | Modified | Sequence-isolation test turns `auto_create_sheet` OFF so COL/CS asserts are not coupled to auto-created sheets |
 | `models/collection_voucher.py` | Modified | Gate auto-assign on company `auto_create_sheet`; resolve by `(company_id, seller_id)`; list Action uses selection company + helper |
 | `models/collection_sheet.py` | Modified | Open-sheet search + advisory lock scoped to `(company_id, seller_id)`; create/reopen keys by company+seller; auto-created sheets stamp voucher company |
+
+### Unit 6 (this batch)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `tests/test_collection_mcp_tool.py` | Modified | Same-company replay skips disabled seller/disallowed type; visible other-company reject (no ids); multi-company reader no B replay; UniqueViolation hidden generic |
+| `tests/test_collection_mcp_seller_lookup.py` | Modified | `get_seller_id` still matches when not enabled, empty list, or enabled only on another company |
+| `tests/test_collection_sheet.py` | Modified | Sequence regex allows 4+ digits (`CS/year/number` overflow on long-lived devel) |
+| `tools/collection_voucher.py` | Modified | Visible-hit classifier: same-company exact replay; other-company generic UserError; UniqueViolation invalidate then same classify; no `sudo()` |
 
 ## TDD Cycle Evidence
 
@@ -110,22 +121,24 @@
 | 4.2 | same + existing create suites | Unit | N/A (implements 4.1) | ✅ Tests first | ✅ 373 tests / 0 failed | ✅ Covered by 4.1 cases | ✅ Shared `ensure_enabled_seller`; unique `_other_internal_seller` logins |
 | 5.1 | `tests/test_collection_sheet.py` | Unit (TransactionCase) | ✅ 373 tests / 0 failed (`invoke test -m collection --mode=update`) | ✅ Written (5 FAIL + 2 ERROR: OFF still assigned; Action sheet in env.company; second open in B UserError) | ✅ Passed | ✅ OFF skip both vs skip assign when open exists; Action when OFF; open in A+B; auto-assign/Action use voucher company; Action allowed when open only in other company | ➖ E501 docstring wraps |
 | 5.2 | same + `tests/test_collection_company_migration.py` | Unit | N/A (implements 5.1) | ✅ Tests first | ✅ 380 tests / 0 failed | ✅ Covered by 5.1 cases; isolation test retargeted with auto OFF | ✅ Extract `_company_id_of`; lock `hashtext('collection.sheet.open.' \|\| company_id)` |
+| 6.1 | `tests/test_collection_mcp_tool.py`, `tests/test_collection_mcp_seller_lookup.py` | Unit (TransactionCase) | ✅ 380 tests / 0 failed (`invoke test -m collection --mode=update`) | ✅ Written (2 FAIL: visible other-company still replayed). Same-co disabled-seller replay, UniqueViolation hidden, and unfiltered `get_seller_id` already passed (no-regression) | ✅ Passed | ✅ Same-co replay with disabled seller + disallowed type; other-co visible reject; multi-company no B replay; UniqueViolation hidden; lookup not-enabled / empty / other-co enabled | ➖ E501 wraps |
+| 6.2 | `tools/collection_voucher.py` | Unit | N/A (implements 6.1) | ✅ Tests first | ✅ 387 tests / 0 failed | ✅ Covered by 6.1 cases | ✅ Extract `_collection_document_conflict_error` + `_collection_classify_visible` |
 
 ### Test Summary
 
-- **Total tests written this slice**: 7 new auto-sheet/one-open TransactionCase methods; WU3 isolation test retargeted
-- **Total tests passing**: 380 (`invoke test -m collection --mode=update`: `0 failed, 0 error(s) of 344 tests when loading database 'devel'`)
+- **Total tests written this slice**: 4 MCP classifier methods + 3 seller-lookup no-regression methods
+- **Total tests passing**: 387 (`invoke test -m collection --mode=update`: `0 failed, 0 error(s) of 351 tests when loading database 'devel'`)
 - **Layers used**: Unit (7 new this slice), Integration (0), E2E (0)
-- **Approval tests** (refactoring): None — no refactoring-only task
-- **Pure functions created**: 1 (`_company_id_of` id unwrap)
+- **Approval tests** (refactoring): 3 seller-lookup no-regression cases (production `seller_lookup.py` unchanged)
+- **Pure functions created**: 0 (classifier is ORM-bound on `env.company` + visible recordset)
 
 ## Work Unit Evidence
 
 | Evidence | Value |
 |---|---|
-| Focused test command and exact result | `invoke test -m collection --mode=update` from `/home/crisd/projects/seedian/seedian` → SAFETY NET: `collection: 373 tests` / `0 failed`. RED: `5 failed, 2 error(s)` (OFF still assigned; Action/auto-assign used env.company; B create UserError). GREEN: `collection: 380 tests` / `0 failed, 0 error(s) of 344 tests when loading database 'devel'` |
-| Runtime harness command/scenario and exact result | GREEN `-u collection` on devel ran the auto-sheet + one-open tests. Scoped pre-commit on touched collection paths: Passed (ruff E501 then clean) |
-| Rollback boundary | Revert voucher auto-assign gate, sheet open-search/lock/create/reopen company scope, list Action company stamp, WU5 tests, and the isolation-test auto-OFF. Does not remove helper (WU4), catalog/settings (WU1), `company_id`/`ir.rule` (WU2), migrate/sequences (WU3), MCP classifier (WU6), or `AGENTS.md` (WU7) |
+| Focused test command and exact result | `invoke test -m collection --mode=update` from `/home/crisd/projects/seedian/seedian` → SAFETY NET: `collection: 380 tests` / `0 failed`. RED: `2 failed` (`test_other_company_visible_hit_rejects_generic_no_ids`, `test_multi_company_reader_does_not_replay_other_company` still replayed). GREEN: `collection: 387 tests` / `0 failed, 0 error(s) of 351 tests when loading database 'devel'` |
+| Runtime harness command/scenario and exact result | GREEN `-u collection` on devel ran the MCP classifier + seller-lookup tests. Scoped pre-commit on touched collection paths: Passed |
+| Rollback boundary | Revert `tools/collection_voucher.py` classifier, WU6 MCP/seller-lookup tests, and the sheet sequence `\d{4,}` regex. Does not remove helper (WU4), catalog/settings (WU1), `company_id`/`ir.rule` (WU2), migrate/sequences (WU3), auto-sheet (WU5), or `AGENTS.md` (WU7). Does not change `seller_lookup.py` |
 
 ## Deviations from Design
 
@@ -155,19 +168,20 @@ None of these change stamp order, repair, four-type union, `with_company` number
 - Searching `id != uid` for “other seller” can return `user_admin` (same as the primary test seller) and trip one-open. Tests now create unique logins via `create_internal_seller`.
 - Auto-assign now stamps the voucher company on the created sheet, so WU3 `test_voucher_and_sheet_numbers_isolated_per_company` must turn `auto_create_sheet` OFF (or it consumes `CS/` in company B before the explicit sheet create).
 - List Action mixed-company selection now raises a same-company UserError (design: selection same company). No dedicated mixed-company Action test in this slice.
+- UniqueViolation with a **rule-hidden** other-company row already raised a generic MCP UserError before this slice (no visible set → no replay). WU6 still covers it and unifies the message with visible other-company hits: `Payment document_id conflict could not be resolved.`
+- Sheet sequence tests used exactly 4 digits. Long-lived devel `nextval` overflow (`CS/2026/10045`) is valid Odoo padding behavior; regex is now `\d{4,}`. Not a production sequence change.
 
 ## Remaining Tasks
 
-- [ ] 6.1 / 6.2 MCP same-co replay vs reject
 - [ ] 7.1 `AGENTS.md` domain-rule rewrite
 
 ## Workload / PR Boundary
 
 - Mode: stacked PR slice (stacked-to-main)
-- Current work unit: Unit 5 — `auto_create_sheet` + one-open
-- Boundary: starts from WU4 branch (`feat/collection-company-config-05-auto-sheet`); ends with auto-assign gated by `auto_create_sheet`, one-open/lock scoped to `(company_id, seller_id)`, and list Action using selection company + helper. Does **not** include MCP replay classifier (WU6) or `AGENTS.md` (WU7). Does not change `seller_lookup.py`. ORM auto-sheet OFF naturally affects MCP all-new via ORM — left unchanged.
-- Estimated review budget impact: production ~80 authored added+deleted lines; tests ~220. Under the 400-line review budget for production; tests are the bulk. OpenSpec progress checkboxes excluded from authored risk.
+- Current work unit: Unit 6 — MCP same-co replay vs reject
+- Boundary: starts from WU5 branch (`feat/collection-company-config-05-auto-sheet`); ends with company-scoped MCP classifier in `tools/collection_voucher.py` (same-company exact replay; other-company / hidden UniqueViolation generic UserError; all-new still ORM helper). Does **not** include `AGENTS.md` (WU7). Does not change `seller_lookup.py`.
+- Estimated review budget impact: production ~37 authored added+deleted lines (`tools/collection_voucher.py`); tests ~330. Under the 400-line review budget for production; tests are the bulk. OpenSpec progress checkboxes excluded from authored risk.
 
 ## Status
 
-10/14 phase tasks complete (unit 5 of 7). Ready for next batch: **sdd-apply work unit 6**.
+12/14 phase tasks complete (unit 6 of 7). Ready for next batch: **sdd-apply work unit 7**.

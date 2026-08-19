@@ -109,7 +109,7 @@ class TestCollectionSheet(TransactionCase):
         sheet = self._create_sheet()
         self.assertRegex(
             sheet.name,
-            rf"^CS/{year}/\d{{4}}$",
+            rf"^CS/{year}/\d{{4,}}$",
             "Sheet name must match CS/<year>/<padded number>",
         )
         self.assertEqual(sheet.state, "open")
@@ -122,8 +122,8 @@ class TestCollectionSheet(TransactionCase):
         first.action_close()
         second = self._create_sheet()
         self.assertNotEqual(first.name, second.name)
-        self.assertRegex(first.name, r"^CS/\d{4}/\d{4}$")
-        self.assertRegex(second.name, r"^CS/\d{4}/\d{4}$")
+        self.assertRegex(first.name, r"^CS/\d{4}/\d{4,}$")
+        self.assertRegex(second.name, r"^CS/\d{4}/\d{4,}$")
         self.assertEqual(first.state, "closed")
         self.assertEqual(second.state, "open")
         self.assertEqual(first.seller_id, second.seller_id)
