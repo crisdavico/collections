@@ -1,12 +1,9 @@
 # Archive Report: voucher-line-attachments
 
-**Date**: 2026-08-11
-**Change**: voucher-line-attachments
-**Archived to**: `openspec/changes/archive/2026-08-11-voucher-line-attachments/`
-**Artifact store**: openspec
-**Status**: success
-**Intentional warnings**: yes (verify pass_with_warnings — two accepted non-blocking
-deviations)
+**Date**: 2026-08-11 **Change**: voucher-line-attachments **Archived to**:
+`openspec/changes/archive/2026-08-11-voucher-line-attachments/` **Artifact store**:
+openspec **Status**: success **Intentional warnings**: yes (verify pass_with_warnings —
+two accepted non-blocking deviations)
 
 ## Gates
 
@@ -38,8 +35,8 @@ Per orchestrator launch facts (outrank stale snapshot “pending” claims):
 
 ## Spec sync
 
-**Domain**: `collection-vouchers`
-**Main spec**: `openspec/specs/collection-vouchers/spec.md`
+**Domain**: `collection-vouchers` **Main spec**:
+`openspec/specs/collection-vouchers/spec.md`
 
 | Action   | Requirement                                                                                                                                             |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |

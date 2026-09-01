@@ -6,7 +6,12 @@ from lxml import etree
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64, ensure_enabled_seller, post_voucher_proof
+from .test_collection_payment import (
+    PNG_B64,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+    post_voucher_proof,
+)
 
 _REVIEW_DISABLED_MSG = "Document Review is not enabled."
 
@@ -25,8 +30,9 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
 
     def _create_pending_attached(self, customer, document_id, sheet_id=None):
         seller = ensure_enabled_seller(self.env)
+        partner = dummy_customer_partner(self.env, customer=customer)
         vals = {
-            "customer_identification": customer,
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
             "document_id": document_id,
             "amount": 100.0,
@@ -201,7 +207,9 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "CUST-FLAG-FORM-APPR",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="CUST-FLAG-FORM-APPR"
+                ).id,
                 "document_type": "bank_transfer",
                 "amount": 10.0,
                 "seller_id": ensure_enabled_seller(self.env).id,
@@ -220,7 +228,9 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "CUST-FLAG-FORM-REJ",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="CUST-FLAG-FORM-REJ"
+                ).id,
                 "document_type": "check",
                 "amount": 20.0,
                 "seller_id": ensure_enabled_seller(self.env).id,

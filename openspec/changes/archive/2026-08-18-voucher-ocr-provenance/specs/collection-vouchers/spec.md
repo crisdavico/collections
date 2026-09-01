@@ -34,12 +34,12 @@ provenance keys after create.
 
 ### Requirement: MCP nested provenance on all-new create
 
-`create_collection_vouchers` MAY accept nested `raw_ocr` and `seller_confirmed` with
-the same typed keys as current fields. When both nests are present, seller-confirmed
-MUST equal top-level fields; current MUST initialize from seller-confirmed; raw MUST
-persist as submitted. Omitting both nests MUST leave empty provenance; UI/ORM create
-MUST remain allowed. Malformed, one-sided, or mismatched nests MUST fail the batch
-with no writes. Exact replay MUST ignore those nests with no provenance mutation.
+`create_collection_vouchers` MAY accept nested `raw_ocr` and `seller_confirmed` with the
+same typed keys as current fields. When both nests are present, seller-confirmed MUST
+equal top-level fields; current MUST initialize from seller-confirmed; raw MUST persist
+as submitted. Omitting both nests MUST leave empty provenance; UI/ORM create MUST remain
+allowed. Malformed, one-sided, or mismatched nests MUST fail the batch with no writes.
+Exact replay MUST ignore those nests with no provenance mutation.
 
 #### Scenario: Unchanged seller confirmation
 

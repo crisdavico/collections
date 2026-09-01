@@ -57,8 +57,8 @@ Each `collection.voucher` MAY store one optional designated proof as a chatter
 `ir.attachment` (empty `res_field`, linked via `mail.message`). Omit/empty MUST remain
 valid. Proof files MUST be `copy=False` and under existing internal-user voucher ACL.
 Setting or replacing designated proof MUST validate base64 and detected MIME (`image/*`
-or PDF only); MUST raise `UserError` otherwise.
-(Previously: Proof was Binary `attachment=True` plus filename via `ir.attachment`.)
+or PDF only); MUST raise `UserError` otherwise. (Previously: Proof was Binary
+`attachment=True` plus filename via `ir.attachment`.)
 
 #### Scenario: Omit attachment valid
 
@@ -84,8 +84,8 @@ or PDF only); MUST raise `UserError` otherwise.
 Payment Vouchers form, list, and kanban MUST NOT include Binary attachment or filename
 widgets. Form chatter MAY remain so internal users MAY attach after the voucher is
 saved. Where a file picker applies to designated proof, browser accept MUST be limited
-to `image/*` and PDF.
-(Previously: Form, list, and kanban required Binary attachment and filename widgets.)
+to `image/*` and PDF. (Previously: Form, list, and kanban required Binary attachment and
+filename widgets.)
 
 #### Scenario: Payment Vouchers views omit Binary widgets
 
@@ -103,8 +103,8 @@ match content detection (`image/*` or PDF only); mismatch or bad base64 MUST rai
 atomically under a savepoint by posting each nest onto the new voucher chatter via
 `message_post` (MUST NOT write Binary `attachment`). Exact-retry by `document_id` MUST
 return all matching vouchers and MUST NOT add, replace, or compare attachments (even
-when a voucher has none). All-new and conflict rules MUST remain unchanged.
-(Previously: Nested files persisted as Binary `attachment` plus `attachment_filename`.)
+when a voucher has none). All-new and conflict rules MUST remain unchanged. (Previously:
+Nested files persisted as Binary `attachment` plus `attachment_filename`.)
 
 #### Scenario: MCP create with nested attachment
 
@@ -130,8 +130,8 @@ when a voucher has none). All-new and conflict rules MUST remain unchanged.
 
 Approve and reject MUST refuse stale or concurrent attempts when the voucher is no
 longer eligible (not `pending`, or designated proof (`message_main_attachment_id`) no
-longer present) and MUST NOT corrupt review or voucher state.
-(Previously: Eligibility failed when Binary attachment was no longer present.)
+longer present) and MUST NOT corrupt review or voucher state. (Previously: Eligibility
+failed when Binary attachment was no longer present.)
 
 #### Scenario: Concurrent or stale review attempt
 
@@ -147,8 +147,8 @@ different attachment) MUST reset that voucher's `state` to `pending` and MUST cl
 prior reviewer/time audit for a fresh review. Extra chatter files that do not change
 `message_main_attachment_id` MUST NOT reset review, audit, or rotation. Clearing
 designated proof MUST reset rotation to 0 and MUST NOT reopen a decided voucher.
-Omit/empty and MIME validation rules remain unchanged.
-(Previously: Replacement was a write of new Binary content.)
+Omit/empty and MIME validation rules remain unchanged. (Previously: Replacement was a
+write of new Binary content.)
 
 #### Scenario: Attachment replacement resets voucher state
 

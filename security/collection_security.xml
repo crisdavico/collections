@@ -15,4 +15,34 @@
         <field name="model_id" ref="model_collection_voucher_review_snapshot" />
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
+    <record id="collection_connector_company_rule" model="ir.rule">
+        <field name="name">Collection Connector: multi-company</field>
+        <field name="model_id" ref="model_collection_connector" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="collection_connector_seller_binding_company_rule" model="ir.rule">
+        <field name="name">Collection Connector Seller Binding: multi-company</field>
+        <field name="model_id" ref="model_collection_connector_seller_binding" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="collection_connector_customer_binding_company_rule" model="ir.rule">
+        <field name="name">Collection Connector Customer Binding: multi-company</field>
+        <field name="model_id" ref="model_collection_connector_customer_binding" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="collection_allocation_company_rule" model="ir.rule">
+        <field name="name">Collection Allocation: multi-company</field>
+        <field name="model_id" ref="model_collection_allocation" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="collection_allocation_line_company_rule" model="ir.rule">
+        <field name="name">Collection Allocation Line: multi-company</field>
+        <field name="model_id" ref="model_collection_allocation_line" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="collection_allocation_revision_company_rule" model="ir.rule">
+        <field name="name">Collection Allocation Revision: multi-company</field>
+        <field name="model_id" ref="model_collection_allocation_revision" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

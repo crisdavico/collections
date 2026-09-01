@@ -7,13 +7,13 @@ openspec **Status**: success **Intentional warnings**: yes (verify `pass_with_wa
 
 ## Gates
 
-| Gate                      | Result                 | Evidence                                                                                                                                                                                                 |
-| ------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Task Completion           | PASS                   | Archived `tasks.md` — no `- [ ]`; tasks 1.1–4.3 all `[x]` (25/25). Task 4.2 complete as scoped pre-commit of this change (recursive `collection/**` glob fails on immutable archived OpenSpec).          |
-| Native Review Receipt     | PASS (absent)          | `reviewGate` structurally absent; archive proceeded under ordinary repository policy; no receipt demanded; reviewOffer decline not recorded as a verb                                                    |
-| CRITICAL in verify-report | PASS                   | `critical_findings: 0`, blockers: 0; verdict `pass_with_warnings`                                                                                                                                        |
-| Destructive delta         | PASS (not destructive) | `rules.archive`: warn before merging destructive deltas. No REMOVED/RENAMED requirements. ADDED + MODIFIED only. Proceeded without asking.                                                               |
-| Action context            | PASS                   | `actionContext.mode: repo-local`; edits stayed inside `allowedEditRoots` (`odoo/custom/src/private/collection`)                                                                                          |
+| Gate                      | Result                 | Evidence                                                                                                                                                                                        |
+| ------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task Completion           | PASS                   | Archived `tasks.md` — no `- [ ]`; tasks 1.1–4.3 all `[x]` (25/25). Task 4.2 complete as scoped pre-commit of this change (recursive `collection/**` glob fails on immutable archived OpenSpec). |
+| Native Review Receipt     | PASS (absent)          | `reviewGate` structurally absent; archive proceeded under ordinary repository policy; no receipt demanded; reviewOffer decline not recorded as a verb                                           |
+| CRITICAL in verify-report | PASS                   | `critical_findings: 0`, blockers: 0; verdict `pass_with_warnings`                                                                                                                               |
+| Destructive delta         | PASS (not destructive) | `rules.archive`: warn before merging destructive deltas. No REMOVED/RENAMED requirements. ADDED + MODIFIED only. Proceeded without asking.                                                      |
+| Action context            | PASS                   | `actionContext.mode: repo-local`; edits stayed inside `allowedEditRoots` (`odoo/custom/src/private/collection`)                                                                                 |
 
 ## Final-state authority
 
@@ -23,16 +23,16 @@ claims) and persisted `tasks.md`:
 - All tasks 1.1–4.3 complete in `tasks.md` (25/25 `[x]`; no `- [ ]`)
 - Task 4.2 is complete as scoped pre-commit of this change; recursive `collection/**`
   glob fails on immutable archived OpenSpec and was not the completion criterion
-- Verify at close: `pass_with_warnings`; 0 CRITICAL; 0 blockers; 4/4 requirements;
-  13/13 scenarios; 0 failed of 194 tests. Warnings are assertion-quality/process notes,
-  not spec gaps
+- Verify at close: `pass_with_warnings`; 0 CRITICAL; 0 blockers; 4/4 requirements; 13/13
+  scenarios; 0 failed of 194 tests. Warnings are assertion-quality/process notes, not
+  spec gaps
 - Delivery strategy stacked-to-main PRs were **not** created; that is post-archive
   delivery, not an archive blocker. This archive did not open PRs or commit
 - `reviewGate` absent
-- Unrelated dirty files were not merged or moved: `openspec/changes/get-seller-id-by-mobile/`
-  (if present), `openspec/specs/seller-lookup/`, seller-lookup tools/tests, settings-menu
-  WIP. This archive touched only this change's artifacts and the two main specs listed
-  below
+- Unrelated dirty files were not merged or moved:
+  `openspec/changes/get-seller-id-by-mobile/` (if present),
+  `openspec/specs/seller-lookup/`, seller-lookup tools/tests, settings-menu WIP. This
+  archive touched only this change's artifacts and the two main specs listed below
 
 Attributed snapshot history (not current state):
 
@@ -41,36 +41,35 @@ Attributed snapshot history (not current state):
 
 ## Spec sync
 
-Performed **before** the folder move. Main specs existed; deltas were merged (not
-copied as full specs). `collection-vouchers` and `seller-lookup` main specs were not
-created or overwritten.
+Performed **before** the folder move. Main specs existed; deltas were merged (not copied
+as full specs). `collection-vouchers` and `seller-lookup` main specs were not created or
+overwritten.
 
 **Domain**: `collection-sheets` **Main spec**:
 `openspec/specs/collection-sheets/spec.md` (existing; requirements not named in the
 delta preserved)
 
-| Action   | Requirement                                              |
-| -------- | -------------------------------------------------------- |
+| Action   | Requirement                                                   |
+| -------- | ------------------------------------------------------------- |
 | ADDED    | Saved-sheet header action opens Document Review (4 scenarios) |
-| MODIFIED | none                                                     |
-| REMOVED  | none                                                     |
-| RENAMED  | none                                                     |
+| MODIFIED | none                                                          |
+| REMOVED  | none                                                          |
+| RENAMED  | none                                                          |
 
 Preserved unchanged: Sheet sequence identity; Sheet seller and same-seller invariant;
 Membership, dates, and deletion; Create sheet Action; Authorization for internal users;
 Collection Sheets UI. Purpose line unchanged. RFC 2119 / Given-When-Then retained.
 
-**Domain**: `document-review` **Main spec**:
-`openspec/specs/document-review/spec.md` (existing; requirements not named in the
-delta preserved)
+**Domain**: `document-review` **Main spec**: `openspec/specs/document-review/spec.md`
+(existing; requirements not named in the delta preserved)
 
-| Action   | Requirement                                                                                          |
-| -------- | ---------------------------------------------------------------------------------------------------- |
-| ADDED    | Sheet identifier required on review operations (3 scenarios)                                         |
-| MODIFIED | Eligible review queue — replaced entire matching block (sheet membership; empty queue no fallback; cross-sheet isolation) |
+| Action   | Requirement                                                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| ADDED    | Sheet identifier required on review operations (3 scenarios)                                                                          |
+| MODIFIED | Eligible review queue — replaced entire matching block (sheet membership; empty queue no fallback; cross-sheet isolation)             |
 | MODIFIED | Document Review menu and RPCs when flag is off — replaced entire matching block (menu absent ON/OFF; refuse with or without sheet id) |
-| REMOVED  | none                                                                                                 |
-| RENAMED  | none                                                                                                 |
+| REMOVED  | none                                                                                                                                  |
+| RENAMED  | none                                                                                                                                  |
 
 Preserved unchanged: OWL client loads real ORM data; Authenticated binary attachment
 viewer; Viewer fit and cursor-anchored zoom; Viewer rotation; Approve and reject without
@@ -133,15 +132,15 @@ overwrite).
 
 ## Verification at close
 
-| Check                    | Result                                                                                                      |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Check                    | Result                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | Main specs updated       | yes (`collection-sheets` 1 ADDED / 4 sc; `document-review` 1 ADDED + 2 MODIFIED / 9 sc; other reqs preserved) |
-| Change folder in archive | yes                                                                                                         |
-| Active change path gone  | yes                                                                                                         |
-| tasks.md unchecked items | none                                                                                                        |
-| `diff -r` empty          | yes (Step 3 snapshot vs archive empty; `DIFF_STATUS=0`)                                                     |
-| Unrelated dirty files    | not touched                                                                                                 |
-| Attempt token            | not settled (orchestrator owns settle)                                                                      |
+| Change folder in archive | yes                                                                                                           |
+| Active change path gone  | yes                                                                                                           |
+| tasks.md unchecked items | none                                                                                                          |
+| `diff -r` empty          | yes (Step 3 snapshot vs archive empty; `DIFF_STATUS=0`)                                                       |
+| Unrelated dirty files    | not touched                                                                                                   |
+| Attempt token            | not settled (orchestrator owns settle)                                                                        |
 
 ## Engram
 

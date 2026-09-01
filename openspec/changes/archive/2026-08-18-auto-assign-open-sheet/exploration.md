@@ -6,9 +6,9 @@
 field (tests assert `_fields` has none). `seller_id` is required, frozen after create,
 and not defaulted from `create_uid`. Membership is `voucher_ids` One2many inverse of
 `collection.voucher.sheet_id` (`ondelete="set null"`). `_sanitize_voucher_commands`
-rewrites `Command.delete` to `unlink` so removing a member unassigns the voucher.
-Stored `date_from`/`date_to` are UTC calendar min/max of member `create_date`. Empty
-sheets are allowed. ACL is full CRUD for `base.group_user` only.
+rewrites `Command.delete` to `unlink` so removing a member unassigns the voucher. Stored
+`date_from`/`date_to` are UTC calendar min/max of member `create_date`. Empty sheets are
+allowed. ACL is full CRUD for `base.group_user` only.
 
 `collection.voucher.create` does **not** set `sheet_id`. `seller_id` is ORM-optional;
 the Payment Vouchers form requires it. Constraints: Python same-seller match plus SQL
@@ -34,8 +34,8 @@ already has several sheets, because every existing sheet will start as open.
 **Confirmed (fail-closed):** after upgrade a seller MAY have several open sheets.
 Auto-assign, Action create-sheet, sheet create, and reopen MUST `UserError` when the
 seller already has **more than one** open sheet. Do **not** pick newest. Do **not**
-create another. Do **not** add a UNIQUE SQL constraint. Close extras by hand, then
-new writes resume.
+create another. Do **not** add a UNIQUE SQL constraint. Close extras by hand, then new
+writes resume.
 
 ### Affected Areas
 
@@ -62,9 +62,8 @@ new writes resume.
   sheet; replay still no mutation; ORM create with seller auto-assigns; no MCP
   `sheet_id`
 
-Not in this change: Nebula, MCP response shape, extra ACL groups, backfill of
-unassigned vouchers, Document Review queue rules (review stays allowed on closed
-members).
+Not in this change: Nebula, MCP response shape, extra ACL groups, backfill of unassigned
+vouchers, Document Review queue rules (review stays allowed on closed members).
 
 ### Approaches
 
@@ -72,11 +71,11 @@ members).
 
    1. **ORM `collection.voucher.create` helper (covers UI + MCP)** — before
       `super().create`, for each vals with `seller_id` and no `sheet_id`, resolve the
-      seller’s unique open sheet or create one, then set `sheet_id`. Batch create (MCP
-      N payments, same seller) resolves **once** and assigns all rows. Explicit
-      `sheet_id` in vals is honored (still validated). `seller_id` write on existing
-      rows does **not** auto-assign (forward-only; leftovers stay until membership or
-      Action).
+      seller’s unique open sheet or create one, then set `sheet_id`. Batch create (MCP N
+      payments, same seller) resolves **once** and assigns all rows. Explicit `sheet_id`
+      in vals is honored (still validated). `seller_id` write on existing rows does
+      **not** auto-assign (forward-only; leftovers stay until membership or Action).
+
       - Pros: one path for form, RPC, and MCP savepoint create; replay never calls
         create so it cannot attach; matches “both MCP and UI/ORM”
       - Cons: tests that `_create_voucher()` with a seller and expect `sheet_id` empty
@@ -85,6 +84,7 @@ members).
 
    2. **MCP-only assign in `_collection_create_vouchers`** — UI/ORM creates stay
       unassigned unless the Action runs.
+
       - Pros: smaller voucher.create surface
       - Cons: contradicts settled “UI/ORM too”; operators would still need the Action
         for every form create
@@ -92,22 +92,24 @@ members).
 
    3. **Explicit MCP `sheet_id`** — caller picks the sheet.
       - Pros: none vs settled contract
-      - Cons: Nebula/schema change; response would be pressured to return `sheet_id`;
-        UI still needs a second path
+      - Cons: Nebula/schema change; response would be pressured to return `sheet_id`; UI
+        still needs a second path
       - Effort: Medium
 
    **Recommend 1.**
 
 2. **Sheet lifecycle field**
 
-   1. **`state` Selection `open` / `closed`, default `open`, required** — reserved
-      Odoo lifecycle name; list/search/statusbar work; existing rows get `'open'` on
-      column add.
+   1. **`state` Selection `open` / `closed`, default `open`, required** — reserved Odoo
+      lifecycle name; list/search/statusbar work; existing rows get `'open'` on column
+      add.
+
       - Pros: matches product language; Odoo-idiomatic; dates stay membership-derived
       - Cons: current spec/tests forbid sheet `state`; must MODIFY spec
       - Effort: Low
 
    2. **Boolean `is_open`** — inverted Close semantics; weaker list UX.
+
       - Pros: slightly simpler field
       - Cons: not a workflow field; filters/statusbar are awkward
       - Effort: Low
@@ -129,9 +131,10 @@ members).
       leftover multi-open sheets must still be **closable** and remain editable until
       closed. Optional `pg_advisory_xact_lock(seller_id)` inside the MCP savepoint /
       auto-assign to shrink the concurrent double-create race without a UNIQUE index.
+
       - Pros: upgrade-safe; matches fail-closed; close extras still works
-      - Cons: two concurrent creates with zero opens can still race two opens without
-        a lock; next auto-assign then fails closed until operators close one
+      - Cons: two concurrent creates with zero opens can still race two opens without a
+        lock; next auto-assign then fails closed until operators close one
       - Effort: Medium
 
    2. **Partial UNIQUE index `(seller_id) WHERE state='open'`**
@@ -149,6 +152,7 @@ members).
       `state=='open'`; Reopen when `state=='closed'`. `write` rejects raw `state`
       changes except via those actions (same idea as voucher approve/reject routing).
       Any internal user (existing ACL).
+
       - Pros: matches voucher header pattern; Document Review button can stay; RPC
         cannot skip the one-open check
       - Cons: UI tests that forbid statusbar must change
@@ -166,13 +170,15 @@ members).
    1. **Override write/create (both models) + assign-to-closed constraint** — on
       `collection.sheet`, reject `voucher_ids` commands while `state=='closed'`. On
       `collection.voucher`, reject `sheet_id` changes that add to a closed sheet or
-      **remove/reassign off** a closed sheet (constraint alone cannot see the old
-      closed parent after unlink). View: membership readonly when closed (UX only).
+      **remove/reassign off** a closed sheet (constraint alone cannot see the old closed
+      parent after unlink). View: membership readonly when closed (UX only).
+
       - Pros: covers form widget, RPC, Action, auto-assign; freeze is real
       - Cons: two write hooks to keep in sync
       - Effort: Medium
 
    2. **Constraint-only**
+
       - Pros: smaller
       - Cons: cannot freeze **remove** from closed (voucher `sheet_id` becomes empty)
       - Effort: Low (insufficient)
@@ -205,17 +211,17 @@ product blocker.
 
 - **Multi-open after upgrade:** every current sheet becomes `open`. Auto-assign and
   Action fail until extras are closed. Operators must close by hand; do not auto-pick.
-- **Test contract break:** `test_collection_sheet.py` asserts no `state` and creates
-  two same-seller sheets; `test_collection_ui.py` forbids a sheet statusbar; Document
-  Review tests use two same-seller sheets. `_create_voucher()` with a seller will start
-  landing on a sheet.
+- **Test contract break:** `test_collection_sheet.py` asserts no `state` and creates two
+  same-seller sheets; `test_collection_ui.py` forbids a sheet statusbar; Document Review
+  tests use two same-seller sheets. `_create_voucher()` with a seller will start landing
+  on a sheet.
 - **Action happy path changes:** after auto-assign, new seller-stamped vouchers are
   rarely unassigned. Action remains for leftovers when **no** open sheet exists (close
   current, then Action or new creates). Unassign from an **open** sheet is still
   allowed; Action then still rejects if that open sheet exists.
 - **Concurrent double-open:** without advisory lock, two all-new MCP calls can each
-  create an open sheet; the next create then fails closed. Prefer a transaction
-  advisory lock on `seller_id`.
+  create an open sheet; the next create then fails closed. Prefer a transaction advisory
+  lock on `seller_id`.
 - **Naive one-open `@api.constrains`:** would block **closing** extras and incidental
   writes on leftover opens. Guards must apply to new operations only.
 - **Review budget:** models + views + MCP assertions + sheet tests likely exceed 400

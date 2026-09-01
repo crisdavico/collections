@@ -1,13 +1,11 @@
 # Apply Progress: seedian-nebula-mcp-voucher-tool
 
-**Mode**: Strict TDD (Units 1–4) + Standard quality gate (Phase 5)
-**Work unit**: `phase-5-quality-gate`
-**Evidence goal**: `phase5-install-precommit-tests-green`
+**Mode**: Strict TDD (Units 1–4) + Standard quality gate (Phase 5) **Work unit**:
+`phase-5-quality-gate` **Evidence goal**: `phase5-install-precommit-tests-green`
 **Acquire token**:
-`sha256:7c21d67a6c0590ff69784f54f1a1c3b5cb7fe7b2e3235a3e6d87510e1c689186`
-**Prior units**: `unit-1-received-date-create-date`, `unit-2-document-id`,
-`unit-3-mcp-create-acl`, `unit-4-idempotency-race` (complete)
-**Updated**: 2026-08-11
+`sha256:7c21d67a6c0590ff69784f54f1a1c3b5cb7fe7b2e3235a3e6d87510e1c689186` **Prior
+units**: `unit-1-received-date-create-date`, `unit-2-document-id`,
+`unit-3-mcp-create-acl`, `unit-4-idempotency-race` (complete) **Updated**: 2026-08-11
 
 ## Completed Tasks
 

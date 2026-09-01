@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_collection_allocation_list" model="ir.ui.view">
+        <field name="name">collection.allocation.list</field>
+        <field name="model">collection.allocation</field>
+        <field name="arch" type="xml">
+            <list string="Collection Allocations">
+                <field name="name" />
+                <field name="partner_id" />
+                <field name="sheet_id" />
+                <field name="seller_id" />
+                <field name="company_id" optional="hide" />
+                <field name="state" />
+                <field name="revision" optional="hide" />
+                <field name="total_vouchers" />
+                <field name="total_applied" />
+                <field name="residual" />
+                <field name="currency_id" column_invisible="1" />
+            </list>
+        </field>
+    </record>
+
+    <record id="view_collection_allocation_search" model="ir.ui.view">
+        <field name="name">collection.allocation.search</field>
+        <field name="model">collection.allocation</field>
+        <field name="arch" type="xml">
+            <search string="Search Collection Allocations">
+                <field name="name" />
+                <field name="partner_id" />
+                <field name="sheet_id" />
+                <field name="seller_id" />
+                <field name="state" />
+                <filter
+          string="Confirmed"
+          name="filter_confirmed"
+          domain="[('state', '=', 'confirmed')]"
+        />
+                <filter
+          string="Validated"
+          name="filter_validated"
+          domain="[('state', '=', 'validated')]"
+        />
+                <filter
+          string="Rejected"
+          name="filter_rejected"
+          domain="[('state', '=', 'rejected')]"
+        />
+                <group>
+                    <filter
+            string="Status"
+            name="group_state"
+            context="{'group_by': 'state'}"
+          />
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_collection_allocation_form" model="ir.ui.view">
+        <field name="name">collection.allocation.form</field>
+        <field name="model">collection.allocation</field>
+        <field name="arch" type="xml">
+            <form string="Collection Allocation">
+                <header>
+                    <button
+            name="action_validate"
+            string="Validate"
+            type="object"
+            class="oe_highlight"
+            invisible="state != 'confirmed'"
+          />
+                    <button
+            name="action_reject"
+            string="Reject"
+            type="object"
+            invisible="state != 'confirmed'"
+          />
+                    <field
+            name="state"
+            widget="statusbar"
+            statusbar_visible="confirmed,validated,rejected"
+          />
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" />
+                        <h1>
+                            <field name="name" readonly="1" />
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="company_id" invisible="1" />
+                            <field name="sheet_id" readonly="state != 'confirmed'" />
+                            <field name="partner_id" readonly="state != 'confirmed'" />
+                            <field name="seller_id" />
+                        </group>
+                        <group>
+                            <field name="revision" readonly="1" />
+                            <field name="currency_id" groups="base.group_no_one" />
+                            <field name="total_vouchers" />
+                            <field name="total_applied" />
+                            <field name="total_debt" />
+                            <field name="residual" />
+                            <field name="residual_reason" />
+                            <field name="reviewed_by" readonly="1" />
+                            <field name="reviewed_at" readonly="1" />
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Vouchers">
+                            <field name="voucher_ids" readonly="state != 'confirmed'">
+                                <list>
+                                    <field name="name" />
+                                    <field name="partner_id" />
+                                    <field name="state" />
+                                    <field name="amount" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Invoices">
+                            <field name="line_ids" readonly="state != 'confirmed'">
+                                <list>
+                                    <field name="invoice_number" />
+                                    <field name="external_invoice_id" optional="hide" />
+                                    <field name="due_date" />
+                                    <field name="invoice_balance" />
+                                    <field name="amount_applied" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Revisions">
+                            <field name="revision_ids" readonly="1">
+                                <list create="false" delete="false" edit="false">
+                                    <field name="revision" />
+                                    <field name="request_id" />
+                                    <field name="confirmed_by" />
+                                    <field name="confirmed_at" />
+                                    <field name="residual" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter />
+            </form>
+        </field>
+    </record>
+
+    <record id="action_collection_allocation" model="ir.actions.act_window">
+        <field name="name">Collection Allocations</field>
+        <field name="res_model">collection.allocation</field>
+        <field name="path">collection-allocations</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_collection_allocation_search" />
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a collection allocation
+            </p>
+        </field>
+    </record>
+
+    <menuitem
+    id="menu_collection_allocation"
+    name="Collection Allocations"
+    parent="menu_collection_root"
+    action="action_collection_allocation"
+    sequence="30"
+  />
+</odoo>

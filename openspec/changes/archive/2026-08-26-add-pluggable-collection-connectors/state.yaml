@@ -1,0 +1,53 @@
+# SDD change state — orchestrator-managed
+change: add-pluggable-collection-connectors
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: grok-4.6
+phase: archive
+updated: 2026-08-26
+notes: |
+  Verify PASS WITH WARNINGS. reviewGate absent. Launching sdd-archive.
+updated: 2026-08-26
+notes: |
+  Verify PASS WITH WARNINGS. 10/10 requirements, 11/11 scenarios.
+  Next: sdd-archive (not launched).
+updated: 2026-08-26
+notes: |
+  Apply all_done (35/35). Launching sdd-verify.
+updated: 2026-08-26
+notes: |
+  All 35 tasks [x]. Phase 1-3 settled passed.
+  Unit 1 collection facade + Unit 2 sqlite addon.
+  Next: sdd-verify (not launched this turn).
+updated: 2026-08-26
+notes: |
+  Phase 2 settled passed (381 tests). Phase 3 sqlite attempt next.
+updated: 2026-08-26
+notes: |
+  Phase 1 settled passed (231 lines, 366 tests). Phase 2 MCP attempt acquired.
+updated: 2026-08-26
+notes: |
+  Edit authority granted for /home/crisd/projects/seedian/seedian.
+  Delivery: stacked-to-main, ask-on-risk resolved to chained units.
+  Applying Phase 1 only (tasks 1.1-1.4).
+updated: 2026-08-26
+notes: |
+  Planning artifacts complete. Apply gated by ask-on-risk (High 400-line risk).
+  Cached chain strategy stacked-to-main pending user confirm before sdd-apply.
+updated: 2026-08-26
+notes: |
+  Spec and design done. Tasks next with ask-on-risk and stacked-to-main default.
+  Planning only; no application code.
+updated: 2026-08-26
+notes: |
+  Proposal done. Spec and design in parallel. Planning only; no application code.
+  New capability collection-connectors; Modified Capabilities None.
+  Allowed edit root: collection addon OpenSpec tree.
+updated: 2026-08-26
+notes: |
+  Explore done. Product decisions settled; skip proposal question round.
+  Planning only; no application code. Preserve get_seller_id and voucher writes.
+  Allowed edit root: collection addon OpenSpec tree.

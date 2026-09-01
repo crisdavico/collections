@@ -18,11 +18,12 @@ MUST NOT fill invoke context, and MUST NOT replace connector `seller_id` on
 
 #### Scenario: Unique internal match returns seller_id only
 
-- GIVEN an internal caller and exactly one internal user whose phone matches after
-  AR/WhatsApp normalize
+- GIVEN an internal caller and exactly one enabled internal user whose phone matches
+  after AR/WhatsApp normalize
 - WHEN `get_seller_id` runs with that mobile
 - THEN the response MUST be `{ "seller_id": <that user’s positive id> }` only
 - AND vouchers, invoke context, and write-MCP connector `seller_id` MUST stay unchanged
+
 ### Requirement: Caller authorization
 
 Portal and public callers MUST receive `AccessError`. Internal users (`base.group_user`)
@@ -33,6 +34,7 @@ MUST be allowed to invoke the tool.
 - GIVEN a portal or public caller
 - WHEN `get_seller_id` runs with any mobile
 - THEN the system MUST raise `AccessError` and MUST NOT return a `seller_id`
+
 ### Requirement: Fail closed on empty or invalid mobile
 
 Empty, whitespace-only, or invalid `mobile` (no usable digits after AR/WhatsApp
@@ -43,6 +45,7 @@ normalize) MUST raise `UserError` and MUST NOT return a `seller_id`.
 - GIVEN an internal caller
 - WHEN `get_seller_id` runs with empty, whitespace-only, or invalid `mobile`
 - THEN the system MUST raise `UserError` and MUST NOT return a `seller_id`
+
 ### Requirement: Phone-only AR WhatsApp identity
 
 Match MUST use `res.users.phone` / `partner_id.phone` only. MUST NOT require partner
@@ -61,6 +64,7 @@ normalize (strip `+`, spaces/punctuation, `54`, then one leading `9`).
 - GIVEN an internal user whose employee `mobile_phone` matches but `phone` does not
 - WHEN `get_seller_id` runs with that number
 - THEN the system MUST raise `UserError`
+
 ### Requirement: Unique internal match or fail closed
 
 Only internal users MUST count after normalize. Portal/share users with the same digits
@@ -99,30 +103,38 @@ not share, `base.group_user`); otherwise `UserError`.
 - GIVEN a unique phone match that does not exist, is share, or lacks `base.group_user`
 - WHEN `get_seller_id` runs
 - THEN the system MUST raise `UserError`
-### Requirement: Lookup ignores enabled sellers and company allow-lists
 
-`get_seller_id` MUST resolve any unique internal user by mobile even when that user is
-not on the current company's enabled-seller list, including when that list is empty.
-The tool MUST NOT apply voucher or sheet company allow-lists as a lookup filter. Fail-
-closed uniqueness, internal-only matching, and caller authorization MUST remain
-unchanged.
+### Requirement: Lookup matches only enabled sellers
 
-#### Scenario: Unique match not on the enabled list still returns
+`get_seller_id` MUST match only among `env.company.enabled_seller_ids`. Empty enabled
+list or a unique internal phone that is not enabled MUST raise the same generic
+`UserError` as zero matches (`No unique seller found for that mobile.`). Enabled lists
+on other companies MUST NOT satisfy lookup for the current company. Fail-closed
+uniqueness, internal-only matching, and caller authorization MUST remain unchanged.
+Connector `list_sellers()` MUST NOT grant collect permission.
+
+#### Scenario: Unique match not on the enabled list fails closed
 
 - GIVEN an internal caller and exactly one internal user whose phone matches after
   AR/WhatsApp normalize, and that user is absent from the current company's enabled
   sellers
 - WHEN `get_seller_id` runs with that mobile
-- THEN the response MUST be `{ "seller_id": <that user’s positive id> }` only
+- THEN the system MUST raise `UserError` and MUST NOT return a `seller_id`
 
-#### Scenario: Empty enabled list does not block lookup
+#### Scenario: Empty enabled list blocks lookup
 
 - GIVEN the current company has no enabled sellers and exactly one internal phone match
 - WHEN `get_seller_id` runs with that mobile
-- THEN the response MUST be that user’s `seller_id`
+- THEN the system MUST raise `UserError` and MUST NOT return a `seller_id`
 
-#### Scenario: Other-company enabled lists do not filter lookup
+#### Scenario: Other-company enabled lists do not satisfy lookup
 
 - GIVEN a unique internal phone match enabled only on another company
 - WHEN `get_seller_id` runs
-- THEN the response MUST still be that user’s `seller_id`
+- THEN the system MUST raise `UserError` and MUST NOT return a `seller_id`
+
+#### Scenario: Unique match on the enabled list returns seller_id
+
+- GIVEN the matching internal user is on `env.company.enabled_seller_ids`
+- WHEN `get_seller_id` runs with that mobile
+- THEN the response MUST be `{ "seller_id": <that user’s positive id> }` only

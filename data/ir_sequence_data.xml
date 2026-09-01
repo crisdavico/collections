@@ -14,4 +14,11 @@
         <field name="padding">4</field>
         <field name="company_id" ref="base.main_company" />
     </record>
+    <record id="seq_collection_allocation" model="ir.sequence">
+        <field name="name">Collection Allocation</field>
+        <field name="code">collection.allocation</field>
+        <field name="prefix">CA/%(year)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" ref="base.main_company" />
+    </record>
 </odoo>

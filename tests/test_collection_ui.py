@@ -5,7 +5,7 @@ from lxml import etree
 
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import ensure_enabled_seller
+from .test_collection_payment import dummy_customer_partner, ensure_enabled_seller
 
 BANK_TRANSFER_FIELDS = (
     "from_account",
@@ -26,6 +26,8 @@ NOTEBOOK_CURRENT = "Current"
 NOTEBOOK_RAW = "Raw OCR"
 NOTEBOOK_SELLER = "Seller Confirmed"
 NOTEBOOK_HISTORY = "History"
+SHEET_NOTEBOOK_VOUCHERS = "Vouchers"
+SHEET_NOTEBOOK_ALLOCATIONS = "Allocations"
 PROVENANCE_LAYERS = (
     (NOTEBOOK_RAW, "ocr_", "ocr_document_type"),
     (NOTEBOOK_SELLER, "seller_", "seller_document_type"),
@@ -43,7 +45,7 @@ class TestCollectionUi(TransactionCase):
 
     REQUIRED_LIST_SEARCH_FIELDS = (
         "name",
-        "customer_identification",
+        "partner_id",
         "create_date",
         "state",
         "document_type",
@@ -289,13 +291,44 @@ class TestCollectionUi(TransactionCase):
             "kanban must not use deprecated t-name=kanban-box",
         )
         card_fields = self._field_names(card[0])
-        for field_name in ("name", "customer_identification", "create_date"):
+        for field_name in ("name", "partner_id", "create_date"):
             self.assertIn(
                 field_name,
                 card_fields,
                 f"kanban card must show field {field_name}",
             )
         self._assert_create_date_readonly(kanban_root, "kanban")
+
+    def test_customer_field_is_partner_id_without_domain(self):
+        """List, search, kanban, form, and sheet member list use unbound partner_id."""
+        expected_counts = {
+            "collection.view_collection_voucher_list": 1,
+            "collection.view_collection_voucher_search": 1,
+            "collection.view_collection_voucher_kanban": 2,
+            "collection.view_collection_voucher_form": 1,
+            "collection.view_collection_sheet_form": 1,
+        }
+        for xmlid, count in expected_counts.items():
+            root = self._arch_root(xmlid)
+            ident_nodes = self._field_nodes(root, "customer_identification")
+            self.assertFalse(
+                ident_nodes,
+                f"{xmlid} must not declare customer_identification",
+            )
+            nodes = self._field_nodes(root, "partner_id")
+            self.assertEqual(
+                len(nodes),
+                count,
+                f"{xmlid} must declare partner_id {count} time(s)",
+            )
+            for node in nodes:
+                self.assertFalse(
+                    node.get("domain"),
+                    (
+                        f"{xmlid} partner_id must have no domain "
+                        f"(got {node.get('domain')!r})"
+                    ),
+                )
 
     def test_views_have_no_received_date(self):
         """Triangulation: no voucher view arch may mention received_date."""
@@ -333,7 +366,9 @@ class TestCollectionUi(TransactionCase):
         """Form must show statusbar and Approve/Reject only when pending."""
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "UI-MENU-001",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="UI-MENU-001"
+                ).id,
                 "document_type": "cash_deposit",
                 "seller_id": ensure_enabled_seller(self.env).id,
             }
@@ -679,7 +714,9 @@ class TestCollectionUi(TransactionCase):
 
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "UI-UNSUPPORTED-MENU-001",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="UI-UNSUPPORTED-MENU-001"
+                ).id,
                 "document_type": "unsupported",
                 "document_id": "UI-UNSUP-DOC-002",
                 "seller_id": ensure_enabled_seller(self.env).id,
@@ -694,7 +731,9 @@ class TestCollectionUi(TransactionCase):
         """UI-style create may omit document_id on a standalone voucher."""
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "UI-TYPED-DEFAULT-002",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="UI-TYPED-DEFAULT-002"
+                ).id,
                 "document_type": "cash_deposit",
                 "seller_id": ensure_enabled_seller(self.env).id,
             }
@@ -861,6 +900,172 @@ class TestCollectionUi(TransactionCase):
             chatter, "sheet form must include <chatter/> for messaging/activities"
         )
 
+    def test_collection_allocations_menu_list_form_search(self):
+        """Collections → Collection Allocations MUST wire list, form, and search."""
+        root_menu = self.env.ref("collection.menu_collection_root")
+        sheet_menu = self.env.ref("collection.menu_collection_sheet")
+        alloc_menu = self.env.ref("collection.menu_collection_allocation")
+        action = self.env.ref("collection.action_collection_allocation")
+
+        self.assertEqual(alloc_menu.name, "Collection Allocations")
+        self.assertEqual(alloc_menu.parent_id, root_menu)
+        self.assertEqual(alloc_menu.action, action)
+        self.assertEqual(alloc_menu.sequence, 30)
+        self.assertEqual(sheet_menu.sequence, 20)
+        self.assertGreater(
+            alloc_menu.sequence,
+            sheet_menu.sequence,
+            "Allocations menu must come after Collection Sheets",
+        )
+        self.assertEqual(action.res_model, "collection.allocation")
+        self.assertEqual(action.type, "ir.actions.act_window")
+        self.assertIn("list", action.view_mode)
+        self.assertIn("form", action.view_mode)
+        self.assertEqual(
+            action.search_view_id,
+            self.env.ref("collection.view_collection_allocation_search"),
+        )
+        self.assertTrue(action.path, "allocation act_window must set path (Odoo 19)")
+        self.assertEqual(action.path, "collection-allocations")
+
+        list_root = self._arch_root("collection.view_collection_allocation_list")
+        search_root = self._arch_root("collection.view_collection_allocation_search")
+        self.assertEqual(list_root.tag, "list")
+        self.assertNotEqual(list_root.tag, "tree")
+        self.assertEqual(search_root.tag, "search")
+        self.assertFalse(
+            list_root.xpath("//tree"),
+            "allocation list arch must not use deprecated <tree>",
+        )
+        list_fields = self._field_names(list_root)
+        search_fields = self._field_names(search_root)
+        for field_name in ("name", "partner_id", "sheet_id", "seller_id", "state"):
+            self.assertIn(field_name, list_fields, f"list must show {field_name}")
+            self.assertIn(field_name, search_fields, f"search must show {field_name}")
+        self._assert_create_edit_enabled(list_root, "allocation list")
+        for node in self._field_nodes(list_root, "partner_id"):
+            self.assertFalse(
+                node.get("domain"),
+                (
+                    "allocation list partner_id must have no domain "
+                    f"(got {node.get('domain')!r})"
+                ),
+            )
+
+    def test_collection_allocations_form_statusbar_validate_reject(self):
+        """Allocation form: <list> not <tree>, Validate/Reject when confirmed."""
+        form_root = self._arch_root("collection.view_collection_allocation_form")
+        self.assertEqual(form_root.tag, "form")
+        self._assert_create_edit_enabled(form_root, "allocation form")
+        names = self._field_names(form_root)
+        for field_name in (
+            "name",
+            "partner_id",
+            "sheet_id",
+            "seller_id",
+            "voucher_ids",
+            "line_ids",
+        ):
+            self.assertIn(field_name, names, f"form must show {field_name}")
+        self.assertFalse(
+            form_root.xpath("//tree"),
+            "allocation form arch must not use deprecated <tree>",
+        )
+        nested_lists = form_root.xpath(".//list")
+        self.assertTrue(nested_lists, "allocation form must embed at least one <list>")
+        for list_node in nested_lists:
+            self.assertEqual(list_node.tag, "list")
+            self.assertNotEqual(list_node.tag, "tree")
+
+        partner = self._field_nodes(form_root, "partner_id")[0]
+        self.assertFalse(
+            partner.get("domain"),
+            "allocation form partner_id must have no domain",
+        )
+        statusbar = form_root.xpath(
+            '//header/field[@name="state" and @widget="statusbar"]'
+        )
+        self.assertTrue(
+            statusbar, "allocation form must include state statusbar in header"
+        )
+        validate = form_root.xpath(
+            '//header/button[@name="action_validate" and @type="object"]'
+        )
+        reject = form_root.xpath(
+            '//header/button[@name="action_reject" and @type="object"]'
+        )
+        self.assertTrue(validate, "form must include Validate button")
+        self.assertTrue(reject, "form must include Reject button")
+        self.assertIn(
+            "state != 'confirmed'",
+            validate[0].get("invisible", ""),
+            "Validate must be invisible when not confirmed",
+        )
+        self.assertIn(
+            "state != 'confirmed'",
+            reject[0].get("invisible", ""),
+            "Reject must be invisible when not confirmed",
+        )
+        chatter = form_root.xpath("//chatter")
+        self.assertTrue(
+            chatter,
+            "allocation form must include <chatter/> for messaging/activities",
+        )
+
+    def test_sheet_form_notebook_vouchers_and_allocations(self):
+        """Sheet form MUST notebook vouchers and allocations (keep voucher_ids)."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        notebooks = form_root.xpath("//notebook")
+        self.assertTrue(notebooks, "sheet form must wrap membership in a notebook")
+        self.assertEqual(
+            len(notebooks),
+            1,
+            "sheet form must have a single notebook",
+        )
+        page_strings = [page.get("string") for page in notebooks[0].xpath("./page")]
+        self.assertIn(SHEET_NOTEBOOK_VOUCHERS, page_strings)
+        self.assertIn(SHEET_NOTEBOOK_ALLOCATIONS, page_strings)
+
+        vouchers_page = self._notebook_page(form_root, SHEET_NOTEBOOK_VOUCHERS)
+        voucher_fields = vouchers_page.xpath('.//field[@name="voucher_ids"]')
+        self.assertTrue(
+            voucher_fields,
+            "Vouchers notebook page must contain voucher_ids",
+        )
+        membership = voucher_fields[0]
+        self.assertEqual(membership.get("widget"), "many2many")
+        self.assertIn(
+            "state == 'closed'",
+            membership.get("readonly") or "",
+            "membership must stay readonly when the sheet is closed",
+        )
+        voucher_lists = membership.xpath("./list")
+        self.assertTrue(voucher_lists, "voucher_ids must embed a <list>")
+        self.assertEqual(voucher_lists[0].tag, "list")
+        self.assertNotEqual(voucher_lists[0].tag, "tree")
+
+        allocations_page = self._notebook_page(form_root, SHEET_NOTEBOOK_ALLOCATIONS)
+        allocation_fields = allocations_page.xpath('.//field[@name="allocation_ids"]')
+        self.assertTrue(
+            allocation_fields,
+            "Allocations notebook page must contain allocation_ids",
+        )
+        allocation_lists = allocation_fields[0].xpath("./list")
+        self.assertTrue(allocation_lists, "allocation_ids must embed a <list>")
+        self.assertEqual(allocation_lists[0].tag, "list")
+        self.assertNotEqual(allocation_lists[0].tag, "tree")
+        self.assertFalse(
+            form_root.xpath("//tree"),
+            "sheet form must not use deprecated <tree>",
+        )
+        form_names = self._field_names(form_root)
+        self.assertIn(
+            "voucher_ids",
+            form_names,
+            "sheet form must keep voucher_ids so Close/Reopen tests still find it",
+        )
+        self.assertIn("allocation_ids", form_names)
+
     def test_sheet_form_header_document_review_visible_when_saved_and_flag_on(self):
         """Header object action is available when the sheet is saved and flag is ON."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
@@ -955,6 +1160,7 @@ class TestCollectionUi(TransactionCase):
         "enabled_seller_ids",
         "auto_create_sheet",
         "allowed_document_type_ids",
+        "collection_connector_id",
     )
 
     def test_configuration_settings_menu_and_action(self):
@@ -1032,6 +1238,32 @@ class TestCollectionUi(TransactionCase):
                 f"Collections settings app must include {field_name}",
             )
 
+    def test_settings_import_button_is_system_only_and_hidden_without_connector(self):
+        """Import MUST sit next to Enabled Sellers, system-only, hidden if none."""
+        root = self._arch_root("collection.res_config_settings_view_form")
+        buttons = root.xpath("//button[@name='action_import_enabled_sellers']")
+        self.assertEqual(len(buttons), 1, "Collection Settings must expose Import")
+        button = buttons[0]
+        self.assertEqual(button.get("type"), "object")
+        invisible = button.get("invisible") or ""
+        self.assertIn(
+            "collection_connector_id",
+            invisible,
+            f"Import must be hidden without a connector (got {invisible!r})",
+        )
+        groups = button.get("groups") or ""
+        app = root.xpath("//app[@name='collections']")[0]
+        app_groups = app.get("groups") or ""
+        self.assertTrue(
+            "base.group_system" in groups or "base.group_system" in app_groups,
+            "Import must be restricted to Settings users",
+        )
+        setting = button.xpath("ancestor::setting[@id='enabled_seller_ids_setting']")
+        self.assertTrue(
+            setting,
+            "Import must sit next to Enabled Sellers",
+        )
+
     def test_settings_combined_view_exposes_collections_flag(self):
         """Triangulation: combined Settings form includes Collection Settings."""
         result = self.env["res.config.settings"].get_view(view_type="form")
@@ -1105,3 +1337,20 @@ class TestCollectionUi(TransactionCase):
                 "Document Review",
                 "load_menus must omit Document Review when flag is ON",
             )
+
+    def test_connector_list_view_uses_list_tag(self):
+        list_root = self._arch_root("collection.view_collection_connector_list")
+        self.assertEqual(list_root.tag, "list")
+        self.assertNotEqual(list_root.tag, "tree")
+
+    def test_connector_menu_and_action_are_system_only(self):
+        """Triangulation: Connectors live under Configuration for Settings users."""
+        config_menu = self.env.ref("collection.menu_collection_config")
+        menu = self.env.ref("collection.menu_collection_connector")
+        action = self.env.ref("collection.action_collection_connector")
+        system = self.env.ref("base.group_system")
+        self.assertEqual(menu.parent_id, config_menu)
+        self.assertEqual(menu.action, action)
+        self.assertIn(system, menu.group_ids)
+        self.assertEqual(action.res_model, "collection.connector")
+        self.assertEqual(action.type, "ir.actions.act_window")

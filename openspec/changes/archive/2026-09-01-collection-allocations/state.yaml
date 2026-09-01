@@ -1,0 +1,13 @@
+# SDD change state — orchestrator-managed
+change: collection-allocations
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: grok-4.6
+phase: archive
+updated: 2026-09-01
+notes: |
+  User instructed archive after verify PASS WITH WARNINGS.
+  CRITICAL 0; tasks all [x]; reviewGate absent.

@@ -75,7 +75,10 @@ class CollectionSellerLookupMixin(models.AbstractModel):
         needle = self._collection_normalize_ar_mobile(mobile)
         if not needle:
             raise UserError(_("mobile is required."))
-        matches = self._collection_match_internal_users_by_mobile(needle)
+        enabled = self.env.company.enabled_seller_ids
+        if not enabled:
+            raise UserError(_("No unique seller found for that mobile."))
+        matches = self._collection_match_internal_users_by_mobile(needle) & enabled
         if len(matches) != 1:
             raise UserError(_("No unique seller found for that mobile."))
         seller = self._collection_require_internal_seller(matches.id)

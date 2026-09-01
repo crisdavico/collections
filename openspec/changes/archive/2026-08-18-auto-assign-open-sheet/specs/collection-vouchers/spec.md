@@ -78,9 +78,9 @@ with no writes. Submitted `document_id`s that already exist on different voucher
 succeed as exact replay (MUST NOT reject as a cross-voucher conflict). Exact replay MUST
 ignore `customer_identification`, nested attachments, and `seller_id`, and MUST NOT
 mutate matching vouchers (including legacy null `seller_id` and `sheet_id`). Attachment
-atomicity and `document_id` uniqueness rules remain unchanged.
-(Previously: All-new stamped `seller_id` but did not assign sheets; exact replay ignored
-customer, attachments, and `seller_id` with no sheet attach or move.)
+atomicity and `document_id` uniqueness rules remain unchanged. (Previously: All-new
+stamped `seller_id` but did not assign sheets; exact replay ignored customer,
+attachments, and `seller_id` with no sheet attach or move.)
 
 #### Scenario: All-new create
 

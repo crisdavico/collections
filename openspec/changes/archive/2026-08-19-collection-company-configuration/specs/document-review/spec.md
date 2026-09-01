@@ -36,9 +36,8 @@ MUST toggle it at `/odoo/settings#collections` under Collection Settings. When O
 existing Document Review requirements MUST still apply. Voucher `state` and review audit
 columns MUST remain on Payment Vouchers views regardless of the flag. Saving other
 Collection Settings MUST preserve this flag. The flag MUST still gate review queue and
-mutation operations as today.
-(Previously: Settings labels were "Settings"; other Collection Settings fields did not
-exist.)
+mutation operations as today. (Previously: Settings labels were "Settings"; other
+Collection Settings fields did not exist.)
 
 #### Scenario: Default off
 

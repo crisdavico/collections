@@ -5,8 +5,8 @@
 ### Requirement: Lookup ignores enabled sellers and company allow-lists
 
 `get_seller_id` MUST resolve any unique internal user by mobile even when that user is
-not on the current company's enabled-seller list, including when that list is empty.
-The tool MUST NOT apply voucher or sheet company allow-lists as a lookup filter. Fail-
+not on the current company's enabled-seller list, including when that list is empty. The
+tool MUST NOT apply voucher or sheet company allow-lists as a lookup filter. Fail-
 closed uniqueness, internal-only matching, and caller authorization MUST remain
 unchanged.
 

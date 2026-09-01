@@ -15,20 +15,20 @@ then drop field; optional pylint C8101 author Eynes vs Seedian is pre-existing)
 
 ## Gates
 
-| Gate                      | Result                                      | Evidence                                                                                                                                                                                                 |
-| ------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Task Completion           | PASS                                        | Archived `tasks.md` — no `- [ ]`; tasks 1.1–4.3 all `[x]` (21/21)                                                                                                                                        |
-| Native Review Receipt     | PASS (absent)                               | `reviewGate` structurally absent; archive proceeded under ordinary repository policy; no receipt demanded                                                                                                |
-| CRITICAL in verify-report | PASS                                        | `critical_findings: 0`, `blockers: 0`; verdict `pass_with_warnings`                                                                                                                                      |
-| Destructive delta         | PASS (intentional shipped incompatibility)  | `rules.archive`: warn before merging destructive or backward-incompatible deltas. This change ADDS + MODIFIES attachment storage (Binary → chatter). No REMOVED/RENAMED. Recorded below; not a stop.     |
-| Action context            | PASS                                        | `actionContext.mode: repo-local`; edits stayed inside `allowedEditRoots` (`odoo/custom/src/private/collection`)                                                                                          |
+| Gate                      | Result                                     | Evidence                                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task Completion           | PASS                                       | Archived `tasks.md` — no `- [ ]`; tasks 1.1–4.3 all `[x]` (21/21)                                                                                                                                    |
+| Native Review Receipt     | PASS (absent)                              | `reviewGate` structurally absent; archive proceeded under ordinary repository policy; no receipt demanded                                                                                            |
+| CRITICAL in verify-report | PASS                                       | `critical_findings: 0`, `blockers: 0`; verdict `pass_with_warnings`                                                                                                                                  |
+| Destructive delta         | PASS (intentional shipped incompatibility) | `rules.archive`: warn before merging destructive or backward-incompatible deltas. This change ADDS + MODIFIES attachment storage (Binary → chatter). No REMOVED/RENAMED. Recorded below; not a stop. |
+| Action context            | PASS                                       | `actionContext.mode: repo-local`; edits stayed inside `allowedEditRoots` (`odoo/custom/src/private/collection`)                                                                                      |
 
 ## Intentional shipped incompatibility (`rules.archive`)
 
 Proof storage moved from Binary `attachment` / `attachment_filename` to chatter
-designated proof (`message_main_attachment_id`). Upgrade path is migrate then drop
-field (`migrations/19.0.1.13.0`). This is an intentional shipped incompatibility, not
-an archive blocker. No large-section REMOVED merge was performed.
+designated proof (`message_main_attachment_id`). Upgrade path is migrate then drop field
+(`migrations/19.0.1.13.0`). This is an intentional shipped incompatibility, not an
+archive blocker. No large-section REMOVED merge was performed.
 
 ## Final-state authority
 
@@ -65,17 +65,17 @@ not named in the delta were preserved. No REMOVED/RENAMED.
 **Domain**: `collection-vouchers` **Main spec**:
 `openspec/specs/collection-vouchers/spec.md` (existing; merge by edit)
 
-| Action   | Requirement                                                                                          |
-| -------- | ---------------------------------------------------------------------------------------------------- |
-| ADDED    | Designated proof is message_main_attachment_id (3 scenarios)                                         |
-| ADDED    | Pre-upgrade migration of Binary proofs (2 scenarios)                                                 |
+| Action   | Requirement                                                                                                   |
+| -------- | ------------------------------------------------------------------------------------------------------------- |
+| ADDED    | Designated proof is message_main_attachment_id (3 scenarios)                                                  |
+| ADDED    | Pre-upgrade migration of Binary proofs (2 scenarios)                                                          |
 | MODIFIED | Optional image or PDF attachment per voucher — copy-full replace (chatter `ir.attachment`, empty `res_field`) |
-| MODIFIED | Attachment widgets on Payment Vouchers views — copy-full replace (no Binary widgets; chatter remains) |
-| MODIFIED | MCP optional payment attachment on create — copy-full replace (`message_post`; exact-retry ignores nests) |
-| MODIFIED | Concurrent and stale review attempts — copy-full replace (eligibility uses designated proof)         |
-| MODIFIED | Attachment replacement resets review to pending — copy-full replace (main id change; extras/clear)   |
-| REMOVED  | none                                                                                                 |
-| RENAMED  | none                                                                                                 |
+| MODIFIED | Attachment widgets on Payment Vouchers views — copy-full replace (no Binary widgets; chatter remains)         |
+| MODIFIED | MCP optional payment attachment on create — copy-full replace (`message_post`; exact-retry ignores nests)     |
+| MODIFIED | Concurrent and stale review attempts — copy-full replace (eligibility uses designated proof)                  |
+| MODIFIED | Attachment replacement resets review to pending — copy-full replace (main id change; extras/clear)            |
+| REMOVED  | none                                                                                                          |
+| RENAMED  | none                                                                                                          |
 
 Preserved unchanged: Voucher sequence naming; Mail thread and activities; Authorization
 for internal users; Deferred integrations not required; Payment document_id uniqueness;
@@ -84,17 +84,17 @@ UI; Unsupported vouchers remain persistable; MCP tool create_collection_vouchers
 Destructive reset of legacy header and line data; Voucher seller field; Create
 auto-assign to open sheet. Purpose line unchanged. RFC 2119 / Given-When-Then retained.
 
-**Domain**: `document-review` **Main spec**:
-`openspec/specs/document-review/spec.md` (existing; merge by edit)
+**Domain**: `document-review` **Main spec**: `openspec/specs/document-review/spec.md`
+(existing; merge by edit)
 
-| Action   | Requirement                                                                                          |
-| -------- | ---------------------------------------------------------------------------------------------------- |
-| MODIFIED | Eligible review queue — copy-full replace (designated proof `message_main_attachment_id`)            |
-| MODIFIED | Authenticated binary attachment viewer — copy-full replace (`/web/content/{id}`; no `field=`)        |
-| MODIFIED | Viewer rotation — copy-full replace (reset on main id change or clear; extras do not reset)          |
-| ADDED    | none                                                                                                 |
-| REMOVED  | none                                                                                                 |
-| RENAMED  | none                                                                                                 |
+| Action   | Requirement                                                                                   |
+| -------- | --------------------------------------------------------------------------------------------- |
+| MODIFIED | Eligible review queue — copy-full replace (designated proof `message_main_attachment_id`)     |
+| MODIFIED | Authenticated binary attachment viewer — copy-full replace (`/web/content/{id}`; no `field=`) |
+| MODIFIED | Viewer rotation — copy-full replace (reset on main id change or clear; extras do not reset)   |
+| ADDED    | none                                                                                          |
+| REMOVED  | none                                                                                          |
+| RENAMED  | none                                                                                          |
 
 Preserved unchanged: OWL client loads real ORM data; Viewer fit and cursor-anchored
 zoom; Approve and reject without mocks; Document Review authorization; Per-company
@@ -162,14 +162,14 @@ Empty output between the markers; no differences.
 
 ## Verification at close
 
-| Check                    | Result                                                                                                                      |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| Main specs updated       | yes (`collection-vouchers` 2 ADDED + 5 MODIFIED; `document-review` 3 MODIFIED)                                              |
-| Change folder in archive | yes                                                                                                                         |
-| Active change path gone  | yes                                                                                                                         |
-| tasks.md unchecked items | none                                                                                                                        |
-| `diff -r` empty          | yes (Step 3 snapshot vs archive empty; `DIFF_STATUS=0`)                                                                     |
-| Unrelated WIP            | not touched (seller-lookup, provenance, older archives, README.rst, product code still dirty and out of this change)        |
+| Check                    | Result                                                                                                               |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Main specs updated       | yes (`collection-vouchers` 2 ADDED + 5 MODIFIED; `document-review` 3 MODIFIED)                                       |
+| Change folder in archive | yes                                                                                                                  |
+| Active change path gone  | yes                                                                                                                  |
+| tasks.md unchecked items | none                                                                                                                 |
+| `diff -r` empty          | yes (Step 3 snapshot vs archive empty; `DIFF_STATUS=0`)                                                              |
+| Unrelated WIP            | not touched (seller-lookup, provenance, older archives, README.rst, product code still dirty and out of this change) |
 
 ## Engram
 

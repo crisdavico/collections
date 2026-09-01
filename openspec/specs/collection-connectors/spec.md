@@ -1,0 +1,555 @@
+# Collection Connectors Specification
+
+## Purpose
+
+Company-scoped seller sources imported into Enabled Sellers via `list_sellers()`. MCP
+MUST NOT expose a seller-list tool. MCP MAY expose seller-scoped customer listing
+through `list_collection_customers` and seller-scoped customer debt through
+`customer_debt`. Read tools MUST NOT create `res.partner` records or customer bindings.
+The voucher-create path and `resolve_customer_partner` MAY create `res.partner` records
+and `collection.connector.customer.binding` rows.
+
+## Requirements
+
+### Requirement: Company-scoped connector
+
+Each company MUST have at most one active company-scoped connector, settable from
+Collection Settings.
+
+#### Scenario: Persist connector
+
+- GIVEN a company A administrator
+- WHEN they save A's active connector in Collection Settings
+- THEN A MUST use that connector and others MUST keep theirs
+
+### Requirement: Active-company list routing
+
+`list_sellers()`, Import, `list_customers()`, and `get_customer_debt()` MUST use only
+`env.company.collection_connector_id` and MUST NOT accept caller `company_id`.
+
+#### Scenario: Active company
+
+- GIVEN company A's active connector is C
+- WHEN an administrator with `env.company` A lists or Imports sellers, lists customers,
+  or reads customer debt
+- THEN the list MUST come from C and a caller company id MUST NOT be used
+
+### Requirement: Fail closed without leakage
+
+Missing, inactive, or misconfigured connectors MUST raise `UserError` with no path, SQL,
+or secrets.
+
+#### Scenario: Fail closed
+
+- GIVEN the active company has no connector, or an inactive or misconfigured one
+- WHEN `list_sellers()`, Import, `list_customers()`, or `get_customer_debt()` runs
+- THEN it MUST raise `UserError` with no path, SQL, or secret and MUST NOT return
+  sellers, customers, or debt
+
+### Requirement: No MCP seller list
+
+The system MUST NOT expose `list_collection_sellers` (or any other MCP tool that lists
+connector sellers). Seller listing is ORM `collection.connector.list_sellers()` for
+Import and Test Connection only.
+
+#### Scenario: Not registered
+
+- GIVEN the MCP registry for `registry=mcp`
+- WHEN tools are discovered
+- THEN `list_collection_sellers` MUST NOT appear and MUST NOT have a `muk_mcp.tool` row
+
+### Requirement: Normalized seller list output
+
+Success MUST return normalized sellers with source metadata, `odoo_seller_id` when bound
+else unbound, and MUST exclude inactive external sellers.
+
+#### Scenario: List shape
+
+- GIVEN one bound active seller, one unbound active seller, and one inactive external
+  seller
+- WHEN `list_sellers()` runs
+- THEN active rows MUST include source metadata and bound `odoo_seller_id`; inactive
+  MUST be omitted
+
+### Requirement: Binding uniqueness
+
+Bindings MUST be 1:1 external id to `res.users` per connector and company. Duplicates
+MUST be rejected.
+
+#### Scenario: Uniqueness
+
+- GIVEN a binding of external id E to user U on connector C of company A
+- WHEN a second binding on C reuses E or U, or uses another company
+- THEN that binding MUST be rejected
+
+### Requirement: List is not collect permission
+
+Listing MUST NOT grant collect permission. A bound user MAY be absent from
+`enabled_seller_ids` until Import. `_assert_new_work` MUST still gate NEW voucher
+create.
+
+#### Scenario: No collect
+
+- GIVEN a bound listed seller not in `enabled_seller_ids`
+- WHEN NEW voucher create is attempted for that seller
+- THEN `_assert_new_work` MUST reject create while the list still includes them
+
+### Requirement: Import replaces Enabled Sellers
+
+Administrators MUST be able to Import sellers from the company's active connector into
+Collection Settings. Import MUST call `list_sellers()` (MUST NOT add a new dispatcher
+op). For each _active_ connector seller, the system MUST reuse an existing binding, else
+reuse a unique internal user with the same normalized AR phone, else create an internal
+user (name + phone, `no_reset_password`, `base.group_user`, login
+`collection.{company_id}.{external_seller_id}`). The system MUST upsert
+`collection.connector.seller.binding` (`external_seller_id` 1:1 `user_id` per connector)
+and MUST set `company_ids` to include this company. After a successful fetch,
+`enabled_seller_ids` MUST be replaced (`Command.set`) with the imported users. Manual
+extras MUST drop unless they appear in the source. Inactive external rows MUST be
+omitted (same as `list_sellers()`). Users and old bindings MUST NOT be deleted when they
+fall off the list. The Import button MUST be `base.group_system`, next to Enabled
+Sellers, and MUST be invisible without a connector. Calls MUST NOT `sudo()`.
+
+#### Scenario: Create match and bind then replace all
+
+- GIVEN an active connector with two active sellers (one unbound, one whose phone
+  matches an existing internal user) and one inactive external seller, and a manual
+  extra on Enabled Sellers
+- WHEN an administrator runs Import
+- THEN the system MUST create or reuse users, upsert bindings, omit the inactive row,
+  and replace Enabled Sellers with exactly the imported users
+
+#### Scenario: Binding reuse on re-import
+
+- GIVEN a prior Import created users and bindings
+- WHEN Import runs again with the same source
+- THEN the same `res.users` ids MUST be reused (idempotent)
+
+#### Scenario: Fail closed leaves the list unchanged
+
+- GIVEN no connector, or an inactive or misconfigured one, or a source with duplicate
+  phones, or two source ids that resolve to the same user
+- WHEN Import runs
+- THEN the system MUST raise `UserError` and MUST NOT change `enabled_seller_ids` or
+  create a partial user/binding set
+
+### Requirement: Read-only MCP tool list_collection_customers
+
+The system MUST expose `list_collection_customers` via `@mcp_tool` on `muk_mcp.mixin`
+(`category=read`, `registry=mcp`), method-discovered; MUST NOT add a DB `muk_mcp.tool`
+record. Input MUST require integer `seller_id` (an internal `res.users` id). Calls MUST
+use the authenticated user and MUST NOT `sudo()`. Success MUST return
+`{customers: [...]}` with no `source` and no `partner_id`. The tool MUST NOT create
+`res.partner` records or customer bindings. Payload keys and values MUST remain
+byte-identical to the prior contract. (Previously: Success forbade partner create as a
+global customer rule, without stating the payload stays without `partner_id`.)
+
+#### Scenario: Registered read tool
+
+- GIVEN the MCP registry for `registry=mcp`
+- WHEN tools are discovered
+- THEN `list_collection_customers` MUST appear as method/read/mcp and MUST NOT have a
+  `muk_mcp.tool` row
+- AND `list_collection_sellers` MUST still be absent
+
+### Requirement: Internal caller and Enabled Seller
+
+Portal and public callers MUST receive `AccessError`. Internal callers MUST be allowed.
+`seller_id` MUST be an Enabled Seller on `env.company.enabled_seller_ids`. A missing
+seller binding on the active connector MUST raise `UserError`. Failures MUST use generic
+messages with no path, SQL, or secrets.
+
+#### Scenario: Portal or public caller denied
+
+- GIVEN a portal or public caller
+- WHEN `list_collection_customers` runs
+- THEN the system MUST raise `AccessError` and MUST NOT return customers
+
+#### Scenario: Non-enabled or unbound seller rejected
+
+- GIVEN an internal caller and a seller that is not on the current company's enabled
+  list, or that has no binding on the active connector
+- WHEN `list_collection_customers` runs with that `seller_id`
+- THEN the system MUST raise `UserError` and MUST NOT return customers
+
+### Requirement: Binding resolution and adapter dispatch
+
+`list_customers()` MUST resolve the internal user through the connector's
+`seller_binding_ids`, dispatch the **external** seller id to the adapter selected by
+connector `type` (`list_customers` dispatcher op), and MUST NOT send the Odoo user id to
+the adapter. Adapter methods MUST return raw customer rows. The generic `collection`
+layer MUST filter inactive rows, normalize MCP fields, and attach connector source
+metadata.
+
+#### Scenario: External seller id forwarded
+
+- GIVEN an Enabled Seller bound to external id E and raw rows for E and for another
+  seller
+- WHEN `list_customers()` runs for that internal user
+- THEN the adapter MUST receive E and the result MUST include only E's active customers
+
+### Requirement: Normalized customer list output
+
+Success MUST return active customers only, each with `external_customer_id`, `name`,
+`identification`, and `customer_code`. `list_customers()` MUST also attach `source` with
+`connector_id`, `connector_type`, `connector_name`, and `company_id`.
+`list_collection_customers` MUST omit `source` and MUST NOT include `partner_id`.
+Inactive external customers MUST be omitted. `list_customers()` and
+`list_collection_customers` MUST NOT create `res.partner` records or customer bindings.
+(Previously: Customers remained connector data for every path, forbidding all partner
+and binding creates.)
+
+#### Scenario: List shape
+
+- GIVEN one active and one inactive customer for the bound seller, and active customers
+  for another seller
+- WHEN `list_customers()` runs for the bound Enabled Seller
+- THEN the payload MUST include only the bound seller's active customer, source
+  metadata, and MUST NOT create partners or customer bindings
+
+#### Scenario: MCP list omits source
+
+- GIVEN one active customer for the bound seller
+- WHEN `list_collection_customers` runs for the bound Enabled Seller
+- THEN the payload MUST include that customer and MUST NOT include `source` or
+  `partner_id`
+- AND MUST NOT create partners or customer bindings
+
+### Requirement: Read-only MCP tool customer_debt
+
+The system MUST expose `customer_debt` via `@mcp_tool` on `muk_mcp.mixin`
+(`category=read`, `registry=mcp`), method-discovered; MUST NOT add a DB `muk_mcp.tool`
+record. Input MUST require integer `seller_id` and non-empty string
+`customer_identification`. Calls MUST use the authenticated user and MUST NOT `sudo()`.
+Success MUST return `{customer, summary, invoices}` with no `source` and no
+`partner_id`. The tool MUST NOT create `res.partner` records or customer bindings.
+Payload keys and values MUST remain byte-identical to the prior contract. (Previously:
+Success forbade partner create as a global customer rule, without stating the payload
+stays without `partner_id`.)
+
+#### Scenario: Registered read tool
+
+- GIVEN the MCP registry for `registry=mcp`
+- WHEN tools are discovered
+- THEN `customer_debt` MUST appear as method/read/mcp and MUST NOT have a `muk_mcp.tool`
+  row
+- AND `list_collection_sellers` MUST still be absent
+
+### Requirement: Internal caller and Enabled Seller for customer_debt
+
+Portal and public callers MUST receive `AccessError`. Internal callers MUST be allowed.
+`seller_id` MUST be an Enabled Seller on `env.company.enabled_seller_ids`. A missing
+seller binding on the active connector MUST raise `UserError`. Empty
+`customer_identification` MUST raise `UserError`. Failures MUST use generic messages
+with no path, SQL, or secrets.
+
+#### Scenario: Portal or public caller denied
+
+- GIVEN a portal or public caller
+- WHEN `customer_debt` runs
+- THEN the system MUST raise `AccessError` and MUST NOT return debt
+
+#### Scenario: Non-enabled or unbound seller rejected
+
+- GIVEN an internal caller and a seller that is not on the current company's enabled
+  list, or that has no binding on the active connector
+- WHEN `customer_debt` runs with that `seller_id`
+- THEN the system MUST raise `UserError` and MUST NOT return debt
+
+### Requirement: Unknown inactive or other-seller customer rejected
+
+Unknown identification, a customer bound to another seller, and an inactive customer
+MUST all raise the same generic `UserError`. The system MUST NOT reveal which case
+matched, MUST NOT return invoices, and MUST NOT leak path or SQL.
+
+#### Scenario: Inactive or foreign customer fails closed
+
+- GIVEN an Enabled Seller bound to external id E, an inactive customer of E, an active
+  customer of another seller, and an unknown identification
+- WHEN `customer_debt` or `get_customer_debt()` runs for E with any of those
+  identifications
+- THEN the system MUST raise `UserError` with no leak and MUST NOT return debt
+
+### Requirement: Binding resolution and adapter dispatch for customer debt
+
+`get_customer_debt()` MUST resolve the internal user through the connector's
+`seller_binding_ids`, dispatch the **external** seller id plus the identification to the
+adapter selected by connector `type` (`get_customer_debt` dispatcher op), and MUST NOT
+send the Odoo user id to the adapter. Adapter methods MUST return a raw customer row and
+raw invoice rows. The generic `collection` layer MUST reject missing or inactive
+customers, keep only invoices with positive balance and state `open` or `overdue`,
+normalize fields, compute summary totals, and attach connector source metadata.
+
+#### Scenario: External seller id forwarded
+
+- GIVEN an Enabled Seller bound to external id E and raw rows for E and for another
+  seller
+- WHEN `get_customer_debt()` runs for that internal user and E's customer identification
+- THEN the adapter MUST receive E plus that identification and the result MUST include
+  only that customer's outstanding invoices
+
+### Requirement: Normalized customer debt output
+
+Success MUST return `customer` with `external_customer_id`, `name`, `identification`,
+and `customer_code`; `summary` with `total_balance`, `overdue_balance`, `open_balance`,
+and outstanding `invoice_count`; `invoices` with `external_invoice_id`, `number`,
+`issue_date`, `due_date`, `amount`, `balance`, and `state`. `get_customer_debt()` MUST
+also attach `source` with `connector_id`, `connector_type`, `connector_name`, and
+`company_id`. `customer_debt` MUST omit `source` and MUST NOT include `partner_id`. Paid
+or zero-balance invoices MUST be omitted. An active customer with no outstanding
+invoices MUST succeed with zero totals and an empty invoice list. Invoice order MUST be
+deterministic (`due_date`, `number`, `external_invoice_id`). `get_customer_debt()` and
+`customer_debt` MUST NOT create `res.partner` records or customer bindings. (Previously:
+Customers remained connector data for every path, forbidding all partner and binding
+creates.)
+
+#### Scenario: Debt shape
+
+- GIVEN an active customer with open, overdue, paid, and zero-balance invoices
+- WHEN `get_customer_debt()` runs for the bound Enabled Seller
+- THEN the payload MUST include that customer, outstanding open and overdue invoices
+  only, matching totals, source metadata, and MUST NOT create partners or customer
+  bindings
+
+#### Scenario: MCP debt omits source
+
+- GIVEN an active customer with outstanding invoices
+- WHEN `customer_debt` runs for the bound Enabled Seller
+- THEN the payload MUST include that customer, outstanding invoices, matching totals,
+  and MUST NOT include `source` or `partner_id`
+- AND MUST NOT create partners or customer bindings
+
+#### Scenario: Zero debt succeeds
+
+- GIVEN an active customer with no outstanding invoices
+- WHEN `get_customer_debt()` or `customer_debt` runs
+- THEN the payload MUST include that customer, zero totals, `invoice_count` 0, and
+  `invoices: []`
+
+### Requirement: Storage-agnostic collection addon
+
+The `collection` addon MUST remain storage-agnostic. It MUST NOT import `sqlite3`, open
+database files, contain SQLite paths/table names/SQL, or otherwise connect to SQLite.
+SQLite customer and invoice reads MUST live only in `collection_connector_sqlite`.
+
+#### Scenario: No SQLite in collection
+
+- GIVEN the `collection` addon source
+- WHEN it is inspected for customer or invoice retrieval
+- THEN it MUST contain no SQLite import, connection, path, table, or SQL implementation
+
+### Requirement: SQLite read-only sellers source
+
+SQLite MUST be read-only against fixed `sellers` (`id`, `name`, `mobile`, `active`).
+Admins MUST run a connection-test. Missing, unreadable, or invalid schema MUST raise
+`UserError` with no path or SQL.
+
+#### Scenario: Sqlite success
+
+- GIVEN a readable file with the fixed schema and active rows
+- WHEN list runs or an administrator runs connection-test
+- THEN active sellers MUST be listed, the test MUST succeed, and the file MUST NOT be
+  written
+
+#### Scenario: Sqlite invalid
+
+- GIVEN the file is missing, unreadable, or lacks the fixed schema
+- WHEN list or connection-test runs
+- THEN it MUST raise `UserError` with no path or SQL
+
+### Requirement: SQLite read-only customers source
+
+SQLite MUST be read-only against fixed `customers` (`id`, `seller_id`, `name`,
+`identification`, `customer_code`, `active`). Reads MUST filter by the dispatched
+external seller id. Missing, unreadable, or invalid `customers` schema MUST raise
+`UserError` with no path or SQL. Seller listing and connection-test MUST remain
+sellers-only and compatible.
+
+#### Scenario: Sqlite seller-scoped customers
+
+- GIVEN a readable file with the fixed sellers and customers schemas, active and
+  inactive customers for seller E, and customers for another seller
+- WHEN `list_customers()` runs for the Enabled Seller bound to E
+- THEN only E's active customers MUST be returned, the file MUST NOT be written, and
+  other sellers' customers MUST be omitted
+
+#### Scenario: Sqlite invalid customers schema
+
+- GIVEN the file is missing the fixed `customers` schema
+- WHEN `list_customers()` runs
+- THEN it MUST raise `UserError` with no path or SQL
+- AND `list_sellers()` and connection-test MUST still succeed when `sellers` is valid
+
+### Requirement: SQLite read-only customer debt source
+
+SQLite MUST be read-only against fixed `customers` and `invoices` (`id`, `customer_id`,
+`number`, `issue_date`, `due_date`, `amount`, `balance`, `state`). Reads MUST filter by
+the dispatched external seller id and identification with parameterized SQL. Missing,
+unreadable, or invalid `invoices` schema MUST raise `UserError` with no path or SQL.
+Seller listing, connection-test, and customer listing MUST remain compatible. The file
+MUST NOT be written. `database.sql` MUST NOT change.
+
+#### Scenario: Sqlite seller-scoped debt
+
+- GIVEN a readable file with the fixed sellers, customers, and invoices schemas, an
+  active customer of seller E with mixed invoices, an inactive customer of E with debt,
+  and a customer of another seller
+- WHEN `get_customer_debt()` runs for the Enabled Seller bound to E and the active
+  customer's identification
+- THEN only that customer's outstanding invoices MUST be returned and the file MUST NOT
+  be written
+
+#### Scenario: Sqlite zero debt
+
+- GIVEN an active customer of E with no outstanding invoices
+- WHEN `get_customer_debt()` runs for that identification
+- THEN totals MUST be zero, `invoices` MUST be empty, and the file MUST NOT be written
+
+#### Scenario: Sqlite invalid invoices schema
+
+- GIVEN the file is missing the fixed `invoices` schema
+- WHEN `get_customer_debt()` runs
+- THEN it MUST raise `UserError` with no path or SQL
+- AND `list_sellers()`, connection-test, and `list_customers()` MUST still succeed when
+  those schemas are valid
+
+### Requirement: Company isolation
+
+Company A MUST NOT list or use company B's connector.
+
+#### Scenario: Isolation
+
+- GIVEN company B has an active connector that A does not select
+- WHEN a caller with `env.company` A lists sellers or customers, or reads customer debt
+- THEN the result MUST NOT come from B's connector
+
+### Requirement: Rollback unchanged
+
+Clearing active connectors and uninstalling SQLite MUST leave vouchers, sheets,
+`get_seller_id`, `create_collection_vouchers`, and `list_collection_customers`
+unchanged.
+
+#### Scenario: Rollback
+
+- GIVEN existing vouchers, sheets, and working `get_seller_id` plus create MCP and
+  `list_collection_customers`
+- WHEN connectors are cleared and SQLite is uninstalled
+- THEN those records and tools MUST stay unchanged
+
+### Requirement: Write path may create partners and bindings
+
+`create_collection_vouchers` MAY create `res.partner` records and
+`collection.connector.customer.binding` rows through `resolve_customer_partner`. MCP
+read tools `list_collection_customers` and `customer_debt` MUST NOT create partners or
+bindings.
+
+#### Scenario: Write path provisions on all-new create
+
+- GIVEN an all-new MCP payment for an unbound listable identification
+- WHEN `create_collection_vouchers` runs
+- THEN a partner and customer binding MAY be created
+- AND `list_collection_customers` and `customer_debt` MUST still create neither
+
+### Requirement: Customer binding uniqueness
+
+The system MUST persist `collection.connector.customer.binding` with UNIQUE
+`(connector_id, external_customer_id)`, UNIQUE `(connector_id, identification)`, and
+UNIQUE `(connector_id, partner_id)`. Binding company MUST match the connector company.
+`customer_code` MAY be stored on the binding and MUST NOT be required on `res.partner`.
+
+#### Scenario: Uniqueness on three axes
+
+- GIVEN a binding of external id E, identification I, and partner P on connector C of
+  company A
+- WHEN a second binding on C reuses E, I, or P, or uses another company
+- THEN that binding MUST be rejected
+
+### Requirement: Customer partner resolution
+
+`resolve_customer_partner(seller_id, identification)` MUST require a non-empty stripped
+identification, then apply the Enabled Seller plus active-connector seller-binding gate
+BEFORE any customer-binding lookup or adapter call. A binding hit on
+`(connector_id, identification)` MUST return that `partner_id` with no adapter call. A
+miss MUST dispatch `list_customers` and keep exactly one active row for that
+identification. VAT matching MUST use the exact stripped string (MUST NOT normalize
+CUIT): one `res.partner.vat` match MUST bind that partner and MUST NOT create a new
+partner; zero matches MUST create a partner (`vat` equals identification, `name` from
+the ERP row, `company_id` from the connector, `customer_rank` 1, no extra tag) and a
+binding; more than one match MUST raise the generic `UserError`. Unknown, inactive, or
+other-seller identifications MUST raise the same generic `UserError` (`The requested
+customer is not available.`) with no partner or binding writes. Concurrent first-sighting
+UniqueViolation MUST converge on one partner and MUST NOT be reported as a payment
+`document_id` conflict. Calls MUST NOT `sudo()`.
+
+#### Scenario: Enabled Seller gate before lookup
+
+- GIVEN an internal caller and a seller that is not enabled or not bound on the active
+  connector
+- WHEN `resolve_customer_partner` runs
+- THEN the system MUST raise `UserError` before binding lookup or adapter dispatch
+- AND MUST NOT create a partner or binding
+
+#### Scenario: Binding fast path skips adapter
+
+- GIVEN an Enabled Seller and an existing customer binding for identification I
+- WHEN `resolve_customer_partner` runs with I
+- THEN it MUST return that binding's partner
+- AND MUST NOT call the adapter
+
+#### Scenario: Unique vat binds existing partner
+
+- GIVEN no binding for I, exactly one active ERP row for I, and exactly one partner
+  whose `vat` equals I
+- WHEN `resolve_customer_partner` runs
+- THEN it MUST bind that partner and MUST NOT create a new partner
+
+#### Scenario: No vat match creates partner
+
+- GIVEN no binding for I, exactly one active ERP row for I, and no partner whose `vat`
+  equals I
+- WHEN `resolve_customer_partner` runs
+- THEN it MUST create a partner with `vat` I, ERP name, connector company,
+  `customer_rank` 1, and no extra tag
+- AND MUST create a binding for that partner
+
+#### Scenario: Ambiguous vat fails closed
+
+- GIVEN no binding for I and more than one partner whose `vat` equals I
+- WHEN `resolve_customer_partner` runs
+- THEN the system MUST raise `UserError` `The requested customer is not available.`
+- AND MUST NOT create a partner or binding
+
+#### Scenario: Unknown inactive or other-seller fails closed
+
+- GIVEN an Enabled Seller and an unknown, inactive, or other-seller identification
+- WHEN `resolve_customer_partner` runs
+- THEN the system MUST raise `UserError` `The requested customer is not available.`
+- AND MUST NOT create a partner or binding
+
+#### Scenario: Concurrent first-sighting converges
+
+- GIVEN two concurrent first-sightings of the same identification
+- WHEN both resolve
+- THEN exactly one partner and one binding MUST remain
+- AND neither call MUST report a payment `document_id` conflict
+
+### Requirement: Customer binding ACL
+
+Internal users (`base.group_user`) MUST have read and create on
+`collection.connector.customer.binding` and MUST NOT write or unlink (`1,0,1,0`).
+`base.group_system` MUST have full CRUD. Allowed-company `ir.rule`
+`[('company_id', 'in', company_ids)]` MUST hide other-company bindings. Dedicated groups
+MUST NOT be added. Calls MUST NOT `sudo()`.
+
+#### Scenario: User can create not mutate
+
+- GIVEN an authenticated internal user
+- WHEN they create a customer binding of an allowed company
+- THEN ACL MUST allow create
+- AND write or unlink MUST be denied
+
+#### Scenario: Other-company bindings hidden
+
+- GIVEN a customer binding in a company the user is not allowed
+- WHEN they search bindings
+- THEN that binding MUST NOT be visible

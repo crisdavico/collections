@@ -23,9 +23,13 @@ class CollectionVoucher(models.Model):
         readonly=True,
         default="/",
     )
-    customer_identification = fields.Char(
+    partner_id = fields.Many2one(
+        comodel_name="res.partner",
+        string="Customer",
         required=True,
         tracking=True,
+        index=True,
+        ondelete="restrict",
     )
     seller_id = fields.Many2one(
         comodel_name="res.users",
@@ -37,6 +41,13 @@ class CollectionVoucher(models.Model):
         comodel_name="collection.sheet",
         string="Collection Sheet",
         ondelete="set null",
+    )
+    allocation_id = fields.Many2one(
+        comodel_name="collection.allocation",
+        string="Allocation",
+        ondelete="set null",
+        check_company=True,
+        index=True,
     )
     state = fields.Selection(
         selection=[
@@ -253,6 +264,8 @@ class CollectionVoucher(models.Model):
             )
         if "sheet_id" in vals:
             self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
+        if "allocation_id" in vals:
+            self._ensure_allocation_membership_writable(vals.get("allocation_id"))
         if "seller_id" in vals or "document_type" in vals:
             for voucher in self:
                 seller = vals["seller_id"] if "seller_id" in vals else voucher.seller_id
@@ -375,6 +388,40 @@ class CollectionVoucher(models.Model):
     def _unlink_if_pending(self):
         if any(voucher.state != "pending" for voucher in self):
             raise UserError(_("You can only delete vouchers in the Pending state."))
+
+    @api.ondelete(at_uninstall=False)
+    def _unlink_if_unallocated(self):
+        if any(voucher.allocation_id for voucher in self):
+            raise UserError(
+                _("You cannot delete a voucher that belongs to an allocation.")
+            )
+
+    @api.private
+    def _ensure_allocation_membership_writable(self, new_allocation_id):
+        target = self._allocation_from_value(new_allocation_id)
+        for voucher in self:
+            current = voucher.allocation_id
+            if not self._allocation_is_confirmed_or_unset(
+                current
+            ) or not self._allocation_is_confirmed_or_unset(target):
+                raise UserError(
+                    _(
+                        "Allocation membership can only change when the current "
+                        "and target allocations are confirmed or unset."
+                    )
+                )
+
+    @api.private
+    def _allocation_from_value(self, value):
+        if not value:
+            return self.env["collection.allocation"]
+        if isinstance(value, models.BaseModel):
+            return value[:1]
+        return self.env["collection.allocation"].browse(int(value))
+
+    @api.private
+    def _allocation_is_confirmed_or_unset(self, allocation):
+        return not allocation or allocation.state == "confirmed"
 
     def _message_set_main_attachment_id(
         self, attachments, force=False, filter_xml=True

@@ -54,32 +54,32 @@ provenance. Context-gated snapshot create.
 
 ## Affected Areas
 
-|Area|Impact|Description|
-|---|---|---|
-|`models/collection_voucher.py`|Modified|Fields, guards, snapshots, queue|
-|`models/collection_voucher_review_snapshot.py`|New|Immutable snapshot|
-|`tools/collection_voucher.py`|Modified|Nested parse; all-new stamp|
-|`views/collection_views.xml`|Modified|Three-way + history|
-|`static/src/document_review/`|Modified|OWL side-by-side|
-|`security/ir.model.access.csv`|Modified|Snapshot ACL|
-|`__manifest__.py`|Modified|`19.0.1.14.0`|
-|`tests/test_collection_*.py`|Modified|MCP, review, ACL, UI|
+| Area                                           | Impact   | Description                      |
+| ---------------------------------------------- | -------- | -------------------------------- |
+| `models/collection_voucher.py`                 | Modified | Fields, guards, snapshots, queue |
+| `models/collection_voucher_review_snapshot.py` | New      | Immutable snapshot               |
+| `tools/collection_voucher.py`                  | Modified | Nested parse; all-new stamp      |
+| `views/collection_views.xml`                   | Modified | Three-way + history              |
+| `static/src/document_review/`                  | Modified | OWL side-by-side                 |
+| `security/ir.model.access.csv`                 | Modified | Snapshot ACL                     |
+| `__manifest__.py`                              | Modified | `19.0.1.14.0`                    |
+| `tests/test_collection_*.py`                   | Modified | MCP, review, ACL, UI             |
 
 ## Risks
 
-|Risk|Likelihood|Mitigation|
-|---|---|---|
-|400-line review budget|High|Chain model/MCP/ACL, form, OWL|
-|Form path has no history|Med|Explicit in-scope|
-|MCP drops nests until Odoo ships|Med|Ship Odoo first|
-|omit/null/`""` false reject|Med|Reuse optional-field parse|
-|RPC overwrite of provenance|High|`write()` rejects keys|
+| Risk                             | Likelihood | Mitigation                     |
+| -------------------------------- | ---------- | ------------------------------ |
+| 400-line review budget           | High       | Chain model/MCP/ACL, form, OWL |
+| Form path has no history         | Med        | Explicit in-scope              |
+| MCP drops nests until Odoo ships | Med        | Ship Odoo first                |
+| omit/null/`""` false reject      | Med        | Reuse optional-field parse     |
+| RPC overwrite of provenance      | High       | `write()` rejects keys         |
 
 ## Rollback Plan
 
 Revert the addon commit. Upgrade does not drop additive columns or snapshot rows.
-Uninstall is not clean if snapshots exist (needs reverse migrate). Leave
-`19.0.1.13.0` chatter scripts.
+Uninstall is not clean if snapshots exist (needs reverse migrate). Leave `19.0.1.13.0`
+chatter scripts.
 
 ## Dependencies
 

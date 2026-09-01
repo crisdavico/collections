@@ -78,6 +78,8 @@ rules:
   apply:
     guidelines:
       - Edit owned Odoo code only under odoo/custom/src/private/collection/.
+      - SQLite connector lives under
+        odoo/custom/src/private/collection_connector_sqlite/ (parent Doodba tree).
       - Coordinated Nebula edits are allowed under
         /home/crisd/projects/nebula/nebula-agent (MCP name, list formatter, tests,
         collection-voucher-registration spec, AGENTS.md).
@@ -86,6 +88,8 @@ rules:
         before implementation.
     roots:
       - /home/crisd/projects/seedian/seedian/odoo/custom/src/private/collection
+      - /home/crisd/projects/seedian/seedian/odoo/custom/src/private
+      - /home/crisd/projects/seedian/seedian/odoo/custom/src/private/collection_connector_sqlite
       - /home/crisd/projects/nebula/nebula-agent
     tdd: true
     test_command: invoke test -m collection

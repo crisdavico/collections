@@ -60,8 +60,8 @@ its own sheet numbering with no company-less sequence stealing numbers.
 
 Each new sheet MUST get a unique persisted name `CS/<year>/<number>` via sequence code
 `collection.sheet`. Numbering MUST be isolated per company. Sheets MUST have `state`
-`open` or `closed` and MUST NOT have any other workflow.
-(Previously: One global sequence numbered all companies together.)
+`open` or `closed` and MUST NOT have any other workflow. (Previously: One global
+sequence numbered all companies together.)
 
 #### Scenario: Sequence assigned on create
 
@@ -81,8 +81,8 @@ Each new sheet MUST get a unique persisted name `CS/<year>/<number>` via sequenc
 Sheet `seller_id` MUST be a required internal user (not portal/share), readonly after
 create, and MUST NOT default from the creator. NEW sheet create MUST require that seller
 to be enabled for the sheet's company. Assigned vouchers MUST match the sheet seller.
-Null-seller vouchers MUST NOT be assignable.
-(Previously: Seller was required but not gated by the company enabled list.)
+Null-seller vouchers MUST NOT be assignable. (Previously: Seller was required but not
+gated by the company enabled list.)
 
 #### Scenario: Seller required and frozen
 
@@ -110,9 +110,8 @@ set that seller and the vouchers' company; and MUST assign the selection. It MUS
 succeed only when that seller’s open-sheet count in that company is 0. It MUST reject if
 that seller already has any open sheet in that company (count greater than or equal to
 1), including when count is greater than 1. The Action MUST remain available when
-`auto_create_sheet` is OFF. The seller MUST be enabled for that company.
-(Previously: Open-sheet count was per seller across all companies; auto-create was not
-a flag.)
+`auto_create_sheet` is OFF. The seller MUST be enabled for that company. (Previously:
+Open-sheet count was per seller across all companies; auto-create was not a flag.)
 
 #### Scenario: Unassigned same-seller any state
 
@@ -151,8 +150,7 @@ a flag.)
 
 Internal users (`base.group_user`) MUST have full CRUD on sheets of companies they are
 allowed. Dedicated groups MUST NOT be added. Allowed-company record rules MUST hide
-other companies.
-(Previously: No record rules; sheets were company-blind.)
+other companies. (Previously: No record rules; sheets were company-blind.)
 
 #### Scenario: Internal user CRUD
 

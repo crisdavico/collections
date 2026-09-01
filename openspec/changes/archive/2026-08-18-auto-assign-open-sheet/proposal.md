@@ -10,10 +10,10 @@ create. Sheets have no lifecycle, so a period cannot be frozen.
 ### In Scope
 
 - Sheet `state` `open`/`closed`; header Close/Reopen; freeze membership when closed
-- One open per seller for new ops (create / reopen / Action / auto-assign);
-  `UserError` if that seller already has >1 open
-- ORM `voucher.create` auto-assign when `seller_id` set and `sheet_id` omitted (UI +
-  MCP all-new)
+- One open per seller for new ops (create / reopen / Action / auto-assign); `UserError`
+  if that seller already has >1 open
+- ORM `voucher.create` auto-assign when `seller_id` set and `sheet_id` omitted (UI + MCP
+  all-new)
 - Keep list Action as create-new-sheet; reject if any open exists
 - Manifest `19.0.1.12.0`; rewrite no-state and two-open tests
 
@@ -33,8 +33,8 @@ create. Sheets have no lifecycle, so a period cannot be frozen.
 
 - `collection-sheets`: open/closed workflow, one-open, freeze, Close/Reopen, Action
   reject-if-open-exists
-- `collection-vouchers`: create auto-assign when seller set; MCP all-new inherits;
-  exact replay still no mutation / sheet attach
+- `collection-vouchers`: create auto-assign when seller set; MCP all-new inherits; exact
+  replay still no mutation / sheet attach
 
 ## Approach
 
@@ -75,8 +75,13 @@ Odoo 19 `models.Constraint`; no new deps. Upgrade required for `state`.
 
 ## Success Criteria
 
-- [ ] Unique open receives new seller-stamped creates (UI + MCP all-new); none → create open
-- [ ] Explicit `sheet_id` honored; null seller unassigned; no backfill; later seller write does not assign
-- [ ] Second open rejected; >1 open after upgrade `UserError` on those ops; closing extras works
-- [ ] Closed sheets frozen until reopen; MCP exact replay does not attach; response unchanged
-- [ ] Manifest `19.0.1.12.0`; no-state / two-open tests updated; `invoke test -m collection` passes
+- [ ] Unique open receives new seller-stamped creates (UI + MCP all-new); none → create
+      open
+- [ ] Explicit `sheet_id` honored; null seller unassigned; no backfill; later seller
+      write does not assign
+- [ ] Second open rejected; >1 open after upgrade `UserError` on those ops; closing
+      extras works
+- [ ] Closed sheets frozen until reopen; MCP exact replay does not attach; response
+      unchanged
+- [ ] Manifest `19.0.1.12.0`; no-state / two-open tests updated;
+      `invoke test -m collection` passes

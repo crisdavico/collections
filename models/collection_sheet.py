@@ -41,6 +41,11 @@ class CollectionSheet(models.Model):
         inverse_name="sheet_id",
         string="Vouchers",
     )
+    allocation_ids = fields.One2many(
+        comodel_name="collection.allocation",
+        inverse_name="sheet_id",
+        string="Allocations",
+    )
     date_from = fields.Date(compute="_compute_dates", store=True)
     date_to = fields.Date(compute="_compute_dates", store=True)
     state = fields.Selection(
@@ -180,6 +185,11 @@ class CollectionSheet(models.Model):
         if not self.env.context.get("collection_sheet_unlinking"):
             return self.with_context(collection_sheet_unlinking=True).unlink()
         return super().unlink()
+
+    @api.ondelete(at_uninstall=False)
+    def _unlink_if_no_allocations(self):
+        if any(sheet.allocation_ids for sheet in self):
+            raise UserError(_("Collection sheets with allocations cannot be deleted."))
 
     def action_close(self):
         if any(sheet.state != "open" for sheet in self):

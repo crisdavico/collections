@@ -10,9 +10,10 @@ session's saved collection sheet, where `state` is `pending` and designated proo
 MUST NOT appear. Vouchers that are not members of that sheet MUST NOT appear.
 Parent-voucher `state == new` MUST NOT be an eligibility criterion. Confidence scores,
 per-field stamps, and reviewer-note persistence MUST NOT be required. When the
-identified sheet has no eligible members, the client MUST show an empty/no-remaining-work
-state and MUST NOT fall back to a company-wide or other-sheet queue.
-(Previously: Eligibility used Binary `attachment != False`, not designated proof.)
+identified sheet has no eligible members, the client MUST show an
+empty/no-remaining-work state and MUST NOT fall back to a company-wide or other-sheet
+queue. (Previously: Eligibility used Binary `attachment != False`, not designated
+proof.)
 
 #### Scenario: Queue eligibility
 
@@ -43,8 +44,8 @@ state and MUST NOT fall back to a company-wide or other-sheet queue.
 The client MUST render image and PDF proofs via authenticated `/web/content/{id}` for
 the designated proof `ir.attachment`. The route MUST NOT use `field=attachment`. The OWL
 layer MUST NOT embed attachment base64. The viewer MUST present distinct loading, error,
-and empty-proof states.
-(Previously: Binary URLs used `model=collection.voucher` with `field=attachment`.)
+and empty-proof states. (Previously: Binary URLs used `model=collection.voucher` with
+`field=attachment`.)
 
 #### Scenario: Image via authenticated binary route
 
@@ -74,8 +75,8 @@ attachment bytes. The chosen angle MUST persist on the voucher and MUST be resto
 the reviewer views that same proof again (including after queue navigation or reopening
 Document Review). PDF proofs MUST still load from the authenticated binary URL. Changing
 or clearing `message_main_attachment_id` MUST reset rotation to 0 degrees. Extra chatter
-files that do not change designated proof MUST NOT reset rotation.
-(Previously: Rotation reset on Binary attachment replace or clear.)
+files that do not change designated proof MUST NOT reset rotation. (Previously: Rotation
+reset on Binary attachment replace or clear.)
 
 #### Scenario: Rotate clockwise and counterclockwise
 

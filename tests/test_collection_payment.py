@@ -121,6 +121,68 @@ def create_internal_seller(env, login):
     )
 
 
+def dummy_customer_partner(env, customer=None, extra=None, default="CUST"):
+    """Return a dummy Customer partner for voucher helpers (P4).
+
+    Accepts ``customer=`` (label or ``res.partner``), leftover
+    ``customer_identification`` kwargs, or an explicit ``partner_id``.
+    """
+    extra = extra if extra is not None else {}
+    partner_id = extra.pop("partner_id", None)
+    extra_customer = extra.pop("customer", None)
+    extra_ident = extra.pop("customer_identification", None)
+    if partner_id:
+        return env["res.partner"].browse(partner_id)
+    label = extra_customer if extra_customer is not None else customer
+    if label is None:
+        label = extra_ident
+    if getattr(label, "_name", None) == "res.partner":
+        return label
+    if label in (None, False, ""):
+        label = default
+    label = str(label)
+    Partner = env["res.partner"].with_context(
+        tracking_disable=True,
+        mail_create_nolog=True,
+        mail_notrack=True,
+        mail_create_nosubscribe=True,
+    )
+    vals = {"name": label, "vat": label}
+    if "customer_rank" in Partner._fields:
+        vals["customer_rank"] = 1
+    if "autopost_bills" in Partner._fields:
+        vals["autopost_bills"] = "ask"
+        return Partner.create(vals)
+    env.cr.execute(
+        """
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_name = 'res_partner'
+           AND column_name = 'autopost_bills'
+        """
+    )
+    if not env.cr.fetchone():
+        return Partner.create(vals)
+    env.cr.execute(
+        """
+        INSERT INTO res_partner (
+            name, vat, company_id, customer_rank,
+            active, complete_name, type, autopost_bills,
+            create_uid, write_uid, create_date, write_date
+        )
+        VALUES (
+            %s, %s, %s, 1, true, %s, 'contact', 'ask',
+            1, 1,
+            (now() AT TIME ZONE 'UTC'),
+            (now() AT TIME ZONE 'UTC')
+        )
+        RETURNING id
+        """,
+        (label, label, env.company.id, label),
+    )
+    return Partner.browse(env.cr.fetchone()[0])
+
+
 def post_voucher_proof(voucher, name, datas_b64, body="Proof"):
     """Post a chatter proof file onto a voucher (designated-proof path)."""
     voucher.message_post(
@@ -135,10 +197,13 @@ def post_voucher_proof(voucher, name, datas_b64, body="Proof"):
 class TestCollectionPaymentDocumentId(TransactionCase):
     """RED/GREEN: nullable unique document_id on standalone vouchers."""
 
-    def _voucher_vals(self, **extra):
+    def _voucher_vals(self, customer=None, **extra):
         seller = ensure_enabled_seller(self.env)
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="CUST-DOC"
+        )
         vals = {
-            "customer_identification": "CUST-DOC",
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
             "amount": 100.0,
             "seller_id": seller.id,
@@ -214,10 +279,13 @@ class TestCollectionPaymentDocumentId(TransactionCase):
 class TestCollectionPaymentAttachment(TransactionCase):
     """RED/GREEN: optional chatter designated proof on standalone vouchers."""
 
-    def _voucher_vals(self, **extra):
+    def _voucher_vals(self, customer=None, **extra):
         seller = ensure_enabled_seller(self.env)
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="CUST-ATT"
+        )
         vals = {
-            "customer_identification": "CUST-ATT",
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
             "amount": 100.0,
             "seller_id": seller.id,

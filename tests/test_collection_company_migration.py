@@ -8,7 +8,7 @@ from re import fullmatch
 
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import ensure_enabled_seller
+from .test_collection_payment import dummy_customer_partner, ensure_enabled_seller
 
 ALL_TYPE_CODES = frozenset({"bank_transfer", "check", "cash_deposit", "unsupported"})
 MIGRATE_PATH = (
@@ -127,6 +127,9 @@ class TestCollectionCompanyMigration(TransactionCase):
         company = self.env["res.company"].browse(
             vals.get("company_id") or self.env.company.id
         )
+        vals = dict(vals)
+        partner = dummy_customer_partner(self.env, extra=vals, default="MIG-CUST")
+        vals["partner_id"] = partner.id
         if not vals.get("seller_id"):
             vals = dict(
                 vals,
@@ -146,10 +149,30 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn('ref="base.main_company"', text)
         self.assertNotIn('eval="False"', text)
         self.assertIn("noupdate", text)
+        self.assertIn("seq_collection_allocation", text)
+        self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_17_0(self):
+    def test_manifest_version_is_1_25_0(self):
         manifest = Path(__file__).resolve().parents[1] / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.17.0"', manifest.read_text(encoding="utf-8"))
+        self.assertIn('"version": "19.0.1.25.0"', manifest.read_text(encoding="utf-8"))
+
+    def test_allocation_sequence_in_specs_not_in_1_17_0_codes(self):
+        specs_path = Path(__file__).resolve().parents[1] / "models" / "res_company.py"
+        specs_text = specs_path.read_text(encoding="utf-8")
+        self.assertIn('("collection.allocation", "Collection Allocation"', specs_text)
+        self.assertIn('"CA/%(year)s/"', specs_text)
+        migrate_117 = _load_company_config_migrate()
+        self.assertNotIn("collection.allocation", migrate_117.COLLECTION_SEQUENCE_CODES)
+        migrate_125 = (
+            Path(__file__).resolve().parents[1]
+            / "migrations"
+            / "19.0.1.25.0"
+            / "post-migrate.py"
+        )
+        self.assertTrue(migrate_125.is_file())
+        text_125 = migrate_125.read_text(encoding="utf-8")
+        self.assertIn("_collection_copy_sequences", text_125)
+        self.assertNotIn("COLLECTION_SEQUENCE_CODES", text_125)
 
     def test_sheet_company_stamped_from_seller_else_main(self):
         main = self.env.ref("base.main_company")
@@ -433,6 +456,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         for code, prefix in (
             ("collection.voucher", "COL"),
             ("collection.sheet", "CS"),
+            ("collection.allocation", "CA"),
         ):
             seqs = self.env["ir.sequence"].search(
                 [("code", "=", code), ("company_id", "=", company.id)]

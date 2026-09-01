@@ -1,12 +1,9 @@
 # Archive Report: document-review-feature-flag
 
-**Date**: 2026-08-12
-**Change**: document-review-feature-flag
-**Archived to**: `openspec/changes/archive/2026-08-12-document-review-feature-flag/`
-**Artifact store**: openspec
-**Status**: success
-**Intentional warnings**: yes (verify pass_with_warnings — four accepted non-blocking
-deviations)
+**Date**: 2026-08-12 **Change**: document-review-feature-flag **Archived to**:
+`openspec/changes/archive/2026-08-12-document-review-feature-flag/` **Artifact store**:
+openspec **Status**: success **Intentional warnings**: yes (verify pass_with_warnings —
+four accepted non-blocking deviations)
 
 ## Gates
 
@@ -45,9 +42,8 @@ Per orchestrator launch facts (outrank stale snapshot “pending” claims):
 Performed **before** the folder move. Merge via editing main spec files (not a byte-copy
 of the change folder).
 
-**Domain**: `document-review`
-**Main spec**: `openspec/specs/document-review/spec.md` (existing; all prior
-requirements preserved)
+**Domain**: `document-review` **Main spec**: `openspec/specs/document-review/spec.md`
+(existing; all prior requirements preserved)
 
 | Action   | Requirement                                                  |
 | -------- | ------------------------------------------------------------ |
@@ -57,8 +53,8 @@ requirements preserved)
 | REMOVED  | none                                                         |
 | RENAMED  | none                                                         |
 
-**Domain**: `collection-vouchers`
-**Main spec**: `openspec/specs/collection-vouchers/spec.md`
+**Domain**: `collection-vouchers` **Main spec**:
+`openspec/specs/collection-vouchers/spec.md`
 
 | Action   | Requirement                                                                                                                                                               |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

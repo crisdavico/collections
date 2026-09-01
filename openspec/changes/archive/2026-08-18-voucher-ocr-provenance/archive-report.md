@@ -2,10 +2,10 @@
 
 **Date**: 2026-08-18 **Change**: voucher-ocr-provenance **Archived to**:
 `openspec/changes/archive/2026-08-18-voucher-ocr-provenance/` **Artifact store**:
-openspec **Status**: success **Intentional warnings**: yes (verify
-`pass_with_warnings` at verification time — zero CRITICAL; Nebula nested provenance
-client remains out of scope; duplicate `ir.model` same-label warnings for
-`ocr_*`/`seller_*` vs current fields are intentional UX)
+openspec **Status**: success **Intentional warnings**: yes (verify `pass_with_warnings`
+at verification time — zero CRITICAL; Nebula nested provenance client remains out of
+scope; duplicate `ir.model` same-label warnings for `ocr_*`/`seller_*` vs current fields
+are intentional UX)
 
 ## Quick path
 
@@ -16,13 +16,13 @@ client remains out of scope; duplicate `ir.model` same-label warnings for
 
 ## Gates
 
-| Gate                      | Result                    | Evidence                                                                                                                                                                                                 |
-| ------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Task Completion           | PASS                      | Archived `tasks.md` — no `- [ ]`; tasks 1.1–3.2 all `[x]` (14/14). Orchestrator instructed not to reconcile checkboxes.                                                                                  |
-| Native Review Receipt     | PASS (absent)             | `reviewGate` structurally absent; user declined post-verify `reviewOffer` by requesting archive; proceeded under ordinary repository policy; no receipt demanded                                          |
-| CRITICAL in verify-report | PASS                      | `critical_findings: 0`, `blockers: 0`; verdict `pass_with_warnings` at verification time                                                                                                                 |
-| Destructive delta         | PASS (additive only)      | `rules.archive`: warn before merging destructive or backward-incompatible deltas. Deltas are ADDED only (no MODIFIED / REMOVED / RENAMED). No large-section removal. Not a stop.                         |
-| Action context            | PASS                      | `actionContext.mode: repo-local`; edits stayed inside `allowedEditRoots` (`odoo/custom/src/private/collection`). Nebula-agent was not edited.                                                             |
+| Gate                      | Result               | Evidence                                                                                                                                                                         |
+| ------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task Completion           | PASS                 | Archived `tasks.md` — no `- [ ]`; tasks 1.1–3.2 all `[x]` (14/14). Orchestrator instructed not to reconcile checkboxes.                                                          |
+| Native Review Receipt     | PASS (absent)        | `reviewGate` structurally absent; user declined post-verify `reviewOffer` by requesting archive; proceeded under ordinary repository policy; no receipt demanded                 |
+| CRITICAL in verify-report | PASS                 | `critical_findings: 0`, `blockers: 0`; verdict `pass_with_warnings` at verification time                                                                                         |
+| Destructive delta         | PASS (additive only) | `rules.archive`: warn before merging destructive or backward-incompatible deltas. Deltas are ADDED only (no MODIFIED / REMOVED / RENAMED). No large-section removal. Not a stop. |
+| Action context            | PASS                 | `actionContext.mode: repo-local`; edits stayed inside `allowedEditRoots` (`odoo/custom/src/private/collection`). Nebula-agent was not edited.                                    |
 
 ## Intentional shipped notes (`rules.archive`)
 
@@ -49,12 +49,10 @@ claims) and persisted `tasks.md`:
   visible if any of current / ocr / seller matches. **Document ID remains Current-only
   by design.**
 - Focused tests after that UI fix:
-  `docker exec -i seedian-odoo-1 odoo -d devel --test-enable --stop-after-init
-  --workers=0 --http-port=18069 -u collection --test-tags
-  /collection:TestCollectionUi,/collection:TestCollectionDocumentReview.test_owl_keeps_type_visibility_hides_document_id_and_shows_provenance`
-  → `0 failed, 0 error(s) of 36 tests when loading database 'devel'`; `collection: 40
-  tests`. Duplicate `ir.model` same-label warnings for `ocr_*`/`seller_*` vs current
-  fields are intentional UX, not a defect.
+  `docker exec -i seedian-odoo-1 odoo -d devel --test-enable --stop-after-init --workers=0 --http-port=18069 -u collection --test-tags /collection:TestCollectionUi,/collection:TestCollectionDocumentReview.test_owl_keeps_type_visibility_hides_document_id_and_shows_provenance`
+  → `0 failed, 0 error(s) of 36 tests when loading database 'devel'`;
+  `collection: 40 tests`. Duplicate `ir.model` same-label warnings for
+  `ocr_*`/`seller_*` vs current fields are intentional UX, not a defect.
 - Manifest `19.0.1.14.0`; Nebula nested provenance client was out of scope and is still
   not shipped; empty provenance values on MCP create remain expected until a separate
   change
@@ -66,8 +64,8 @@ Attributed snapshot history (not current state):
 - Per `verify-report` at verification time: OWL type-specific field visibility followed
   current `document_type` only (`isBankTransfer`/`isCheck` from current) for all three
   OWL columns together, weaker than the form notebook’s per-layer types. That warning is
-  **not** a current open gap. The later form+OWL union-visibility fix (final-state fact
-  3) is the close state.
+  **not** a current open gap. The later form+OWL union-visibility fix (final-state
+  fact 3) is the close state.
 - Per `verify-report` at verification time: config `build_command` `invoke img-build`
   was substituted with scoped pre-commit; optional pylint C8101 author warning
   (`Seedian` vs `Eynes`) is pre-existing; task 1.9 Nebula nested provenance remained
@@ -87,15 +85,15 @@ not named in the delta were preserved. No REMOVED/RENAMED. No MODIFIED.
 **Domain**: `collection-vouchers` **Main spec**:
 `openspec/specs/collection-vouchers/spec.md` (existing; merge by edit)
 
-| Action  | Requirement                                          |
-| ------- | ---------------------------------------------------- |
-| ADDED   | Typed provenance copies of payment fields (3 scenarios) |
-| ADDED   | MCP nested provenance on all-new create (5 scenarios) |
-| ADDED   | Immutable review snapshots and ACL (2 scenarios)     |
-| ADDED   | Additive upgrade without provenance backfill (1 scenario) |
-| MODIFIED | none                                                |
-| REMOVED | none                                                 |
-| RENAMED | none                                                 |
+| Action   | Requirement                                               |
+| -------- | --------------------------------------------------------- |
+| ADDED    | Typed provenance copies of payment fields (3 scenarios)   |
+| ADDED    | MCP nested provenance on all-new create (5 scenarios)     |
+| ADDED    | Immutable review snapshots and ACL (2 scenarios)          |
+| ADDED    | Additive upgrade without provenance backfill (1 scenario) |
+| MODIFIED | none                                                      |
+| REMOVED  | none                                                      |
+| RENAMED  | none                                                      |
 
 Preserved unchanged: Voucher sequence naming; Mail thread and activities; Authorization
 for internal users; Deferred integrations not required; Payment document_id uniqueness;
@@ -108,19 +106,19 @@ header and line data; Voucher seller field; Create auto-assign to open sheet; De
 proof is message_main_attachment_id; Pre-upgrade migration of Binary proofs. Purpose
 line unchanged. RFC 2119 / Given-When-Then retained.
 
-**Domain**: `document-review` **Main spec**:
-`openspec/specs/document-review/spec.md` (existing; merge by edit)
+**Domain**: `document-review` **Main spec**: `openspec/specs/document-review/spec.md`
+(existing; merge by edit)
 
-| Action  | Requirement                                                    |
-| ------- | -------------------------------------------------------------- |
-| ADDED   | Three-way raw, seller, and current comparison (2 scenarios)    |
-| ADDED   | Queue payload includes readonly provenance (1 scenario)        |
-| ADDED   | Document Review decisions append immutable snapshots (2 scenarios) |
-| ADDED   | Repeated Document Review appends another revision (1 scenario) |
-| ADDED   | Voucher review history is visible (1 scenario)                 |
-| MODIFIED | none                                                          |
-| REMOVED | none                                                           |
-| RENAMED | none                                                           |
+| Action   | Requirement                                                        |
+| -------- | ------------------------------------------------------------------ |
+| ADDED    | Three-way raw, seller, and current comparison (2 scenarios)        |
+| ADDED    | Queue payload includes readonly provenance (1 scenario)            |
+| ADDED    | Document Review decisions append immutable snapshots (2 scenarios) |
+| ADDED    | Repeated Document Review appends another revision (1 scenario)     |
+| ADDED    | Voucher review history is visible (1 scenario)                     |
+| MODIFIED | none                                                               |
+| REMOVED  | none                                                               |
+| RENAMED  | none                                                               |
 
 Preserved unchanged: Eligible review queue; OWL client loads real ORM data;
 Authenticated binary attachment viewer; Viewer fit and cursor-anchored zoom; Viewer
@@ -184,14 +182,14 @@ Empty output between the markers; no differences.
 
 ## Verification at close
 
-| Check                    | Result                                                                                                                         |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Main specs updated       | yes (`collection-vouchers` 4 ADDED; `document-review` 5 ADDED)                                                                 |
-| Change folder in archive | yes                                                                                                                            |
-| Active change path gone  | yes                                                                                                                            |
-| tasks.md unchecked items | none                                                                                                                           |
-| `diff -r` empty          | yes (Step 3 snapshot vs archive empty; `DIFF_STATUS=0`)                                                                        |
-| Unrelated WIP            | not touched (`migrations/19.0.1.13.0/`, sibling chatter archive, nebula-agent)                                                 |
+| Check                    | Result                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| Main specs updated       | yes (`collection-vouchers` 4 ADDED; `document-review` 5 ADDED)                 |
+| Change folder in archive | yes                                                                            |
+| Active change path gone  | yes                                                                            |
+| tasks.md unchecked items | none                                                                           |
+| `diff -r` empty          | yes (Step 3 snapshot vs archive empty; `DIFF_STATUS=0`)                        |
+| Unrelated WIP            | not touched (`migrations/19.0.1.13.0/`, sibling chatter archive, nebula-agent) |
 
 ## Engram
 

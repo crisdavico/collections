@@ -1,11 +1,9 @@
 # Archive Report: seedian-nebula-mcp-voucher-tool
 
-**Archived**: 2026-08-11
-**Archive path**:
-`openspec/changes/archive/2026-08-11-seedian-nebula-mcp-voucher-tool/`
-**Artifact store**: openspec (filesystem only; git index left at approved candidate
-tree)
-**Verdict at close**: PASS WITH WARNINGS (final state)
+**Archived**: 2026-08-11 **Archive path**:
+`openspec/changes/archive/2026-08-11-seedian-nebula-mcp-voucher-tool/` **Artifact
+store**: openspec (filesystem only; git index left at approved candidate tree) **Verdict
+at close**: PASS WITH WARNINGS (final state)
 
 ## Gates
 

@@ -42,9 +42,12 @@ complete. Phase 3 assigned tasks (3.1–3.4) remain complete. Phase 4.1–4.3 ar
       leftover menu, clear `path`
 - [x] 3.3 GREEN delete `models/ir_ui_menu.py`; drop import in `models/__init__.py`
 - [x] 3.4 GREEN `__manifest__.py` bump `19.0.1.10.0` to `19.0.1.11.0`
-- [x] 4.1 compose run `-u collection -d devel` (one-off; not `docker exec` on live `seedian-odoo-1`)
-- [x] 4.2 scoped `pre-commit` on this change's files (recursive glob fails on archived OpenSpec; archives must not be reformatted)
-- [x] 4.3 full collection suite equivalent of `invoke test -m collection` with `-d devel -u collection`
+- [x] 4.1 compose run `-u collection -d devel` (one-off; not `docker exec` on live
+      `seedian-odoo-1`)
+- [x] 4.2 scoped `pre-commit` on this change's files (recursive glob fails on archived
+      OpenSpec; archives must not be reformatted)
+- [x] 4.3 full collection suite equivalent of `invoke test -m collection` with
+      `-d devel -u collection`
 
 ### Files Changed
 
@@ -83,11 +86,11 @@ Phase 3:
 
 Phase 4:
 
-| File                                                     | Action   | What Was Done                                                                                          |
-| -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `tests/test_collection_document_review.py`               | Modified | Wrapped two E501 docstrings (>88) so scoped ruff passes                                                |
-| `tests/test_collection_ui.py`                            | Modified | Wrapped one E501 docstring; ruff-format already split long xpath lines                                 |
-| `openspec/changes/sheet-scoped-document-review/tasks.md` | Modified | Marked 4.1 and 4.3 `[x]`; left 4.2 `[ ]`                                                               |
+| File                                                     | Action   | What Was Done                                                          |
+| -------------------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| `tests/test_collection_document_review.py`               | Modified | Wrapped two E501 docstrings (>88) so scoped ruff passes                |
+| `tests/test_collection_ui.py`                            | Modified | Wrapped one E501 docstring; ruff-format already split long xpath lines |
+| `openspec/changes/sheet-scoped-document-review/tasks.md` | Modified | Marked 4.1 and 4.3 `[x]`; left 4.2 `[ ]`                               |
 
 Did **not** implement seller_lookup or settings menus. Did **not** reformat archived
 OpenSpec files to green the glob.
@@ -171,9 +174,9 @@ ran and passed.
 | 3.2  | `views/collection_document_review_views.xml`    | Unit (XML + `-u`) | ✅ 46/46   | ✅ 3.1                                                                           | ✅ Menu xmlid gone; leftover row deleted; `path` False                | ✅ ON and OFF `load_menus`; leftover search empty                        | ➖ None needed                                 |
 | 3.3  | `models/ir_ui_menu.py`                          | Unit              | ✅ 46/46   | ✅ 3.1 (blacklist dead without menu)                                             | ✅ File deleted; `__init__` import dropped; GREEN still 0 failed      | ➖ Structural: one possible outcome                                      | ➖ None needed                                 |
 | 3.4  | `__manifest__.py`                               | Unit              | ✅ 46/46   | ➖ Version bump has no dedicated failing test                                    | ✅ `19.0.1.11.0`; GREEN still 0 failed                                | ➖ Structural: one possible output                                       | ➖ None needed                                 |
-| 4.1  | N/A — module upgrade                            | Runtime harness   | N/A        | ➖ Verification, not new behavior                                                | ✅ compose `-u collection -d devel` exit 0; collection loaded 0.74s  | ➖ Upgrade only                                                          | ➖ None needed                                 |
-| 4.2  | this-change scoped pre-commit                   | Lint              | N/A        | ➖ Globstar E501 then archive prettier                                           | ⚠️ assigned glob fail (archives); scoped this-change files exit 0    | ➖ E501 wraps only                                                       | ✅ Docstring wraps                             |
-| 4.3  | full `/collection` suite                        | Integration       | N/A        | ➖ Verification, not new behavior                                                | ✅ `0 failed, 0 error(s) of 194 tests` (stats: 218)                  | ➖ Full suite including seller_lookup WIP (passed)                       | ➖ None needed                                 |
+| 4.1  | N/A — module upgrade                            | Runtime harness   | N/A        | ➖ Verification, not new behavior                                                | ✅ compose `-u collection -d devel` exit 0; collection loaded 0.74s   | ➖ Upgrade only                                                          | ➖ None needed                                 |
+| 4.2  | this-change scoped pre-commit                   | Lint              | N/A        | ➖ Globstar E501 then archive prettier                                           | ⚠️ assigned glob fail (archives); scoped this-change files exit 0     | ➖ E501 wraps only                                                       | ✅ Docstring wraps                             |
+| 4.3  | full `/collection` suite                        | Integration       | N/A        | ➖ Verification, not new behavior                                                | ✅ `0 failed, 0 error(s) of 194 tests` (stats: 218)                   | ➖ Full suite including seller_lookup WIP (passed)                       | ➖ None needed                                 |
 
 ### Test Summary
 
@@ -218,8 +221,8 @@ Phase 3:
 Phase 4:
 
 - **Total tests written**: 0 (verification only; three E501 docstring wraps)
-- **Total tests passing (full module suite)**: 0 failed, 0 error(s) of 194 tests
-  (stats: `collection: 218 tests`)
+- **Total tests passing (full module suite)**: 0 failed, 0 error(s) of 194 tests (stats:
+  `collection: 218 tests`)
 - **Layers used**: Unit / TransactionCase (194 reported), Integration (module `-u` on
   `devel`), E2E (0)
 - **Approval tests** (refactoring): None — Phase 4 did not change production behavior
@@ -258,12 +261,12 @@ Phase 3:
 
 Phase 4:
 
-| Evidence             | Value                                                                                                                                                                                                                                                                                                                                               |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Focused test command | `cd /home/crisd/projects/seedian/seedian && env GID="$(id -g)" UID="$(id -u)" DOODBA_UMASK=27 docker compose run --rm -e "DB_FILTER='^devel$'" odoo odoo --test-enable --stop-after-init --workers=0 -d devel -u collection --test-tags /collection`                                                                                                 |
-| Focused test result  | Exit 0. `0 failed, 0 error(s) of 194 tests when loading database 'devel'` (stats: `collection: 218 tests 4.72s 6716 queries`). Includes `TestCollectionMcpSellerLookup` (11 methods) — WIP loaded and passed; import was not deleted.                                                                                                              |
+| Evidence             | Value                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focused test command | `cd /home/crisd/projects/seedian/seedian && env GID="$(id -g)" UID="$(id -u)" DOODBA_UMASK=27 docker compose run --rm -e "DB_FILTER='^devel$'" odoo odoo --test-enable --stop-after-init --workers=0 -d devel -u collection --test-tags /collection`                                                                                                           |
+| Focused test result  | Exit 0. `0 failed, 0 error(s) of 194 tests when loading database 'devel'` (stats: `collection: 218 tests 4.72s 6716 queries`). Includes `TestCollectionMcpSellerLookup` (11 methods) — WIP loaded and passed; import was not deleted.                                                                                                                          |
 | Runtime harness      | `cd /home/crisd/projects/seedian/seedian && env GID="$(id -g)" UID="$(id -u)" DOODBA_UMASK=27 docker compose run --rm -e "DB_FILTER='^devel$'" odoo odoo --stop-after-init --workers=0 -d devel -u collection`. Exit 0. Loaded `collection_views.xml`, `collection_document_review_views.xml`. No ERROR/CRITICAL. Did not `docker exec` live `seedian-odoo-1`. |
-| Rollback boundary    | Phase 4 lint-only: docstring wraps in `tests/test_collection_document_review.py` and `tests/test_collection_ui.py`. Does not revert Phases 1–3. Does not include seller_lookup, settings menus, or archived OpenSpec files.                                                                                                                       |
+| Rollback boundary    | Phase 4 lint-only: docstring wraps in `tests/test_collection_document_review.py` and `tests/test_collection_ui.py`. Does not revert Phases 1–3. Does not include seller_lookup, settings menus, or archived OpenSpec files.                                                                                                                                    |
 
 ## Deviations from Design
 
@@ -317,10 +320,10 @@ Phase 3:
 Phase 4:
 
 - Verification only. No new production behavior. Three E501 docstring wraps in tests
-  from this change. Used compose run `-d devel -u collection` instead of `invoke
-  install` / live `docker exec --stop-after-init` on `seedian-odoo-1`.
-- 4.3 used `-u` (not invoke's default `-i`) plus `-d devel` as required for one-off
-  odoo commands.
+  from this change. Used compose run `-d devel -u collection` instead of
+  `invoke install` / live `docker exec --stop-after-init` on `seedian-odoo-1`.
+- 4.3 used `-u` (not invoke's default `-i`) plus `-d devel` as required for one-off odoo
+  commands.
 
 ## Issues Found
 
@@ -331,8 +334,8 @@ Phase 4.2 contamination: `shopt -s globstar` +
   and `test_collection_ui.py` (1 docstring + xpath already wrapped by ruff-format).
 - Pre-existing / archive (not fixed): prettier failed on archived OpenSpec markdown and
   `openspec/changes/archive/2026-08-17-collection-sheets/state.yaml` (`phase` key
-  repeated). Trailing-whitespace tried to rewrite nine archive files. Those are not
-  this change; archives were not reformatted to force a green glob.
+  repeated). Trailing-whitespace tried to rewrite nine archive files. Those are not this
+  change; archives were not reformatted to force a green glob.
 - Without globstar, the same glob exited 0 but skipped eslint/xml (did not expand nested
   files). That pass is incomplete.
 - Scoped this-change files: exit 0 after E501 wraps. Optional pylint
@@ -357,5 +360,5 @@ regression.
 - Boundary: module upgrade on `devel`, scoped lint of this change's files, full
   `/collection` suite. Does not green the recursive glob by editing archives, seller
   lookup, or settings-menu WIP.
-- Estimated review budget impact: Phase 4 is verification plus three docstring wraps;
-  PR still should not target `main` while Phase 1–3 slices are unmerged.
+- Estimated review budget impact: Phase 4 is verification plus three docstring wraps; PR
+  still should not target `main` while Phase 1–3 slices are unmerged.

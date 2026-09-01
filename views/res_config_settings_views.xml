@@ -19,6 +19,14 @@
               id="enabled_seller_ids_setting"
             >
                             <field name="enabled_seller_ids" widget="many2many_tags" />
+                            <button
+                name="action_import_enabled_sellers"
+                type="object"
+                string="Import"
+                class="btn-link"
+                invisible="not collection_connector_id"
+                groups="base.group_system"
+              />
                         </setting>
                         <setting
               string="Auto-create collection sheet"
@@ -36,6 +44,13 @@
                 name="allowed_document_type_ids"
                 widget="many2many_tags"
               />
+                        </setting>
+                        <setting
+              string="Collection connector"
+              help="Active seller source for this company. Leave empty to disable listing."
+              id="collection_connector_id_setting"
+            >
+                            <field name="collection_connector_id" />
                         </setting>
                     </block>
                     <block title="Document Review" name="document_review">

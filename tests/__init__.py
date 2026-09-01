@@ -2,14 +2,24 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from . import test_collection_acl
+from . import test_collection_allocation
+from . import test_collection_allocation_acl
 from . import test_collection_company_settings
 from . import test_collection_company_migration
+from . import test_collection_connector
+from . import test_collection_customer_binding
+from . import test_collection_customer_resolution
 from . import test_collection_document_review
 from . import test_collection_document_review_flag
 from . import test_collection_mail
+from . import test_collection_mcp_allocation
+from . import test_collection_mcp_customer_debt
+from . import test_collection_mcp_customer_list
+from . import test_collection_mcp_partner_resolve
 from . import test_collection_mcp_seller_lookup
 from . import test_collection_mcp_tool
 from . import test_collection_payment
+from . import test_collection_seller_sync
 from . import test_collection_sheet
 from . import test_collection_ui
 from . import test_collection_voucher

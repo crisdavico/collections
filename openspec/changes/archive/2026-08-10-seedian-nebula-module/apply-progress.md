@@ -1,11 +1,9 @@
 # Apply Progress: seedian-nebula-module
 
-**Mode**: Strict TDD
-**Work unit**: Unit 3 / Phase 3 / PR 3 (stacked-to-main) — cumulative with Units 1–2
-**Branch**: `sdd/seedian-nebula-module-pr3` (from `sdd/seedian-nebula-module-pr2`)
-**Updated**: 2026-08-10
-**Remediation**: Menu and form behaviors UNTESTED → COMPLIANT via
-`test_seedian_nebula_ui.py`
+**Mode**: Strict TDD **Work unit**: Unit 3 / Phase 3 / PR 3 (stacked-to-main) —
+cumulative with Units 1–2 **Branch**: `sdd/seedian-nebula-module-pr3` (from
+`sdd/seedian-nebula-module-pr2`) **Updated**: 2026-08-10 **Remediation**: Menu and form
+behaviors UNTESTED → COMPLIANT via `test_seedian_nebula_ui.py`
 
 ## Completed Tasks
 

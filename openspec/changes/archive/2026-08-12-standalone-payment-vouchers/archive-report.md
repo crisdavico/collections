@@ -1,12 +1,9 @@
 # Archive Report: standalone-payment-vouchers
 
-**Date**: 2026-08-12
-**Change**: standalone-payment-vouchers
-**Archived to**: `openspec/changes/archive/2026-08-12-standalone-payment-vouchers/`
-**Artifact store**: openspec
-**Status**: success
-**Intentional warnings**: yes (verify pass_with_warnings — four accepted non-blocking
-PARTIAL scenarios; destructive REMOVED merge acknowledged)
+**Date**: 2026-08-12 **Change**: standalone-payment-vouchers **Archived to**:
+`openspec/changes/archive/2026-08-12-standalone-payment-vouchers/` **Artifact store**:
+openspec **Status**: success **Intentional warnings**: yes (verify pass_with_warnings —
+four accepted non-blocking PARTIAL scenarios; destructive REMOVED merge acknowledged)
 
 ## Gates
 
@@ -63,9 +60,9 @@ the header+line product from the source of truth (`collection.voucher.line`, Pay
 Lines UI, singular `create_collection_voucher`, aggregate validate/reject). Warning
 acknowledged; proceeded per user archive order.
 
-**Domain**: `collection-vouchers`
-**Main spec**: `openspec/specs/collection-vouchers/spec.md` (existing; requirements not
-named in the delta preserved)
+**Domain**: `collection-vouchers` **Main spec**:
+`openspec/specs/collection-vouchers/spec.md` (existing; requirements not named in the
+delta preserved)
 
 | Action   | Requirement                                                                                                                                              |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -102,9 +99,8 @@ named in the delta preserved)
 Purpose line updated to pending→approved/rejected, one voucher per payment (not a
 requirement heading; kept source of truth consistent with merged requirements).
 
-**Domain**: `document-review`
-**Main spec**: `openspec/specs/document-review/spec.md` (existing; all prior
-requirements not in the delta preserved)
+**Domain**: `document-review` **Main spec**: `openspec/specs/document-review/spec.md`
+(existing; all prior requirements not in the delta preserved)
 
 | Action   | Requirement                                                                                 |
 | -------- | ------------------------------------------------------------------------------------------- |

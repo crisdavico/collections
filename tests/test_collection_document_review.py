@@ -15,6 +15,7 @@ from .test_collection_payment import (
     PDF_B64,
     PNG_B64,
     create_internal_seller,
+    dummy_customer_partner,
     ensure_enabled_seller,
     post_voucher_proof,
 )
@@ -35,11 +36,14 @@ class TestCollectionDocumentReview(TransactionCase):
     def _seller(self):
         return ensure_enabled_seller(self.env)
 
-    def _voucher_vals(self, **extra):
+    def _voucher_vals(self, customer=None, **extra):
         seller = extra.get("seller_id") or self._seller().id
         ensure_enabled_seller(self.env, self.env["res.users"].browse(seller))
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="CUST-REV"
+        )
         vals = {
-            "customer_identification": "CUST-REV",
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
             "amount": 100.0,
             "seller_id": seller,

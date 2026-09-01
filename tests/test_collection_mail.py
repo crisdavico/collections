@@ -3,7 +3,12 @@
 
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64, ensure_enabled_seller, post_voucher_proof
+from .test_collection_payment import (
+    PNG_B64,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+    post_voucher_proof,
+)
 
 
 class TestCollectionMail(TransactionCase):
@@ -14,14 +19,17 @@ class TestCollectionMail(TransactionCase):
         self.env.flush_all()
         self.cr.flush()
 
-    def _create_voucher(self, **extra):
+    def _create_voucher(self, customer=None, **extra):
         seller = extra.get("seller_id") or ensure_enabled_seller(self.env).id
         if extra.get("seller_id"):
             ensure_enabled_seller(
                 self.env, self.env["res.users"].browse(extra["seller_id"])
             )
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="MAIL-CUST"
+        )
         vals = {
-            "customer_identification": "MAIL-CUST",
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
             "seller_id": seller,
         }

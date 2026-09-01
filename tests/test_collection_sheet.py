@@ -10,7 +10,11 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
-from .test_collection_payment import create_internal_seller, ensure_enabled_seller
+from .test_collection_payment import (
+    create_internal_seller,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+)
 
 
 class TestCollectionSheet(TransactionCase):
@@ -46,7 +50,7 @@ class TestCollectionSheet(TransactionCase):
         vals = {"seller_id": seller_id, **extra}
         return self.env["collection.sheet"].create(vals)
 
-    def _create_voucher(self, **extra):
+    def _create_voucher(self, customer=None, **extra):
         null_seller = extra.get("seller_id") is False
         if null_seller:
             extra = {key: value for key, value in extra.items() if key != "seller_id"}
@@ -63,8 +67,11 @@ class TestCollectionSheet(TransactionCase):
         seller_id = extra.get("seller_id", self._seller().id)
         if seller_id:
             self._ensure_enabled_seller(self.env["res.users"].browse(seller_id))
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="CUST-SHEET"
+        )
         vals = {
-            "customer_identification": "CUST-SHEET",
+            "partner_id": partner.id,
             "document_type": "unsupported",
             "seller_id": seller_id or self._seller().id,
         }
@@ -404,11 +411,62 @@ class TestCollectionSheet(TransactionCase):
         voucher = self._create_voucher(
             customer_identification="CUST-UNL", sheet_id=sheet.id
         )
+        self.assertFalse(sheet.allocation_ids)
         voucher_id = voucher.id
         sheet.unlink()
         leftover = self.env["collection.voucher"].browse(voucher_id)
         self.assertTrue(leftover.exists())
         self.assertFalse(leftover.sheet_id)
+
+    def test_unlink_closed_sheet_unassigns_vouchers(self):
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-UNL-CL", sheet_id=sheet.id
+        )
+        self.assertFalse(sheet.allocation_ids)
+        sheet.action_close()
+        voucher_id = voucher.id
+        sheet.unlink()
+        leftover = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover.exists())
+        self.assertFalse(leftover.sheet_id)
+
+    def test_unlink_refused_when_allocations_exist(self):
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-UNL-ALLOC",
+            sheet_id=sheet.id,
+            amount=25.0,
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": voucher.partner_id.id,
+                "voucher_ids": [Command.set(voucher.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-UNL",
+                            "invoice_number": "U-1",
+                            "invoice_balance": 25.0,
+                            "amount_applied": 25.0,
+                        }
+                    )
+                ],
+            }
+        )
+        self.assertTrue(sheet.allocation_ids)
+        sheet_id = sheet.id
+        voucher_id = voucher.id
+        with self.assertRaises(UserError):
+            sheet.unlink()
+        leftover_sheet = self.env["collection.sheet"].browse(sheet_id)
+        leftover_voucher = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover_sheet.exists())
+        self.assertTrue(leftover_voucher.exists())
+        self.assertEqual(leftover_voucher.sheet_id, leftover_sheet)
+        self.assertEqual(leftover_voucher.allocation_id, allocation)
+        self.assertEqual(allocation.sheet_id, leftover_sheet)
 
     def test_delete_command_unassigns_without_destroying_voucher(self):
         sheet = self._create_sheet()
@@ -451,18 +509,6 @@ class TestCollectionSheet(TransactionCase):
         self.assertFalse(outsider.sheet_id)
         self.assertEqual(sheet.voucher_ids, member)
         self.assertTrue(member.exists())
-
-    def test_unlink_closed_sheet_unassigns_vouchers(self):
-        sheet = self._create_sheet()
-        voucher = self._create_voucher(
-            customer_identification="CUST-UNL-CL", sheet_id=sheet.id
-        )
-        sheet.action_close()
-        voucher_id = voucher.id
-        sheet.unlink()
-        leftover = self.env["collection.voucher"].browse(voucher_id)
-        self.assertTrue(leftover.exists())
-        self.assertFalse(leftover.sheet_id)
 
     def test_create_sheet_action_is_list_bound_server_action(self):
         action = self.env.ref("collection.action_create_collection_sheet")
@@ -590,7 +636,9 @@ class TestCollectionSheet(TransactionCase):
         with self.assertRaises(UserError):
             self.env["collection.voucher"].create(
                 {
-                    "customer_identification": "CUST-AA-OMIT",
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="CUST-AA-OMIT"
+                    ).id,
                     "document_type": "unsupported",
                 }
             )
@@ -661,17 +709,23 @@ class TestCollectionSheet(TransactionCase):
         vouchers = self.env["collection.voucher"].create(
             [
                 {
-                    "customer_identification": "CUST-AA-BATCH-A",
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="CUST-AA-BATCH-A"
+                    ).id,
                     "document_type": "unsupported",
                     "seller_id": seller.id,
                 },
                 {
-                    "customer_identification": "CUST-AA-BATCH-B",
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="CUST-AA-BATCH-B"
+                    ).id,
                     "document_type": "unsupported",
                     "seller_id": seller.id,
                 },
                 {
-                    "customer_identification": "CUST-AA-BATCH-C",
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="CUST-AA-BATCH-C"
+                    ).id,
                     "document_type": "unsupported",
                     "seller_id": other.id,
                 },
@@ -868,7 +922,9 @@ class TestCollectionSheet(TransactionCase):
         ensure_enabled_seller(self.env, seller, company_b)
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "CUST-AA-COB",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="CUST-AA-COB"
+                ).id,
                 "document_type": "unsupported",
                 "seller_id": seller.id,
                 "company_id": company_b.id,

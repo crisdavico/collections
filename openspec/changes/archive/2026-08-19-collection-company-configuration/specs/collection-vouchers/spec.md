@@ -147,8 +147,8 @@ sequence steals numbers. The system MUST NOT hide or delete historical vouchers.
 - GIVEN a voucher with a sheet company, and another with no sheet and a seller company
 - WHEN upgrade runs
 - THEN the first MUST take the sheet company
-- AND the second MUST take the seller company or the default company when the seller
-  has none
+- AND the second MUST take the seller company or the default company when the seller has
+  none
 
 #### Scenario: Repair voucher and sheet company consistency
 
@@ -193,10 +193,10 @@ per company. Each payment MUST consume one sequence number of that voucher's com
 
 ### Requirement: Authorization for internal users
 
-Internal users (`base.group_user`) MUST have full CRUD on vouchers of companies they
-are allowed. The system MUST NOT grant ACL on `collection.voucher.line`. Dedicated
-groups MUST NOT be added. Allowed-company record rules MUST hide other companies.
-(Previously: No record rules; vouchers were company-blind.)
+Internal users (`base.group_user`) MUST have full CRUD on vouchers of companies they are
+allowed. The system MUST NOT grant ACL on `collection.voucher.line`. Dedicated groups
+MUST NOT be added. Allowed-company record rules MUST hide other companies. (Previously:
+No record rules; vouchers were company-blind.)
 
 #### Scenario: Internal user CRUD
 
@@ -214,9 +214,9 @@ groups MUST NOT be added. Allowed-company record rules MUST hide other companies
 
 Vouchers MUST support nullable Char `document_id` unique among non-null values across
 all companies. UI vouchers without `document_id` MUST remain allowed. MCP MUST require
-non-empty `document_id` per payment.
-(Previously: Global uniqueness with no cross-company replay rule; that reject-not-replay
-behavior is now specified under Cross-company document_id reject not replay.)
+non-empty `document_id` per payment. (Previously: Global uniqueness with no
+cross-company replay rule; that reject-not-replay behavior is now specified under
+Cross-company document_id reject not replay.)
 
 #### Scenario: Manual payment without document_id still OK
 
@@ -282,9 +282,8 @@ every submitted `document_id` already exists on that company → return ALL thos
 unchanged; in-call duplicate or partial overlap in that company → reject with no writes.
 Submitted `document_id`s that already exist on different vouchers of that company MUST
 succeed as exact replay. A hit only in another company MUST reject, not replay, with no
-ids or names disclosed.
-(Previously: Replay was global; all-new did not gate enabled seller or type;
-auto-assign always ran.)
+ids or names disclosed. (Previously: Replay was global; all-new did not gate enabled
+seller or type; auto-assign always ran.)
 
 #### Scenario: All-new create
 
@@ -394,8 +393,7 @@ auto-assign always ran.)
 Each `collection.voucher` MUST support `seller_id` targeting an internal user (not
 portal/share). NEW create via UI, ORM, import, or MCP MUST require `seller_id`. The
 system MUST NOT backfill existing null rows. List, form, and search MUST expose
-`seller_id`.
-(Previously: ORM/RPC creates without seller remained allowed.)
+`seller_id`. (Previously: ORM/RPC creates without seller remained allowed.)
 
 #### Scenario: Legacy null remains valid
 
@@ -432,8 +430,8 @@ OFF, create MUST skip automatic create AND assign (voucher stays unassigned unle
 company, same seller, and `open`; assign to a closed sheet MUST fail. Write of
 `seller_id` on an existing voucher MUST NOT auto-assign. The system MUST NOT backfill
 existing unassigned vouchers. List Action and explicit sheet create remain available
-when auto-create is OFF (see collection-sheets).
-(Previously: Auto-assign always ran; one-open was per seller across all companies.)
+when auto-create is OFF (see collection-sheets). (Previously: Auto-assign always ran;
+one-open was per seller across all companies.)
 
 #### Scenario: UI or ORM create with seller assigns
 
@@ -490,11 +488,10 @@ when auto-create is OFF (see collection-sheets).
 ### Requirement: Immutable review snapshots and ACL
 
 The system MUST store immutable Document Review snapshots (revision, reviewer, time,
-decision, and current payment fields). Internal users MUST read history of snapshots
-for companies they are allowed and MUST NOT write or unlink snapshots, add dedicated
-groups, or sudo. Snapshots MUST follow the same company isolation as vouchers. Form
-Approve and Reject MUST NOT append snapshots.
-(Previously: No record rules on snapshots.)
+decision, and current payment fields). Internal users MUST read history of snapshots for
+companies they are allowed and MUST NOT write or unlink snapshots, add dedicated groups,
+or sudo. Snapshots MUST follow the same company isolation as vouchers. Form Approve and
+Reject MUST NOT append snapshots. (Previously: No record rules on snapshots.)
 
 #### Scenario: Internal users read history without client mutation
 
@@ -512,13 +509,12 @@ Approve and Reject MUST NOT append snapshots.
 
 ### Requirement: MCP nested provenance on all-new create
 
-`create_collection_vouchers` MAY accept nested `raw_ocr` and `seller_confirmed` with
-the same typed keys as current fields. When both nests are present, seller-confirmed
-MUST equal top-level fields; current MUST initialize from seller-confirmed; raw MUST
-persist as submitted. Omitting both nests MUST leave empty provenance; UI/ORM create
-MUST remain allowed. Malformed, one-sided, or mismatched nests MUST fail the batch
-with no writes. Exact same-company replay MUST ignore those nests with no provenance
-mutation.
+`create_collection_vouchers` MAY accept nested `raw_ocr` and `seller_confirmed` with the
+same typed keys as current fields. When both nests are present, seller-confirmed MUST
+equal top-level fields; current MUST initialize from seller-confirmed; raw MUST persist
+as submitted. Omitting both nests MUST leave empty provenance; UI/ORM create MUST remain
+allowed. Malformed, one-sided, or mismatched nests MUST fail the batch with no writes.
+Exact same-company replay MUST ignore those nests with no provenance mutation.
 (Previously: Exact replay matched any company.)
 
 #### Scenario: Unchanged seller confirmation

@@ -6,7 +6,12 @@ import inspect
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import PNG_B64, ensure_enabled_seller, post_voucher_proof
+from .test_collection_payment import (
+    PNG_B64,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+    post_voucher_proof,
+)
 
 
 class TestCollectionAcl(TransactionCase):
@@ -155,7 +160,7 @@ class TestCollectionAcl(TransactionCase):
             [],
         )
 
-    def _voucher_vals(self, **extra):
+    def _voucher_vals(self, customer=None, **extra):
         seller = extra.get("seller_id") or self.internal_user.id
         company = self.env["res.company"].browse(
             extra.get("company_id") or self.env.company.id
@@ -163,8 +168,11 @@ class TestCollectionAcl(TransactionCase):
         ensure_enabled_seller(
             self.env, self.env["res.users"].browse(seller), company=company
         )
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="ACL-CUST"
+        )
         vals = {
-            "customer_identification": "ACL-CUST",
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
             "seller_id": seller,
         }
@@ -175,8 +183,9 @@ class TestCollectionAcl(TransactionCase):
         Voucher = self.env["collection.voucher"].with_user(self.internal_user)
         voucher = Voucher.create(self._voucher_vals())
         self.assertTrue(voucher.id)
-        voucher.write({"customer_identification": "ACL-CUST-UPD"})
-        self.assertEqual(voucher.customer_identification, "ACL-CUST-UPD")
+        updated = dummy_customer_partner(self.env, customer="ACL-CUST-UPD")
+        voucher.write({"partner_id": updated.id})
+        self.assertEqual(voucher.partner_id, updated)
         voucher_id = voucher.id
         voucher.unlink()
         self.assertFalse(Voucher.browse(voucher_id).exists())
@@ -200,7 +209,11 @@ class TestCollectionAcl(TransactionCase):
         with self.assertRaises(AccessError):
             Voucher.browse(admin_voucher.id).read(["name"])
         with self.assertRaises(AccessError):
-            Voucher.browse(admin_voucher.id).write({"customer_identification": "NOPE"})
+            Voucher.browse(admin_voucher.id).write(
+                {
+                    "partner_id": dummy_customer_partner(self.env, customer="NOPE").id,
+                }
+            )
         with self.assertRaises(AccessError):
             Voucher.browse(admin_voucher.id).unlink()
 
@@ -212,7 +225,9 @@ class TestCollectionAcl(TransactionCase):
         sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
         voucher = env["collection.voucher"].create(
             {
-                "customer_identification": customer_identification,
+                "partner_id": dummy_customer_partner(
+                    self.env, customer=customer_identification
+                ).id,
                 "document_type": "bank_transfer",
                 "amount": 100.0,
                 "document_id": document_id,
@@ -577,3 +592,93 @@ class TestCollectionAcl(TransactionCase):
         )
         self.assertEqual(snap_b.company_id, company_b)
         self._assert_hidden_from_user(self.internal_user, snap_b, ["revision", "id"])
+
+    def test_connector_acl_user_read_system_write_rows(self):
+        """Connectors: group_user read, group_system write; no extra groups."""
+        acls = self.env["ir.model.access"].search(
+            [("model_id.model", "=", "collection.connector")]
+        )
+        self.assertEqual(len(acls), 2)
+        user_group = self.env.ref("base.group_user")
+        system_group = self.env.ref("base.group_system")
+        user_acl = acls.filtered(lambda acl: acl.group_id == user_group)
+        system_acl = acls.filtered(lambda acl: acl.group_id == system_group)
+        self.assertEqual(len(user_acl), 1)
+        self.assertTrue(user_acl.perm_read)
+        self.assertFalse(user_acl.perm_write)
+        self.assertFalse(user_acl.perm_create)
+        self.assertFalse(user_acl.perm_unlink)
+        self.assertEqual(len(system_acl), 1)
+        self.assertTrue(system_acl.perm_read)
+        self.assertTrue(system_acl.perm_write)
+        self.assertTrue(system_acl.perm_create)
+        self.assertTrue(system_acl.perm_unlink)
+        self.assertFalse(
+            self.env["ir.model.data"].search(
+                [("module", "=", "collection"), ("model", "=", "res.groups")]
+            )
+        )
+
+    def test_internal_user_reads_but_cannot_write_connector(self):
+        connector = self.env["collection.connector"].create(
+            {"name": "ACL RW Connector"}
+        )
+        Connector = self.env["collection.connector"].with_user(self.internal_user)
+        self.assertEqual(Connector.search([("id", "=", connector.id)]), connector)
+        self.assertEqual(
+            Connector.browse(connector.id).read(["name"])[0]["name"],
+            "ACL RW Connector",
+        )
+        with self.assertRaises(AccessError):
+            Connector.create({"name": "ACL RW Nope"})
+        with self.assertRaises(AccessError):
+            Connector.browse(connector.id).write({"name": "ACL RW Nope"})
+        with self.assertRaises(AccessError):
+            Connector.browse(connector.id).unlink()
+
+    def test_system_user_can_create_write_unlink_connector(self):
+        system_user = self._create_user("collection_system", "base.group_system")
+        Connector = self.env["collection.connector"].with_user(system_user)
+        connector = Connector.create({"name": "System Write Connector"})
+        self.assertTrue(connector.id)
+        connector.write({"name": "System Write Connector Upd"})
+        self.assertEqual(connector.name, "System Write Connector Upd")
+        connector_id = connector.id
+        connector.unlink()
+        self.assertFalse(Connector.browse(connector_id).exists())
+
+    def test_portal_user_connector_denied(self):
+        acls = self.env["ir.model.access"].search(
+            [("model_id.model", "=", "collection.connector")]
+        )
+        self.assertTrue(acls, "collection.connector MUST have ACL rows")
+        connector = self.env["collection.connector"].create(
+            {"name": "Portal Deny Connector"}
+        )
+        Connector = self.env["collection.connector"].with_user(self.portal_user)
+        with self.assertRaises(AccessError):
+            Connector.create({"name": "Portal Nope"})
+        with self.assertRaises(AccessError):
+            Connector.browse(connector.id).read(["name"])
+        with self.assertRaises(AccessError):
+            Connector.browse(connector.id).write({"name": "Nope"})
+        with self.assertRaises(AccessError):
+            Connector.browse(connector.id).unlink()
+
+    def test_other_company_connectors_hidden(self):
+        self._assert_global_company_rule("collection.connector")
+        company_b = self._create_company("Hide Connector Co B")
+        self._restrict_user_to_company(self.internal_user, self.env.company)
+        connector_a = self.env["collection.connector"].create(
+            {"name": "Show Connector Co A"}
+        )
+        connector_b = self.env["collection.connector"].create(
+            {
+                "name": "Hide Connector Co B",
+                "company_id": company_b.id,
+            }
+        )
+        self.assertEqual(connector_b.company_id, company_b)
+        Connector = self.env["collection.connector"].with_user(self.internal_user)
+        self.assertEqual(Connector.search([("id", "=", connector_a.id)]), connector_a)
+        self._assert_hidden_from_user(self.internal_user, connector_b, ["name", "id"])

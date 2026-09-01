@@ -11,8 +11,8 @@ workflow. One sheet per voucher.
 
 Each new sheet MUST get a unique persisted name `CS/<year>/<number>` via sequence code
 `collection.sheet`. Numbering MUST be isolated per company. Sheets MUST have `state`
-`open` or `closed` and MUST NOT have any other workflow.
-(Previously: One global sequence numbered all companies together.)
+`open` or `closed` and MUST NOT have any other workflow. (Previously: One global
+sequence numbered all companies together.)
 
 #### Scenario: Sequence assigned on create
 
@@ -26,13 +26,14 @@ Each new sheet MUST get a unique persisted name `CS/<year>/<number>` via sequenc
 - GIVEN companies A and B each create a new sheet
 - WHEN both saves complete
 - THEN each company's names MUST number independently of the other
+
 ### Requirement: Sheet seller and same-seller invariant
 
 Sheet `seller_id` MUST be a required internal user (not portal/share), readonly after
 create, and MUST NOT default from the creator. NEW sheet create MUST require that seller
 to be enabled for the sheet's company. Assigned vouchers MUST match the sheet seller.
-Null-seller vouchers MUST NOT be assignable.
-(Previously: Seller was required but not gated by the company enabled list.)
+Null-seller vouchers MUST NOT be assignable. (Previously: Seller was required but not
+gated by the company enabled list.)
 
 #### Scenario: Seller required and frozen
 
@@ -51,41 +52,47 @@ Null-seller vouchers MUST NOT be assignable.
 - GIVEN a seller not on the company's enabled list (including an empty list)
 - WHEN a new sheet is created with that seller via UI, ORM, or import
 - THEN the create MUST be rejected with no write
+
 ### Requirement: Membership, dates, and deletion
 
-A voucher MUST belong to at most one sheet. Membership MUST be editable only while the
-sheet is `open`. While `closed`, membership MUST be frozen (no add, remove, or
-reassign). Empty sheets MUST be allowed. `date_from`/`date_to` MUST be the UTC calendar
-min/max of member `create_date`; empty sheets MUST have both dates empty; MUST NOT use
-`received_date`. Deleting a sheet (open or closed) MUST unassign members (`ondelete` set
-null) and MUST NOT delete those vouchers. Freeze MUST NOT trap vouchers: unlink of a
-closed sheet MUST still unassign. (Previously: Membership MUST be editable at any time;
-sheets had no open/closed freeze.)
+A voucher MUST belong to at most one sheet. Membership MUST be editable only
+while `open` and frozen while `closed`. Empty sheets MUST be allowed.
+`date_from`/`date_to` MUST be UTC min/max of member `create_date` (empty if no
+members); MUST NOT use `received_date`. Unlink with no allocations MUST
+unassign members and MUST NOT delete vouchers. Unlink MUST fail when
+allocations exist (restrict).
+(Previously: Deleting any sheet unassigned members regardless of allocations.)
 
 #### Scenario: Assign and reassign
 
-- GIVEN an unassigned voucher of the sheet’s seller, and open sheet B with the same
-  seller, and the source sheet open
-- WHEN assigned then moved to sheet B
-- THEN the voucher MUST belong to sheet B only
+- GIVEN unassigned same-seller voucher, open sheet B
+- WHEN moved to B
+- THEN voucher belongs to B only
 
 #### Scenario: Empty sheet
 
-- GIVEN a sheet with a valid seller and no members
+- GIVEN seller sheet with no members
 - WHEN saved
-- THEN the sheet MUST persist with empty `date_from` and `date_to`
+- THEN `date_from` and `date_to` empty
 
 #### Scenario: Dates from member create_date
 
-- GIVEN a sheet whose members’ `create_date` span two UTC days
+- GIVEN members spanning two UTC days
 - WHEN dates are read
-- THEN `date_from` MUST be the earliest UTC date and `date_to` the latest
+- THEN `date_from` earliest, `date_to` latest
 
-#### Scenario: Unlink unassigns
+#### Scenario: Unlink unassigns when no allocations
 
-- GIVEN an open or closed sheet with member vouchers
-- WHEN the sheet is deleted
-- THEN those vouchers MUST persist with no sheet
+- GIVEN sheet with members, no allocations
+- WHEN deleted
+- THEN vouchers persist unassigned
+
+#### Scenario: Unlink refused when allocations exist
+
+- GIVEN sheet with allocations
+- WHEN deleted
+- THEN delete fails; members stay assigned
+
 ### Requirement: Create sheet Action
 
 Payment Vouchers MUST expose a list-bound Action with no wizard. It MUST create one
@@ -94,9 +101,8 @@ set that seller and the vouchers' company; and MUST assign the selection. It MUS
 succeed only when that seller’s open-sheet count in that company is 0. It MUST reject if
 that seller already has any open sheet in that company (count greater than or equal to
 1), including when count is greater than 1. The Action MUST remain available when
-`auto_create_sheet` is OFF. The seller MUST be enabled for that company.
-(Previously: Open-sheet count was per seller across all companies; auto-create was not
-a flag.)
+`auto_create_sheet` is OFF. The seller MUST be enabled for that company. (Previously:
+Open-sheet count was per seller across all companies; auto-create was not a flag.)
 
 #### Scenario: Unassigned same-seller any state
 
@@ -130,12 +136,12 @@ a flag.)
 - GIVEN unassigned vouchers of a seller not on the company's enabled list
 - WHEN the list Action runs
 - THEN the Action MUST be rejected with no sheet created
+
 ### Requirement: Authorization for internal users
 
 Internal users (`base.group_user`) MUST have full CRUD on sheets of companies they are
 allowed. Dedicated groups MUST NOT be added. Allowed-company record rules MUST hide
-other companies.
-(Previously: No record rules; sheets were company-blind.)
+other companies. (Previously: No record rules; sheets were company-blind.)
 
 #### Scenario: Internal user CRUD
 
@@ -148,6 +154,7 @@ other companies.
 - GIVEN a user without internal-user privileges
 - WHEN they attempt sheet CRUD
 - THEN access MUST be denied
+
 ### Requirement: Collection Sheets UI
 
 Collections → Collection Sheets MUST provide list, form, and search with create and
@@ -167,6 +174,7 @@ Form had editable membership, no workflow statusbar, and no chatter.)
   open, and Reopen when closed
 - AND membership MUST be editable when open and readonly when closed
 - AND form MUST include chatter/activity composer
+
 ### Requirement: Mail thread and activities
 
 `collection.sheet` MUST inherit `mail.thread` and `mail.activity.mixin`. Operators MAY
@@ -190,6 +198,7 @@ chatter.
 - GIVEN a closed sheet that can be reopened
 - WHEN an internal user Reopens it
 - THEN chatter MUST record the state change from Closed to Open
+
 ### Requirement: Saved-sheet header action opens Document Review
 
 A saved collection sheet MUST expose a header action that opens Document Review with
@@ -222,6 +231,7 @@ unsaved sheet.
 - WHEN the header action runs
 - THEN it MUST open the Document Review client action
 - AND it MUST supply that sheet's identifier as a mandatory parameter
+
 ### Requirement: Open/closed lifecycle
 
 Sheets MUST have required `state` `open` or `closed`, default `open`. Existing sheets
@@ -254,6 +264,7 @@ Reopen of a historical sheet MUST remain allowed even if the seller is later dis
 - GIVEN a sheet
 - WHEN `state` is written except via Close or Reopen
 - THEN the write MUST be rejected
+
 ### Requirement: At most one open sheet per seller (new operations)
 
 Create of an open sheet, Reopen, and the Create Collection Sheet Action MUST count that
@@ -300,6 +311,7 @@ when `auto_create_sheet` is OFF. The system MUST NOT add a UNIQUE SQL constraint
 - GIVEN `auto_create_sheet` OFF, an enabled seller, and zero open sheets in that company
 - WHEN an internal user creates a sheet explicitly
 - THEN the sheet MUST persist as `open`
+
 ### Requirement: Closed sheet membership freeze
 
 While a sheet is `closed`, membership MUST NOT be added, removed, or reassigned via
@@ -311,6 +323,7 @@ the sheet exists; sheet delete is not a membership edit.
 - GIVEN a closed sheet with members
 - WHEN add, remove, or reassign of membership is attempted
 - THEN the write MUST be rejected and membership MUST be unchanged
+
 ### Requirement: Company ownership of sheets
 
 Every sheet MUST have a required company. Users MUST see and operate only sheets of
@@ -329,6 +342,7 @@ companies they are allowed. Dedicated groups MUST NOT be added.
 - WHEN they search or open Collection Sheets
 - THEN that sheet MUST NOT be visible
 - AND they MUST NOT read its id or name
+
 ### Requirement: Historical sheets remain operable
 
 Existing sheets MUST stay visible and operable if their seller is later disabled. The
@@ -341,6 +355,7 @@ system MUST NOT hide or delete them for that reason. Close MUST still succeed.
 - THEN the sheet MUST still be listed
 - AND `state` MUST become `closed`
 - AND the sheet MUST NOT be deleted
+
 ### Requirement: Upgrade stamps sheet company and sequences
 
 On upgrade the system MUST stamp each sheet's company from the seller's company when
@@ -360,3 +375,13 @@ its own sheet numbering with no company-less sequence stealing numbers.
 - WHEN upgrade runs and two companies then create sheets
 - THEN each company MUST receive isolated `CS/<year>/<number>` names
 - AND a company-less sequence MUST NOT consume either company's numbers
+
+### Requirement: Sheet form notebook
+
+Sheet form MUST expose vouchers and allocations in a notebook.
+
+#### Scenario: Sheet form notebook
+
+- GIVEN a saved sheet
+- WHEN form opens
+- THEN notebook shows vouchers and allocations

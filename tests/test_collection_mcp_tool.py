@@ -13,7 +13,15 @@ from odoo.tools import mute_logger
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
-from .test_collection_payment import create_internal_seller, ensure_enabled_seller
+from .common_connector import (
+    install_bound_test_connector,
+    mcp_env_with_listable_customers,
+)
+from .test_collection_payment import (
+    create_internal_seller,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+)
 
 TOOL_NAME = "create_collection_vouchers"
 OLD_TOOL_NAME = "create_collection_voucher"
@@ -40,6 +48,10 @@ class TestCollectionMcpTool(TransactionCase):
         )
         cls.portal_user = cls._create_user("collection_mcp_portal", "base.group_portal")
         ensure_enabled_seller(cls.env, cls.internal_user)
+
+    def setUp(self):
+        super().setUp()
+        install_bound_test_connector(self, self.internal_user)
 
     @classmethod
     def _partner_has_autopost_bills_column(cls):
@@ -106,6 +118,8 @@ class TestCollectionMcpTool(TransactionCase):
 
     def _create_legacy_null_seller_voucher(self, **vals):
         """Create via ORM then SQL-null seller/sheet (historical row)."""
+        partner = dummy_customer_partner(self.env, extra=vals, default="MCP-LEGACY")
+        vals.setdefault("partner_id", partner.id)
         vals.setdefault(
             "seller_id",
             ensure_enabled_seller(self.env, self.internal_user).id,
@@ -124,7 +138,9 @@ class TestCollectionMcpTool(TransactionCase):
 
     def _call(self, arguments, user=None):
         """Run the N-voucher MCP tool in-process and return decoded JSON."""
-        env = self.env(user=user) if user else self.env(user=self.internal_user)
+        env = mcp_env_with_listable_customers(
+            self.env, arguments, user, self.internal_user
+        )
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
@@ -146,9 +162,14 @@ class TestCollectionMcpTool(TransactionCase):
                     "check_type": "common",
                 },
             ]
+        stamped_payments = []
+        for payment in payments:
+            item = dict(payment)
+            if "customer_identification" not in item:
+                item["customer_identification"] = customer
+            stamped_payments.append(item)
         payload = {
-            "customer_identification": customer,
-            "payments": payments,
+            "payments": stamped_payments,
         }
         if seller_id == "default":
             payload["seller_id"] = self.internal_user.id
@@ -187,6 +208,15 @@ class TestCollectionMcpTool(TransactionCase):
             by_name,
             "singular create_collection_voucher must not remain registered",
         )
+        self.assertNotIn(
+            "list_collection_sellers",
+            by_name,
+            "list_collection_sellers must not be registered as an MCP tool",
+        )
+        self.assertFalse(
+            self.env["muk_mcp.tool"].search([("name", "=", "list_collection_sellers")]),
+            "list_collection_sellers must not have a DB muk_mcp.tool row",
+        )
         entry = get_tool_index(self.env, registry="mcp")[TOOL_NAME]
         self.assertEqual(entry["category"], "write")
         self.assertEqual(entry["kind"], "method")
@@ -203,7 +233,20 @@ class TestCollectionMcpTool(TransactionCase):
 
         schema = by_name[TOOL_NAME]["inputSchema"]
         self.assertEqual(schema["type"], "object")
-        self.assertIn("customer_identification", schema["required"])
+        self.assertEqual(
+            set(schema["required"]),
+            {"payments", "seller_id"},
+        )
+        self.assertNotIn(
+            "customer_identification",
+            schema["required"],
+            "top-level customer_identification must not be required",
+        )
+        self.assertNotIn(
+            "customer_identification",
+            schema.get("properties", {}),
+            "top-level schema must not expose customer_identification",
+        )
         self.assertIn("payments", schema["required"])
         self.assertIn(
             "seller_id",
@@ -219,6 +262,15 @@ class TestCollectionMcpTool(TransactionCase):
         payment_schema = schema["properties"]["payments"]["items"]
         self.assertIn("document_id", payment_schema["required"])
         self.assertIn("document_type", payment_schema["required"])
+        self.assertIn(
+            "customer_identification",
+            payment_schema["required"],
+            "each payment must require customer_identification",
+        )
+        self.assertIn(
+            "customer_identification",
+            payment_schema.get("properties", {}),
+        )
         self.assertNotIn(
             "received_date",
             payment_schema.get("properties", {}),
@@ -255,8 +307,8 @@ class TestCollectionMcpTool(TransactionCase):
         second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
         self.assertTrue(first.exists())
         self.assertTrue(second.exists())
-        self.assertEqual(first.customer_identification, "MCP-CUST-NEW")
-        self.assertEqual(second.customer_identification, "MCP-CUST-NEW")
+        self.assertEqual(first.partner_id.vat, "MCP-CUST-NEW")
+        self.assertEqual(second.partner_id.vat, "MCP-CUST-NEW")
         self.assertEqual(first.state, "pending")
         self.assertEqual(second.state, "pending")
         self.assertEqual(first.document_id, "MCP-DOC-A")
@@ -319,7 +371,7 @@ class TestCollectionMcpTool(TransactionCase):
         with self.assertRaises(UserError) as err:
             self._call(
                 {
-                    "customer_identification": "MCP-CUST-NOPAY",
+                    "seller_id": self.internal_user.id,
                     "payments": [],
                 },
             )
@@ -334,20 +386,199 @@ class TestCollectionMcpTool(TransactionCase):
             before_vouchers,
         )
 
+    def test_create_rejects_top_level_customer_without_per_payment_customer(self):
+        """Old shape: top-level customer and payments missing it MUST reject."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._call(
+                {
+                    "customer_identification": "MCP-CUST-OLD-SHAPE",
+                    "seller_id": self.internal_user.id,
+                    "payments": [
+                        {
+                            "document_id": "MCP-DOC-OLD-SHAPE",
+                            "document_type": "bank_transfer",
+                            "amount": 1.0,
+                        }
+                    ],
+                },
+            )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-OLD-SHAPE")]
+            ),
+        )
+
+    def test_create_rejects_missing_per_payment_customer(self):
+        """Payment without customer_identification MUST UserError with no writes."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        payload = self._payload(
+            customer="MCP-CUST-MISSING",
+            payments=[
+                {
+                    "document_id": "MCP-DOC-MISSING-CUST",
+                    "document_type": "bank_transfer",
+                    "amount": 1.0,
+                }
+            ],
+        )
+        del payload["payments"][0]["customer_identification"]
+        with self.assertRaises(UserError) as err:
+            self._call(payload)
+        self.assertIn("customer_identification", str(err.exception).lower())
+        self.assertNotIn("tool not found", str(err.exception).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+        self.assertFalse(
+            self.env["collection.voucher"].search(
+                [("document_id", "=", "MCP-DOC-MISSING-CUST")]
+            ),
+        )
+
+    def test_create_rejects_blank_per_payment_customer(self):
+        """Empty-string and whitespace-only per-payment customer MUST reject."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        for blank, document_id in (
+            ("", "MCP-DOC-BLANK-CUST"),
+            ("   ", "MCP-DOC-WS-CUST"),
+        ):
+            with self.subTest(customer=blank):
+                with self.assertRaises(UserError) as err:
+                    self._call(
+                        self._payload(
+                            customer=blank,
+                            payments=[
+                                {
+                                    "document_id": document_id,
+                                    "document_type": "cash_deposit",
+                                    "amount": 1.0,
+                                }
+                            ],
+                        ),
+                    )
+                self.assertIn("customer_identification", str(err.exception).lower())
+                self.assertNotIn("tool not found", str(err.exception).lower())
+                self.assertFalse(
+                    self.env["collection.voucher"].search(
+                        [("document_id", "=", document_id)]
+                    ),
+                )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+
+    def test_mixed_customers_create_one_voucher_each(self):
+        """One call with two customers MUST stamp each voucher from its payment."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        result = self._call(
+            self._payload(
+                payments=[
+                    {
+                        "customer_identification": "MCP-CUST-MIX-A",
+                        "document_id": "MCP-DOC-MIX-A",
+                        "document_type": "bank_transfer",
+                        "amount": 10.0,
+                    },
+                    {
+                        "customer_identification": "MCP-CUST-MIX-B",
+                        "document_id": "MCP-DOC-MIX-B",
+                        "document_type": "cash_deposit",
+                        "amount": 20.0,
+                    },
+                ],
+            ),
+        )
+        self._assert_voucher_list(result, ["MCP-DOC-MIX-A", "MCP-DOC-MIX-B"])
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers + 2,
+        )
+        first = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
+        self.assertEqual(first.partner_id.vat, "MCP-CUST-MIX-A")
+        self.assertEqual(second.partner_id.vat, "MCP-CUST-MIX-B")
+        self.assertEqual(first.document_id, "MCP-DOC-MIX-A")
+        self.assertEqual(second.document_id, "MCP-DOC-MIX-B")
+
+    def test_mixed_customer_batch_invalid_payment_writes_nothing(self):
+        """Mixed-customer batch MUST be atomic: one invalid payment writes zero."""
+        before_vouchers = self.env["collection.voucher"].search_count([])
+        cases = (
+            (
+                "blank-customer",
+                [
+                    {
+                        "customer_identification": "MCP-CUST-ATOMIC-A",
+                        "document_id": "MCP-DOC-ATOMIC-OK-BLANK",
+                        "document_type": "bank_transfer",
+                        "amount": 10.0,
+                    },
+                    {
+                        "customer_identification": "   ",
+                        "document_id": "MCP-DOC-ATOMIC-BAD-BLANK",
+                        "document_type": "cash_deposit",
+                        "amount": 20.0,
+                    },
+                ],
+                ["MCP-DOC-ATOMIC-OK-BLANK", "MCP-DOC-ATOMIC-BAD-BLANK"],
+            ),
+            (
+                "missing-document_id",
+                [
+                    {
+                        "customer_identification": "MCP-CUST-ATOMIC-A",
+                        "document_id": "MCP-DOC-ATOMIC-OK-DOC",
+                        "document_type": "bank_transfer",
+                        "amount": 10.0,
+                    },
+                    {
+                        "customer_identification": "MCP-CUST-ATOMIC-B",
+                        "document_type": "cash_deposit",
+                        "amount": 20.0,
+                    },
+                ],
+                ["MCP-DOC-ATOMIC-OK-DOC"],
+            ),
+        )
+        for label, payments, document_ids in cases:
+            with self.subTest(case=label):
+                with self.assertRaises(UserError):
+                    self._call(self._payload(payments=payments))
+                self.assertFalse(
+                    self.env["collection.voucher"].search(
+                        [("document_id", "in", document_ids)]
+                    ),
+                )
+        self.assertEqual(
+            self.env["collection.voucher"].search_count([]),
+            before_vouchers,
+        )
+
     # --- 4.3 Exact-retry / in-call dup / partial / former cross-voucher ---
 
     def test_exact_retry_returns_all_vouchers_ignores_customer(self):
-        """Exact document_id set must replay ALL vouchers and ignore customer."""
+        """Exact document_id set must replay all vouchers.
+
+        Per-payment customer on retry is ignored.
+        """
         first = self._call(
             self._payload(
-                customer="MCP-CUST-RETRY",
                 payments=[
                     {
+                        "customer_identification": "MCP-CUST-RETRY-A",
                         "document_id": "MCP-DOC-RETRY-A",
                         "document_type": "bank_transfer",
                         "amount": 10.0,
                     },
                     {
+                        "customer_identification": "MCP-CUST-RETRY-B",
                         "document_id": "MCP-DOC-RETRY-B",
                         "document_type": "cash_deposit",
                         "amount": 20.0,
@@ -360,14 +591,15 @@ class TestCollectionMcpTool(TransactionCase):
 
         second = self._call(
             self._payload(
-                customer="MCP-CUST-RETRY-OTHER",
                 payments=[
                     {
+                        "customer_identification": "MCP-CUST-RETRY-A-OTHER",
                         "document_id": "MCP-DOC-RETRY-A",
                         "document_type": "bank_transfer",
                         "amount": 999.0,
                     },
                     {
+                        "customer_identification": "MCP-CUST-RETRY-B-OTHER",
                         "document_id": "MCP-DOC-RETRY-B",
                         "document_type": "cash_deposit",
                         "amount": 888.0,
@@ -383,8 +615,8 @@ class TestCollectionMcpTool(TransactionCase):
         )
         voucher_a = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
         voucher_b = self.env["collection.voucher"].browse(first["vouchers"][1]["id"])
-        self.assertEqual(voucher_a.customer_identification, "MCP-CUST-RETRY")
-        self.assertEqual(voucher_b.customer_identification, "MCP-CUST-RETRY")
+        self.assertEqual(voucher_a.partner_id.vat, "MCP-CUST-RETRY-A")
+        self.assertEqual(voucher_b.partner_id.vat, "MCP-CUST-RETRY-B")
         self.assertEqual(voucher_a.amount, 10.0)
         self.assertEqual(voucher_b.amount, 20.0)
 
@@ -522,7 +754,7 @@ class TestCollectionMcpTool(TransactionCase):
             before_vouchers,
         )
         voucher_a = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
-        self.assertEqual(voucher_a.customer_identification, "MCP-CUST-CROSS-A")
+        self.assertEqual(voucher_a.partner_id.vat, "MCP-CUST-CROSS-A")
 
     # --- 4.4 UniqueViolation → re-lookup replay / reject ---
 
@@ -752,7 +984,7 @@ class TestCollectionMcpTool(TransactionCase):
         )
         legacy.invalidate_recordset()
         self.assertFalse(legacy.seller_id)
-        self.assertEqual(legacy.customer_identification, "MCP-CUST-LEGACY-NULL")
+        self.assertEqual(legacy.partner_id.vat, "MCP-CUST-LEGACY-NULL")
         self.assertEqual(legacy.amount, 9.0)
         self.assertEqual(legacy.write_date, write_date)
 
@@ -789,7 +1021,7 @@ class TestCollectionMcpTool(TransactionCase):
         self.assertEqual(result["vouchers"][0]["id"], voucher.id)
         voucher.invalidate_recordset()
         self.assertEqual(voucher.seller_id, self.internal_user)
-        self.assertEqual(voucher.customer_identification, "MCP-CUST-SELLER-KEEP")
+        self.assertEqual(voucher.partner_id.vat, "MCP-CUST-SELLER-KEEP")
 
     def test_missing_seller_id_rejects_no_writes(self):
         """Payloads missing seller_id MUST be rejected with no voucher writes."""
@@ -1208,7 +1440,7 @@ class TestCollectionMcpTool(TransactionCase):
         voucher.invalidate_recordset()
         self.assertEqual(voucher.sheet_id.id, sheet_id)
         self.assertEqual(voucher.write_date, write_date)
-        self.assertEqual(voucher.customer_identification, "MCP-CUST-AA-REPLAY")
+        self.assertEqual(voucher.partner_id.vat, "MCP-CUST-AA-REPLAY")
 
         retried_left = self._call(
             self._payload(
@@ -1271,14 +1503,15 @@ class TestCollectionMcpTool(TransactionCase):
             }
         )
 
-    def _create_voucher_in_company(self, company, document_id, **extra):
+    def _create_voucher_in_company(self, company, document_id, customer=None, **extra):
         """Create a voucher stamped on ``company`` (seller enabled there)."""
         seller = extra.pop("seller_id", self.internal_user)
         ensure_enabled_seller(self.env, seller, company=company)
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="MCP-OTHER-CO"
+        )
         vals = {
-            "customer_identification": extra.pop(
-                "customer_identification", "MCP-OTHER-CO"
-            ),
+            "partner_id": partner.id,
             "document_type": extra.pop("document_type", "bank_transfer"),
             "document_id": document_id,
             "seller_id": seller.id,
@@ -1362,7 +1595,7 @@ class TestCollectionMcpTool(TransactionCase):
         self.assertEqual(voucher.write_date, write_date)
         self.assertEqual(voucher.seller_id, self.internal_user)
         self.assertEqual(voucher.document_type, "bank_transfer")
-        self.assertEqual(voucher.customer_identification, "MCP-CUST-REPLAY-GATES")
+        self.assertEqual(voucher.partner_id.vat, "MCP-CUST-REPLAY-GATES")
         self.assertEqual(voucher.amount, 3.0)
 
     def test_other_company_visible_hit_rejects_generic_no_ids(self):
@@ -1497,10 +1730,16 @@ class TestCollectionMcpAttachment(TransactionCase):
         cls.internal_user = cls.env.ref("base.user_admin")
         ensure_enabled_seller(cls.env, cls.internal_user)
 
+    def setUp(self):
+        super().setUp()
+        install_bound_test_connector(self, self.internal_user)
+
     def _call(self, arguments, user=None):
-        env = self.env(user=user) if user else self.env(user=self.internal_user)
         arguments = dict(arguments)
         arguments.setdefault("seller_id", self.internal_user.id)
+        env = mcp_env_with_listable_customers(
+            self.env, arguments, user, self.internal_user
+        )
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
@@ -1540,9 +1779,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         before_atts = self._chatter_attachment_count()
         result = self._call(
             {
-                "customer_identification": "MCP-ATT-PNG",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-PNG",
                         "document_id": "MCP-DOC-ATT-PNG",
                         "document_type": "bank_transfer",
                         "amount": 12.0,
@@ -1577,9 +1816,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Triangulation: valid nested PDF also persists via ir.attachment."""
         result = self._call(
             {
-                "customer_identification": "MCP-ATT-PDF",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-PDF",
                         "document_id": "MCP-DOC-ATT-PDF",
                         "document_type": "cash_deposit",
                         "amount": 8.0,
@@ -1599,9 +1838,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Omit nest remains valid and creates a voucher without a file."""
         result = self._call(
             {
-                "customer_identification": "MCP-ATT-OMIT",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-OMIT",
                         "document_id": "MCP-DOC-ATT-OMIT",
                         "document_type": "check",
                         "amount": 3.0,
@@ -1623,9 +1862,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         with self.assertRaises(UserError) as err:
             self._call(
                 {
-                    "customer_identification": "MCP-ATT-MIME",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-MIME",
                             "document_id": "MCP-DOC-ATT-MIME",
                             "document_type": "bank_transfer",
                             "amount": 1.0,
@@ -1671,9 +1910,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         with self.assertRaises(UserError) as err:
             self._call(
                 {
-                    "customer_identification": "MCP-ATT-B64",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-B64",
                             "document_id": "MCP-DOC-ATT-B64",
                             "document_type": "bank_transfer",
                             "amount": 1.0,
@@ -1701,9 +1940,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         with self.assertRaises(UserError):
             self._call(
                 {
-                    "customer_identification": "MCP-ATT-TXT",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-TXT",
                             "document_id": "MCP-DOC-ATT-TXT",
                             "document_type": "bank_transfer",
                             "amount": 1.0,
@@ -1731,15 +1970,16 @@ class TestCollectionMcpAttachment(TransactionCase):
         with self.assertRaises(UserError) as err:
             self._call(
                 {
-                    "customer_identification": "MCP-ATT-BATCH-FAIL",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-BATCH-FAIL",
                             "document_id": "MCP-DOC-ATT-BATCH-OK",
                             "document_type": "bank_transfer",
                             "amount": 10.0,
                             "attachment": self._nest("ok.png", "image/png", PNG_B64),
                         },
                         {
+                            "customer_identification": "MCP-ATT-BATCH-FAIL",
                             "document_id": "MCP-DOC-ATT-BATCH-BAD",
                             "document_type": "cash_deposit",
                             "amount": 11.0,
@@ -1775,9 +2015,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         with self.assertRaises(UserError) as err:
             self._call(
                 {
-                    "customer_identification": "MCP-ATT-INCOMPLETE",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-INCOMPLETE",
                             "document_id": "MCP-DOC-ATT-INCOMPLETE",
                             "document_type": "bank_transfer",
                             "amount": 1.0,
@@ -1810,9 +2050,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Exact-retry with a different nest must leave stored attachment unchanged."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY",
                         "document_id": "MCP-DOC-ATT-RETRY",
                         "document_type": "bank_transfer",
                         "amount": 5.0,
@@ -1830,9 +2070,9 @@ class TestCollectionMcpAttachment(TransactionCase):
 
         second = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-OTHER",
                         "document_id": "MCP-DOC-ATT-RETRY",
                         "document_type": "bank_transfer",
                         "amount": 999.0,
@@ -1857,9 +2097,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Exact-retry nest MUST NOT add an attachment when the voucher has none."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-EMPTY",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-EMPTY",
                         "document_id": "MCP-DOC-ATT-RETRY-EMPTY",
                         "document_type": "cash_deposit",
                         "amount": 4.0,
@@ -1873,9 +2113,9 @@ class TestCollectionMcpAttachment(TransactionCase):
 
         second = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-EMPTY-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-EMPTY-OTHER",
                         "document_id": "MCP-DOC-ATT-RETRY-EMPTY",
                         "document_type": "cash_deposit",
                         "amount": 4.0,
@@ -1897,9 +2137,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Triangulation: exact-retry omitting nest must not clear existing file."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-OMIT",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-OMIT",
                         "document_id": "MCP-DOC-ATT-RETRY-OMIT",
                         "document_type": "check",
                         "amount": 6.0,
@@ -1914,9 +2154,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
         second = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-OMIT-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-OMIT-OTHER",
                         "document_id": "MCP-DOC-ATT-RETRY-OMIT",
                         "document_type": "check",
                         "amount": 6.0,
@@ -1960,9 +2200,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Exact-retry MUST NOT compare nests: invalid MIME still replays."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-IGN",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-IGN",
                         "document_id": "MCP-DOC-ATT-RETRY-IGN",
                         "document_type": "bank_transfer",
                         "amount": 7.0,
@@ -1977,9 +2217,9 @@ class TestCollectionMcpAttachment(TransactionCase):
 
         second = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-IGN-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-IGN-OTHER",
                         "document_id": "MCP-DOC-ATT-RETRY-IGN",
                         "document_type": "bank_transfer",
                         "amount": 7.0,
@@ -1999,15 +2239,16 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Exact-retry of a two-payment set MUST return all and ignore mixed nests."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-ALL",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-ALL",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-A",
                         "document_type": "bank_transfer",
                         "amount": 1.0,
                         "attachment": self._nest("a.png", "image/png", PNG_B64),
                     },
                     {
+                        "customer_identification": "MCP-ATT-RETRY-ALL",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-B",
                         "document_type": "cash_deposit",
                         "amount": 2.0,
@@ -2023,14 +2264,15 @@ class TestCollectionMcpAttachment(TransactionCase):
 
         second = self._call(
             {
-                "customer_identification": "MCP-ATT-RETRY-ALL-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-RETRY-ALL-OTHER",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-A",
                         "document_type": "bank_transfer",
                         "amount": 99.0,
                     },
                     {
+                        "customer_identification": "MCP-ATT-RETRY-ALL-OTHER",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-B",
                         "document_type": "cash_deposit",
                         "amount": 99.0,
@@ -2054,9 +2296,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """UniqueViolation exact-set replay MUST NOT message_post a nested proof."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-UV",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-UV",
                         "document_id": "MCP-DOC-ATT-UV",
                         "document_type": "bank_transfer",
                         "amount": 13.0,
@@ -2073,9 +2315,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         with mute_logger("odoo.sql_db"), search_patch:
             second = self._call(
                 {
-                    "customer_identification": "MCP-ATT-UV-OTHER",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-UV-OTHER",
                             "document_id": "MCP-DOC-ATT-UV",
                             "document_type": "bank_transfer",
                             "amount": 13.0,
@@ -2100,9 +2342,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Triangulation: UniqueViolation replay MUST NOT replace stored proof."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-UV-KEEP",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-UV-KEEP",
                         "document_id": "MCP-DOC-ATT-UV-KEEP",
                         "document_type": "cash_deposit",
                         "amount": 4.0,
@@ -2120,9 +2362,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         with mute_logger("odoo.sql_db"), search_patch:
             second = self._call(
                 {
-                    "customer_identification": "MCP-ATT-UV-KEEP-OTHER",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-UV-KEEP-OTHER",
                             "document_id": "MCP-DOC-ATT-UV-KEEP",
                             "document_type": "cash_deposit",
                             "amount": 4.0,
@@ -2147,9 +2389,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         """Race replay ignores nests, including invalid MIME."""
         first = self._call(
             {
-                "customer_identification": "MCP-ATT-UV-IGN",
                 "payments": [
                     {
+                        "customer_identification": "MCP-ATT-UV-IGN",
                         "document_id": "MCP-DOC-ATT-UV-IGN",
                         "document_type": "bank_transfer",
                         "amount": 5.0,
@@ -2166,9 +2408,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         with mute_logger("odoo.sql_db"), search_patch:
             second = self._call(
                 {
-                    "customer_identification": "MCP-ATT-UV-IGN-OTHER",
                     "payments": [
                         {
+                            "customer_identification": "MCP-ATT-UV-IGN-OTHER",
                             "document_id": "MCP-DOC-ATT-UV-IGN",
                             "document_type": "bank_transfer",
                             "amount": 5.0,
@@ -2198,10 +2440,16 @@ class TestCollectionMcpProvenance(TransactionCase):
         cls.internal_user = cls.env.ref("base.user_admin")
         ensure_enabled_seller(cls.env, cls.internal_user)
 
+    def setUp(self):
+        super().setUp()
+        install_bound_test_connector(self, self.internal_user)
+
     def _call(self, arguments, user=None):
-        env = self.env(user=user) if user else self.env(user=self.internal_user)
         arguments = dict(arguments)
         arguments.setdefault("seller_id", self.internal_user.id)
+        env = mcp_env_with_listable_customers(
+            self.env, arguments, user, self.internal_user
+        )
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
@@ -2282,6 +2530,11 @@ class TestCollectionMcpProvenance(TransactionCase):
         self.assertIn("raw_ocr", properties)
         self.assertIn("seller_confirmed", properties)
         self.assertIn("document_id", properties)
+        self.assertIn("customer_identification", properties)
+        self.assertIn(
+            "customer_identification",
+            payment_schema["required"],
+        )
         self.assertIn("attachment", properties)
         for nest_key in ("raw_ocr", "seller_confirmed"):
             nest_props = properties[nest_key].get("properties", {})
@@ -2300,9 +2553,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         """Both nests omitted MUST leave empty provenance on all-new create."""
         result = self._call(
             {
-                "customer_identification": "MCP-PROV-OMIT",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-OMIT",
                         "document_id": "MCP-DOC-PROV-OMIT",
                         "document_type": "bank_transfer",
                         "amount": 40.0,
@@ -2321,7 +2574,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         """Triangulation: UI/ORM create MUST remain allowed with empty provenance."""
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "ORM-PROV-OMIT",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="ORM-PROV-OMIT"
+                ).id,
                 "document_type": "check",
                 "amount": 12.0,
                 "check_number": "CHK-ORM",
@@ -2338,9 +2593,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         """Attachment + omitted nests MUST NOT copy base64 into provenance fields."""
         result = self._call(
             {
-                "customer_identification": "MCP-PROV-ATT-OMIT",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-ATT-OMIT",
                         "document_id": "MCP-DOC-PROV-ATT-OMIT",
                         "document_type": "bank_transfer",
                         "amount": 5.0,
@@ -2368,9 +2623,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         }
         result = self._call(
             {
-                "customer_identification": "MCP-PROV-EQUAL",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-EQUAL",
                         "document_id": "MCP-DOC-PROV-EQUAL",
                         **fields_vals,
                         "raw_ocr": dict(fields_vals),
@@ -2400,9 +2655,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         }
         result = self._call(
             {
-                "customer_identification": "MCP-PROV-CORR",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-CORR",
                         "document_id": "MCP-DOC-PROV-CORR",
                         **seller_vals,
                         "raw_ocr": dict(raw_vals),
@@ -2432,9 +2687,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         }
         result = self._call(
             {
-                "customer_identification": "MCP-PROV-CASH",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-CASH",
                         "document_id": "MCP-DOC-PROV-CASH",
                         "document_type": "cash_deposit",
                         "amount": 30.0,
@@ -2461,9 +2716,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         with self.assertRaises(UserError) as err:
             self._call(
                 {
-                    "customer_identification": "MCP-PROV-ONE",
                     "payments": [
                         {
+                            "customer_identification": "MCP-PROV-ONE",
                             "document_id": "MCP-DOC-PROV-ONE",
                             "document_type": "bank_transfer",
                             "amount": 10.0,
@@ -2552,8 +2807,12 @@ class TestCollectionMcpProvenance(TransactionCase):
                 with self.assertRaises(UserError):
                     self._call(
                         {
-                            "customer_identification": "MCP-PROV-BAD",
-                            "payments": [payment],
+                            "payments": [
+                                dict(
+                                    payment,
+                                    customer_identification="MCP-PROV-BAD",
+                                )
+                            ],
                         }
                     )
                 self.assertFalse(
@@ -2573,9 +2832,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         }
         result = self._call(
             {
-                "customer_identification": "MCP-PROV-OPT",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-OPT",
                         "document_id": "MCP-DOC-PROV-OPT",
                         "document_type": "bank_transfer",
                         "amount": 15.0,
@@ -2597,9 +2856,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         with self.assertRaises(UserError):
             self._call(
                 {
-                    "customer_identification": "MCP-PROV-BATCH",
                     "payments": [
                         {
+                            "customer_identification": "MCP-PROV-BATCH",
                             "document_id": "MCP-DOC-PROV-BATCH-OK",
                             "document_type": "bank_transfer",
                             "amount": 8.0,
@@ -2613,6 +2872,7 @@ class TestCollectionMcpProvenance(TransactionCase):
                             },
                         },
                         {
+                            "customer_identification": "MCP-PROV-BATCH",
                             "document_id": "MCP-DOC-PROV-BATCH-BAD",
                             "document_type": "cash_deposit",
                             "amount": 9.0,
@@ -2663,9 +2923,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         }
         first = self._call(
             {
-                "customer_identification": "MCP-PROV-REPLAY",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-REPLAY",
                         "document_id": "MCP-DOC-PROV-REPLAY",
                         **fields_vals,
                         "raw_ocr": dict(fields_vals),
@@ -2681,9 +2941,9 @@ class TestCollectionMcpProvenance(TransactionCase):
 
         second = self._call(
             {
-                "customer_identification": "MCP-PROV-REPLAY-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-REPLAY-OTHER",
                         "document_id": "MCP-DOC-PROV-REPLAY",
                         "document_type": "bank_transfer",
                         "amount": 999.0,
@@ -2709,7 +2969,9 @@ class TestCollectionMcpProvenance(TransactionCase):
 
         empty = self.env["collection.voucher"].create(
             {
-                "customer_identification": "MCP-PROV-REPLAY-EMPTY",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="MCP-PROV-REPLAY-EMPTY"
+                ).id,
                 "document_type": "cash_deposit",
                 "document_id": "MCP-DOC-PROV-REPLAY-EMPTY",
                 "amount": 4.0,
@@ -2719,9 +2981,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         self._assert_empty_provenance(empty)
         retried = self._call(
             {
-                "customer_identification": "MCP-PROV-REPLAY-EMPTY-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-REPLAY-EMPTY-OTHER",
                         "document_id": "MCP-DOC-PROV-REPLAY-EMPTY",
                         "document_type": "cash_deposit",
                         "amount": 4.0,
@@ -2746,9 +3008,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         """Triangulation: exact-retry MUST ignore malformed nests and still replay."""
         first = self._call(
             {
-                "customer_identification": "MCP-PROV-REPLAY-BAD",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-REPLAY-BAD",
                         "document_id": "MCP-DOC-PROV-REPLAY-BAD",
                         "document_type": "check",
                         "amount": 6.0,
@@ -2760,9 +3022,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         voucher = self._voucher(first)
         second = self._call(
             {
-                "customer_identification": "MCP-PROV-REPLAY-BAD-OTHER",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-REPLAY-BAD-OTHER",
                         "document_id": "MCP-DOC-PROV-REPLAY-BAD",
                         "document_type": "check",
                         "amount": 6.0,
@@ -2781,9 +3043,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         """UniqueViolation exact-set replay MUST ignore nests and not backfill."""
         first = self._call(
             {
-                "customer_identification": "MCP-PROV-UV",
                 "payments": [
                     {
+                        "customer_identification": "MCP-PROV-UV",
                         "document_id": "MCP-DOC-PROV-UV",
                         "document_type": "bank_transfer",
                         "amount": 13.0,
@@ -2798,9 +3060,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         with mute_logger("odoo.sql_db"), search_patch:
             second = self._call(
                 {
-                    "customer_identification": "MCP-PROV-UV-OTHER",
                     "payments": [
                         {
+                            "customer_identification": "MCP-PROV-UV-OTHER",
                             "document_id": "MCP-DOC-PROV-UV",
                             "document_type": "bank_transfer",
                             "amount": 13.0,

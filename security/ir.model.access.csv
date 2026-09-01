@@ -3,3 +3,12 @@ access_collection_voucher_user,collection.voucher.user,model_collection_voucher,
 access_collection_sheet_user,collection.sheet.user,model_collection_sheet,base.group_user,1,1,1,1
 access_collection_voucher_review_snapshot_user,collection.voucher.review.snapshot.user,model_collection_voucher_review_snapshot,base.group_user,1,0,1,0
 access_collection_document_type_user,collection.document.type.user,model_collection_document_type,base.group_user,1,0,0,0
+access_collection_connector_user,collection.connector.user,model_collection_connector,base.group_user,1,0,0,0
+access_collection_connector_system,collection.connector.system,model_collection_connector,base.group_system,1,1,1,1
+access_collection_connector_seller_binding_user,collection.connector.seller.binding.user,model_collection_connector_seller_binding,base.group_user,1,0,0,0
+access_collection_connector_seller_binding_system,collection.connector.seller.binding.system,model_collection_connector_seller_binding,base.group_system,1,1,1,1
+access_collection_connector_customer_binding_user,collection.connector.customer.binding.user,model_collection_connector_customer_binding,base.group_user,1,0,1,0
+access_collection_connector_customer_binding_system,collection.connector.customer.binding.system,model_collection_connector_customer_binding,base.group_system,1,1,1,1
+access_collection_allocation_user,collection.allocation.user,model_collection_allocation,base.group_user,1,1,1,1
+access_collection_allocation_line_user,collection.allocation.line.user,model_collection_allocation_line,base.group_user,1,1,1,1
+access_collection_allocation_revision_user,collection.allocation.revision.user,model_collection_allocation_revision,base.group_user,1,0,1,0

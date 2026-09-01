@@ -69,6 +69,6 @@ stacked-to-main 400-line budget risk: High
 ## Phase 4: Upgrade and verify
 
 - [x] 4.1 `invoke install -m collection` or `odoo -u collection`.
-- [x] 4.2 Seedian root: scoped `pre-commit` on this change's files (recursive glob
-      fails on archived OpenSpec; archives must not be reformatted).
+- [x] 4.2 Seedian root: scoped `pre-commit` on this change's files (recursive glob fails
+      on archived OpenSpec; archives must not be reformatted).
 - [x] 4.3 `invoke test -m collection`.

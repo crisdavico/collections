@@ -118,6 +118,11 @@ class TestCollectionMcpSellerLookup(TransactionCase):
             by_name,
             f"{TOOL_NAME} must appear in MCP registry tools",
         )
+        self.assertNotIn(
+            "list_collection_sellers",
+            by_name,
+            "list_collection_sellers must not be registered as an MCP tool",
+        )
         entry = get_tool_index(self.env, registry="mcp")[TOOL_NAME]
         self.assertEqual(entry["category"], "read")
         self.assertEqual(entry["registry"], "mcp")
@@ -128,10 +133,16 @@ class TestCollectionMcpSellerLookup(TransactionCase):
             "get_seller_id must not have a DB muk_mcp.tool row",
         )
 
+    def _enable_lookup_seller(self, user=None):
+        """Put the lookup user on the current company's enabled-seller list."""
+        user = user or self.internal_user
+        self.env.company.write({"enabled_seller_ids": [Command.set([user.id])]})
+
     def test_unique_internal_match_returns_seller_id_only(self):
         """Unique normalized internal phone returns {seller_id} only."""
         self.assertTrue(self.internal_user.partner_id.phone)
         self.assertGreater(self.internal_user.id, 0)
+        self._enable_lookup_seller()
         before_vouchers = self.env["collection.voucher"].search_count([])
 
         result = self._call({"mobile": SELLER_MOBILE_QUERY})
@@ -163,6 +174,7 @@ class TestCollectionMcpSellerLookup(TransactionCase):
 
     def test_ar_whatsapp_variants_match_same_seller(self):
         """Stored +54 9 … matches 549… and local 10-digit as one seller_id."""
+        self._enable_lookup_seller()
         self.assertEqual(self.internal_user.partner_id.phone, SELLER_PHONE)
         e164 = self._call({"mobile": SELLER_MOBILE_QUERY})
         local = self._call({"mobile": SELLER_LOCAL_QUERY})
@@ -186,6 +198,7 @@ class TestCollectionMcpSellerLookup(TransactionCase):
 
     def test_portal_share_digits_excluded_returns_internal(self):
         """Portal/share digits MUST NOT count; unique internal seller_id is returned."""
+        self._enable_lookup_seller()
         self.portal_user.partner_id.phone = SELLER_PHONE
         self.assertTrue(self.portal_user.share)
         result = self._call({"mobile": SELLER_MOBILE_QUERY})
@@ -228,31 +241,40 @@ class TestCollectionMcpSellerLookup(TransactionCase):
         with self.assertRaises(UserError):
             self._call({"mobile": "5491155550888"})
 
-    def test_unique_match_not_on_enabled_list_still_returns(self):
-        """Lookup MUST still return a unique internal match not on enabled sellers."""
+    def test_unique_match_not_on_enabled_list_fails_closed(self):
+        """Lookup MUST raise UserError when the unique match is not enabled."""
         company = self.env.company
         if self.internal_user in company.enabled_seller_ids:
             company.write(
                 {"enabled_seller_ids": [Command.unlink(self.internal_user.id)]}
             )
         self.assertNotIn(self.internal_user, company.enabled_seller_ids)
-        result = self._call({"mobile": SELLER_MOBILE_QUERY})
-        self.assertEqual(result, {"seller_id": self.internal_user.id})
+        with self.assertRaises(UserError) as ctx:
+            self._call({"mobile": SELLER_MOBILE_QUERY})
+        self.assertIn("No unique seller found for that mobile.", str(ctx.exception))
 
-    def test_empty_enabled_list_does_not_block_lookup(self):
-        """Empty enabled-seller list MUST NOT block a unique internal match."""
+    def test_empty_enabled_list_blocks_lookup(self):
+        """Empty enabled-seller list MUST block a unique internal match."""
         self.env.company.write({"enabled_seller_ids": [Command.clear()]})
         self.assertFalse(self.env.company.enabled_seller_ids)
-        result = self._call({"mobile": SELLER_MOBILE_QUERY})
-        self.assertEqual(result, {"seller_id": self.internal_user.id})
+        with self.assertRaises(UserError) as ctx:
+            self._call({"mobile": SELLER_MOBILE_QUERY})
+        self.assertIn("No unique seller found for that mobile.", str(ctx.exception))
 
-    def test_other_company_enabled_lists_do_not_filter_lookup(self):
-        """Enabled-only-on-another-company MUST still resolve the unique match."""
+    def test_other_company_enabled_lists_do_not_satisfy_lookup(self):
+        """Enabled-only-on-another-company MUST NOT resolve the unique match."""
         self.env.company.write({"enabled_seller_ids": [Command.clear()]})
         other = self._create_lookup_company("Lookup-OtherCo-Enabled")
         other.write({"enabled_seller_ids": [Command.set([self.internal_user.id])]})
         self.assertNotIn(self.internal_user, self.env.company.enabled_seller_ids)
         self.assertIn(self.internal_user, other.enabled_seller_ids)
+        with self.assertRaises(UserError) as ctx:
+            self._call({"mobile": SELLER_MOBILE_QUERY})
+        self.assertIn("No unique seller found for that mobile.", str(ctx.exception))
+
+    def test_unique_match_on_enabled_list_returns_seller_id(self):
+        """Unique match on the current company's enabled list MUST return seller_id."""
+        self._enable_lookup_seller()
         result = self._call({"mobile": SELLER_MOBILE_QUERY})
         self.assertEqual(result, {"seller_id": self.internal_user.id})
 

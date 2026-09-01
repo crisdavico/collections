@@ -3,15 +3,26 @@
 Backend app to register one payment voucher per proof (bank transfer, check, cash
 deposit, or unsupported). Each voucher owns sequence, chatter, optional image/PDF
 designated proof (`message_main_attachment_id` on chatter `ir.attachment`; no Binary
-`attachment` field), and a pending → approved/rejected lifecycle. Collection sheets
+`attachment` field), a required Customer (`partner_id` on `res.partner`; Char
+identification is gone), and a pending → approved/rejected lifecycle. Collection sheets
 group a seller’s vouchers (`open`/`closed`) and have their own chatter and activities.
 
 Per-company Collection Settings (`res.company` + related `res.config.settings`; XMLID
 `collection.action_collection_config_settings`) control enabled sellers (empty = none
-for new work), auto-create sheet (default ON), allowed document types, and Document
-Review. Voucher (`COL/`) and sheet (`CS/`) sequences are per company.
+for new work), auto-create sheet (default ON), allowed document types, Document Review,
+and the active `collection.connector`. Settings users can Import sellers from that
+connector (create/match/bind, then replace the enabled list). Voucher (`COL/`) and sheet
+(`CS/`) sequences are per company. Customer bindings
+(`collection.connector.customer.binding`) map an external customer to a partner;
+internal users may create them (`1,0,1,0`) and MUST never `sudo()`.
 
-MCP `create_collection_vouchers` creates N vouchers in one savepoint and returns
-`{vouchers:[{id,name,state,document_id},...]}`. Each payment may nest `raw_ocr` and
-`seller_confirmed` (typed review fields; both omitted leaves empty provenance).
-Coordinated Nebula tool `register_latest_collection_voucher` calls that MCP name only.
+MCP `create_collection_vouchers` still takes per-payment `customer_identification`
+strings and returns `{vouchers:[{id,name,state,document_id},...]}`. On all-new create
+only, the server lazily resolves each string into `partner_id` and MAY create a
+`res.partner` plus customer binding. Exact replay ignores a changed customer string and
+keeps the first-call partner. Each payment may nest `raw_ocr` and `seller_confirmed`
+(typed review fields; both omitted leaves empty provenance). MCP `get_seller_id`
+resolves `{seller_id}` from a WhatsApp/mobile among the company's enabled sellers. MCP
+`list_collection_customers` and `customer_debt` keep the same payloads (`{customers}`
+and `{customer, summary, invoices}`) and MUST NOT create partners. Coordinated Nebula
+tool `register_latest_collection_voucher` calls `create_collection_vouchers` only.

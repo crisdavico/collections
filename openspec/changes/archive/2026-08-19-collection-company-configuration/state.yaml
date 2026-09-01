@@ -12,4 +12,3 @@ notes: |
   Re-verify PASS WITH WARNINGS (27/27 req, 98/98 scenarios, 392 tests / 0 failed).
   Phase 8 covering tests closed the prior FAIL UNTESTED rows. Launching sdd-archive.
   reviewGate absent. Nothing pushed.
-

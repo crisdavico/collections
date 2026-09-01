@@ -1,9 +1,8 @@
 # Archive Report: seedian-nebula-module
 
-**Archived**: 2026-08-10
-**Archive path**: `openspec/changes/archive/2026-08-10-seedian-nebula-module/`
-**Artifact store**: openspec (filesystem only)
-**Verdict at close**: PASS WITH WARNINGS (final state)
+**Archived**: 2026-08-10 **Archive path**:
+`openspec/changes/archive/2026-08-10-seedian-nebula-module/` **Artifact store**:
+openspec (filesystem only) **Verdict at close**: PASS WITH WARNINGS (final state)
 
 ## Gates
 

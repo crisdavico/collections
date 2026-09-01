@@ -1,12 +1,9 @@
 # Archive Report: document-review-ocr-validation
 
-**Date**: 2026-08-12
-**Change**: document-review-ocr-validation
-**Archived to**: `openspec/changes/archive/2026-08-12-document-review-ocr-validation/`
-**Artifact store**: openspec
-**Status**: success
-**Intentional warnings**: yes (verify pass_with_warnings — three accepted non-blocking
-deviations)
+**Date**: 2026-08-12 **Change**: document-review-ocr-validation **Archived to**:
+`openspec/changes/archive/2026-08-12-document-review-ocr-validation/` **Artifact
+store**: openspec **Status**: success **Intentional warnings**: yes (verify
+pass_with_warnings — three accepted non-blocking deviations)
 
 ## Gates
 
@@ -40,16 +37,16 @@ Per orchestrator launch facts (outrank stale snapshot “pending” claims):
 
 ## Spec sync
 
-**Domain**: `document-review`
-**Main spec**: `openspec/specs/document-review/spec.md` (created; no prior main spec)
+**Domain**: `document-review` **Main spec**: `openspec/specs/document-review/spec.md`
+(created; no prior main spec)
 
 | Action                               | Requirement                                                                             |
 | ------------------------------------ | --------------------------------------------------------------------------------------- |
 | Created                              | Full spec copied mechanically (`cp` + `diff -r` + `mv`) — 5 requirements / 11 scenarios |
 | ADDED / MODIFIED / REMOVED / RENAMED | n/a (full spec, not a delta)                                                            |
 
-**Domain**: `collection-vouchers`
-**Main spec**: `openspec/specs/collection-vouchers/spec.md`
+**Domain**: `collection-vouchers` **Main spec**:
+`openspec/specs/collection-vouchers/spec.md`
 
 | Action   | Requirement                                                                                                                                                                                |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

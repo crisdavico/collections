@@ -82,8 +82,7 @@ the sheet exists; sheet delete is not a membership edit.
 
 Each new sheet MUST get a unique persisted name `CS/<year>/<number>` via sequence code
 `collection.sheet`. Sheets MUST have `state` `open` or `closed` and MUST NOT have any
-other workflow.
-(Previously: Sheets MUST NOT have `state` or workflow.)
+other workflow. (Previously: Sheets MUST NOT have `state` or workflow.)
 
 #### Scenario: Sequence assigned on create
 
@@ -100,8 +99,8 @@ reassign). Empty sheets MUST be allowed. `date_from`/`date_to` MUST be the UTC c
 min/max of member `create_date`; empty sheets MUST have both dates empty; MUST NOT use
 `received_date`. Deleting a sheet (open or closed) MUST unassign members (`ondelete` set
 null) and MUST NOT delete those vouchers. Freeze MUST NOT trap vouchers: unlink of a
-closed sheet MUST still unassign.
-(Previously: Membership MUST be editable at any time; sheets had no open/closed freeze.)
+closed sheet MUST still unassign. (Previously: Membership MUST be editable at any time;
+sheets had no open/closed freeze.)
 
 #### Scenario: Assign and reassign
 
@@ -134,8 +133,8 @@ Payment Vouchers MUST expose a list-bound Action with no wizard. It MUST create 
 sheet when the selection is unassigned, same non-null seller, any voucher state; MUST
 set that seller; and MUST assign the selection. It MUST succeed only when that seller’s
 open-sheet count is 0. It MUST reject if the seller already has any open sheet (count
-greater than or equal to 1), including when count is greater than 1.
-(Previously: Action always created a new sheet regardless of existing open sheets.)
+greater than or equal to 1), including when count is greater than 1. (Previously: Action
+always created a new sheet regardless of existing open sheets.)
 
 #### Scenario: Unassigned same-seller any state
 
@@ -163,8 +162,8 @@ edit. Form MUST show name, required `seller_id` (readonly after create), dates,
 membership, a non-clickable statusbar, Close when `open`, and Reopen when `closed`.
 Membership MUST be readonly when closed. List/search MUST show name, seller, dates, and
 `state`. Document Review header action MUST remain available on saved sheets (including
-closed) when the company flag is ON.
-(Previously: Form had editable membership and no workflow statusbar.)
+closed) when the company flag is ON. (Previously: Form had editable membership and no
+workflow statusbar.)
 
 #### Scenario: Menu and form behaviors
 

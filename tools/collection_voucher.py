@@ -132,10 +132,12 @@ class CollectionMcpMixin(models.AbstractModel):
         name="create_collection_vouchers",
         description=(
             "Create one payment voucher per payment. "
-            "Requires customer_identification, seller_id, and a non-empty "
-            "payments array. "
+            "Requires seller_id and a non-empty payments array. "
+            "Does not accept top-level customer_identification. "
             "seller_id must be an internal user (not portal/share). "
-            "Each payment must include a non-empty document_id and document_type. "
+            "Each payment must include a non-empty customer_identification, "
+            "document_id, and document_type. "
+            "Mixed customers in one payments array are allowed. "
             "Each payment may include an optional attachment "
             "{name, mimetype, datas}. "
             "Each payment may include raw_ocr and seller_confirmed nests "
@@ -144,11 +146,8 @@ class CollectionMcpMixin(models.AbstractModel):
         ),
         input_schema={
             "type": "object",
+            "additionalProperties": False,
             "properties": {
-                "customer_identification": {
-                    "type": "string",
-                    "description": "Customer identification string for the voucher.",
-                },
                 "seller_id": {
                     "type": "integer",
                     "description": (
@@ -163,6 +162,12 @@ class CollectionMcpMixin(models.AbstractModel):
                     "items": {
                         "type": "object",
                         "properties": {
+                            "customer_identification": {
+                                "type": "string",
+                                "description": (
+                                    "Customer identification for this payment."
+                                ),
+                            },
                             "document_id": {
                                 "type": "string",
                                 "description": "Unique payment document identifier.",
@@ -227,18 +232,21 @@ class CollectionMcpMixin(models.AbstractModel):
                             "raw_ocr": _PROVENANCE_NEST_SCHEMA,
                             "seller_confirmed": _PROVENANCE_NEST_SCHEMA,
                         },
-                        "required": ["document_id", "document_type"],
+                        "required": [
+                            "document_id",
+                            "document_type",
+                            "customer_identification",
+                        ],
                     },
                 },
             },
-            "required": ["customer_identification", "payments", "seller_id"],
+            "required": ["payments", "seller_id"],
         },
         category="write",
         registry="mcp",
     )
     def create_collection_vouchers(
         self,
-        customer_identification: str,
         payments: list[dict[str, Any]],
         seller_id: int | None = None,
     ) -> dict[str, Any]:
@@ -246,20 +254,19 @@ class CollectionMcpMixin(models.AbstractModel):
 
         Nested attachments and provenance nests are validated and mapped only
         on the all-new create path. Exact-retry ignores attachment nests,
-        provenance nests, customer, and seller_id (no add/replace/compare;
-        no writes to matching vouchers).
+        provenance nests, per-payment customer, and seller_id (no
+        add/replace/compare; no writes to matching vouchers).
 
         :raise UserError: when required fields are missing/invalid or conflicts.
         :raise AccessError: when the caller lacks voucher create rights.
         """
-        customer = (customer_identification or "").strip()
-        if not customer:
-            raise UserError(_("customer_identification is required."))
         if not isinstance(payments, list) or not payments:
             raise UserError(_("payments must be a non-empty list."))
         seller = self._collection_require_internal_seller(seller_id)
 
-        payment_vals_list = self._collection_parse_payment_vals(payments)
+        payment_vals_list, identifications = self._collection_parse_payment_vals(
+            payments
+        )
         document_ids = [vals["document_id"] for vals in payment_vals_list]
         if len(document_ids) != len(set(document_ids)):
             raise UserError(_("Duplicate document_id in the same call is not allowed."))
@@ -285,7 +292,11 @@ class CollectionMcpMixin(models.AbstractModel):
 
         try:
             return self._collection_create_vouchers(
-                customer, payment_vals_list, seller.id, sidecars, provenances
+                payment_vals_list,
+                seller.id,
+                sidecars,
+                provenances,
+                identifications,
             )
         except UniqueViolation:
             # Race: concurrent create won the unique(document_id) race.
@@ -299,9 +310,10 @@ class CollectionMcpMixin(models.AbstractModel):
     @api.model
     def _collection_parse_payment_vals(
         self, payments: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Validate payment dicts and return voucher create vals."""
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Validate payment dicts and return voucher vals plus identifications."""
         payment_vals_list: list[dict[str, Any]] = []
+        identifications: list[str] = []
         for index, raw in enumerate(payments):
             if not isinstance(raw, dict):
                 raise UserError(
@@ -332,6 +344,20 @@ class CollectionMcpMixin(models.AbstractModel):
                         index=index,
                     )
                 )
+            customer_identification = raw.get("customer_identification")
+            if (
+                not isinstance(customer_identification, str)
+                or not customer_identification.strip()
+            ):
+                raise UserError(
+                    _(
+                        "Each payment requires a non-empty customer_identification "
+                        "(index %(index)s).",
+                        index=index,
+                    )
+                )
+            identification = customer_identification.strip()
+            identifications.append(identification)
             vals: dict[str, Any] = {
                 "document_id": document_id.strip(),
                 "document_type": document_type,
@@ -340,7 +366,7 @@ class CollectionMcpMixin(models.AbstractModel):
                 if field_name in raw and raw[field_name] not in (None, ""):
                     vals[field_name] = raw[field_name]
             payment_vals_list.append(vals)
-        return payment_vals_list
+        return payment_vals_list, identifications
 
     @api.model
     def _collection_parse_payment_attachments(
@@ -403,7 +429,9 @@ class CollectionMcpMixin(models.AbstractModel):
             seller, index, "seller_confirmed"
         )
         current_comparable = {
-            key: value for key, value in current_vals.items() if key != "document_id"
+            key: value
+            for key, value in current_vals.items()
+            if key not in ("document_id",)
         }
         if parsed_seller != current_comparable:
             raise UserError(
@@ -618,27 +646,40 @@ class CollectionMcpMixin(models.AbstractModel):
     @api.model
     def _collection_create_vouchers(
         self,
-        customer: str,
         payment_vals_list: list[dict[str, Any]],
         seller_id: int,
         sidecars: list[tuple[str, bytes] | None],
         provenances: list[dict[str, Any] | None],
+        identifications: list[str],
     ) -> dict[str, Any]:
-        """Atomically create one voucher per payment inside a savepoint."""
+        """Atomically resolve customers and create one voucher per payment."""
         Voucher = self.env["collection.voucher"]
         document_ids = [vals["document_id"] for vals in payment_vals_list]
-        create_vals = []
-        for vals, provenance in zip(payment_vals_list, provenances, strict=True):
-            row = {
-                **vals,
-                "customer_identification": customer,
-                "state": "pending",
-                "seller_id": seller_id,
-            }
-            if provenance:
-                row.update(provenance)
-            create_vals.append(row)
+        connector = self.env.company._collection_active_connector()
         with self.env.cr.savepoint():
+            create_vals = []
+            for vals, provenance, identification in zip(
+                payment_vals_list, provenances, identifications, strict=True
+            ):
+                try:
+                    with self.env.cr.savepoint():
+                        partner = connector.resolve_customer_partner(
+                            seller_id, identification
+                        )
+                except UniqueViolation:
+                    # Binding UNIQUE must not reach the outer document_id handler.
+                    raise UserError(
+                        _("The requested customer is not available.")
+                    ) from None
+                row = {
+                    **vals,
+                    "state": "pending",
+                    "seller_id": seller_id,
+                    "partner_id": partner.id,
+                }
+                if provenance:
+                    row.update(provenance)
+                create_vals.append(row)
             vouchers = Voucher.create(create_vals)
             for voucher, sidecar in zip(vouchers, sidecars, strict=True):
                 if not sidecar:

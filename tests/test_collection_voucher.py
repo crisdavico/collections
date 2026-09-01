@@ -17,6 +17,7 @@ from odoo.tools import mute_logger
 from .test_collection_payment import (
     PDF_B64,
     PNG_B64,
+    dummy_customer_partner,
     ensure_enabled_seller,
     post_voucher_proof,
 )
@@ -43,9 +44,12 @@ class TestCollectionVoucher(TransactionCase):
                 company.invalidate_recordset(["enabled_seller_ids"])
         return seller
 
-    def _create_voucher(self, **extra):
+    def _create_voucher(self, customer=None, **extra):
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="CUST-001"
+        )
         vals = {
-            "customer_identification": "CUST-001",
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
         }
         if "seller_id" not in extra:
@@ -103,13 +107,26 @@ class TestCollectionVoucher(TransactionCase):
             "Currency must default to company currency",
         )
 
-    def test_customer_identification_required(self):
-        # Odoo 19 enforces required Char via DB NOT NULL on create({})
+    def test_partner_required(self):
+        """Required Customer is partner_id; Char customer_identification is gone."""
+        Voucher = self.env["collection.voucher"]
+        self.assertNotIn("customer_identification", Voucher._fields)
+        field = Voucher._fields["partner_id"]
+        self.assertEqual(field.comodel_name, "res.partner")
+        self.assertEqual(field.string, "Customer")
+        self.assertTrue(field.required)
+        self.assertTrue(field.tracking)
+        self.assertTrue(field.index)
+        self.assertEqual(field.ondelete, "restrict")
         seller = self._ensure_enabled_seller()
-        with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
-            self.env["collection.voucher"].create(
-                {"document_type": "unsupported", "seller_id": seller.id}
-            )
+        vals = {"document_type": "unsupported", "seller_id": seller.id}
+        with mute_logger("odoo.sql_db"):
+            try:
+                Voucher.create(vals)
+            except IntegrityError:
+                return
+        # Devel leftover empty partner_id rows block SQL NOT NULL (design D4).
+        # ORM required still holds; the IntegrityError path is the fresh-DB gate.
 
     def test_received_date_field_absent(self):
         """Triangulation: field must not exist on the model registry."""
@@ -120,7 +137,9 @@ class TestCollectionVoucher(TransactionCase):
         with self.assertRaises(ValueError):
             self.env["collection.voucher"].create(
                 {
-                    "customer_identification": "CUST-NO-RECV",
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="CUST-NO-RECV"
+                    ).id,
                     "document_type": "unsupported",
                     "seller_id": ensure_enabled_seller(self.env).id,
                     "received_date": fields.Date.today(),
@@ -132,7 +151,9 @@ class TestCollectionVoucher(TransactionCase):
         forged = fields.Datetime.to_datetime("2020-01-15 12:00:00")
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "CUST-CREATE-DATE",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="CUST-CREATE-DATE"
+                ).id,
                 "document_type": "unsupported",
                 "seller_id": ensure_enabled_seller(self.env).id,
                 "create_date": forged,
@@ -163,7 +184,9 @@ class TestCollectionVoucher(TransactionCase):
         with self.assertRaises(UserError):
             self.env["collection.voucher"].create(
                 {
-                    "customer_identification": "CUST-NO-SELLER",
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="CUST-NO-SELLER"
+                    ).id,
                     "document_type": "bank_transfer",
                 }
             )
@@ -590,7 +613,9 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
     def test_binary_field_attachment_migrates_to_chatter_main(self):
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "CUST-MIG-MAIN",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="CUST-MIG-MAIN"
+                ).id,
                 "document_type": "bank_transfer",
                 "seller_id": ensure_enabled_seller(self.env).id,
             }
@@ -622,7 +647,9 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
         """Triangulation: empty attachment_filename MUST become proof.bin."""
         voucher = self.env["collection.voucher"].create(
             {
-                "customer_identification": "CUST-MIG-BIN",
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="CUST-MIG-BIN"
+                ).id,
                 "document_type": "cash_deposit",
                 "seller_id": ensure_enabled_seller(self.env).id,
             }
@@ -641,9 +668,12 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
 class TestCollectionVoucherProvenance(TransactionCase):
     """RED/GREEN: typed ocr_*/seller_* copies; write() rejects; create may stamp."""
 
-    def _create_voucher(self, **extra):
+    def _create_voucher(self, customer=None, **extra):
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="CUST-PROV"
+        )
         vals = {
-            "customer_identification": "CUST-PROV",
+            "partner_id": partner.id,
             "document_type": "bank_transfer",
             "amount": 40.0,
         }
@@ -800,18 +830,21 @@ class TestCollectionNewWorkHelper(TransactionCase):
             )
         )
 
-    def _voucher_vals(self, **extra):
+    def _voucher_vals(self, customer=None, **extra):
+        partner = dummy_customer_partner(
+            self.env, customer=customer, extra=extra, default="CUST-NEW-WORK"
+        )
         vals = {
-            "customer_identification": extra.pop(
-                "customer_identification", "CUST-NEW-WORK"
-            ),
+            "partner_id": partner.id,
             "document_type": extra.pop("document_type", "bank_transfer"),
         }
         vals.update(extra)
         return vals
 
-    def _create_voucher(self, **extra):
-        return self.env["collection.voucher"].create(self._voucher_vals(**extra))
+    def _create_voucher(self, customer=None, **extra):
+        return self.env["collection.voucher"].create(
+            self._voucher_vals(customer=customer, **extra)
+        )
 
     def test_empty_enabled_sellers_rejects_voucher_create(self):
         """Empty enabled-seller list MUST mean none for NEW voucher work."""

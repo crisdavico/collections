@@ -127,3 +127,94 @@ class TestCollectionCompanySettings(TransactionCase):
             self.env.company.enabled_seller_ids,
             "empty enabled-seller list must persist as none",
         )
+
+    def _partner_has_autopost_bills_column(self):
+        self.env.cr.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_name = 'res_partner'
+               AND column_name = 'autopost_bills'
+            """
+        )
+        return bool(self.env.cr.fetchone())
+
+    def _create_company(self, name):
+        """Persist a second company; satisfy partner.autopost_bills when present."""
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        partner_vals = {"name": name, "is_company": True}
+        if "autopost_bills" in Partner._fields:
+            partner_vals["autopost_bills"] = "ask"
+            partner = Partner.create(partner_vals)
+        elif self._partner_has_autopost_bills_column():
+            self.env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, is_company,
+                    autopost_bills, create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', true, 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (name, f"{name}@example.com", name),
+            )
+            partner = Partner.browse(self.env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+        return self.env["res.company"].create(
+            {
+                "name": name,
+                "partner_id": partner.id,
+            }
+        )
+
+    def test_settings_collection_connector_id_is_related_writable(self):
+        """Collection Settings MUST expose a writable related active connector."""
+        field = self.env["res.config.settings"]._fields["collection_connector_id"]
+        self.assertEqual(field.related, "company_id.collection_connector_id")
+        self.assertFalse(field.readonly)
+
+    def test_company_a_saves_connector_via_settings(self):
+        """Company A MUST persist its active connector from Collection Settings."""
+        connector = self.env["collection.connector"].create(
+            {"name": "Company A Connector"}
+        )
+        self.assertEqual(connector.company_id, self.env.company)
+        settings = self.env["res.config.settings"].create(
+            {"collection_connector_id": connector.id}
+        )
+        settings.execute()
+        self.assertEqual(self.env.company.collection_connector_id, connector)
+
+    def test_company_b_keeps_connector_when_a_saves(self):
+        """Triangulation: saving A's connector MUST NOT change company B's."""
+        company_b = self._create_company("Connector Isolation Co B")
+        connector_a = self.env["collection.connector"].create(
+            {
+                "name": "A Connector",
+                "company_id": self.env.company.id,
+            }
+        )
+        connector_b = self.env["collection.connector"].create(
+            {
+                "name": "B Connector",
+                "company_id": company_b.id,
+            }
+        )
+        company_b.write({"collection_connector_id": connector_b.id})
+        settings = self.env["res.config.settings"].create(
+            {"collection_connector_id": connector_a.id}
+        )
+        settings.execute()
+        self.assertEqual(self.env.company.collection_connector_id, connector_a)
+        self.assertEqual(company_b.collection_connector_id, connector_b)

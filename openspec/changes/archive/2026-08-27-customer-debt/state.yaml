@@ -1,0 +1,12 @@
+# SDD change state
+change: customer-debt
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+phase: verify
+updated: 2026-08-27
+notes: |
+  Apply complete. collection 422 tests + sqlite 27 tests passed.
+  Scoped pre-commit passed. No Nebula files.
