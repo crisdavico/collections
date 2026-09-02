@@ -9,6 +9,7 @@ from . import collection_allocation_line
 from . import collection_allocation_revision
 from . import collection_document_type
 from . import collection_sheet
+from . import collection_sheet_report
 from . import collection_voucher
 from . import collection_voucher_review_snapshot
 from . import res_company

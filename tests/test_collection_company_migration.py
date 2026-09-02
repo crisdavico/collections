@@ -152,10 +152,10 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_29_0(self):
+    def test_manifest_version_is_1_30_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.29.0"', manifest.read_text(encoding="utf-8"))
+        self.assertIn('"version": "19.0.1.30.0"', manifest.read_text(encoding="utf-8"))
         self.assertFalse(
             (module_root / "migrations" / "19.0.1.27.0").exists(),
             "No migrations/19.0.1.27.0/ folder",
@@ -164,9 +164,11 @@ class TestCollectionCompanyMigration(TransactionCase):
             (module_root / "migrations" / "19.0.1.29.0").exists(),
             "No migrations/19.0.1.29.0/ folder — ORM Float add only",
         )
-        migrate_128 = (
-            module_root / "migrations" / "19.0.1.28.0" / "post-migrate.py"
+        self.assertFalse(
+            (module_root / "migrations" / "19.0.1.30.0").exists(),
+            "No migrations/19.0.1.30.0/ folder — report fields via _init_column",
         )
+        migrate_128 = module_root / "migrations" / "19.0.1.28.0" / "post-migrate.py"
         self.assertTrue(migrate_128.is_file(), "Need 19.0.1.28.0 allocation remap")
         text_128 = migrate_128.read_text(encoding="utf-8")
         self.assertIn("THEN 'draft'", text_128)

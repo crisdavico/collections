@@ -27,6 +27,14 @@ class CollectionAllocationLine(models.Model):
         index=True,
     )
     external_invoice_id = fields.Char(required=True)
+    document_kind = fields.Selection(
+        selection=[
+            ("invoice", "Invoice"),
+            ("quotation", "Quotation"),
+        ],
+        default="invoice",
+        required=True,
+    )
     invoice_number = fields.Char()
     issue_date = fields.Date()
     due_date = fields.Date()

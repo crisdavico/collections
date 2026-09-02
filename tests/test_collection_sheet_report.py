@@ -1,0 +1,383 @@
+# Copyright 2026 Seedian
+# License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
+
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch
+
+from odoo.exceptions import AccessError
+from odoo.fields import Command
+from odoo.tests import TransactionCase
+
+from .test_collection_acl import TestCollectionAcl
+from .test_collection_payment import (
+    create_internal_seller,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+)
+
+REPORT_XMLID = "collection.action_report_collection_sheet"
+RENDER_MODEL = "report.collection.report_collection_sheet"
+DOCUMENT_XMLID = "collection.report_collection_sheet_document"
+WRAPPER_XMLID = "collection.report_collection_sheet"
+
+
+class TestCollectionSheetReport(TransactionCase):
+    """RED: bound qweb-pdf Planilla de Cobranza, HTML render, company ACL."""
+
+    def setUp(self):
+        super().setUp()
+        self._doc_seq = 0
+        self.seller = create_internal_seller(self.env, "planilla_seller_ana")
+        self.seller.write({"name": "Planilla Seller Ana"})
+        ensure_enabled_seller(self.env, self.seller)
+
+    def _next_document_id(self, prefix="QWEB"):
+        self._doc_seq += 1
+        return f"{prefix}-{self._testMethodName}-{self._doc_seq}"
+
+    def _create_sheet(self, *, seller=None, force_new=False, company=None, **extra):
+        seller = seller or self.seller
+        company = company or self.env.company
+        ensure_enabled_seller(self.env, seller, company=company)
+        extra.setdefault("company_id", company.id)
+        if not force_new:
+            existing = self.env["collection.sheet"].search(
+                [
+                    ("seller_id", "=", seller.id),
+                    ("company_id", "=", extra["company_id"]),
+                    ("state", "=", "open"),
+                ],
+                limit=1,
+            )
+            if existing:
+                return existing
+        return self.env["collection.sheet"].create(
+            {"seller_id": seller.id, **extra}
+        )
+
+    def _create_voucher(self, partner, sheet, amount=100.0, **extra):
+        ensure_enabled_seller(self.env, sheet.seller_id, company=sheet.company_id)
+        vals = {
+            "partner_id": partner.id,
+            "document_type": extra.pop("document_type", "bank_transfer"),
+            "document_id": extra.pop("document_id", self._next_document_id()),
+            "seller_id": sheet.seller_id.id,
+            "sheet_id": sheet.id,
+            "company_id": sheet.company_id.id,
+            "amount": amount,
+        }
+        vals.update(extra)
+        return self.env["collection.voucher"].create(vals)
+
+    def _line_vals(self, amount_applied=100.0, invoice_balance=100.0, **extra):
+        vals = {
+            "external_invoice_id": extra.pop(
+                "external_invoice_id", self._next_document_id("INV")
+            ),
+            "invoice_number": extra.pop("invoice_number", "A-1"),
+            "issue_date": extra.pop("issue_date", date(2026, 1, 1)),
+            "due_date": extra.pop("due_date", date(2026, 1, 31)),
+            "invoice_amount": extra.pop("invoice_amount", invoice_balance),
+            "invoice_balance": invoice_balance,
+            "invoice_state": extra.pop("invoice_state", "open"),
+            "amount_applied": amount_applied,
+            "document_kind": extra.pop("document_kind", "invoice"),
+        }
+        vals.update(extra)
+        return vals
+
+    def _create_allocation(self, sheet, partner, vouchers=None, lines=None, **extra):
+        vals = {
+            "sheet_id": sheet.id,
+            "partner_id": partner.id,
+        }
+        if vouchers:
+            vals["voucher_ids"] = [Command.set(vouchers.ids)]
+        if lines is not None:
+            vals["line_ids"] = [Command.create(line) for line in lines]
+        vals.update(extra)
+        return self.env["collection.allocation"].create(vals)
+
+    def _populated_sheet(
+        self,
+        *,
+        seller=None,
+        partner_name="Cliente Norte SA",
+        invoice_number="FAC-1001",
+        amount=100.0,
+    ):
+        seller = seller or self.seller
+        partner = dummy_customer_partner(self.env, customer=partner_name)
+        sheet = self._create_sheet(seller=seller, force_new=True)
+        voucher = self._create_voucher(partner, sheet, amount=amount)
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=amount,
+                    invoice_balance=amount,
+                    invoice_number=invoice_number,
+                )
+            ],
+        )
+        return sheet, partner
+
+    def _second_seller(self, login):
+        seller = create_internal_seller(self.env, login)
+        ensure_enabled_seller(self.env, seller)
+        return seller
+
+    def _render_html(self, sheets):
+        # devel's report_assets_common still lists website snippet SCSS while
+        # website is not installed; skip asset nodes so HTML render stays in-process.
+        with patch.object(
+            type(self.env["ir.qweb"]), "_get_asset_nodes", return_value=[]
+        ):
+            html, report_type = (
+                self.env["ir.actions.report"]
+                .with_context(discard_logo_check=True)
+                ._render_qweb_html(REPORT_XMLID, sheets.ids)
+            )
+        self.assertEqual(report_type, "html")
+        if isinstance(html, bytes):
+            self.assertFalse(html.startswith(b"%PDF"), html[:8])
+            return html.decode()
+        self.assertFalse(html.startswith("%PDF"), html[:8])
+        return html
+
+    def _create_partner(self, name):
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        vals = {"name": name}
+        if "autopost_bills" in Partner._fields:
+            vals["autopost_bills"] = "ask"
+            return Partner.create(vals)
+        self.env.cr.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_name = 'res_partner'
+               AND column_name = 'autopost_bills'
+            """
+        )
+        if not self.env.cr.fetchone():
+            return Partner.create(vals)
+        self.env.cr.execute(
+            """
+            INSERT INTO res_partner (
+                name, email, active, complete_name, type, autopost_bills,
+                create_uid, write_uid, create_date, write_date
+            )
+            VALUES (
+                %s, %s, true, %s, 'contact', 'ask',
+                1, 1,
+                (now() AT TIME ZONE 'UTC'),
+                (now() AT TIME ZONE 'UTC')
+            )
+            RETURNING id
+            """,
+            (name, f"{name}@example.com", name),
+        )
+        return Partner.browse(self.env.cr.fetchone()[0])
+
+    def _create_company(self, name):
+        partner = self._create_partner(name)
+        self.env.cr.execute(
+            """
+            INSERT INTO res_company (
+                name, partner_id, currency_id,
+                fiscalyear_last_day, fiscalyear_last_month,
+                account_price_include, cost_method, horizon_days,
+                inventory_period, layout_background, security_lead
+            )
+            SELECT
+                %s, %s, currency_id,
+                fiscalyear_last_day, fiscalyear_last_month,
+                account_price_include, cost_method, horizon_days,
+                inventory_period, layout_background, security_lead
+            FROM res_company
+            WHERE id = %s
+            RETURNING id
+            """,
+            (name, partner.id, self.env.company.id),
+        )
+        company = self.env["res.company"].browse(self.env.cr.fetchone()[0])
+        company.invalidate_recordset()
+        company._collection_copy_sequences()
+        company._collection_enable_all_document_types()
+        return company
+
+    def _create_user(self, login, group_xmlid):
+        return TestCollectionAcl._create_user.__func__(self, login, group_xmlid)
+
+    def _partner_has_autopost_bills_column(self):
+        return TestCollectionAcl._partner_has_autopost_bills_column.__func__(self)
+
+    def _restrict_user_to_company(self, user, company):
+        user.write({"company_ids": [Command.link(company.id)]})
+        user.write(
+            {
+                "company_id": company.id,
+                "company_ids": [Command.set([company.id])],
+            }
+        )
+
+    def test_report_action_is_qweb_pdf_bound_a4_landscape(self):
+        """Print menu XMLID MUST be qweb-pdf on collection.sheet with A4 landscape."""
+        action = self.env.ref(REPORT_XMLID)
+        self.assertEqual(action.report_type, "qweb-pdf")
+        self.assertEqual(action.model, "collection.sheet")
+        self.assertEqual(action.report_name, WRAPPER_XMLID)
+        self.assertEqual(action.report_file, WRAPPER_XMLID)
+        self.assertEqual(action.binding_type, "report")
+        self.assertEqual(action.binding_model_id.model, "collection.sheet")
+        self.assertIn("Planilla de Cobranza", action.print_report_name)
+        paper = action.paperformat_id
+        self.assertEqual(paper, self.env.ref("collection.paperformat_collection_sheet"))
+        self.assertEqual(paper.format, "A4")
+        self.assertEqual(paper.orientation, "Landscape")
+        self.assertEqual(paper.margin_top, 32)
+        self.assertEqual(paper.header_spacing, 28)
+        self.assertEqual(paper.margin_left, 5)
+        self.assertEqual(paper.margin_right, 5)
+        self.assertEqual(paper.dpi, 90)
+
+    def test_get_report_values_one_payload_per_doc(self):
+        """`_get_report_values` MUST return one payload per sheet and set `o`."""
+        sheet, _partner = self._populated_sheet()
+        render = self.env[RENDER_MODEL]
+        values = render._get_report_values(sheet.ids)
+        self.assertEqual(len(values["payloads"]), 1)
+        payload = values["payloads"][0]
+        self.assertEqual(payload["sheet"], sheet)
+        self.assertEqual(payload["reference"], sheet.name)
+        self.assertEqual(values["o"], sheet)
+
+        other_seller = self._second_seller("planilla_seller_beto")
+        sheet_b, _partner_b = self._populated_sheet(
+            seller=other_seller,
+            partner_name="Cliente Sur SA",
+            invoice_number="FAC-2002",
+        )
+        both = sheet | sheet_b
+        values_both = render._get_report_values(both.ids)
+        self.assertEqual(len(values_both["payloads"]), 2)
+        self.assertEqual(
+            [row["sheet"] for row in values_both["payloads"]],
+            [sheet, sheet_b],
+        )
+
+    def test_html_contains_reference_seller_partners_docs_banner(self):
+        """HTML render MUST include reference, seller, partners, docs, banner."""
+        sheet, partner_a = self._populated_sheet()
+        partner_b = dummy_customer_partner(self.env, customer="Cliente Litoral SA")
+        voucher_b = self._create_voucher(partner_b, sheet, amount=50.0)
+        self._create_allocation(
+            sheet,
+            partner_b,
+            vouchers=voucher_b,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    invoice_number="FAC-1002",
+                )
+            ],
+        )
+        payload = sheet._collection_report_data()
+        html = self._render_html(sheet)
+        self.assertIn(sheet.name, html)
+        self.assertIn("Planilla Seller Ana", html)
+        self.assertIn(partner_a.name, html)
+        self.assertIn(partner_b.name, html)
+        self.assertIn("FAC-1001", html)
+        self.assertIn("FAC-1002", html)
+        self.assertIn(payload["recon"]["status_message"], html)
+        self.assertNotIn("%PDF", html[:8])
+
+    def test_two_sheets_render_two_page_divs(self):
+        """Two sheets MUST render two `<div class="page">` in HTML."""
+        sheet_a, _partner_a = self._populated_sheet()
+        other_seller = self._second_seller("planilla_seller_cara")
+        sheet_b, _partner_b = self._populated_sheet(
+            seller=other_seller,
+            partner_name="Cliente Patagonia SA",
+            invoice_number="FAC-3003",
+        )
+        html = self._render_html(sheet_a | sheet_b)
+        self.assertEqual(html.count('<div class="page">'), 2)
+        self.assertIn(sheet_a.name, html)
+        self.assertIn(sheet_b.name, html)
+
+    def test_qweb_arch_uses_external_layout_and_t_out(self):
+        """Report arch MUST call web.external_layout and MUST NOT use t-esc."""
+        wrapper = self.env.ref(WRAPPER_XMLID)
+        document = self.env.ref(DOCUMENT_XMLID)
+        combined = f"{wrapper.arch}{document.arch}"
+        self.assertIn("web.external_layout", combined)
+        self.assertIn("web.html_container", wrapper.arch)
+        self.assertNotIn("t-esc", combined)
+        self.assertIn("t-out", combined)
+        self.assertIn("Resumen", document.arch)
+        self.assertIn("Clientes", document.arch)
+        self.assertIn("Documentos Aplicados", document.arch)
+        self.assertIn("Comprobantes", document.arch)
+        self.assertIn("Conciliaci", document.arch)
+
+    def test_company_b_access_error_on_data_and_render(self):
+        """Company-B users MUST get AccessError on payload data() and HTML render."""
+        user_a = self._create_user("rpt_company_a", "base.group_user")
+        self._restrict_user_to_company(user_a, self.env.company)
+
+        company_b = self._create_company("Report Hidden Co B")
+        seller_b = create_internal_seller(self.env, "planilla_hidden_seller")
+        seller_b.write({"name": "Hidden Seller B"})
+        sheet_b = self._create_sheet(
+            seller=seller_b, force_new=True, company=company_b
+        )
+        partner = dummy_customer_partner(self.env, customer="Hidden Cliente SA")
+        voucher = self._create_voucher(partner, sheet_b, amount=100.0)
+        self._create_allocation(
+            sheet_b,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=100.0,
+                    invoice_balance=100.0,
+                    invoice_number="FAC-B-1",
+                )
+            ],
+        )
+
+        hidden = self.env["collection.sheet"].with_user(user_a).browse(sheet_b.id)
+        with self.assertRaises(AccessError):
+            hidden._collection_report_data()
+
+        render = self.env[RENDER_MODEL].with_user(user_a)
+        with self.assertRaises(AccessError):
+            render._get_report_values(sheet_b.ids)
+
+        report = self.env["ir.actions.report"].with_user(user_a)
+        with self.assertRaises(AccessError):
+            report._render_qweb_html(REPORT_XMLID, sheet_b.ids)
+
+        render_src = (
+            Path(__file__).resolve().parents[1]
+            / "report"
+            / "collection_sheet_report_render.py"
+        ).read_text(encoding="utf-8")
+        code = "\n".join(
+            line
+            for line in render_src.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn(".sudo(", code)
+        self.assertNotIn("sudo()", code)

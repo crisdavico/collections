@@ -1,0 +1,81 @@
+# Apply Progress: collection-sheet-report
+
+**Change**: `collection-sheet-report`
+**Mode**: Strict TDD
+**Work unit**: Phase 4 / PR D (`phase-4-version-docs`) after Phase 1 / PR A, Phase 2 / PR B, and Phase 3 / PR C
+**Attempt token**: `sha256:054dd4276afd861ef3536615507a9bc3677035d73a52ca322d84242aeff096c8` (parent-held; executor did not acquire or settle)
+
+## Completed Tasks
+
+- [x] 1.1 RED `tests/test_collection_allocation_document_kind.py`
+- [x] 1.2 GREEN `document_kind` + inherit view + `__init__` imports
+- [x] 1.3 RED `tests/test_collection_sheet_report_data.py`
+- [x] 1.4 GREEN `models/collection_sheet_report.py` payload helpers
+- [x] 2.1 RED `tests/test_collection_sheet_report.py`
+- [x] 2.2 GREEN `report/` package + paperformat/action/templates + `web` + 3 `data`
+- [x] 3.1 RED `tests/test_collection_sheet_xlsx.py`
+- [x] 3.2 GREEN `report/collection_sheet_xlsx.py` + `action_print_xlsx` + sheet form button/group
+- [x] 4.1 RED `tests/test_collection_company_migration.py` version `19.0.1.30.0`; no `migrations/19.0.1.30.0/`
+- [x] 4.2 GREEN version `19.0.1.30.0`; inherit-view `data`; `AGENTS.md`; `readme/DESCRIPTION.md`
+
+## Work Unit Evidence
+
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result (A) | `docker exec -i seedian-odoo-1 odoo -d devel --test-enable --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172 --test-tags /collection:TestCollectionAllocationDocumentKind,/collection:TestCollectionSheetReportData` → **0 failed, 0 error(s) of 22 tests** (`collection: 26 tests 1.34s 2114 queries`). `--http-port` avoids the live `seedian-odoo-1` bind on 8069. |
+| Runtime harness command/scenario and exact result (A) | N/A — work unit A is payload/fields only (tasks table: "N/A (payload tests)"). No PDF/XLSX/Print boundary in this slice. Schema load: `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172` → **exit 0** twice (after 1.2 field, after 1.4 inherit). |
+| Rollback boundary (A) | `models/collection_allocation_line.py` (`document_kind` only), `models/collection_sheet_report.py`, `views/collection_sheet_report_views.xml`, `models/__init__.py` import, `tests/__init__.py` imports, `tests/test_collection_allocation_document_kind.py`, `tests/test_collection_sheet_report_data.py`. Does not touch claimed sibling files or `__manifest__.py`. |
+| Focused test command and exact result (B) | `docker exec -i seedian-odoo-1 odoo -d devel --test-enable --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172 --test-tags /collection:TestCollectionSheetReport` → **0 failed, 0 error(s) of 6 tests**. Combined A+B: `--test-tags /collection:TestCollectionSheetReport,/collection:TestCollectionAllocationDocumentKind,/collection:TestCollectionSheetReportData` → **0 failed, 0 error(s) of 28 tests** (`collection: 34 tests 2.38s 3475 queries`). |
+| Runtime harness command/scenario and exact result (B) | `_render_qweb_html("collection.action_report_collection_sheet", sheet.ids)` returns HTML (not PDF / not wkhtmltopdf). Schema load: `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172` → **exit 0** after paperformat/action/templates. Live `seedian-odoo-1` on 8069 was not killed. |
+| Rollback boundary (B) | `report/__init__.py`, `report/collection_sheet_report_render.py`, `report/report_paperformat.xml`, `report/collection_sheet_report.xml`, `report/collection_sheet_templates.xml`, addon `__init__.py` (`from . import report`), `__manifest__.py` (`web` + 3 `data` only; no version), `tests/test_collection_sheet_report.py`, `tests/__init__.py` import. Does not add `views/collection_sheet_report_views.xml` to `data` (D). C skips `__manifest__.py`. |
+| Focused test command and exact result (C) | `docker exec -i seedian-odoo-1 odoo -d devel --test-enable --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172 --test-tags /collection:TestCollectionSheetXlsx` → **0 failed, 0 error(s) of 12 tests**. Combined A+B+C: `--test-tags /collection:TestCollectionSheetXlsx,/collection:TestCollectionSheetReport,/collection:TestCollectionAllocationDocumentKind,/collection:TestCollectionSheetReportData` → **0 failed, 0 error(s) of 40 tests** (`collection: 48 tests 4.05s 5625 queries`). |
+| Runtime harness command/scenario and exact result (C) | `action_print_xlsx` returns `ir.actions.act_url` `/web/content/{id}?download=true` `target=download`; attachment bytes start `PK` and zip contains `xl/workbook.xml`. Schema load: `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172` → **exit 0**. Live `seedian-odoo-1` on 8069 was not killed. |
+| Rollback boundary (C) | `report/collection_sheet_xlsx.py`, `report/__init__.py` import, `models/collection_sheet_report.py` (`action_print_xlsx` only), `views/collection_views.xml` (XLSX button last + recon second inner group), `tests/test_collection_sheet_xlsx.py`, `tests/__init__.py` import. Does not touch `__manifest__.py`, `AGENTS.md`, claimed sibling files, or version. |
+| Focused test command and exact result (D) | `docker exec -i seedian-odoo-1 odoo -d devel --test-enable --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172 --test-tags /collection:TestCollectionCompanyMigration.test_manifest_version_is_1_30_0` → RED **1 failed, 0 error(s) of 1 tests** (`"version": "19.0.1.30.0"` not in 1.29.0 manifest); GREEN **0 failed, 0 error(s) of 1 tests**. Full class `/collection:TestCollectionCompanyMigration` → **0 failed, 9 error(s) of 12 tests** (pre-existing `fiscalyear_last_day` ORM company-create; version method is among the 3 that pass). Combined A+B+C after D: `--test-tags /collection:TestCollectionSheetXlsx,/collection:TestCollectionSheetReport,/collection:TestCollectionAllocationDocumentKind,/collection:TestCollectionSheetReportData` → **0 failed, 0 error(s) of 40 tests** (`collection: 48 tests 4.32s 5625 queries`). |
+| Runtime harness command/scenario and exact result (D) | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init --workers=0 --http-port=18169 --gevent-port=18172` → **exit 0**; log `loading collection/views/collection_sheet_report_views.xml` after the three report XML files. Live `seedian-odoo-1` on 8069 was not killed. No `migrations/19.0.1.30.0/` created. |
+| Rollback boundary (D) | `__manifest__.py` version `19.0.1.29.0`→`19.0.1.30.0` and inherit-view `data` entry only; `tests/test_collection_company_migration.py` version assertion; `AGENTS.md` report/docs bullets; `readme/DESCRIPTION.md`; generated `README.rst`. Does not revert `web`, the three report `data` paths, 1.28 migrate remap, `commission_percent` seller-binding notes, or draft/confirmed allocation notes. Does not create `migrations/19.0.1.30.0/`. |
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 1.1 | `tests/test_collection_allocation_document_kind.py` | Unit + MCP integration | N/A (new) | ✅ Written then executed: **1 failed, 4 error(s) of 5 tests** (`document_kind` missing; inherit XML missing) | ✅ Passed: **0 failed, 0 error(s) of 5 tests** after field + inherit view | ✅ 5 cases (default, selection, quotation write, xpath/`<list>`, MCP omit) | ➖ None needed |
+| 1.2 | same | Unit | N/A (new field/view; line model additive) | ✅ Gated on 1.1 RED | ✅ Field `default`+`required` (ORM `_init_column`); xpath inherit; tests import | ➖ Structural | ➖ None needed |
+| 1.3 | `tests/test_collection_sheet_report_data.py` | Unit | N/A (new) | ✅ Written then executed: **1 failed, 16 error(s) of 17 tests** (missing recon fields / `_collection_report_data`) | ✅ Combined GREEN with 1.4: **0 failed, 0 error(s) of 22 tests** (both classes) | ✅ 17 methods covering every 1.3 scenario (bounds, OOB, freeze, reopen, primitives, drafts, sort, kind split, round-then-sum, zero %, catalog order, tendered, tri-state, mismatch, unsaved, mixed currency, no sudo) | ✅ Private helpers extracted |
+| 1.4 | same | Unit | N/A (new inherit file) | ✅ Gated on 1.3 RED | ✅ Inherit: currency, %, cash, withheld, `models.Constraint`, `write`→`super()`, `_collection_report_data()` + `@api.private` helpers. No `report` import. No version. | ✅ Forced real logic (round-then-sum ≠ naive; recon three statuses; mismatch vs allocated totals) | ✅ Extra private helpers (`_collection_report_customers`, `_collection_report_tendered`, `_collection_report_code_sort`) |
+| 2.1 | `tests/test_collection_sheet_report.py` | Integration | ✅ Phase 1 tags still green after B (`0 failed, 0 error(s) of 28` combined) | ✅ Written then executed: **0 failed, 6 error(s) of 6 tests** (XMLID / render model missing) | ✅ Gated on 2.2 | ✅ 6 methods (binding+A4, one payload per doc + two docs, HTML names/banner, two `<div class="page">`, `web.external_layout`/`t-out`, company-B AccessError on data+values+render + no sudo) | ➖ Test helpers only |
+| 2.2 | same | Integration | N/A (new `report/` package) | ✅ Gated on 2.1 RED | ✅ Passed: **0 failed, 0 error(s) of 6 tests** after AbstractModel + paperformat + action + QWeb (`t-out`) + addon `from . import report` + manifest `web` + 3 `data`. No version. | ✅ Two-sheet HTML; company-B AccessError on `_collection_report_data`, `_get_report_values`, and `_render_qweb_html` | ➖ Removed invalid `context` field on `ir.actions.report` |
+| 3.1 | `tests/test_collection_sheet_xlsx.py` | Integration | ✅ Phase 1+2 tags still green after C (`0 failed, 0 error(s) of 40` combined) | ✅ Written then executed: **9 failed, 3 error(s) of 12 tests** (xlsx model / `action_print_xlsx` / button / recon group missing) | ✅ Gated on 3.2 | ✅ 12 methods (PK+workbook.xml, freeze/print, merges+formats, cached SUM, 4.5%→0.045, three banner fills, act_url+attachment, second-call replace, button last, one notebook page, company-B AccessError, no sudo) | ➖ Test helpers copied from Phase 2 |
+| 3.2 | same | Integration | N/A (new xlsx AbstractModel; additive action + view) | ✅ Gated on 3.1 RED | ✅ Passed: **0 failed, 0 error(s) of 12 tests** after `_render_xlsx`, `action_print_xlsx`, XLSX last in header, recon second inner group. No manifest. No version. | ✅ Cached SUM vs payload; three recon banners; second call unlinks same-name attachment | ✅ `_merge_formula` so cached values survive merges; `_align_workbook_xml` writes template col widths and `fitToWidth=1` (xlsxwriter omits default width=1 and stores 32.71) |
+| 4.1 | `tests/test_collection_company_migration.py` | Unit (disk/manifest) | ✅ `.test_manifest_version_is_1_29_0` → **0 failed, 0 error(s) of 1 tests**. Full class still **0 failed, 9 error(s) of 12** (pre-existing `fiscalyear_last_day`; not fixed) | ✅ Written then executed: **1 failed, 0 error(s) of 1 tests** (`"version": "19.0.1.30.0"` absent; manifest still 1.29.0) | ✅ Gated on 4.2 | ✅ Version string + no `migrations/19.0.1.30.0/` + keep 1.28 remap file + keep no-1.29-folder | ➖ None needed |
+| 4.2 | same | Structural | N/A (manifest version + `data` + docs) | ✅ Gated on 4.1 RED | ✅ Passed: **0 failed, 0 error(s) of 1 tests** after version `19.0.1.30.0` and inherit-view `data`. Did not re-add `web`. Did not create `migrations/19.0.1.30.0/`. | ➖ Triangulation skipped: one version string and one `data` path; no branching | ➖ None needed |
+
+### Test Summary
+
+- **Total tests written**: 41 (5 document kind + 17 payload + 6 QWeb + 12 XLSX + 1 version assertion renamed/extended)
+- **Total tests passing**: 41 focused (version method + 40 A+B+C). Full `TestCollectionCompanyMigration` still has 9 pre-existing company-create errors unrelated to version.
+- **Layers used**: Unit (22), Integration (19: 1 MCP create + 6 QWeb HTML + 12 XLSX)
+- **Approval tests** (refactoring): None — no refactoring of existing behavior
+- **Pure functions created**: module-level XLSX writers (`_build_xlsx` and section helpers) take payload primitives only
+
+## Deviations from Design
+
+- Inherit view xpath is asserted by parsing `views/collection_sheet_report_views.xml` from disk with lxml, not via `ir.ui.view` xmlid. Design/tasks keep `__manifest__.py` `data` for D; loading the inherit in A would require the contested manifest. D now registers that `data` path; upgrade loaded `collection/views/collection_sheet_report_views.xml`.
+- `models/__init__.py` `from . import collection_sheet_report` was added in 1.4 with the model file (same PR A) rather than in 1.2, so 1.2 GREEN could load the registry before the inherit module existed.
+- No custom `_init_column` override: `document_kind` uses Selection `default="invoice"` + `required=True` so Odoo 19 `_init_column` backfills existing rows.
+- `ir.actions.report` has no `context` field in this Odoo 19 registry. `discard_logo_check` is passed from tests via `with_context`; it is not stored on the action record.
+- HTML `_render_qweb_html` tests patch `ir.qweb._get_asset_nodes` to `[]` because devel `web.report_assets_common` still lists `website/` snippet SCSS while `website` is not installed. Production Print still uses `web.html_container` + `web.external_layout`.
+- Company-B AccessError fixture restricts a company-A user and prints a company-B sheet (SQL `res.company` insert copies `fiscalyear_last_day` from the current company). ORM `res.company.create` hits the pre-existing NOT NULL column that is absent from this registry's `_fields`.
+- XLSX payload still has no `currency_symbol` / `currency_decimals` keys (Phase 1 `PAYLOAD_KEYS` is an exact set). The writer uses template number formats (`#,##0.00` / `"$" #,##0.00`) and never reads `payload["currency"]`.
+- xlsxwriter omits default `fitToWidth=1` and converts character width 32 to `32.7109375`. `_align_workbook_xml` rewrites worksheet XML to the template's `fitToWidth="1"` and `width="32"` so openpyxl assertions match the workbook spec. Cached formula `<v>` cells are left untouched.
+- D did not re-add `web` (already present from B). Manifest `data` appends inherit views after the three report XML files only.
+
+## Issues Found
+
+- Focused `odoo --stop-after-init` needs `--workers=0 --http-port=18169 --gevent-port=18172` while the live `seedian-odoo-1` dev server holds 8069. Not killed.
+- Pre-existing `fiscalyear_last_day` company-create errors were not reproduced in Phase 1's focused tag set; Phase 2 reproduced them and copied the SQL insert used by `test_collection_customer_binding.py`. Phase 4 safety net / full-class run still shows **9 error(s) of 12** on `TestCollectionCompanyMigration` for ORM `res.company.create`; the version assertion does not create companies and passes. Not fixed (out of D scope).
+- Missing company logo in the devel filestore logs `FileNotFoundError` during HTML render; QWeb still returns HTML and assertions pass.
+
+## Remaining Tasks
+
+None — 10/10 tasks complete. Ready for sdd-verify.

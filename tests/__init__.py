@@ -4,6 +4,7 @@
 from . import test_collection_acl
 from . import test_collection_allocation
 from . import test_collection_allocation_acl
+from . import test_collection_allocation_document_kind
 from . import test_collection_company_settings
 from . import test_collection_company_migration
 from . import test_collection_connector
@@ -22,5 +23,8 @@ from . import test_collection_mcp_tool
 from . import test_collection_payment
 from . import test_collection_seller_sync
 from . import test_collection_sheet
+from . import test_collection_sheet_report
+from . import test_collection_sheet_report_data
+from . import test_collection_sheet_xlsx
 from . import test_collection_ui
 from . import test_collection_voucher

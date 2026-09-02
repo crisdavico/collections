@@ -1,0 +1,570 @@
+# Copyright 2026 Seedian
+# License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
+
+import inspect
+from datetime import date
+from pathlib import Path
+
+from psycopg2 import IntegrityError
+
+from odoo.exceptions import UserError
+from odoo.fields import Command
+from odoo.tests import TransactionCase
+from odoo.tools import mute_logger
+
+from .common_connector import install_bound_test_connector
+from .test_collection_payment import (
+    create_internal_seller,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+)
+
+PAYLOAD_KEYS = (
+    "company",
+    "printed_on",
+    "reference",
+    "state_label",
+    "seller_name",
+    "date_from",
+    "date_to",
+    "customer_count",
+    "voucher_count",
+    "commission_percent",
+    "customers",
+    "customer_totals",
+    "document_blocks",
+    "applied_total",
+    "voucher_blocks",
+    "collected_total",
+    "tendered",
+    "recon",
+    "mismatch",
+    "sheet",
+    "currency",
+)
+_PRIMITIVES = (str, float, int, bool, date, type(None))
+_REPORT_SOURCE = (
+    Path(__file__).resolve().parents[1] / "models" / "collection_sheet_report.py"
+)
+_PRIVATE_HELPERS = (
+    "_collection_report_customer_codes",
+    "_collection_report_document_blocks",
+    "_collection_report_voucher_blocks",
+    "_collection_report_recon",
+)
+_RECON_FIELDS = ("commission_percent", "cash_on_hand", "commission_withheld")
+
+
+class TestCollectionSheetReportData(TransactionCase):
+    """RED: sheet recon inputs and shared `_collection_report_data()` payload."""
+
+    def setUp(self):
+        super().setUp()
+        self._doc_seq = 0
+        self.seller = ensure_enabled_seller(self.env)
+        self.connector = install_bound_test_connector(self, self.seller)
+
+    def _next_document_id(self, prefix="RPT"):
+        self._doc_seq += 1
+        return f"{prefix}-{self._testMethodName}-{self._doc_seq}"
+
+    def _create_sheet(self, *, seller=None, force_new=False, **extra):
+        seller = seller or self.seller
+        ensure_enabled_seller(self.env, seller)
+        if not force_new:
+            existing = self.env["collection.sheet"].search(
+                [
+                    ("seller_id", "=", seller.id),
+                    ("company_id", "=", self.env.company.id),
+                    ("state", "=", "open"),
+                ],
+                limit=1,
+            )
+            if existing:
+                return existing
+        return self.env["collection.sheet"].create(
+            {"seller_id": seller.id, "company_id": self.env.company.id, **extra}
+        )
+
+    def _create_voucher(self, partner, sheet, amount=100.0, **extra):
+        ensure_enabled_seller(self.env, sheet.seller_id, company=sheet.company_id)
+        vals = {
+            "partner_id": partner.id,
+            "document_type": extra.pop("document_type", "bank_transfer"),
+            "document_id": extra.pop("document_id", self._next_document_id()),
+            "seller_id": sheet.seller_id.id,
+            "sheet_id": sheet.id,
+            "company_id": sheet.company_id.id,
+            "amount": amount,
+        }
+        vals.update(extra)
+        return self.env["collection.voucher"].create(vals)
+
+    def _line_vals(self, amount_applied=100.0, invoice_balance=100.0, **extra):
+        vals = {
+            "external_invoice_id": extra.pop(
+                "external_invoice_id", self._next_document_id("INV")
+            ),
+            "invoice_number": extra.pop("invoice_number", "A-1"),
+            "issue_date": extra.pop("issue_date", date(2026, 1, 1)),
+            "due_date": extra.pop("due_date", date(2026, 1, 31)),
+            "invoice_amount": extra.pop("invoice_amount", invoice_balance),
+            "invoice_balance": invoice_balance,
+            "invoice_state": extra.pop("invoice_state", "open"),
+            "amount_applied": amount_applied,
+            "document_kind": extra.pop("document_kind", "invoice"),
+        }
+        vals.update(extra)
+        return vals
+
+    def _create_allocation(self, sheet, partner, vouchers=None, lines=None, **extra):
+        vals = {
+            "sheet_id": sheet.id,
+            "partner_id": partner.id,
+        }
+        if vouchers:
+            vals["voucher_ids"] = [Command.set(vouchers.ids)]
+        if lines is not None:
+            vals["line_ids"] = [Command.create(line) for line in lines]
+        vals.update(extra)
+        return self.env["collection.allocation"].create(vals)
+
+    def _balanced(self, amount=100.0, *, sheet=None, partner=None, **extra):
+        partner = partner or dummy_customer_partner(
+            self.env, customer=extra.pop("customer", "RPT-CUST")
+        )
+        sheet = sheet or self._create_sheet()
+        voucher = extra.pop("voucher", None) or self._create_voucher(
+            partner, sheet, amount=amount, **extra.pop("voucher_extra", {})
+        )
+        document_kind = extra.pop("document_kind", "invoice")
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=amount,
+                    invoice_balance=amount,
+                    document_kind=document_kind,
+                    **extra.pop("line_extra", {}),
+                )
+            ],
+            **extra,
+        )
+        return allocation, voucher, sheet, partner
+
+    def _bind_customer(self, partner, code, identification=None):
+        identification = identification or partner.vat or partner.name
+        return self.env["collection.connector.customer.binding"].create(
+            {
+                "connector_id": self.connector.id,
+                "external_customer_id": f"ext-{partner.id}",
+                "identification": identification,
+                "partner_id": partner.id,
+                "customer_code": code,
+            }
+        )
+
+    def _assert_nested_primitives(self, value, path="payload"):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in ("sheet", "currency"):
+                    self.assertTrue(
+                        hasattr(item, "_name"),
+                        f"{path}.{key} MUST be a recordset for QWeb",
+                    )
+                    continue
+                self._assert_nested_primitives(item, f"{path}.{key}")
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                self._assert_nested_primitives(item, f"{path}[{index}]")
+            return
+        self.assertIsInstance(
+            value,
+            _PRIMITIVES,
+            f"{path}={value!r} MUST be a primitive, not {type(value)!r}",
+        )
+
+    def test_percent_range_persists_bounds(self):
+        """Open sheet MUST persist commission_percent 0 and 100."""
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 0.0})
+        self.assertEqual(sheet.commission_percent, 0.0)
+        sheet.write({"commission_percent": 100.0})
+        self.assertEqual(sheet.commission_percent, 100.0)
+
+    def test_percent_outside_range_raises(self):
+        """Outside 0–100 MUST raise and MUST NOT persist."""
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 12.5})
+        for bad in (-0.01, 100.01):
+            with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
+                with self.env.cr.savepoint():
+                    sheet.write({"commission_percent": bad})
+                    sheet.flush_recordset(["commission_percent"])
+            sheet.invalidate_recordset(["commission_percent"])
+            self.assertEqual(sheet.commission_percent, 12.5)
+
+    def test_closed_write_guard(self):
+        """Closed sheets MUST refuse recon-input writes without persisting."""
+        allocation, _voucher, sheet, _partner = self._balanced()
+        sheet.write(
+            {
+                "commission_percent": 8.0,
+                "cash_on_hand": 25.0,
+                "commission_withheld": 3.0,
+            }
+        )
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        before = {
+            "commission_percent": sheet.commission_percent,
+            "cash_on_hand": sheet.cash_on_hand,
+            "commission_withheld": sheet.commission_withheld,
+        }
+        for field_name, value in (
+            ("cash_on_hand", 99.0),
+            ("commission_withheld", 99.0),
+            ("commission_percent", 9.0),
+        ):
+            with self.assertRaises(UserError):
+                sheet.write({field_name: value})
+            sheet.invalidate_recordset(_RECON_FIELDS)
+            self.assertEqual(sheet[field_name], before[field_name], field_name)
+
+    def test_reopen_keeps_recon_values(self):
+        """Close then Reopen MUST keep stored recon inputs."""
+        _allocation, _voucher, sheet, _partner = self._balanced()
+        sheet.write(
+            {
+                "commission_percent": 12.5,
+                "cash_on_hand": 40.0,
+                "commission_withheld": 5.5,
+            }
+        )
+        sheet.action_close()
+        sheet.action_reopen()
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(sheet.commission_percent, 12.5)
+        self.assertEqual(sheet.cash_on_hand, 40.0)
+        self.assertEqual(sheet.commission_withheld, 5.5)
+
+    def test_payload_keys_and_primitives(self):
+        """Payload MUST expose listed keys with primitive nested row values."""
+        allocation, voucher, sheet, partner = self._balanced(amount=80.0)
+        self._bind_customer(partner, "C-BOUND-1")
+        payload = sheet._collection_report_data()
+        self.assertEqual(set(payload), set(PAYLOAD_KEYS))
+        self._assert_nested_primitives(payload)
+        self.assertEqual(payload["reference"], sheet.name)
+        self.assertEqual(payload["seller_name"], sheet.seller_id.name)
+        self.assertEqual(payload["customer_count"], 1)
+        self.assertEqual(payload["voucher_count"], 1)
+        self.assertEqual(payload["customers"][0]["collected"], allocation.total_vouchers)
+        self.assertEqual(payload["customers"][0]["applied"], allocation.total_applied)
+        self.assertEqual(payload["customers"][0]["residual"], allocation.residual)
+        self.assertEqual(
+            payload["customer_totals"]["collected"], allocation.total_vouchers
+        )
+        self.assertEqual(payload["collected_total"], voucher.amount)
+        self.assertIs(payload["sheet"], sheet)
+        self.assertEqual(payload["currency"], sheet.currency_id)
+
+    def test_open_sheet_prints_drafts(self):
+        """Open-sheet payload MUST include draft allocations and mixed vouchers."""
+        sheet = self._create_sheet()
+        pending_partner = dummy_customer_partner(self.env, customer="RPT-PENDING")
+        approved_partner = dummy_customer_partner(self.env, customer="RPT-APPROVED")
+        rejected_partner = dummy_customer_partner(self.env, customer="RPT-REJECTED")
+        pending = self._create_voucher(pending_partner, sheet, amount=10.0)
+        approved = self._create_voucher(approved_partner, sheet, amount=20.0)
+        rejected = self._create_voucher(rejected_partner, sheet, amount=30.0)
+        approved.action_approve()
+        rejected.action_reject()
+        first = self._create_allocation(
+            sheet,
+            pending_partner,
+            vouchers=pending,
+            lines=[self._line_vals(amount_applied=10.0, invoice_balance=10.0)],
+        )
+        second = self._create_allocation(
+            sheet,
+            approved_partner,
+            vouchers=approved,
+            lines=[self._line_vals(amount_applied=20.0, invoice_balance=20.0)],
+        )
+        self.assertEqual(first.state, "draft")
+        self.assertEqual(second.state, "draft")
+        self.assertEqual(sheet.state, "open")
+        payload = sheet._collection_report_data()
+        customer_names = {row["name"] for row in payload["customers"]}
+        self.assertEqual(
+            customer_names,
+            {pending_partner.name, approved_partner.name},
+        )
+        voucher_amounts = sorted(
+            row["amount"]
+            for block in payload["voucher_blocks"]
+            for row in block["rows"]
+        )
+        self.assertEqual(voucher_amounts, [10.0, 20.0, 30.0])
+        self.assertEqual(payload["voucher_count"], 3)
+        self.assertEqual(payload["collected_total"], 60.0)
+        self.assertEqual(rejected.state, "rejected")
+        self.assertEqual(approved.state, "approved")
+        self.assertEqual(pending.state, "pending")
+
+    def test_binding_code_vs_blank_last(self):
+        """Bound customer code MUST print; unbound blank code MUST sort last."""
+        sheet = self._create_sheet()
+        bound = dummy_customer_partner(self.env, customer="Alpha Bound")
+        unbound = dummy_customer_partner(self.env, customer="Zulu Unbound")
+        self._bind_customer(bound, "C-BOUND-1")
+        self._balanced(amount=40.0, sheet=sheet, partner=bound)
+        self._balanced(amount=60.0, sheet=sheet, partner=unbound)
+        payload = sheet._collection_report_data()
+        customers = payload["customers"]
+        self.assertEqual(len(customers), 2)
+        self.assertEqual(customers[0]["code"], "C-BOUND-1")
+        self.assertEqual(customers[0]["name"], bound.name)
+        self.assertEqual(customers[1]["code"], "")
+        self.assertEqual(customers[1]["name"], unbound.name)
+
+    def test_kind_split_drops_empty(self):
+        """Invoice lines MUST form a block; empty quotation block MUST be absent."""
+        self._balanced(amount=70.0, document_kind="invoice")
+        sheet = self._create_sheet()
+        payload = sheet._collection_report_data()
+        kinds = [block["kind"] for block in payload["document_blocks"]]
+        self.assertEqual(kinds, ["invoice"])
+        self.assertNotIn("quotation", kinds)
+        self.assertGreater(payload["document_blocks"][0]["subtotal_applied"], 0)
+
+    def test_round_per_row_then_sum(self):
+        """Block commission MUST be the sum of rounded row commissions."""
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 3.0})
+        partner = dummy_customer_partner(self.env, customer="RPT-ROUND")
+        voucher = self._create_voucher(partner, sheet, amount=2.22)
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=1.11,
+                    invoice_balance=1.11,
+                    invoice_number="R-1",
+                    due_date=date(2026, 2, 1),
+                ),
+                self._line_vals(
+                    amount_applied=1.11,
+                    invoice_balance=1.11,
+                    invoice_number="R-2",
+                    due_date=date(2026, 3, 1),
+                ),
+            ],
+        )
+        payload = sheet._collection_report_data()
+        invoice_block = payload["document_blocks"][0]
+        self.assertEqual(invoice_block["kind"], "invoice")
+        currency = payload["currency"]
+        row_commissions = [row["commission"] for row in invoice_block["rows"]]
+        self.assertEqual(len(row_commissions), 2)
+        expected_sum = sum(row_commissions)
+        naive = currency.round(invoice_block["subtotal_applied"] * 3.0 / 100.0)
+        self.assertEqual(invoice_block["subtotal_commission"], expected_sum)
+        self.assertNotEqual(invoice_block["subtotal_commission"], naive)
+        self.assertEqual(row_commissions[0], currency.round(1.11 * 3.0 / 100.0))
+
+    def test_zero_percent(self):
+        """Percent 0 MUST yield zero row and block commissions."""
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 0.0})
+        self._balanced(amount=90.0, sheet=sheet)
+        payload = sheet._collection_report_data()
+        self.assertEqual(payload["commission_percent"], 0.0)
+        for block in payload["document_blocks"]:
+            self.assertEqual(block["subtotal_commission"], 0.0)
+            self.assertGreater(len(block["rows"]), 0)
+            for row in block["rows"]:
+                self.assertEqual(row["commission"], 0.0)
+
+    def test_catalog_order_and_empty_drop(self):
+        """Voucher blocks MUST be check then unsupported; empty types dropped."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="RPT-VOUCHERS")
+        check = self._create_voucher(
+            partner, sheet, amount=15.0, document_type="check"
+        )
+        other = self._create_voucher(
+            partner, sheet, amount=25.0, document_type="unsupported"
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=check | other,
+            lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
+        )
+        payload = sheet._collection_report_data()
+        codes = [block["code"] for block in payload["voucher_blocks"]]
+        self.assertEqual(codes, ["check", "unsupported"])
+        self.assertNotIn("bank_transfer", codes)
+        self.assertNotIn("cash_deposit", codes)
+        check_type = self.env["collection.document.type"].search(
+            [("code", "=", "check")], limit=1
+        )
+        self.assertEqual(payload["voucher_blocks"][0]["label"], check_type.name)
+        self.assertEqual(
+            payload["collected_total"],
+            sum(block["subtotal"] for block in payload["voucher_blocks"]),
+        )
+
+    def test_tendered_includes_cash_on_hand(self):
+        """tendered.cash MUST equal cash_on_hand and be included in tendered.total."""
+        sheet = self._create_sheet()
+        sheet.write({"cash_on_hand": 17.5})
+        self._balanced(amount=100.0, sheet=sheet, voucher_extra={"document_type": "check"})
+        payload = sheet._collection_report_data()
+        tendered = payload["tendered"]
+        self.assertEqual(tendered["cash"], 17.5)
+        self.assertEqual(tendered["checks"], 100.0)
+        self.assertEqual(tendered["total"], tendered["cash"] + tendered["deposits"]
+            + tendered["checks"] + tendered["transfers"])
+        self.assertGreater(tendered["total"], tendered["cash"])
+        self.assertIn(17.5, (tendered["cash"], tendered["total"]))
+
+    def test_recon_tri_state(self):
+        """compare_amounts vs 0 MUST map to balanced, in_favor, and outstanding."""
+        statuses = []
+        # balanced: transfer 100, cash 0, withheld 0 → tendered 100, net_due 100
+        seller_a = create_internal_seller(self.env, "rpt-recon-a")
+        sheet_a = self._create_sheet(seller=seller_a, force_new=True)
+        self._balanced(
+            amount=100.0,
+            sheet=sheet_a,
+            customer="RPT-BAL",
+            voucher_extra={"document_type": "bank_transfer"},
+        )
+        sheet_a.write({"cash_on_hand": 0.0, "commission_withheld": 0.0})
+        statuses.append(sheet_a._collection_report_data()["recon"]["status"])
+
+        # in_favor: transfer 100 + cash 50 → tendered 150 > net_due 100
+        seller_b = create_internal_seller(self.env, "rpt-recon-b")
+        sheet_b = self._create_sheet(seller=seller_b, force_new=True)
+        self._balanced(
+            amount=100.0,
+            sheet=sheet_b,
+            customer="RPT-FAVOR",
+            voucher_extra={"document_type": "bank_transfer"},
+        )
+        sheet_b.write({"cash_on_hand": 50.0, "commission_withheld": 0.0})
+        statuses.append(sheet_b._collection_report_data()["recon"]["status"])
+
+        # outstanding: unsupported 100, cash 0 → tendered 0 < net_due 100
+        seller_c = create_internal_seller(self.env, "rpt-recon-c")
+        sheet_c = self._create_sheet(seller=seller_c, force_new=True)
+        self._balanced(
+            amount=100.0,
+            sheet=sheet_c,
+            customer="RPT-OUT",
+            voucher_extra={"document_type": "unsupported"},
+        )
+        sheet_c.write({"cash_on_hand": 0.0, "commission_withheld": 0.0})
+        statuses.append(sheet_c._collection_report_data()["recon"]["status"])
+
+        self.assertEqual(statuses, ["balanced", "in_favor", "outstanding"])
+        recon = sheet_b._collection_report_data()["recon"]
+        for key in (
+            "collected",
+            "withheld",
+            "net_due",
+            "tendered",
+            "difference",
+            "status",
+            "status_message",
+        ):
+            self.assertIn(key, recon)
+        self.assertTrue(recon["status_message"])
+
+    def test_unallocated_voucher_mismatch(self):
+        """Unallocated sheet voucher MUST set mismatch and still count in collected."""
+        allocation, allocated, sheet, _partner = self._balanced(amount=40.0)
+        stray_partner = dummy_customer_partner(self.env, customer="RPT-STRAY")
+        stray = self._create_voucher(stray_partner, sheet, amount=15.0)
+        self.assertFalse(stray.allocation_id)
+        payload = sheet._collection_report_data()
+        self.assertTrue(payload["mismatch"])
+        self.assertEqual(
+            payload["collected_total"], allocated.amount + stray.amount
+        )
+        self.assertEqual(
+            payload["customer_totals"]["collected"], allocation.total_vouchers
+        )
+        self.assertNotEqual(
+            payload["collected_total"], payload["customer_totals"]["collected"]
+        )
+
+    def test_unsaved_sheet_refused(self):
+        """Unsaved (NewId) sheets MUST raise UserError and return no payload."""
+        ensure_enabled_seller(self.env, self.seller)
+        sheet = self.env["collection.sheet"].new(
+            {"seller_id": self.seller.id, "company_id": self.env.company.id}
+        )
+        with self.assertRaises(UserError) as error:
+            sheet._collection_report_data()
+        self.assertIn("saved", str(error.exception).lower())
+
+    def test_mixed_currency_refused(self):
+        """Mixed allocation currencies MUST raise UserError with no payload."""
+        sheet = self._create_sheet()
+        usd = self.env.ref("base.USD")
+        eur = self.env.ref("base.EUR")
+        self.assertNotEqual(usd, eur)
+        first_partner = dummy_customer_partner(self.env, customer="RPT-USD")
+        second_partner = dummy_customer_partner(self.env, customer="RPT-EUR")
+        first_voucher = self._create_voucher(first_partner, sheet, amount=10.0)
+        second_voucher = self._create_voucher(second_partner, sheet, amount=20.0)
+        self._create_allocation(
+            sheet,
+            first_partner,
+            vouchers=first_voucher,
+            lines=[self._line_vals(amount_applied=10.0, invoice_balance=10.0)],
+            currency_id=usd.id,
+        )
+        self._create_allocation(
+            sheet,
+            second_partner,
+            vouchers=second_voucher,
+            lines=[self._line_vals(amount_applied=20.0, invoice_balance=20.0)],
+            currency_id=eur.id,
+        )
+        with self.assertRaises(UserError) as error:
+            sheet._collection_report_data()
+        self.assertIn("currenc", str(error.exception).lower())
+
+    def test_report_source_has_no_sudo(self):
+        """Report inherit MUST NOT call sudo() and helpers MUST be private."""
+        self.assertTrue(_REPORT_SOURCE.is_file(), _REPORT_SOURCE)
+        source = _REPORT_SOURCE.read_text(encoding="utf-8")
+        code = "\n".join(
+            line for line in source.splitlines() if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn(".sudo(", code)
+        self.assertNotIn("sudo()", code)
+        self.assertNotIn("_collection_active_connector", code)
+        sheet = self._create_sheet()
+        method = type(sheet)._collection_report_data
+        self.assertTrue(callable(method))
+        for name in _PRIVATE_HELPERS:
+            helper = getattr(type(sheet), name)
+            self.assertTrue(callable(helper), name)
+            self.assertTrue(
+                getattr(helper, "_api_private", False),
+                f"{name} MUST be @api.private",
+            )
+        write_src = inspect.getsource(type(sheet).write)
+        self.assertIn("super().write", write_src)

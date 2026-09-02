@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <template id="report_collection_sheet">
+        <t t-call="web.html_container">
+            <t t-foreach="payloads" t-as="payload">
+                <t t-set="o" t-value="payload['sheet']" />
+                <t t-call="collection.report_collection_sheet_document" />
+            </t>
+        </t>
+    </template>
+
+    <template id="report_collection_sheet_document">
+        <t t-call="web.external_layout">
+            <t t-set="layout_document_title">
+                <span>Planilla de Cobranza — </span>
+                <span t-out="payload['reference']" />
+            </t>
+            <div class="page">
+                <style>
+                    .o_cs_sheet { font-size: 11px; color: #1f4e79; }
+                    .o_cs_sheet h3 {
+                        background: #1f4e79; color: #fff;
+                        padding: 4px 8px; font-size: 13px; margin-top: 12px;
+                    }
+                    .o_cs_sheet table { width: 100%; border-collapse: collapse; }
+                    .o_cs_sheet th, .o_cs_sheet td {
+                        border: 1px solid #8ea9db; padding: 3px 6px;
+                    }
+                    .o_cs_sheet th { background: #dbe5f1; }
+                    .o_cs_sheet .o_cs_sub { background: #ededed; font-weight: bold; }
+                    .o_cs_banner_balanced { background: #c6efce; padding: 8px; }
+                    .o_cs_banner_in_favor { background: #fff2cc; padding: 8px; }
+                    .o_cs_banner_outstanding { background: #ffc7ce; padding: 8px; }
+                    .o_cs_mismatch { background: #fff2cc; padding: 6px; margin-top: 8px; }
+                </style>
+                <div class="o_cs_sheet">
+                    <h2>
+                        Planilla de Cobranza
+                        <span t-out="payload['reference']" />
+                    </h2>
+                    <p>
+                        Vendedor:
+                        <span t-out="payload['seller_name']" />
+                        — Estado:
+                        <span t-out="payload['state_label']" />
+                    </p>
+
+                    <h3>Resumen</h3>
+                    <table>
+                        <tr>
+                            <th>Clientes</th>
+                            <td t-out="payload['customer_count']" />
+                            <th>Comprobantes</th>
+                            <td t-out="payload['voucher_count']" />
+                            <th>Comisión %</th>
+                            <td t-out="payload['commission_percent']" />
+                        </tr>
+                        <tr>
+                            <th>Total Cobrado</th>
+                            <td>
+                                <span
+                                    t-out="payload['collected_total']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                            <th>Total Aplicado</th>
+                            <td>
+                                <span
+                                    t-out="payload['applied_total']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                            <th>Remanente</th>
+                            <td>
+                                <span
+                                    t-out="payload['customer_totals']['residual']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                        </tr>
+                    </table>
+
+                    <h3>Clientes</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Cliente</th>
+                                <th>Cobrado</th>
+                                <th>Aplicado</th>
+                                <th>Remanente</th>
+                                <th>Motivo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="payload['customers']" t-as="row">
+                                <td t-out="row['code']" />
+                                <td t-out="row['name']" />
+                                <td>
+                                    <span
+                                        t-out="row['collected']"
+                                        t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                    />
+                                </td>
+                                <td>
+                                    <span
+                                        t-out="row['applied']"
+                                        t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                    />
+                                </td>
+                                <td>
+                                    <span
+                                        t-out="row['residual']"
+                                        t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                    />
+                                </td>
+                                <td t-out="row['residual_reason']" />
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Documentos Aplicados</h3>
+                    <t t-foreach="payload['document_blocks']" t-as="block">
+                        <h4 t-if="block['kind'] == 'invoice'">Facturas</h4>
+                        <h4 t-else="">Presupuestos</h4>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Cliente</th>
+                                    <th>Número</th>
+                                    <th>Aplicado</th>
+                                    <th>Comisión</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="block['rows']" t-as="row">
+                                    <td t-out="row['code']" />
+                                    <td t-out="row['name']" />
+                                    <td t-out="row['invoice_number']" />
+                                    <td>
+                                        <span
+                                            t-out="row['amount_applied']"
+                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                        />
+                                    </td>
+                                    <td>
+                                        <span
+                                            t-out="row['commission']"
+                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                        />
+                                    </td>
+                                </tr>
+                                <tr class="o_cs_sub">
+                                    <td colspan="3">Subtotal</td>
+                                    <td>
+                                        <span
+                                            t-out="block['subtotal_applied']"
+                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                        />
+                                    </td>
+                                    <td>
+                                        <span
+                                            t-out="block['subtotal_commission']"
+                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                        />
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </t>
+
+                    <h3>Comprobantes</h3>
+                    <t t-foreach="payload['voucher_blocks']" t-as="block">
+                        <h4 t-out="block['label']" />
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Cliente</th>
+                                    <th>Número</th>
+                                    <th>Importe</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="block['rows']" t-as="row">
+                                    <td t-out="row['code']" />
+                                    <td t-out="row['name']" />
+                                    <td t-out="row['number']" />
+                                    <td>
+                                        <span
+                                            t-out="row['amount']"
+                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                        />
+                                    </td>
+                                </tr>
+                                <tr class="o_cs_sub">
+                                    <td colspan="3">Subtotal</td>
+                                    <td>
+                                        <span
+                                            t-out="block['subtotal']"
+                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                        />
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </t>
+
+                    <h3>Conciliación</h3>
+                    <table>
+                        <tr>
+                            <th>Cobrado</th>
+                            <td>
+                                <span
+                                    t-out="payload['recon']['collected']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                            <th>Retenido</th>
+                            <td>
+                                <span
+                                    t-out="payload['recon']['withheld']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                            <th>Neto a Rendir</th>
+                            <td>
+                                <span
+                                    t-out="payload['recon']['net_due']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Rendido</th>
+                            <td>
+                                <span
+                                    t-out="payload['recon']['tendered']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                            <th>Diferencia</th>
+                            <td>
+                                <span
+                                    t-out="payload['recon']['difference']"
+                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                                />
+                            </td>
+                            <td colspan="2" />
+                        </tr>
+                    </table>
+                    <div
+                        t-attf-class="o_cs_banner o_cs_banner_#{payload['recon']['status']}"
+                    >
+                        <strong t-out="payload['recon']['status_message']" />
+                    </div>
+                    <div t-if="payload['mismatch']" class="o_cs_mismatch">
+                        Total cobrado (asignaciones) no coincide con los
+                        comprobantes impresos.
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+</odoo>
