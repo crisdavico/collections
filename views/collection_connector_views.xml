@@ -30,6 +30,15 @@
                         </group>
                     </group>
                     <notebook>
+                        <page string="Seller Bindings">
+                            <field name="seller_binding_ids">
+                                <list>
+                                    <field name="external_seller_id" readonly="1" />
+                                    <field name="user_id" readonly="1" />
+                                    <field name="commission_percent" readonly="1" />
+                                </list>
+                            </field>
+                        </page>
                         <page string="Customer Bindings">
                             <field name="customer_binding_ids">
                                 <list>

@@ -81,7 +81,7 @@ class ResCompany(models.Model):
         resolved = self._collection_resolve_connector_sellers(
             connector, rows, normalize
         )
-        self._collection_upsert_seller_bindings(connector, resolved)
+        self._collection_upsert_seller_bindings(connector, resolved, rows)
         imported = self.env["res.users"].browse([user.id for _ext, user in resolved])
         missing_company = imported.filtered(
             lambda user: self.id not in user.company_ids.ids
@@ -103,7 +103,7 @@ class ResCompany(models.Model):
 
     @api.private
     def _collection_validate_connector_seller_rows(self, rows, normalize):
-        """Reject missing ids and duplicate ids or phones before any write."""
+        """Reject missing ids, duplicate ids/phones, and invalid rates before write."""
         seen_ext = set()
         seen_phones = {}
         for row in rows:
@@ -115,6 +115,13 @@ class ResCompany(models.Model):
                     _("Duplicate external seller id in the connector source.")
                 )
             seen_ext.add(ext_id)
+            try:
+                rate = float(row["commission_percent"])
+            except (KeyError, TypeError, ValueError) as err:
+                raise UserError(_("Seller commission percent is invalid.")) from err
+            if rate < 0 or rate > 100:
+                raise UserError(_("Seller commission percent is invalid."))
+            row["commission_percent"] = rate
             needle = normalize(row.get("mobile"))
             if not needle:
                 continue
@@ -169,20 +176,31 @@ class ResCompany(models.Model):
         return resolved
 
     @api.private
-    def _collection_upsert_seller_bindings(self, connector, resolved):
-        """Create missing bindings for resolved (external id, user) pairs."""
-        existing = {
-            binding.external_seller_id for binding in connector.seller_binding_ids
+    def _collection_upsert_seller_bindings(self, connector, resolved, rows):
+        """Create missing bindings and write commission_percent on existing ones."""
+        rates = {
+            row["external_seller_id"]: row.get("commission_percent", 0.0)
+            for row in rows
         }
-        new_bindings = [
-            {
-                "connector_id": connector.id,
-                "external_seller_id": ext_id,
-                "user_id": user.id,
-            }
-            for ext_id, user in resolved
-            if ext_id not in existing
-        ]
+        existing = {
+            binding.external_seller_id: binding
+            for binding in connector.seller_binding_ids
+        }
+        new_bindings = []
+        for ext_id, user in resolved:
+            rate = rates.get(ext_id, 0.0)
+            binding = existing.get(ext_id)
+            if binding:
+                binding.write({"commission_percent": rate})
+            else:
+                new_bindings.append(
+                    {
+                        "connector_id": connector.id,
+                        "external_seller_id": ext_id,
+                        "user_id": user.id,
+                        "commission_percent": rate,
+                    }
+                )
         if new_bindings:
             self.env["collection.connector.seller.binding"].create(new_bindings)
 

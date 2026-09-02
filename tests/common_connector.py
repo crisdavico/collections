@@ -12,18 +12,21 @@ TEST_SELLERS = (
         "name": "Bound Seller",
         "mobile": "5491111111111",
         "active": 1,
+        "commission_percent": 5.0,
     },
     {
         "id": "ext-unbound",
         "name": "Unbound Seller",
         "mobile": "5491122222222",
         "active": 1,
+        "commission_percent": 7.5,
     },
     {
         "id": "ext-inactive",
         "name": "Inactive Seller",
         "mobile": "5491133333333",
         "active": 0,
+        "commission_percent": 10.0,
     },
 )
 

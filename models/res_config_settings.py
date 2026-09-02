@@ -29,6 +29,10 @@ class ResConfigSettings(models.TransientModel):
         readonly=False,
         domain="[('company_id', '=', company_id)]",
     )
+    seller_binding_ids = fields.One2many(
+        related="collection_connector_id.seller_binding_ids",
+        readonly=True,
+    )
 
     def action_import_enabled_sellers(self):
         """Replace Enabled Sellers from the active company connector."""

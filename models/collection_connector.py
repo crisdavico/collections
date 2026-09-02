@@ -216,6 +216,10 @@ class CollectionConnector(models.Model):
             if not _row_is_active(row):
                 continue
             external_id = str(row.get("id") or row.get("external_seller_id") or "")
+            if "commission_percent" not in row:
+                commission_percent = 0.0
+            else:
+                commission_percent = row["commission_percent"]
             sellers.append(
                 {
                     "external_seller_id": external_id,
@@ -223,6 +227,7 @@ class CollectionConnector(models.Model):
                     "mobile": row.get("mobile") or "",
                     "active": True,
                     "odoo_seller_id": bindings.get(external_id),
+                    "commission_percent": commission_percent,
                 }
             )
         return {

@@ -252,11 +252,96 @@ class TestCollectionConnector(TransactionCase):
         unbound = by_ext["ext-unbound"]
         self.assertEqual(unbound["name"], "Unbound Seller")
         self.assertIsNone(unbound["odoo_seller_id"])
+        self.assertIsInstance(bound["commission_percent"], float)
+        self.assertEqual(bound["commission_percent"], 5.0)
+        self.assertIsInstance(unbound["commission_percent"], float)
+        self.assertEqual(unbound["commission_percent"], 7.5)
         source = result["source"]
         self.assertEqual(source["connector_id"], connector.id)
         self.assertEqual(source["connector_type"], TEST_CONNECTOR_TYPE)
         self.assertEqual(source["connector_name"], connector.name)
         self.assertEqual(source["company_id"], self.env.company.id)
+
+    def test_list_sellers_missing_commission_percent_coerces_to_zero(self):
+        """Active adapter rows without commission_percent MUST list 0.0."""
+        install_test_connector_type(self)
+        connector = self.env["collection.connector"].create(
+            {"name": "Missing Rate Connector", "type": TEST_CONNECTOR_TYPE}
+        )
+        rows = (
+            {
+                "id": "ext-missing-rate",
+                "name": "Missing Rate Seller",
+                "mobile": "5491144444444",
+                "active": 1,
+            },
+            {
+                "id": "ext-inactive-missing",
+                "name": "Inactive Missing Rate",
+                "mobile": "5491155555555",
+                "active": 0,
+            },
+        )
+        result = connector.with_context(collection_test_sellers=rows).list_sellers()
+        sellers = result["sellers"]
+        self.assertGreater(len(sellers), 0)
+        by_ext = {row["external_seller_id"]: row for row in sellers}
+        self.assertIn("ext-missing-rate", by_ext)
+        self.assertNotIn("ext-inactive-missing", by_ext)
+        self.assertIsInstance(by_ext["ext-missing-rate"]["commission_percent"], float)
+        self.assertEqual(by_ext["ext-missing-rate"]["commission_percent"], 0.0)
+
+    def test_binding_commission_percent_below_zero_rejected(self):
+        """CHECK MUST reject commission_percent below 0."""
+        user_u = create_internal_seller(self.env, "bind_rate_low")
+        connector = self.env["collection.connector"].create({"name": "Bind Rate Low"})
+        Binding = self.env["collection.connector.seller.binding"]
+        with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
+            with self.env.cr.savepoint():
+                Binding.create(
+                    {
+                        "connector_id": connector.id,
+                        "external_seller_id": "E",
+                        "user_id": user_u.id,
+                        "commission_percent": -1.0,
+                    }
+                )
+
+    def test_binding_commission_percent_above_100_rejected(self):
+        """Triangulation: CHECK MUST reject commission_percent above 100."""
+        user_u = create_internal_seller(self.env, "bind_rate_high")
+        connector = self.env["collection.connector"].create({"name": "Bind Rate High"})
+        Binding = self.env["collection.connector.seller.binding"]
+        with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
+            with self.env.cr.savepoint():
+                Binding.create(
+                    {
+                        "connector_id": connector.id,
+                        "external_seller_id": "E",
+                        "user_id": user_u.id,
+                        "commission_percent": 101.0,
+                    }
+                )
+
+    def test_binding_commission_percent_write_out_of_range_rejected(self):
+        """A later write of commission_percent outside 0–100 MUST be rejected."""
+        user_u = create_internal_seller(self.env, "bind_rate_write")
+        connector = self.env["collection.connector"].create({"name": "Bind Rate Write"})
+        Binding = self.env["collection.connector.seller.binding"]
+        binding = Binding.create(
+            {
+                "connector_id": connector.id,
+                "external_seller_id": "E",
+                "user_id": user_u.id,
+                "commission_percent": 5.0,
+            }
+        )
+        self.assertEqual(binding.commission_percent, 5.0)
+        for rate in (-1.0, 101.0):
+            with self.subTest(rate=rate):
+                with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
+                    with self.env.cr.savepoint():
+                        binding.write({"commission_percent": rate})
 
     def test_listed_seller_still_fails_assert_new_work(self):
         """Connector list is not collect permission until Import enables them."""

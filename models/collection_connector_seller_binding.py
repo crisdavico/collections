@@ -32,6 +32,12 @@ class CollectionConnectorSellerBinding(models.Model):
         precompute=True,
         index=True,
     )
+    commission_percent = fields.Float(
+        string="Commission %",
+        digits=(16, 2),
+        required=True,
+        default=0.0,
+    )
 
     _connector_external_uniq = models.Constraint(
         "UNIQUE(connector_id, external_seller_id)",
@@ -40,6 +46,10 @@ class CollectionConnectorSellerBinding(models.Model):
     _connector_user_uniq = models.Constraint(
         "UNIQUE(connector_id, user_id)",
         "Odoo seller must be unique per connector.",
+    )
+    _commission_percent_range = models.Constraint(
+        "CHECK(commission_percent >= 0 AND commission_percent <= 100)",
+        "Commission percent must be between 0 and 100.",
     )
 
     @api.model_create_multi

@@ -127,9 +127,7 @@ class TestCollectionCustomerBinding(TransactionCase):
 
     def test_binding_reuse_identification_rejected(self):
         """Triangulation: second binding on C that reuses identification I MUST fail."""
-        connector = self.env["collection.connector"].create(
-            {"name": "Cust Bind Ident"}
-        )
+        connector = self.env["collection.connector"].create({"name": "Cust Bind Ident"})
         partner_p = self._create_partner("Cust Ident P")
         partner_q = self._create_partner("Cust Ident Q")
         self._create_binding(connector, partner_p)
@@ -291,12 +289,62 @@ class TestCollectionCustomerBinding(TransactionCase):
         pages = root.xpath('//notebook/page[@string="Customer Bindings"]')
         self.assertEqual(len(pages), 1)
         names = [
-            node.get("name")
-            for node in pages[0].xpath(".//field")
-            if node.get("name")
+            node.get("name") for node in pages[0].xpath(".//field") if node.get("name")
         ]
         self.assertIn("customer_binding_ids", names)
         self.assertIn("external_customer_id", names)
         self.assertIn("identification", names)
         self.assertIn("partner_id", names)
         self.assertIn("customer_code", names)
+
+    def test_connector_seller_binding_notebook_readonly(self):
+        """Readonly Seller Bindings page; Customer Bindings stays."""
+        field = self.env["collection.connector"]._fields["seller_binding_ids"]
+        self.assertEqual(field.type, "one2many")
+        self.assertEqual(
+            field.comodel_name,
+            "collection.connector.seller.binding",
+        )
+        self.assertEqual(field.inverse_name, "connector_id")
+        connector = self.env["collection.connector"].create(
+            {"name": "Seller Notebook Bind"}
+        )
+        seller = create_internal_seller(self.env, "seller_notebook_user")
+        binding = self.env["collection.connector.seller.binding"].create(
+            {
+                "connector_id": connector.id,
+                "external_seller_id": "EXT-NB",
+                "user_id": seller.id,
+                "commission_percent": 7.5,
+            }
+        )
+        self.assertEqual(connector.seller_binding_ids, binding)
+        self.assertAlmostEqual(binding.commission_percent, 7.5)
+        view = self.env.ref("collection.view_collection_connector_form")
+        root = etree.fromstring(view.arch)
+        customer_pages = root.xpath('//notebook/page[@string="Customer Bindings"]')
+        self.assertEqual(len(customer_pages), 1)
+        pages = root.xpath('//notebook/page[@string="Seller Bindings"]')
+        self.assertEqual(len(pages), 1)
+        names = [
+            node.get("name") for node in pages[0].xpath(".//field") if node.get("name")
+        ]
+        self.assertIn("seller_binding_ids", names)
+        self.assertIn("external_seller_id", names)
+        self.assertIn("user_id", names)
+        self.assertIn("commission_percent", names)
+        lists = pages[0].xpath(".//list")
+        self.assertEqual(len(lists), 1, "Seller Bindings must use Odoo 19 <list>")
+        self.assertFalse(
+            pages[0].xpath(".//tree"),
+            "Seller Bindings must not use <tree>",
+        )
+        for name in ("external_seller_id", "user_id", "commission_percent"):
+            nodes = pages[0].xpath(f'.//field[@name="{name}"]')
+            self.assertEqual(len(nodes), 1, f"Seller Bindings must list {name}")
+            readonly = (nodes[0].get("readonly") or "").lower()
+            self.assertIn(
+                readonly,
+                ("1", "true"),
+                f"{name} must be readonly (got {nodes[0].get('readonly')!r})",
+            )

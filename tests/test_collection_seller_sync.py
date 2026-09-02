@@ -26,6 +26,7 @@ ANA = {
     "name": "Ana Pérez",
     "mobile": "5491188810001",
     "active": 1,
+    "commission_percent": 5.0,
 }
 BRUNO = {
     "id": "bruno-1",
@@ -266,3 +267,47 @@ class TestCollectionSellerSync(TransactionCase):
         self.assertTrue(method, "sync method must exist")
         self.assertNotIn(".sudo(", code)
         self.assertNotIn("sudo()", code)
+
+    def test_import_persists_ana_commission_percent(self):
+        """Import MUST store Ana's 5.0 on the binding, not on res.users."""
+        self._sync([ANA])
+        binding = self._binding_for("ana-1")
+        self.assertTrue(binding)
+        self.assertEqual(binding.commission_percent, 5.0)
+        self.assertNotIn("commission_percent", self.env["res.users"]._fields)
+
+    def test_import_overwrites_commission_percent_same_user(self):
+        """Re-Import MUST overwrite the stored rate and reuse the same user."""
+        self._sync([ANA])
+        binding = self._binding_for("ana-1")
+        user = binding.user_id
+        self.assertEqual(binding.commission_percent, 5.0)
+        self._sync([dict(ANA, commission_percent=7.5)])
+        binding = self._binding_for("ana-1")
+        self.assertEqual(binding.user_id, user)
+        self.assertEqual(binding.commission_percent, 7.5)
+        self.assertEqual(len(self.connector.seller_binding_ids), 1)
+
+    def test_invalid_commission_percent_fails_closed_before_write(self):
+        """Invalid rates MUST UserError with zero user/binding/enabled writes."""
+        extra = create_internal_seller(self.env, "sync_invalid_rate_keep")
+        self.company.write({"enabled_seller_ids": [Command.set([extra.id])]})
+        before_users = self.env["res.users"].search_count([])
+        for rate in (-0.01, 100.01, "abc"):
+            with self.subTest(rate=rate):
+                self._assert_user_error_no_leak(
+                    lambda invalid=rate: self._sync(
+                        [dict(ANA, commission_percent=invalid)]
+                    )
+                )
+                self.assertEqual(self.company.enabled_seller_ids, extra)
+                self.assertEqual(self.env["res.users"].search_count([]), before_users)
+                self.assertFalse(self.connector.seller_binding_ids)
+
+    def test_import_zero_commission_percent_is_valid(self):
+        """Rate 0.0 MUST persist and Import MUST succeed."""
+        self._sync([dict(ANA, commission_percent=0.0)])
+        binding = self._binding_for("ana-1")
+        self.assertTrue(binding)
+        self.assertEqual(binding.commission_percent, 0.0)
+        self.assertEqual(self.company.enabled_seller_ids, binding.user_id)

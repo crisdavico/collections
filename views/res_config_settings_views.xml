@@ -27,6 +27,20 @@
                 invisible="not collection_connector_id"
                 groups="base.group_system"
               />
+                            <field
+                name="seller_binding_ids"
+                readonly="1"
+                invisible="not collection_connector_id"
+              >
+                                <list>
+                                    <field name="user_id" readonly="1" />
+                                    <field
+                    name="commission_percent"
+                    string="Commission %"
+                    readonly="1"
+                  />
+                                </list>
+                            </field>
                         </setting>
                         <setting
               string="Auto-create collection sheet"

@@ -5,7 +5,11 @@ from lxml import etree
 
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import dummy_customer_partner, ensure_enabled_seller
+from .test_collection_payment import (
+    create_internal_seller,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+)
 
 BANK_TRANSFER_FIELDS = (
     "from_account",
@@ -1455,6 +1459,7 @@ class TestCollectionUi(TransactionCase):
         "auto_create_sheet",
         "allowed_document_type_ids",
         "collection_connector_id",
+        "seller_binding_ids",
     )
 
     def test_configuration_settings_menu_and_action(self):
@@ -1557,6 +1562,91 @@ class TestCollectionUi(TransactionCase):
             setting,
             "Import must sit next to Enabled Sellers",
         )
+
+    def test_settings_seller_binding_ids_is_readonly_and_hidden_without_connector(
+        self,
+    ):
+        """Seller-binding O2M MUST be readonly and hidden without a connector."""
+        root = self._arch_root("collection.res_config_settings_view_form")
+        fields = root.xpath(
+            "//app[@name='collections']//field[@name='seller_binding_ids']"
+        )
+        self.assertEqual(
+            len(fields),
+            1,
+            "Collection Settings must expose seller_binding_ids next to Import",
+        )
+        field = fields[0]
+        setting = field.xpath("ancestor::setting[@id='enabled_seller_ids_setting']")
+        self.assertTrue(
+            setting,
+            "seller_binding_ids must sit next to Enabled Sellers / Import",
+        )
+        invisible = field.get("invisible") or ""
+        self.assertIn(
+            "collection_connector_id",
+            invisible,
+            f"seller_binding_ids must hide without a connector (got {invisible!r})",
+        )
+        readonly = (field.get("readonly") or "").lower()
+        self.assertIn(
+            readonly,
+            ("1", "true"),
+            f"seller_binding_ids must be readonly (got {field.get('readonly')!r})",
+        )
+        nested = {
+            node.get("name") for node in field.xpath(".//field") if node.get("name")
+        }
+        self.assertIn("user_id", nested)
+        self.assertIn("commission_percent", nested)
+        lists = field.xpath("./list")
+        self.assertEqual(len(lists), 1, "Settings O2M must use Odoo 19 <list>")
+        self.assertFalse(field.xpath("./tree"), "Settings O2M must not use <tree>")
+        for name in ("user_id", "commission_percent"):
+            nodes = field.xpath(f".//field[@name='{name}']")
+            self.assertEqual(len(nodes), 1, f"Settings O2M must list {name}")
+            nested_readonly = (nodes[0].get("readonly") or "").lower()
+            self.assertIn(
+                nested_readonly,
+                ("1", "true"),
+                f"{name} must be readonly (got {nodes[0].get('readonly')!r})",
+            )
+
+    def test_settings_seller_binding_ids_shows_stored_rates(self):
+        """Triangulation: Settings O2M MUST show imported commission rates."""
+        field = self.env["res.config.settings"]._fields["seller_binding_ids"]
+        self.assertEqual(field.type, "one2many")
+        self.assertEqual(
+            field.related,
+            "collection_connector_id.seller_binding_ids",
+        )
+        self.assertTrue(field.readonly)
+        connector = self.env["collection.connector"].create(
+            {"name": "Settings Commission Connector"}
+        )
+        seller = create_internal_seller(self.env, "settings_commission_seller")
+        binding = self.env["collection.connector.seller.binding"].create(
+            {
+                "connector_id": connector.id,
+                "external_seller_id": "EXT-RATE",
+                "user_id": seller.id,
+                "commission_percent": 5.0,
+            }
+        )
+        self.env.company.write({"collection_connector_id": connector.id})
+        settings = self.env["res.config.settings"].create({})
+        self.assertEqual(settings.seller_binding_ids, binding)
+        self.assertEqual(settings.seller_binding_ids.user_id, seller)
+        self.assertAlmostEqual(settings.seller_binding_ids.commission_percent, 5.0)
+
+    def test_settings_seller_binding_ids_empty_without_connector(self):
+        """Triangulation: no active connector MUST yield an empty O2M."""
+        field = self.env["res.config.settings"]._fields["seller_binding_ids"]
+        self.assertTrue(field.readonly)
+        self.env.company.write({"collection_connector_id": False})
+        self.assertFalse(self.env.company.collection_connector_id)
+        settings = self.env["res.config.settings"].create({})
+        self.assertFalse(settings.seller_binding_ids)
 
     def test_settings_combined_view_exposes_collections_flag(self):
         """Triangulation: combined Settings form includes Collection Settings."""

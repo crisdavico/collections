@@ -76,11 +76,11 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 | Path                                              | Role                                                                                                                           |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `__manifest__.py`                                 | Module metadata `19.0.1.27.0`; depends `base`, `mail`, `muk_mcp`                                                               |
+| `__manifest__.py`                                 | Module metadata `19.0.1.29.0`; depends `base`, `mail`, `muk_mcp`                                                               |
 | `models/res_company.py`                           | Collection Settings fields + `_assert_new_work`; Import sync; seq copy; type seed                                              |
 | `models/res_config_settings.py`                   | Related writable Collection Settings + Import action                                                                           |
 | `models/collection_connector.py`                  | Company-scoped connector + `_dispatch` allowlist (`list_customers`, `get_customer_debt`)                                       |
-| `models/collection_connector_seller_binding.py`   | 1:1 external seller ↔ `res.users`; UNIQUE + related stored `company_id`                                                        |
+| `models/collection_connector_seller_binding.py`   | 1:1 external seller ↔ `res.users`; UNIQUE + related stored `company_id`; stores `commission_percent`; Import overwrite           |
 | `models/collection_connector_customer_binding.py` | 1:1 external customer ↔ `res.partner`; UNIQUE + related stored `company_id`                                                    |
 | `models/collection_document_type.py`              | Catalog `code`/`name`; `UNIQUE(code)` Constraint                                                                               |
 | `models/collection_voucher.py`                    | Voucher model, sequence on create, approve/reject, unlink guard, provenance copies, `allocation_id`; `partner_id.group_expand` |
@@ -116,7 +116,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   internal users; empty = none for NEW work), `auto_create_sheet` (default True),
   `allowed_document_type_ids` (catalog M2M), keep `document_review_enabled`,
   `collection_connector_id` (company-scoped active connector). **Import** (Settings
-  users) fetches `list_sellers()`, creates/matches users, upserts bindings, and
+  users) fetches `list_sellers()`, creates/matches users, upserts bindings (including
+  overwrite of `commission_percent`), and
   **replaces** `enabled_seller_ids`. Catalog `collection.document.type` has four XMLID
   rows (`bank_transfer`, `check`, `cash_deposit`, `unsupported`); voucher
   `document_type` stays Selection.
@@ -133,10 +134,11 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `with_company(record.company_id).next_by_code(...)`. XMLIDs bind to
   `base.main_company` (`seq_collection_allocation`). `res.company.create` copies all
   three sequences (`number_next=1` on copies) and unions all four types; new companies
-  start with empty enabled sellers. Manifest `19.0.1.27.0`; migrate folders
+  start with empty enabled sellers. Manifest `19.0.1.29.0`; migrate folders
   `migrations/19.0.1.17.0/` (COL/CS stamp/repair) and `migrations/19.0.1.25.0/` (`CA/`
   copy). Do **not** add `collection.allocation` to `COLLECTION_SEQUENCE_CODES` in
-  1.17.0. Do **not** add `migrations/19.0.1.26.0/` or `migrations/19.0.1.27.0/`.
+  1.17.0. Do **not** add `migrations/19.0.1.26.0/`, `migrations/19.0.1.27.0/`, or
+  `migrations/19.0.1.29.0/`.
 - **No `received_date`:** registration time is ORM `create_date` only; strip forged
   `create_date` / `write_date` on create; views must not expose `received_date`.
 - **States:** voucher `pending` → `approved` | `rejected`. Terminal voucher states are
@@ -321,7 +323,7 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_ui.py`                    | View arch; Collection Settings; seller domains; allocations menu 30; sheet notebook; reassign kanban; partner `group_expand` |
 | `tests/test_collection_document_review.py`       | Queue on designated proof; `/web/content/{id}`; snapshots                                                                    |
 | `tests/test_collection_company_settings.py`      | Catalog, empty sellers, defaults, Collection Settings fields                                                                 |
-| `tests/test_collection_company_migration.py`     | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; manifest `19.0.1.27.0`                                         |
+| `tests/test_collection_company_migration.py`     | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; manifest `19.0.1.29.0`                                         |
 | `tests/test_collection_mcp_tool.py`              | MCP attachment + provenance nests on `create_collection_allocation`                                                          |
 | `tests/test_collection_mcp_seller_lookup.py`     | MCP `get_seller_id` discovery, match, fail-closed, enabled-list                                                              |
 | `tests/test_collection_mcp_customer_list.py`     | MCP `list_collection_customers` auth, routing, normalized payload                                                            |
