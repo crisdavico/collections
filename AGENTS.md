@@ -80,7 +80,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `models/res_company.py`                           | Collection Settings fields + `_assert_new_work`; Import sync; seq copy; type seed                                              |
 | `models/res_config_settings.py`                   | Related writable Collection Settings + Import action                                                                           |
 | `models/collection_connector.py`                  | Company-scoped connector + `_dispatch` allowlist (`list_customers`, `get_customer_debt`)                                       |
-| `models/collection_connector_seller_binding.py`   | 1:1 external seller ↔ `res.users`; UNIQUE + related stored `company_id`; stores `commission_percent`; Import overwrite           |
+| `models/collection_connector_seller_binding.py`   | 1:1 external seller ↔ `res.users`; UNIQUE + related stored `company_id`; stores `commission_percent`; Import overwrite         |
 | `models/collection_connector_customer_binding.py` | 1:1 external customer ↔ `res.partner`; UNIQUE + related stored `company_id`                                                    |
 | `models/collection_document_type.py`              | Catalog `code`/`name`; `UNIQUE(code)` Constraint                                                                               |
 | `models/collection_voucher.py`                    | Voucher model, sequence on create, approve/reject, unlink guard, provenance copies, `allocation_id`; `partner_id.group_expand` |
@@ -117,10 +117,9 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `allowed_document_type_ids` (catalog M2M), keep `document_review_enabled`,
   `collection_connector_id` (company-scoped active connector). **Import** (Settings
   users) fetches `list_sellers()`, creates/matches users, upserts bindings (including
-  overwrite of `commission_percent`), and
-  **replaces** `enabled_seller_ids`. Catalog `collection.document.type` has four XMLID
-  rows (`bank_transfer`, `check`, `cash_deposit`, `unsupported`); voucher
-  `document_type` stays Selection.
+  overwrite of `commission_percent`), and **replaces** `enabled_seller_ids`. Catalog
+  `collection.document.type` has four XMLID rows (`bank_transfer`, `check`,
+  `cash_deposit`, `unsupported`); voucher `document_type` stays Selection.
 - **New-work helper:** `res.company._assert_new_work(seller, document_type=None)`
   (`@api.private`). Seller is required; seller MUST be in `enabled_seller_ids` (empty
   list rejects); if `document_type` is not None it MUST be an allowed code. Raise

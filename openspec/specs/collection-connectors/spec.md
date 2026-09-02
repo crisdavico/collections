@@ -63,8 +63,8 @@ Import and Test Connection only.
 Success MUST return normalized sellers with source metadata, `odoo_seller_id` when bound
 else unbound, and `commission_percent` as a float 0–100, and MUST exclude inactive
 external sellers. A missing `commission_percent` key from the adapter MUST coerce to
-`0.0`.
-(Previously: success rows had no `commission_percent`; extra adapter keys were dropped.)
+`0.0`. (Previously: success rows had no `commission_percent`; extra adapter keys were
+dropped.)
 
 #### Scenario: List shape
 
@@ -381,9 +381,9 @@ SQLite customer and invoice reads MUST live only in `collection_connector_sqlite
 SQLite MUST be read-only against fixed `sellers` (`id`, `name`, `mobile`, `active`,
 `commission_percent`) with `commission_percent` REAL 0–100 CHECK. Admins MUST run a
 connection-test against that same schema. Missing, unreadable, or invalid schema
-(including a missing `commission_percent` column) MUST raise `UserError` with no path
-or SQL. The file MUST NOT be written.
-(Previously: four columns `id`, `name`, `mobile`, `active`.)
+(including a missing `commission_percent` column) MUST raise `UserError` with no path or
+SQL. The file MUST NOT be written. (Previously: four columns `id`, `name`, `mobile`,
+`active`.)
 
 #### Scenario: Sqlite success
 
@@ -435,8 +435,7 @@ SQLite MUST be read-only against fixed `customers` and `invoices` (`id`, `custom
 the dispatched external seller id and identification with parameterized SQL. Missing,
 unreadable, or invalid `invoices` schema MUST raise `UserError` with no path or SQL.
 Seller listing, connection-test, and customer listing MUST remain compatible. The file
-MUST NOT be written.
-(Previously: froze database.sql.)
+MUST NOT be written. (Previously: froze database.sql.)
 
 #### Scenario: Sqlite seller-scoped debt
 
@@ -487,21 +486,19 @@ unchanged.
 
 ### Requirement: Write path may create partners and bindings
 
-`create_collection_allocation` (inline `payments[]`) MAY create `res.partner`
-records and `collection.connector.customer.binding` rows through
-`resolve_customer_partner`. MCP read tools `get_collection_allocation`,
-`list_collection_customers`, and `customer_debt` MUST NOT create partners or
-bindings.
-(Previously: Only `create_collection_vouchers` MAY lazy-create; reads listed
-were `list_collection_customers` and `customer_debt`.)
+`create_collection_allocation` (inline `payments[]`) MAY create `res.partner` records
+and `collection.connector.customer.binding` rows through `resolve_customer_partner`. MCP
+read tools `get_collection_allocation`, `list_collection_customers`, and `customer_debt`
+MUST NOT create partners or bindings. (Previously: Only `create_collection_vouchers` MAY
+lazy-create; reads listed were `list_collection_customers` and `customer_debt`.)
 
 #### Scenario: Write path provisions on all-new create
 
 - GIVEN an all-new MCP payment for an unbound listable identification
 - WHEN `create_collection_allocation` runs
 - THEN a partner and customer binding MAY be created
-- AND `get_collection_allocation`, `list_collection_customers`, and
-  `customer_debt` MUST still create neither
+- AND `get_collection_allocation`, `list_collection_customers`, and `customer_debt` MUST
+  still create neither
 
 #### Scenario: Get unbound does not provision
 
@@ -536,10 +533,10 @@ CUIT): one `res.partner.vat` match MUST bind that partner and MUST NOT create a 
 partner; zero matches MUST create a partner (`vat` equals identification, `name` from
 the ERP row, `company_id` from the connector, `customer_rank` 1, no extra tag) and a
 binding; more than one match MUST raise the generic `UserError`. Unknown, inactive, or
-other-seller identifications MUST raise the same generic `UserError` (`The requested
-customer is not available.`) with no partner or binding writes. Concurrent first-sighting
-UniqueViolation MUST converge on one partner and MUST NOT be reported as a payment
-`document_id` conflict. Calls MUST NOT `sudo()`.
+other-seller identifications MUST raise the same generic `UserError`
+(`The requested customer is not available.`) with no partner or binding writes.
+Concurrent first-sighting UniqueViolation MUST converge on one partner and MUST NOT be
+reported as a payment `document_id` conflict. Calls MUST NOT `sudo()`.
 
 #### Scenario: Enabled Seller gate before lookup
 
@@ -636,9 +633,9 @@ Float 0–100, default `0.0`, with an Odoo Constraint. The rate MUST NOT live on
 ### Requirement: Readonly commission UI
 
 The connector form MUST show a Seller Bindings notebook with readonly
-`external_seller_id`, `user_id`, and `commission_percent`. Collection Settings MUST
-show a related readonly One2many of the active connector `seller_binding_ids` with
-user and `commission_percent`, and MUST hide that list when no connector is set.
+`external_seller_id`, `user_id`, and `commission_percent`. Collection Settings MUST show
+a related readonly One2many of the active connector `seller_binding_ids` with user and
+`commission_percent`, and MUST hide that list when no connector is set.
 
 #### Scenario: Connector notebook
 
