@@ -1,0 +1,15 @@
+# SDD change state — orchestrator-managed
+change: voucher-customer-reassign
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: grok-4.6
+phase: verify
+updated: 2026-09-02
+notes: |
+  Source plan: ~/.claude/plans/make-me-a-plan-parallel-sutherland.md
+  User asked automatic pipeline through verify inclusive.
+  One grok 4.6 subagent per SDD phase; apply uses one grok 4.6 subagent per task phase.
+  Settled product decisions are in the source plan; do not reopen them.

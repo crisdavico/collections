@@ -61,6 +61,23 @@ class TestCollectionVoucher(TransactionCase):
         vals.update(extra)
         return self.env["collection.voucher"].create(vals)
 
+    def _create_sheet(self, **extra):
+        seller_id = extra.pop("seller_id", self._ensure_enabled_seller().id)
+        return self.env["collection.sheet"].create({"seller_id": seller_id, **extra})
+
+    def _create_allocation(self, sheet, partner, vouchers=None, **extra):
+        vals = {
+            "sheet_id": sheet.id,
+            "partner_id": partner.id,
+        }
+        if vouchers:
+            vals["voucher_ids"] = [Command.set(vouchers.ids)]
+        lines = extra.pop("lines", None)
+        if lines is not None:
+            vals["line_ids"] = [Command.create(line) for line in lines]
+        vals.update(extra)
+        return self.env["collection.allocation"].create(vals)
+
     # --- Sequence naming ---
 
     def test_sequence_assigned_on_create(self):
@@ -544,6 +561,193 @@ class TestCollectionVoucher(TransactionCase):
         voucher._message_set_main_attachment_id(extra, force=True)
         voucher.invalidate_recordset()
         self.assertFalse(voucher.message_main_attachment_id)
+
+    # --- Partner write follows allocation ---
+
+    def test_partner_write_same_vals_attaches_confirmed_allocation(self):
+        """Open-sheet voucher on A (P) attaches unique confirmed B (Q) in one write."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=80.0,
+            document_id="REASSIGN-SAME-VALS",
+        )
+        allocation_a = self._create_allocation(
+            sheet, partner_p, vouchers=voucher, residual_reason="on_account"
+        )
+        allocation_b = self._create_allocation(
+            sheet, partner_q, residual_reason="on_account"
+        )
+        voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_q)
+        self.assertEqual(voucher.allocation_id, allocation_b)
+        self.assertNotEqual(voucher.allocation_id, allocation_a)
+        self.assertIn(voucher, allocation_b.voucher_ids)
+        self.assertNotIn(voucher, allocation_a.voucher_ids)
+
+    def test_partner_write_fully_applied_source_refused(self):
+        """Confirmed source with residual 0 MUST refuse partner_id write."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-FULL-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-FULL-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=100.0,
+            document_id="REASSIGN-FULL-SRC",
+        )
+        allocation = self._create_allocation(
+            sheet,
+            partner_p,
+            vouchers=voucher,
+            lines=[
+                {
+                    "external_invoice_id": "INV-FULL",
+                    "invoice_number": "F-1",
+                    "invoice_balance": 100.0,
+                    "amount_applied": 100.0,
+                }
+            ],
+        )
+        self.assertEqual(allocation.residual, 0.0)
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_p)
+        self.assertEqual(voucher.allocation_id, allocation)
+
+    def test_partner_write_attaches_when_target_residual_holds(self):
+        """Unallocated voucher attaches unique confirmed same-sheet allocation for Q."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-ATT-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-ATT-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_id="REASSIGN-ATTACH",
+        )
+        self.assertFalse(voucher.allocation_id)
+        allocation_q = self._create_allocation(
+            sheet, partner_q, residual_reason="on_account"
+        )
+        voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_q)
+        self.assertEqual(voucher.allocation_id, allocation_q)
+
+    def test_partner_write_left_unallocated_posts_chatter(self):
+        """Empty target without residual_reason leaves voucher unallocated + chatter."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-UNALLOC-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-UNALLOC-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_id="REASSIGN-UNALLOC",
+        )
+        self._create_allocation(sheet, partner_q)
+        voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_q)
+        self.assertFalse(voucher.allocation_id)
+        bodies = voucher.message_ids.mapped("body")
+        self.assertTrue(
+            any("unallocated" in (body or "").lower() for body in bodies),
+            f"chatter must record unallocated outcome, got {bodies!r}",
+        )
+
+    def test_partner_write_non_confirmed_source_refused(self):
+        """Validated or rejected source allocation MUST refuse partner_id write."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-VAL-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-VAL-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=25.0,
+            document_id="REASSIGN-VALIDATED",
+        )
+        allocation = self._create_allocation(
+            sheet, partner_p, vouchers=voucher, residual_reason="on_account"
+        )
+        allocation.action_validate()
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_p)
+        self.assertEqual(voucher.allocation_id, allocation)
+
+        rejected_partner = dummy_customer_partner(self.env, customer="REASSIGN-REJ-P")
+        rejected_q = dummy_customer_partner(self.env, customer="REASSIGN-REJ-Q")
+        rejected_voucher = self._create_voucher(
+            partner_id=rejected_partner.id,
+            sheet_id=sheet.id,
+            amount=15.0,
+            document_id="REASSIGN-REJECTED-SRC",
+        )
+        rejected_alloc = self._create_allocation(
+            sheet,
+            rejected_partner,
+            vouchers=rejected_voucher,
+            residual_reason="on_account",
+        )
+        rejected_alloc.action_reject()
+        with self.assertRaises(UserError):
+            rejected_voucher.write({"partner_id": rejected_q.id})
+        self.assertEqual(rejected_voucher.partner_id, rejected_partner)
+        self.assertEqual(rejected_voucher.allocation_id, rejected_alloc)
+
+    def test_approved_or_rejected_voucher_may_change_partner(self):
+        """Voucher state MUST NOT freeze partner_id on an open sheet."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-Q")
+        partner_r = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-R")
+        sheet = self._create_sheet()
+        approved = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=10.0,
+            document_id="REASSIGN-APPROVED",
+        )
+        approved.action_approve()
+        approved.write({"partner_id": partner_q.id})
+        self.assertEqual(approved.partner_id, partner_q)
+        self.assertEqual(approved.state, "approved")
+
+        rejected = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=10.0,
+            document_id="REASSIGN-REJECTED-VOUCHER",
+        )
+        rejected.action_reject()
+        rejected.write({"partner_id": partner_r.id})
+        self.assertEqual(rejected.partner_id, partner_r)
+        self.assertEqual(rejected.state, "rejected")
+
+    def test_constrain_mismatch_allocation_id_without_partner_refused(self):
+        """allocation_id of another customer without matching partner_id MUST refuse."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-CON-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-CON-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=30.0,
+            document_id="REASSIGN-CONSTRAIN",
+        )
+        self._create_allocation(
+            sheet, partner_p, vouchers=voucher, residual_reason="on_account"
+        )
+        allocation_b = self._create_allocation(
+            sheet, partner_q, residual_reason="on_account"
+        )
+        original_allocation = voucher.allocation_id
+        with self.assertRaises(UserError):
+            voucher.write({"allocation_id": allocation_b.id})
+        self.assertEqual(voucher.partner_id, partner_p)
+        self.assertEqual(voucher.allocation_id, original_allocation)
 
 
 def _load_collection_migrate(filename):

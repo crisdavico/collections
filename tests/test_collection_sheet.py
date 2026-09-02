@@ -510,6 +510,23 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.voucher_ids, member)
         self.assertTrue(member.exists())
 
+    def test_freeze_rejects_closed_partner_id_with_membership_error(self):
+        """Closed sheets MUST reuse the membership UserError on partner_id write."""
+        sheet = self._create_sheet()
+        member = self._create_voucher(
+            customer_identification="CUST-FRZ-PARTNER", sheet_id=sheet.id
+        )
+        other = dummy_customer_partner(self.env, customer="CUST-FRZ-OTHER")
+        original = member.partner_id
+        sheet.action_close()
+        with self.assertRaises(UserError) as error:
+            member.write({"partner_id": other.id})
+        self.assertEqual(
+            str(error.exception),
+            "Closed collection sheets cannot change membership. Reopen first.",
+        )
+        self.assertEqual(member.partner_id, original)
+
     def test_create_sheet_action_is_list_bound_server_action(self):
         action = self.env.ref("collection.action_create_collection_sheet")
         self.assertEqual(action.type, "ir.actions.server")
@@ -613,6 +630,77 @@ class TestCollectionSheet(TransactionCase):
         self.assertFalse(unsaved.id)
         with self.assertRaises(UserError):
             unsaved.action_open_vouchers()
+
+    def test_action_open_voucher_reassign_returns_customer_kanban(self):
+        """Saved open sheet MUST open the reassign kanban, then form (no menu path)."""
+        sheet = self._create_sheet()
+        self.assertIsInstance(sheet.id, int)
+        self.assertGreater(sheet.id, 0)
+        action = sheet.action_open_voucher_reassign()
+        reassign_kanban = self.env.ref(
+            "collection.view_collection_voucher_reassign_kanban"
+        )
+        self.assertEqual(action["type"], "ir.actions.act_window")
+        self.assertEqual(action["name"], "Reassign Customers")
+        self.assertEqual(action["res_model"], "collection.voucher")
+        self.assertEqual(
+            action["views"],
+            [(reassign_kanban.id, "kanban"), (False, "form")],
+        )
+        self.assertEqual(action["domain"], [("sheet_id", "=", sheet.id)])
+        self.assertEqual(action["context"]["collection_reassign_sheet_id"], sheet.id)
+        self.assertEqual(action["context"]["group_by"], "partner_id")
+        self.assertEqual(action["context"]["default_sheet_id"], sheet.id)
+        self.assertEqual(action["context"]["default_seller_id"], sheet.seller_id.id)
+        self.assertNotIn("view_mode", action)
+        self.assertNotIn("view_id", action)
+        self.assertNotIn("path", action)
+
+    def test_action_open_voucher_reassign_binds_each_saved_sheet(self):
+        """Triangulation: domain and reassign context bind to the invoked sheet."""
+        sheet_a = self._create_sheet()
+        sheet_b = self._create_sheet(seller_id=self._other_internal_seller().id)
+        self.assertNotEqual(sheet_a.id, sheet_b.id)
+        action_a = sheet_a.action_open_voucher_reassign()
+        action_b = sheet_b.action_open_voucher_reassign()
+        self.assertEqual(action_a["domain"], [("sheet_id", "=", sheet_a.id)])
+        self.assertEqual(action_b["domain"], [("sheet_id", "=", sheet_b.id)])
+        self.assertEqual(
+            action_a["context"]["collection_reassign_sheet_id"], sheet_a.id
+        )
+        self.assertEqual(
+            action_b["context"]["collection_reassign_sheet_id"], sheet_b.id
+        )
+        self.assertEqual(action_a["context"]["default_seller_id"], sheet_a.seller_id.id)
+        self.assertEqual(action_b["context"]["default_seller_id"], sheet_b.seller_id.id)
+        self.assertEqual(action_a["name"], "Reassign Customers")
+        self.assertEqual(action_b["name"], "Reassign Customers")
+        self.assertNotIn("view_mode", action_a)
+        self.assertNotIn("view_mode", action_b)
+
+    def test_action_open_voucher_reassign_refused_on_new_id(self):
+        """Unsaved .new() records MUST reuse the saved-sheet UserError."""
+        unsaved = self.env["collection.sheet"].new({"seller_id": self._seller().id})
+        self.assertFalse(isinstance(unsaved.id, int))
+        self.assertFalse(unsaved.id)
+        with self.assertRaises(UserError) as error:
+            unsaved.action_open_voucher_reassign()
+        self.assertEqual(
+            str(error.exception),
+            "This action requires a saved collection sheet.",
+        )
+
+    def test_action_open_voucher_reassign_refused_when_closed(self):
+        """Closed sheets MUST reuse the membership UserError on reassign."""
+        sheet = self._create_sheet()
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        with self.assertRaises(UserError) as error:
+            sheet.action_open_voucher_reassign()
+        self.assertEqual(
+            str(error.exception),
+            "Closed collection sheets cannot change membership. Reopen first.",
+        )
 
     def test_document_review_enabled_helper_is_non_stored_and_follows_flag(self):
         """Non-stored helper mirrors company._document_review_enabled() (no DDL)."""

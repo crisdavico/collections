@@ -30,6 +30,7 @@ class CollectionVoucher(models.Model):
         tracking=True,
         index=True,
         ondelete="restrict",
+        group_expand="_read_group_partner_ids",
     )
     seller_id = fields.Many2one(
         comodel_name="res.users",
@@ -232,6 +233,24 @@ class CollectionVoucher(models.Model):
         keep = allowed_codes | current_codes
         return [item for item in self._DOCUMENT_TYPE_SELECTION if item[0] in keep]
 
+    @api.model
+    def _read_group_partner_ids(self, groups, domain):
+        """Expand Customer columns for a readable reassign sheet only."""
+        sheet = self._readable_reassign_sheet()
+        if not sheet:
+            return groups
+        partners = sheet.allocation_ids.partner_id | sheet.voucher_ids.partner_id
+        return self.env["res.partner"].search([("id", "in", partners.ids)])
+
+    @api.model
+    @api.private
+    def _readable_reassign_sheet(self):
+        """Return the context sheet when it is a readable positive int id."""
+        raw = self.env.context.get("collection_reassign_sheet_id")
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            return self.env["collection.sheet"]
+        return self.env["collection.sheet"].search([("id", "=", raw)], limit=1)
+
     @api.private
     def _apply_open_sheet_auto_assign(self, vals_list):
         Sheet = self.env["collection.sheet"]
@@ -262,6 +281,11 @@ class CollectionVoucher(models.Model):
             raise UserError(
                 _("OCR and seller-confirmed fields cannot be modified after create.")
             )
+        vals, post_unallocated, split_result = self._prepare_partner_reassign_write(
+            vals
+        )
+        if split_result is not None:
+            return split_result
         if "sheet_id" in vals:
             self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
         if "allocation_id" in vals:
@@ -281,23 +305,13 @@ class CollectionVoucher(models.Model):
             )
             self._validate_main_attachment_id(new_id)
             vals = self._vals_with_review_reset_on_new_attachment(vals)
-        if "state" in vals and not self.env.context.get("collection_audited_state"):
-            target = vals["state"]
-            if target in ("approved", "rejected"):
-                rest = {key: value for key, value in vals.items() if key != "state"}
-                if rest:
-                    super().write(rest)
-                if target == "approved":
-                    return self.action_approve()
-                return self.action_reject()
-            if target == "pending" and "message_main_attachment_id" not in vals:
-                raise UserError(
-                    _(
-                        "Cannot reopen a decided voucher without replacing "
-                        "the attachment."
-                    )
-                )
-        return super().write(vals)
+        intercepted = self._intercept_state_write(vals, post_unallocated)
+        if intercepted is not None:
+            return intercepted
+        result = super().write(vals)
+        if post_unallocated:
+            self._post_unallocated_reassign_notice()
+        return result
 
     def action_approve(self):
         if any(voucher.state != "pending" for voucher in self):
@@ -354,23 +368,171 @@ class CollectionVoucher(models.Model):
         return sellers
 
     @api.private
+    def _prepare_partner_reassign_write(self, vals):
+        if "partner_id" not in vals:
+            return vals, False, None
+        self._ensure_partner_reassign_unlocked(vals.get("partner_id"))
+        if len(self) > 1:
+            return vals, False, all(rec.write(vals) for rec in self)
+        vals, post_unallocated = self._vals_with_partner_allocation(vals)
+        return vals, post_unallocated, None
+
+    @api.private
+    def _intercept_state_write(self, vals, post_unallocated):
+        if "state" not in vals or self.env.context.get("collection_audited_state"):
+            return None
+        target = vals["state"]
+        if target in ("approved", "rejected"):
+            rest = {key: value for key, value in vals.items() if key != "state"}
+            if rest:
+                super().write(rest)
+                if post_unallocated:
+                    self._post_unallocated_reassign_notice()
+            if target == "approved":
+                return self.action_approve()
+            return self.action_reject()
+        if target == "pending" and "message_main_attachment_id" not in vals:
+            raise UserError(
+                _("Cannot reopen a decided voucher without replacing the attachment.")
+            )
+        return None
+
+    @api.private
+    def _closed_membership_user_error(self):
+        return UserError(
+            _("Closed collection sheets cannot change membership. Reopen first.")
+        )
+
+    @api.private
     def _ensure_sheet_membership_unlocked(self, new_sheet_id):
         if self.env.context.get("collection_sheet_unlinking"):
             return
-        closed_msg = _(
-            "Closed collection sheets cannot change membership. Reopen first."
-        )
         target = (
             self.env["collection.sheet"].browse(new_sheet_id)
             if new_sheet_id
             else self.env["collection.sheet"]
         )
         if target and target.state == "closed":
-            raise UserError(closed_msg)
+            raise self._closed_membership_user_error()
         for voucher in self:
             current = voucher.sheet_id
             if current and current.state == "closed" and current != target:
-                raise UserError(closed_msg)
+                raise self._closed_membership_user_error()
+
+    @api.private
+    def _ensure_partner_reassign_unlocked(self, new_partner):
+        new_id = self._partner_id_from_value(new_partner)
+        for voucher in self:
+            sheet = voucher.sheet_id
+            if not sheet or sheet.state != "closed":
+                continue
+            if (voucher.partner_id.id or False) != new_id:
+                raise self._closed_membership_user_error()
+
+    @api.private
+    def _vals_with_partner_allocation(self, vals):
+        self.ensure_one()
+        new_partner_id = self._partner_id_from_value(vals.get("partner_id"))
+        if new_partner_id == (self.partner_id.id or False):
+            return vals, False
+        if "allocation_id" in vals:
+            target = self._allocation_from_value(vals.get("allocation_id"))
+            if (self.allocation_id.id or False) != (target.id or False):
+                self._ensure_source_allocation_detachable()
+            return vals, False
+        self._ensure_source_allocation_detachable()
+        target = self._target_allocation_for_partner(new_partner_id)
+        vals = dict(vals)
+        if target:
+            vals["allocation_id"] = target.id
+            return vals, False
+        vals["allocation_id"] = False
+        return vals, True
+
+    @api.private
+    def _ensure_source_allocation_detachable(self):
+        self.ensure_one()
+        current = self.allocation_id
+        if not current:
+            return
+        if current.state != "confirmed":
+            raise UserError(
+                _(
+                    "Allocation membership can only change when the current "
+                    "and target allocations are confirmed or unset."
+                )
+            )
+        projected = self._projected_residual(current, -(self.amount or 0.0))
+        if current.currency_id.compare_amounts(projected, 0.0) < 0:
+            raise UserError(
+                _(
+                    "Cannot reassign this voucher because the source "
+                    "allocation residual would be negative."
+                )
+            )
+
+    @api.private
+    def _target_allocation_for_partner(self, partner_id):
+        self.ensure_one()
+        Allocation = self.env["collection.allocation"]
+        if not partner_id or not self.sheet_id:
+            return Allocation
+        allocation = Allocation.search(
+            [
+                ("sheet_id", "=", self.sheet_id.id),
+                ("partner_id", "=", partner_id),
+                ("state", "=", "confirmed"),
+            ],
+            limit=1,
+        )
+        if not allocation:
+            return allocation
+        projected = self._projected_residual(allocation, self.amount or 0.0)
+        if self._allocation_residual_holds(allocation, projected):
+            return allocation
+        return Allocation
+
+    @api.private
+    def _projected_residual(self, allocation, amount_delta):
+        return (allocation.residual or 0.0) + amount_delta
+
+    @api.private
+    def _allocation_residual_holds(self, allocation, projected):
+        currency = allocation.currency_id
+        if currency.compare_amounts(projected, 0.0) < 0:
+            return False
+        if (
+            currency.compare_amounts(projected, 0.0) > 0
+            and not allocation.residual_reason
+        ):
+            return False
+        return True
+
+    @api.private
+    def _partner_id_from_value(self, value):
+        if not value:
+            return False
+        if isinstance(value, models.BaseModel):
+            return value[:1].id or False
+        return int(value)
+
+    @api.private
+    def _post_unallocated_reassign_notice(self):
+        for voucher in self:
+            voucher.message_post(
+                body=_("Voucher left unallocated after customer reassignment."),
+                message_type="comment",
+                subtype_xmlid="mail.mt_note",
+            )
+
+    @api.constrains("partner_id", "allocation_id")
+    def _check_voucher_allocation_partner(self):
+        for voucher in self:
+            allocation = voucher.allocation_id
+            if allocation and voucher.partner_id != allocation.partner_id:
+                raise UserError(
+                    _("Voucher customer must match the allocation customer.")
+                )
 
     @api.constrains("sheet_id", "seller_id")
     def _check_sheet_seller(self):

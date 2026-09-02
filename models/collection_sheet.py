@@ -253,6 +253,30 @@ class CollectionSheet(models.Model):
             },
         }
 
+    def action_open_voucher_reassign(self):
+        self.ensure_one()
+        self._ensure_saved_sheet()
+        if self.state != "open":
+            raise UserError(
+                _("Closed collection sheets cannot change membership. Reopen first.")
+            )
+        reassign_kanban = self.env.ref(
+            "collection.view_collection_voucher_reassign_kanban"
+        )
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Reassign Customers"),
+            "res_model": "collection.voucher",
+            "views": [(reassign_kanban.id, "kanban"), (False, "form")],
+            "domain": [("sheet_id", "=", self.id)],
+            "context": {
+                "collection_reassign_sheet_id": self.id,
+                "group_by": "partner_id",
+                "default_sheet_id": self.id,
+                "default_seller_id": self.seller_id.id,
+            },
+        }
+
     @api.private
     def _ensure_saved_sheet(self):
         self.ensure_one()

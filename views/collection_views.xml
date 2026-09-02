@@ -133,6 +133,36 @@
         </field>
     </record>
 
+    <record id="view_collection_voucher_reassign_kanban" model="ir.ui.view">
+        <field name="name">collection.voucher.reassign.kanban</field>
+        <field name="model">collection.voucher</field>
+        <field name="arch" type="xml">
+            <kanban
+        string="Reassign Customers"
+        default_group_by="partner_id"
+        records_draggable="1"
+        create="0"
+        quick_create="0"
+        group_create="0"
+        group_delete="0"
+        group_edit="0"
+        groups_draggable="0"
+        class="o_kanban_mobile"
+      >
+                <field name="name" />
+                <field name="partner_id" />
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex align-items-baseline mb-2">
+                            <field name="name" class="fw-bolder fs-5" />
+                        </div>
+                        <field name="partner_id" />
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
     <!-- Form -->
     <record id="view_collection_voucher_form" model="ir.ui.view">
         <field name="name">collection.voucher.form</field>
@@ -459,6 +489,12 @@
             type="object"
             class="oe_highlight"
             invisible="not id or not document_review_enabled"
+          />
+                    <button
+            name="action_open_voucher_reassign"
+            string="Reassign Customers"
+            type="object"
+            invisible="not id or state != 'open'"
           />
                     <field
             name="state"

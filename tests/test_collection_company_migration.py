@@ -152,9 +152,14 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_25_0(self):
-        manifest = Path(__file__).resolve().parents[1] / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.25.0"', manifest.read_text(encoding="utf-8"))
+    def test_manifest_version_is_1_26_0(self):
+        module_root = Path(__file__).resolve().parents[1]
+        manifest = module_root / "__manifest__.py"
+        self.assertIn('"version": "19.0.1.26.0"', manifest.read_text(encoding="utf-8"))
+        self.assertFalse(
+            (module_root / "migrations" / "19.0.1.26.0").exists(),
+            "No migrations/19.0.1.26.0/ folder — this bump has no stored-field migrate",
+        )
 
     def test_allocation_sequence_in_specs_not_in_1_17_0_codes(self):
         specs_path = Path(__file__).resolve().parents[1] / "models" / "res_company.py"

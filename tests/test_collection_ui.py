@@ -69,6 +69,56 @@ class TestCollectionUi(TransactionCase):
     def _field_nodes(self, root, field_name):
         return root.xpath(f'//field[@name="{field_name}"]')
 
+    def _reassign_sheet_expand_fixture(self):
+        """Open sheet with an empty allocation column and a stray voucher customer."""
+        seller = ensure_enabled_seller(self.env)
+        empty_partner = dummy_customer_partner(
+            self.env, customer="Z-Reassign-Empty-Alloc"
+        )
+        stray_partner = dummy_customer_partner(self.env, customer="A-Reassign-Stray")
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        voucher = self.env["collection.voucher"].create(
+            {
+                "partner_id": stray_partner.id,
+                "document_type": "cash_deposit",
+                "seller_id": seller.id,
+                "sheet_id": sheet.id,
+                "document_id": "REASSIGN-EXPAND-STRAY",
+            }
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": empty_partner.id,
+            }
+        )
+        return sheet, empty_partner, stray_partner, voucher, allocation
+
+    def _partner_expand_groups(self, domain, **extra_context):
+        return (
+            self.env["collection.voucher"]
+            .with_context(read_group_expand=True, **extra_context)
+            .formatted_read_group(
+                domain=domain,
+                groupby=["partner_id"],
+                aggregates=["__count"],
+            )
+        )
+
+    def _partner_id_from_group_value(self, value):
+        if not value:
+            return False
+        if isinstance(value, tuple):
+            return value[0]
+        return value.id
+
+    def _partner_ids_from_groups(self, groups):
+        return [
+            self._partner_id_from_group_value(group["partner_id"])
+            for group in groups
+            if group["partner_id"]
+        ]
+
     def _assert_create_date_readonly(self, root, context):
         nodes = self._field_nodes(root, "create_date")
         self.assertTrue(nodes, f"{context} must include create_date")
@@ -297,7 +347,56 @@ class TestCollectionUi(TransactionCase):
                 card_fields,
                 f"kanban card must show field {field_name}",
             )
-        self._assert_create_date_readonly(kanban_root, "kanban")
+            self._assert_create_date_readonly(kanban_root, "kanban")
+
+    def test_reassign_kanban_groups_by_customer_and_disables_create(self):
+        """Reassign kanban MUST group by Customer and disable create/group."""
+        reassign_root = self._arch_root(
+            "collection.view_collection_voucher_reassign_kanban"
+        )
+        self.assertEqual(reassign_root.tag, "kanban")
+        self.assertEqual(reassign_root.get("default_group_by"), "partner_id")
+        self.assertEqual(reassign_root.get("records_draggable"), "1")
+        self.assertEqual(reassign_root.get("create"), "0")
+        self.assertEqual(reassign_root.get("quick_create"), "0")
+        self.assertEqual(reassign_root.get("group_create"), "0")
+        self.assertEqual(reassign_root.get("group_delete"), "0")
+        self.assertEqual(reassign_root.get("group_edit"), "0")
+        self.assertEqual(reassign_root.get("groups_draggable"), "0")
+        self.assertEqual(reassign_root.get("class"), "o_kanban_mobile")
+        card = reassign_root.xpath('//templates/t[@t-name="card"]')
+        self.assertTrue(card, "reassign kanban must define a card template")
+        self.assertFalse(
+            reassign_root.xpath('//templates/t[@t-name="kanban-box"]'),
+            "reassign kanban must not use deprecated t-name=kanban-box",
+        )
+        partner_nodes = self._field_nodes(reassign_root, "partner_id")
+        self.assertTrue(partner_nodes, "reassign kanban must declare partner_id")
+        for node in partner_nodes:
+            readonly = (node.get("readonly") or "").lower()
+            self.assertNotIn(
+                readonly,
+                ("1", "true"),
+                "reassign kanban partner_id must not be readonly",
+            )
+
+        state_root = self._arch_root("collection.view_collection_voucher_kanban")
+        self.assertEqual(state_root.get("default_group_by"), "state")
+        self.assertNotEqual(
+            (state_root.get("create") or "").lower(),
+            "0",
+            "state kanban must keep create enabled",
+        )
+        self.assertNotEqual(
+            (state_root.get("create") or "").lower(),
+            "false",
+            "state kanban must keep create enabled",
+        )
+        self.assertNotEqual(
+            self.env.ref("collection.view_collection_voucher_kanban").id,
+            self.env.ref("collection.view_collection_voucher_reassign_kanban").id,
+            "reassign kanban MUST be a distinct view from the state kanban",
+        )
 
     def test_customer_field_is_partner_id_without_domain(self):
         """List, search, kanban, form, and sheet member list use unbound partner_id."""
@@ -305,6 +404,7 @@ class TestCollectionUi(TransactionCase):
             "collection.view_collection_voucher_list": 1,
             "collection.view_collection_voucher_search": 1,
             "collection.view_collection_voucher_kanban": 2,
+            "collection.view_collection_voucher_reassign_kanban": 2,
             "collection.view_collection_voucher_form": 1,
             "collection.view_collection_sheet_form": 1,
         }
@@ -361,6 +461,87 @@ class TestCollectionUi(TransactionCase):
             [group["state"] for group in groups],
             ["pending", "approved", "rejected"],
         )
+
+    def test_partner_group_expand_identity_without_readable_sheet(self):
+        """Expand without a readable reassign sheet MUST keep identity groups."""
+        Voucher = self.env["collection.voucher"]
+        self.assertEqual(
+            Voucher._fields["partner_id"].group_expand,
+            "_read_group_partner_ids",
+            "partner_id.group_expand must be a method name, not True",
+        )
+        self.assertIsInstance(
+            Voucher._fields["partner_id"].group_expand,
+            str,
+            "Many2one group_expand MUST NOT be boolean True",
+        )
+        sheet, empty_partner, stray_partner, _voucher, _alloc = (
+            self._reassign_sheet_expand_fixture()
+        )
+        domain = [("sheet_id", "=", sheet.id)]
+        identity_ids = self._partner_ids_from_groups(
+            self._partner_expand_groups(domain)
+        )
+        self.assertIn(stray_partner.id, identity_ids)
+        self.assertNotIn(
+            empty_partner.id,
+            identity_ids,
+            "empty allocation-only customers MUST NOT be added without context",
+        )
+        missing_id = sheet.id + 10_000_000
+        for raw in (True, False, "12", 0, -1, missing_id):
+            got = self._partner_ids_from_groups(
+                self._partner_expand_groups(domain, collection_reassign_sheet_id=raw)
+            )
+            self.assertEqual(
+                got,
+                identity_ids,
+                f"bad collection_reassign_sheet_id={raw!r} must keep identity",
+            )
+
+    def test_partner_group_expand_empty_allocation_columns(self):
+        """Readable reassign context MUST show empty allocation customer columns."""
+        sheet, empty_partner, _stray, _voucher, allocation = (
+            self._reassign_sheet_expand_fixture()
+        )
+        self.assertFalse(allocation.voucher_ids)
+        groups = self._partner_expand_groups(
+            [("sheet_id", "=", sheet.id)],
+            collection_reassign_sheet_id=sheet.id,
+        )
+        by_id = {
+            self._partner_id_from_group_value(group["partner_id"]): group
+            for group in groups
+            if group["partner_id"]
+        }
+        self.assertIn(empty_partner.id, by_id)
+        self.assertEqual(by_id[empty_partner.id]["__count"], 0)
+
+    def test_partner_group_expand_stray_voucher_customers(self):
+        """Readable reassign context MUST show stray voucher customers in order."""
+        sheet, empty_partner, stray_partner, voucher, _alloc = (
+            self._reassign_sheet_expand_fixture()
+        )
+        self.assertFalse(voucher.allocation_id)
+        groups = self._partner_expand_groups(
+            [("sheet_id", "=", sheet.id)],
+            collection_reassign_sheet_id=sheet.id,
+        )
+        ids = self._partner_ids_from_groups(groups)
+        self.assertIn(stray_partner.id, ids)
+        wanted = {empty_partner.id, stray_partner.id}
+        expected = self.env["res.partner"].search([("id", "in", list(wanted))]).ids
+        self.assertEqual(
+            [partner_id for partner_id in ids if partner_id in wanted],
+            expected,
+            "expanded partners must follow res.partner _order",
+        )
+        by_id = {
+            self._partner_id_from_group_value(group["partner_id"]): group
+            for group in groups
+            if group["partner_id"]
+        }
+        self.assertEqual(by_id[stray_partner.id]["__count"], 1)
 
     def test_form_statusbar_approve_reject_when_pending(self):
         """Form must show statusbar and Approve/Reject only when pending."""
@@ -1207,6 +1388,33 @@ class TestCollectionUi(TransactionCase):
         unsaved = self.env["collection.sheet"].new({"seller_id": self.env.user.id})
         self.assertFalse(bool(unsaved.id))
         self.assertTrue(unsaved.document_review_enabled)
+
+    def test_sheet_form_header_reassign_after_document_review_when_open(self):
+        """Reassign Customers MUST follow Document Review and hide unless saved open."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        header_buttons = [
+            node for node in form_root.xpath("./header/*") if node.tag == "button"
+        ]
+        header_names = [node.get("name") for node in header_buttons]
+        self.assertIn("action_open_document_review", header_names)
+        self.assertIn("action_open_voucher_reassign", header_names)
+        self.assertEqual(
+            header_names.index("action_open_voucher_reassign"),
+            header_names.index("action_open_document_review") + 1,
+            "Reassign Customers must follow Document Review in the sheet header",
+        )
+        buttons = form_root.xpath(
+            './header/button[@name="action_open_voucher_reassign"]'
+        )
+        self.assertEqual(
+            len(buttons),
+            1,
+            "sheet form header must expose Reassign Customers once",
+        )
+        button = buttons[0]
+        self.assertEqual(button.get("type"), "object")
+        self.assertEqual(button.get("string"), "Reassign Customers")
+        self.assertEqual(button.get("invisible"), "not id or state != 'open'")
 
     # --- Document Review client action (sheet-scoped; no Collections menu) ---
 

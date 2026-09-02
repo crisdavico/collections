@@ -438,3 +438,61 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(rev_company.store)
         self.assertTrue(rev_company.required)
         self.assertTrue(rev_company.precompute)
+
+    def test_fully_applied_source_detach_via_partner_write_refused(self):
+        """Fully applied confirmed allocation MUST refuse a voucher partner move."""
+        allocation, voucher, _sheet, partner = self._balanced_allocation()
+        other = self._partner("ALLOC-DETACH-Q")
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": other.id})
+        self.assertEqual(allocation.voucher_ids, voucher)
+        self.assertEqual(voucher.partner_id, partner)
+        self.assertEqual(voucher.allocation_id, allocation)
+
+    def test_projected_residual_less_than_amount_detach_refused(self):
+        """Projected residual below the voucher amount MUST refuse detach."""
+        partner = self._partner("ALLOC-PROJ-P")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=100.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=60.0, invoice_balance=60.0)],
+            residual_reason="on_account",
+        )
+        self.assertEqual(allocation.residual, 40.0)
+        residual_before = allocation.residual
+        other = self._partner("ALLOC-PROJ-Q")
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": other.id})
+        self.assertEqual(allocation.residual, residual_before)
+        self.assertEqual(voucher.allocation_id, allocation)
+        self.assertEqual(voucher.partner_id, partner)
+
+    def test_voucher_partner_write_mismatch_without_matching_allocation_refused(self):
+        """Partner Q with the source allocation still in vals MUST refuse."""
+        allocation, voucher, _sheet, partner = self._balanced_allocation()
+        other = self._partner("ALLOC-MISMATCH-Q")
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": other.id, "allocation_id": allocation.id})
+        self.assertEqual(voucher.partner_id, partner)
+        self.assertEqual(voucher.allocation_id, allocation)
+
+    def test_same_write_matching_partner_and_allocation_holds(self):
+        """Same-vals partner Q + allocation B MUST keep partner match."""
+        partner_p = self._partner("ALLOC-SAME-P")
+        partner_q = self._partner("ALLOC-SAME-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner_p, sheet, amount=50.0)
+        allocation_a = self._create_allocation(
+            sheet, partner_p, vouchers=voucher, residual_reason="on_account"
+        )
+        allocation_b = self._create_allocation(
+            sheet, partner_q, residual_reason="on_account"
+        )
+        voucher.write({"partner_id": partner_q.id, "allocation_id": allocation_b.id})
+        self.assertEqual(voucher.partner_id, partner_q)
+        self.assertEqual(voucher.allocation_id, allocation_b)
+        self.assertIn(voucher, allocation_b.voucher_ids)
+        self.assertNotIn(voucher, allocation_a.voucher_ids)
