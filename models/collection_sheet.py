@@ -61,6 +61,7 @@ class CollectionSheet(models.Model):
     document_review_enabled = fields.Boolean(
         compute="_compute_document_review_enabled",
     )
+    voucher_count = fields.Integer(compute="_compute_voucher_count")
 
     @api.depends("voucher_ids", "voucher_ids.create_date")
     def _compute_dates(self):
@@ -77,6 +78,11 @@ class CollectionSheet(models.Model):
         enabled = bool(self.env.company._document_review_enabled())
         for sheet in self:
             sheet.document_review_enabled = enabled
+
+    @api.depends("voucher_ids")
+    def _compute_voucher_count(self):
+        for sheet in self:
+            sheet.voucher_count = len(sheet.voucher_ids)
 
     @api.private
     def _company_id_of(self, company):
@@ -232,8 +238,23 @@ class CollectionSheet(models.Model):
         action["params"] = dict(action.get("params") or {}, sheet_id=self.id)
         return action
 
+    def action_open_vouchers(self):
+        self.ensure_one()
+        self._ensure_saved_sheet()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Vouchers"),
+            "res_model": "collection.voucher",
+            "view_mode": "list,kanban,form",
+            "domain": [("sheet_id", "=", self.id)],
+            "context": {
+                "default_sheet_id": self.id,
+                "default_seller_id": self.seller_id.id,
+            },
+        }
+
     @api.private
     def _ensure_saved_sheet(self):
         self.ensure_one()
         if isinstance(self.id, bool) or not isinstance(self.id, int) or self.id <= 0:
-            raise UserError(_("Document Review requires a saved collection sheet."))
+            raise UserError(_("This action requires a saved collection sheet."))

@@ -95,7 +95,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `tools/seller_lookup.py`                          | `@mcp_tool` `get_seller_id` (read) on `muk_mcp.mixin`                                                          |
 | `tools/customer_list.py`                          | `@mcp_tool` `list_collection_customers` (read) on `muk_mcp.mixin`                                              |
 | `tools/customer_debt.py`                          | `@mcp_tool` `customer_debt` (read) on `muk_mcp.mixin`                                                          |
-| `views/collection_views.xml`                      | List/search/kanban/form + menus/actions; sheet notebook (vouchers + allocations)                               |
+| `views/collection_views.xml`                      | List/search/kanban/form + menus/actions; allocations-only notebook + counted Vouchers stat button              |
 | `views/collection_allocation_views.xml`           | Allocation list/form/search; `path`; menu sequence 30 after sheets                                             |
 | `views/res_config_settings_views.xml`             | Collection Settings UI; XMLID `action_collection_config_settings`                                              |
 | `data/ir_sequence_data.xml`                       | Per-company seq XMLIDs on `base.main_company` (`COL/` + `CS/` + `CA/`)                                         |
@@ -295,9 +295,10 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 - **UI** may omit `document_id`; MCP may not. Seller domain on voucher/sheet views is
   the company enabled list; document-type choices are allowed ∪ current value.
   Allocations menu is sequence 30 under `menu_collection_root` (after sheets at 20).
-  Sheet form notebooks Vouchers (`voucher_ids`) and Allocations (`allocation_ids`).
-  Allocation form Validate/Reject are header object buttons gated
-  `state != 'confirmed'`, same pattern as voucher Approve/Reject.
+  Sheet form notebook is Allocations-only (`allocation_ids`) plus a counted Vouchers
+  stat button; membership is via voucher `sheet_id`. Allocation form Validate/Reject are
+  header object buttons gated `state != 'confirmed'`, same pattern as voucher
+  Approve/Reject.
 - **Odoo 19:** use `<list>` not `<tree>`; `models.Constraint` not `_sql_constraints`;
   `t-out` not `t-esc`; `@api.ondelete` for delete rules.
 

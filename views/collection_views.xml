@@ -24,6 +24,7 @@
           name="seller_id"
           domain="[('id', 'in', company_id.enabled_seller_ids)]"
         />
+                <field name="sheet_id" optional="hide" />
                 <field name="company_id" optional="hide" />
                 <field name="create_date" readonly="1" />
                 <field name="state" />
@@ -46,6 +47,7 @@
                 <field name="name" />
                 <field name="partner_id" />
                 <field name="seller_id" />
+                <field name="sheet_id" />
                 <field name="create_date" />
                 <field name="state" />
                 <field name="document_type" />
@@ -86,6 +88,11 @@
             string="Document Type"
             name="group_document_type"
             context="{'group_by': 'document_type'}"
+          />
+                    <filter
+            string="Sheet"
+            name="group_sheet_id"
+            context="{'group_by': 'sheet_id'}"
           />
                 </group>
             </search>
@@ -168,6 +175,7 @@
                 required="1"
                 domain="[('id', 'in', company_id.enabled_seller_ids)]"
               />
+                            <field name="sheet_id" />
                             <field name="create_date" readonly="1" />
                         </group>
                         <group>
@@ -460,6 +468,21 @@
           />
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button
+              name="action_open_vouchers"
+              type="object"
+              class="oe_stat_button"
+              icon="fa-list"
+              invisible="not id"
+            >
+                            <field
+                name="voucher_count"
+                widget="statinfo"
+                string="Vouchers"
+              />
+                        </button>
+                    </div>
                     <field name="document_review_enabled" invisible="1" />
                     <div class="oe_title">
                         <label for="name" />
@@ -481,23 +504,11 @@
                         </group>
                     </group>
                     <notebook>
-                        <page string="Vouchers">
-                            <field
-                name="voucher_ids"
-                widget="many2many"
-                readonly="state == 'closed'"
-              >
-                                <list>
-                                    <field name="name" />
-                                    <field name="partner_id" />
-                                    <field name="state" />
-                                </list>
-                            </field>
-                        </page>
                         <page string="Allocations">
                             <field name="allocation_ids">
                                 <list create="false" delete="false">
                                     <field name="name" />
+                                    <field name="partner_id" />
                                     <field name="state" />
                                     <field name="total_vouchers" />
                                     <field name="total_applied" />

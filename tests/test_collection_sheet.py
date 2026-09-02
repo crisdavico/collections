@@ -557,6 +557,63 @@ class TestCollectionSheet(TransactionCase):
         with self.assertRaises(UserError):
             unsaved.action_open_document_review()
 
+    def test_empty_sheet_voucher_count_is_zero(self):
+        """A sheet with no members MUST report non-stored voucher_count 0."""
+        field = self.env["collection.sheet"]._fields["voucher_count"]
+        self.assertTrue(field.compute)
+        self.assertFalse(field.store)
+        sheet = self._create_sheet()
+        self.assertFalse(sheet.voucher_ids)
+        self.assertEqual(sheet.voucher_count, 0)
+
+    def test_voucher_count_matches_member_count(self):
+        """Triangulation: voucher_count MUST equal the number of sheet members."""
+        sheet = self._create_sheet()
+        first = self._create_voucher(
+            customer_identification="CUST-VC-1", sheet_id=sheet.id
+        )
+        second = self._create_voucher(
+            customer_identification="CUST-VC-2", sheet_id=sheet.id
+        )
+        self.assertEqual(sheet.voucher_ids, first | second)
+        self.assertEqual(sheet.voucher_count, 2)
+
+    def test_action_open_vouchers_returns_filtered_act_window(self):
+        """Saved sheet MUST open vouchers for that sheet only (no menu path)."""
+        sheet = self._create_sheet()
+        self.assertIsInstance(sheet.id, int)
+        self.assertGreater(sheet.id, 0)
+        action = sheet.action_open_vouchers()
+        self.assertEqual(action["type"], "ir.actions.act_window")
+        self.assertEqual(action["res_model"], "collection.voucher")
+        self.assertEqual(action["view_mode"], "list,kanban,form")
+        self.assertEqual(action["domain"], [("sheet_id", "=", sheet.id)])
+        self.assertEqual(action["context"]["default_sheet_id"], sheet.id)
+        self.assertEqual(action["context"]["default_seller_id"], sheet.seller_id.id)
+        self.assertFalse(action.get("path"))
+
+    def test_action_open_vouchers_domain_matches_each_saved_sheet(self):
+        """Triangulation: domain and defaults bind to the invoked sheet."""
+        sheet_a = self._create_sheet()
+        sheet_b = self._create_sheet(seller_id=self._other_internal_seller().id)
+        self.assertNotEqual(sheet_a.id, sheet_b.id)
+        action_a = sheet_a.action_open_vouchers()
+        action_b = sheet_b.action_open_vouchers()
+        self.assertEqual(action_a["domain"], [("sheet_id", "=", sheet_a.id)])
+        self.assertEqual(action_b["domain"], [("sheet_id", "=", sheet_b.id)])
+        self.assertEqual(action_a["context"]["default_seller_id"], sheet_a.seller_id.id)
+        self.assertEqual(action_b["context"]["default_seller_id"], sheet_b.seller_id.id)
+        self.assertEqual(action_a["view_mode"], "list,kanban,form")
+        self.assertEqual(action_b["view_mode"], "list,kanban,form")
+
+    def test_action_open_vouchers_refused_on_new_id(self):
+        """Unsaved .new() records (NewId) must not open vouchers."""
+        unsaved = self.env["collection.sheet"].new({"seller_id": self._seller().id})
+        self.assertFalse(isinstance(unsaved.id, int))
+        self.assertFalse(unsaved.id)
+        with self.assertRaises(UserError):
+            unsaved.action_open_vouchers()
+
     def test_document_review_enabled_helper_is_non_stored_and_follows_flag(self):
         """Non-stored helper mirrors company._document_review_enabled() (no DDL)."""
         field = self.env["collection.sheet"]._fields["document_review_enabled"]

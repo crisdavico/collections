@@ -290,29 +290,33 @@ Each voucher MUST persist `document_type` `bank_transfer` | `check` | `cash_depo
 ### Requirement: Payment Vouchers UI
 
 The system MUST expose Collections → Payment Vouchers as the only create/edit surface
-(kanban, list, and form; create and edit enabled). Kanban MUST group by `state`.
-List/search MUST show reference, Customer (`partner_id`), readonly `create_date`,
-status, and payment fields. Form MUST show statusbar, Approve/Reject when `pending`,
-readonly `create_date`, payment fields for the voucher’s `document_type`, chatter and
-activity controls, and MUST NOT show `received_date`. List, search, kanban, form, and
-sheet member list MUST show `partner_id` and MUST NOT apply a domain that restricts
-Customer to bound partners. The system MUST NOT expose Collections → Payment Lines or
-typed embedded payment-line tables. (Previously: List/search showed customer
-identification; no partner field.)
+(kanban, list, form; create and edit enabled). Kanban MUST group by `state`. List/search
+MUST show reference, Customer (`partner_id`), readonly `create_date`, status, and
+payment fields. Form MUST show statusbar, Approve/Reject when `pending`, readonly
+`create_date`, type-specific payment fields, chatter/activity, and MUST NOT show
+`received_date`. List, search, kanban, and form MUST show `partner_id` without a
+bound-partner domain. List MUST expose optional hidden `sheet_id`; form MUST expose it
+editable; search MUST expose field and group-by; kanban MUST NOT add it. Clearing
+`sheet_id` on an open member MUST unlink; closed-sheet membership writes MUST be
+rejected. MUST NOT expose a sheet-form voucher member list, Payment Lines, or
+payment-line tables.
+
+(Previously: Sheet member list was a voucher UI surface; list, form, and search omitted
+`sheet_id`.)
 
 #### Scenario: Menu and form behaviors
 
 - GIVEN the module installed and a voucher in `pending`
-- WHEN an internal user opens Collections → Payment Vouchers then the form
+- WHEN Payment Vouchers form opens
 - THEN list/search MUST show reference, Customer, `create_date`, status
-- AND form MUST show statusbar, Approve/Reject, readonly `create_date`, chatter/activity
-  UI without `received_date`
-- AND form MUST show that voucher’s payment fields and MUST NOT show payment-line tables
+- AND form MUST show statusbar, Approve/Reject, readonly `create_date`, type-specific
+  payment fields, chatter/activity, and MUST NOT show `received_date` or payment-line
+  tables
 
 #### Scenario: Kanban grouped by state
 
 - GIVEN Payment Vouchers kanban
-- WHEN an internal user opens it
+- WHEN it opens
 - THEN vouchers MUST be grouped by `state`
 - AND create and edit MUST be enabled
 
@@ -330,10 +334,30 @@ identification; no partner field.)
 
 #### Scenario: Customer field has no domain
 
-- GIVEN Payment Vouchers list, search, kanban, form, or sheet member list
-- WHEN an internal user opens the Customer field
+- GIVEN Payment Vouchers list, search, kanban, or form
+- WHEN Customer is opened
 - THEN the field MUST be `partner_id`
 - AND MUST NOT restrict choices to bound connector customers
+
+#### Scenario: sheet_id on list form search
+
+- GIVEN an existing voucher with or without a sheet
+- WHEN list, form, or search is opened
+- THEN list MUST show optional hidden `sheet_id`, form editable `sheet_id`, and search a
+  `sheet_id` field and group-by
+- AND kanban MUST NOT show `sheet_id`
+
+#### Scenario: Clear sheet_id unlinks open membership
+
+- GIVEN a voucher assigned to an open sheet
+- WHEN an internal user clears `sheet_id` on the voucher form and saves
+- THEN the voucher MUST become unassigned and the sheet MUST persist
+
+#### Scenario: Closed-sheet unlink denied
+
+- GIVEN a voucher assigned to a closed sheet
+- WHEN an internal user clears or changes `sheet_id` on the voucher form
+- THEN the write MUST be rejected and membership MUST be unchanged
 
 ### Requirement: Unsupported vouchers remain persistable
 

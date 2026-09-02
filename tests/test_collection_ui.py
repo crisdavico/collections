@@ -800,6 +800,57 @@ class TestCollectionUi(TransactionCase):
             names = self._field_names(root)
             self.assertIn("seller_id", names, f"{label} view must expose seller_id")
 
+    def test_voucher_list_form_search_expose_sheet_id(self):
+        """List optional-hide, form editable after seller_id, search field+groupby."""
+        list_root = self._arch_root("collection.view_collection_voucher_list")
+        list_nodes = self._field_nodes(list_root, "sheet_id")
+        self.assertEqual(len(list_nodes), 1, "voucher list must declare sheet_id once")
+        self.assertEqual(
+            list_nodes[0].get("optional"),
+            "hide",
+            "voucher list sheet_id must be optional=hide",
+        )
+
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        form_nodes = self._field_nodes(form_root, "sheet_id")
+        self.assertEqual(len(form_nodes), 1, "voucher form must declare sheet_id once")
+        self.assertFalse(
+            form_nodes[0].get("readonly"),
+            (
+                "form sheet_id must be editable with no extra readonly "
+                f"(got {form_nodes[0].get('readonly')!r})"
+            ),
+        )
+        left_group = form_root.xpath("./sheet/group/group")[0]
+        seller = left_group.xpath('./field[@name="seller_id"]')
+        self.assertTrue(seller, "voucher form left group must include seller_id")
+        following = seller[0].xpath("./following-sibling::field")
+        self.assertTrue(
+            following,
+            "voucher form must declare a field after seller_id",
+        )
+        self.assertEqual(
+            following[0].get("name"),
+            "sheet_id",
+            "form sheet_id must follow seller_id in the left group",
+        )
+
+        search_root = self._arch_root("collection.view_collection_voucher_search")
+        self.assertIn("sheet_id", self._field_names(search_root))
+        group_sheet = [
+            node
+            for node in search_root.xpath("//group/filter")
+            if "group_by" in (node.get("context") or "")
+            and "sheet_id" in (node.get("context") or "")
+        ]
+        self.assertTrue(group_sheet, "search view must offer group_by sheet_id")
+
+        kanban_root = self._arch_root("collection.view_collection_voucher_kanban")
+        self.assertFalse(
+            self._field_nodes(kanban_root, "sheet_id"),
+            "kanban must not add sheet_id",
+        )
+
     def test_collection_sheets_menu_list_form_search(self):
         """Collections → Collection Sheets MUST wire list, form, and search."""
         root_menu = self.env.ref("collection.menu_collection_root")
@@ -838,7 +889,7 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(form_root.tag, "form")
         self._assert_create_edit_enabled(form_root, "sheet form")
         names = self._field_names(form_root)
-        for field_name in ("name", "seller_id", "date_from", "date_to", "voucher_ids"):
+        for field_name in ("name", "seller_id", "date_from", "date_to"):
             self.assertIn(field_name, names, f"form must show {field_name}")
 
         seller = self._field_nodes(form_root, "seller_id")[0]
@@ -853,13 +904,6 @@ class TestCollectionUi(TransactionCase):
             readonly.lower(),
             ("1", "true"),
             "seller_id must stay editable on create",
-        )
-        membership = self._field_nodes(form_root, "voucher_ids")[0]
-        self.assertEqual(membership.get("widget"), "many2many")
-        self.assertIn(
-            "state == 'closed'",
-            membership.get("readonly") or "",
-            "membership must be readonly when the sheet is closed",
         )
         statusbar = form_root.xpath(
             '//header/field[@name="state" and @widget="statusbar"]'
@@ -1012,39 +1056,37 @@ class TestCollectionUi(TransactionCase):
             "allocation form must include <chatter/> for messaging/activities",
         )
 
-    def test_sheet_form_notebook_vouchers_and_allocations(self):
-        """Sheet form MUST notebook vouchers and allocations (keep voucher_ids)."""
+    def test_sheet_form_notebook_allocations_only(self):
+        """Sheet form MUST show Allocations only; Customer after name before state."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
         notebooks = form_root.xpath("//notebook")
-        self.assertTrue(notebooks, "sheet form must wrap membership in a notebook")
+        self.assertTrue(notebooks, "sheet form must wrap allocations in a notebook")
         self.assertEqual(
             len(notebooks),
             1,
             "sheet form must have a single notebook",
         )
         page_strings = [page.get("string") for page in notebooks[0].xpath("./page")]
-        self.assertIn(SHEET_NOTEBOOK_VOUCHERS, page_strings)
-        self.assertIn(SHEET_NOTEBOOK_ALLOCATIONS, page_strings)
-
-        vouchers_page = self._notebook_page(form_root, SHEET_NOTEBOOK_VOUCHERS)
-        voucher_fields = vouchers_page.xpath('.//field[@name="voucher_ids"]')
-        self.assertTrue(
-            voucher_fields,
-            "Vouchers notebook page must contain voucher_ids",
+        self.assertEqual(
+            page_strings,
+            [SHEET_NOTEBOOK_ALLOCATIONS],
+            "sheet form notebook must show Allocations only",
         )
-        membership = voucher_fields[0]
-        self.assertEqual(membership.get("widget"), "many2many")
-        self.assertIn(
-            "state == 'closed'",
-            membership.get("readonly") or "",
-            "membership must stay readonly when the sheet is closed",
+        self.assertNotIn(
+            SHEET_NOTEBOOK_VOUCHERS,
+            page_strings,
+            "sheet form must not include a Vouchers notebook page",
         )
-        voucher_lists = membership.xpath("./list")
-        self.assertTrue(voucher_lists, "voucher_ids must embed a <list>")
-        self.assertEqual(voucher_lists[0].tag, "list")
-        self.assertNotEqual(voucher_lists[0].tag, "tree")
+        self.assertFalse(
+            form_root.xpath(f'//notebook/page[@string="{SHEET_NOTEBOOK_VOUCHERS}"]'),
+            "sheet form must not include a Vouchers notebook page",
+        )
 
         allocations_page = self._notebook_page(form_root, SHEET_NOTEBOOK_ALLOCATIONS)
+        self.assertFalse(
+            allocations_page.get("invisible"),
+            "Allocations notebook page must not be hidden",
+        )
         allocation_fields = allocations_page.xpath('.//field[@name="allocation_ids"]')
         self.assertTrue(
             allocation_fields,
@@ -1054,17 +1096,61 @@ class TestCollectionUi(TransactionCase):
         self.assertTrue(allocation_lists, "allocation_ids must embed a <list>")
         self.assertEqual(allocation_lists[0].tag, "list")
         self.assertNotEqual(allocation_lists[0].tag, "tree")
+        list_names = self._field_names(allocation_lists[0], xpath="./field")
+        self.assertIn("name", list_names)
+        self.assertIn("partner_id", list_names)
+        self.assertIn("state", list_names)
+        self.assertEqual(
+            list_names.index("name") + 1,
+            list_names.index("partner_id"),
+            "allocations list must show Customer immediately after name",
+        )
+        self.assertEqual(
+            list_names.index("partner_id") + 1,
+            list_names.index("state"),
+            "allocations list must show Customer immediately before state",
+        )
+
+        self.assertFalse(
+            form_root.xpath('.//field[@name="voucher_ids"]'),
+            "sheet form must not expose voucher_ids",
+        )
+        form_names = self._field_names(form_root)
+        self.assertNotIn("voucher_ids", form_names)
+        self.assertIn("allocation_ids", form_names)
         self.assertFalse(
             form_root.xpath("//tree"),
             "sheet form must not use deprecated <tree>",
         )
-        form_names = self._field_names(form_root)
-        self.assertIn(
-            "voucher_ids",
-            form_names,
-            "sheet form must keep voucher_ids so Close/Reopen tests still find it",
+
+    def test_sheet_form_stat_button_opens_vouchers(self):
+        """Sheet form MUST expose a counted Vouchers stat button hidden when unsaved."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        sheet_nodes = form_root.xpath("./sheet")
+        self.assertTrue(sheet_nodes, "sheet form must include a <sheet>")
+        first_child = sheet_nodes[0][0]
+        self.assertEqual(
+            first_child.tag,
+            "div",
+            "first child inside <sheet> must be the smart-button box",
         )
-        self.assertIn("allocation_ids", form_names)
+        self.assertEqual(first_child.get("class"), "oe_button_box")
+        self.assertEqual(first_child.get("name"), "button_box")
+        buttons = first_child.xpath(
+            './button[@name="action_open_vouchers" and @type="object"]'
+        )
+        self.assertEqual(
+            len(buttons),
+            1,
+            "button box must expose action_open_vouchers once",
+        )
+        button = buttons[0]
+        self.assertIn("oe_stat_button", (button.get("class") or "").split())
+        self.assertEqual(button.get("invisible"), "not id")
+        count_fields = button.xpath('.//field[@name="voucher_count"]')
+        self.assertTrue(count_fields, "stat button must show voucher_count")
+        self.assertEqual(count_fields[0].get("widget"), "statinfo")
+        self.assertEqual(count_fields[0].get("string"), "Vouchers")
 
     def test_sheet_form_header_document_review_visible_when_saved_and_flag_on(self):
         """Header object action is available when the sheet is saved and flag is ON."""
