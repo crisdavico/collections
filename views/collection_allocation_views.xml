@@ -31,19 +31,14 @@
                 <field name="seller_id" />
                 <field name="state" />
                 <filter
+          string="Draft"
+          name="filter_draft"
+          domain="[('state', '=', 'draft')]"
+        />
+                <filter
           string="Confirmed"
           name="filter_confirmed"
           domain="[('state', '=', 'confirmed')]"
-        />
-                <filter
-          string="Validated"
-          name="filter_validated"
-          domain="[('state', '=', 'validated')]"
-        />
-                <filter
-          string="Rejected"
-          name="filter_rejected"
-          domain="[('state', '=', 'rejected')]"
         />
                 <group>
                     <filter
@@ -62,23 +57,10 @@
         <field name="arch" type="xml">
             <form string="Collection Allocation">
                 <header>
-                    <button
-            name="action_validate"
-            string="Validate"
-            type="object"
-            class="oe_highlight"
-            invisible="state != 'confirmed'"
-          />
-                    <button
-            name="action_reject"
-            string="Reject"
-            type="object"
-            invisible="state != 'confirmed'"
-          />
                     <field
             name="state"
             widget="statusbar"
-            statusbar_visible="confirmed,validated,rejected"
+            statusbar_visible="draft,confirmed"
           />
                 </header>
                 <sheet>
@@ -91,8 +73,8 @@
                     <group>
                         <group>
                             <field name="company_id" invisible="1" />
-                            <field name="sheet_id" readonly="state != 'confirmed'" />
-                            <field name="partner_id" readonly="state != 'confirmed'" />
+                            <field name="sheet_id" readonly="state == 'confirmed'" />
+                            <field name="partner_id" readonly="state == 'confirmed'" />
                             <field name="seller_id" />
                         </group>
                         <group>
@@ -103,13 +85,11 @@
                             <field name="total_debt" />
                             <field name="residual" />
                             <field name="residual_reason" />
-                            <field name="reviewed_by" readonly="1" />
-                            <field name="reviewed_at" readonly="1" />
                         </group>
                     </group>
                     <notebook>
                         <page string="Vouchers">
-                            <field name="voucher_ids" readonly="state != 'confirmed'">
+                            <field name="voucher_ids" readonly="state == 'confirmed'">
                                 <list>
                                     <field name="name" />
                                     <field name="partner_id" />
@@ -120,7 +100,7 @@
                             </field>
                         </page>
                         <page string="Invoices">
-                            <field name="line_ids" readonly="state != 'confirmed'">
+                            <field name="line_ids" readonly="state == 'confirmed'">
                                 <list>
                                     <field name="invoice_number" />
                                     <field name="external_invoice_id" optional="hide" />

@@ -164,6 +164,16 @@ class TestCollectionCompanyMigration(TransactionCase):
             (module_root / "migrations" / "19.0.1.29.0").exists(),
             "No migrations/19.0.1.29.0/ folder — ORM Float add only",
         )
+        migrate_128 = (
+            module_root / "migrations" / "19.0.1.28.0" / "post-migrate.py"
+        )
+        self.assertTrue(migrate_128.is_file(), "Need 19.0.1.28.0 allocation remap")
+        text_128 = migrate_128.read_text(encoding="utf-8")
+        self.assertIn("THEN 'draft'", text_128)
+        self.assertIn("THEN 'confirmed'", text_128)
+        self.assertIn("'validated'", text_128)
+        self.assertNotIn("CA/", text_128)
+        self.assertNotIn("_collection_copy_sequences", text_128)
 
     def test_allocation_sequence_in_specs_not_in_1_17_0_codes(self):
         specs_path = Path(__file__).resolve().parents[1] / "models" / "res_company.py"

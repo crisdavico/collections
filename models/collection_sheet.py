@@ -194,15 +194,26 @@ class CollectionSheet(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_no_allocations(self):
-        if any(sheet.allocation_ids for sheet in self):
-            raise UserError(_("Collection sheets with allocations cannot be deleted."))
+        if any(sheet.state == "closed" for sheet in self):
+            raise UserError(_("Closed collection sheets cannot be deleted."))
+        drafts = self.mapped("allocation_ids")
+        if drafts:
+            drafts.unlink()
 
     def action_close(self):
         if any(sheet.state != "open" for sheet in self):
             raise UserError(_("Only open sheets can be closed."))
-        return self.with_context(collection_sheet_audited_state=True).write(
+        allocations = self.mapped("allocation_ids")
+        if allocations:
+            allocations.with_context(collection_allocation_audited_state=True).write(
+                {"state": "confirmed"}
+            )
+        result = self.with_context(collection_sheet_audited_state=True).write(
             {"state": "closed"}
         )
+        if allocations:
+            allocations._check_sheet_state_iff()
+        return result
 
     def action_reopen(self):
         if any(sheet.state != "closed" for sheet in self):
@@ -214,9 +225,16 @@ class CollectionSheet(models.Model):
                 raise UserError(_("This seller already has an open collection sheet."))
             self._raise_if_seller_has_open_sheet(sheet.seller_id, sheet.company_id)
             seen_keys.add(key)
-        return self.with_context(collection_sheet_audited_state=True).write(
+        allocations = self.mapped("allocation_ids")
+        result = self.with_context(collection_sheet_audited_state=True).write(
             {"state": "open"}
         )
+        if allocations:
+            allocations.with_context(collection_allocation_audited_state=True).write(
+                {"state": "draft"}
+            )
+            allocations._check_sheet_state_iff()
+        return result
 
     @api.private
     def _sanitize_voucher_commands(self, commands):

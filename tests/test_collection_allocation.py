@@ -19,7 +19,7 @@ from .test_collection_payment import (
 
 
 class TestCollectionAllocation(TransactionCase):
-    """RED: allocation constraints, freeze, sanitizer, residual, validate/reject."""
+    """RED: draft default, freeze iff confirmed, residual both, drop validate/reject."""
 
     def _seller(self):
         return ensure_enabled_seller(self.env)
@@ -124,10 +124,16 @@ class TestCollectionAllocation(TransactionCase):
             .create(vals)
         )
 
+    def _confirm(self, allocation):
+        allocation.with_context(collection_allocation_audited_state=True).write(
+            {"state": "confirmed"}
+        )
+        return allocation
+
     def test_unique_sheet_partner_rejected(self):
         """UNIQUE(sheet_id, partner_id) MUST reject a second header."""
         allocation, _voucher, sheet, partner = self._balanced_allocation()
-        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(allocation.state, "draft")
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
             with self.env.cr.savepoint():
                 self._create_allocation(sheet, partner)
@@ -166,10 +172,20 @@ class TestCollectionAllocation(TransactionCase):
             f"Allocation name {allocation.name!r} must match CA/<year>/<padded>",
         )
 
-    def test_freeze_rejects_writes_when_not_confirmed(self):
+    def test_create_defaults_to_draft(self):
+        """ORM create MUST persist draft; selection MUST be draft/confirmed only."""
+        allocation, _voucher, sheet, _partner = self._balanced_allocation()
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(sheet.state, "open")
+        states = {key for key, _label in allocation._fields["state"].selection}
+        self.assertEqual(states, {"draft", "confirmed"})
+        untitled = self.env["collection.allocation"].new({})
+        self.assertEqual(untitled.state, "draft")
+
+    def test_freeze_rejects_writes_when_confirmed(self):
         allocation, voucher, sheet, partner = self._balanced_allocation()
-        allocation.action_validate()
-        self.assertEqual(allocation.state, "validated")
+        self._confirm(allocation)
+        self.assertEqual(allocation.state, "confirmed")
         outsider = self._create_voucher(
             partner, sheet, amount=10.0, document_id="ALLOC-FREEZE-OUT"
         )
@@ -203,12 +219,13 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(allocation.sheet_id, sheet)
         self.assertEqual(voucher.allocation_id, allocation)
 
-    def test_confirmed_allocation_allows_membership_writes(self):
-        """Triangulation: confirmed allocations MAY still change frozen fields."""
+    def test_draft_allocation_allows_membership_writes(self):
+        """Triangulation: draft allocations MAY still change frozen fields."""
         allocation, voucher, sheet, partner = self._balanced_allocation(amount=80.0)
         extra = self._create_voucher(
-            partner, sheet, amount=20.0, document_id="ALLOC-CONF-EXTRA"
+            partner, sheet, amount=20.0, document_id="ALLOC-DRAFT-EXTRA"
         )
+        self.assertEqual(allocation.state, "draft")
         allocation.write(
             {
                 "voucher_ids": [Command.link(extra.id)],
@@ -217,6 +234,17 @@ class TestCollectionAllocation(TransactionCase):
         )
         self.assertIn(extra, allocation.voucher_ids)
         self.assertIn(voucher, allocation.voucher_ids)
+        extra_line = self._line_vals(
+            amount_applied=1.0,
+            invoice_balance=1.0,
+            external_invoice_id="INV-DRAFT-LINE",
+        )
+        allocation.write({"line_ids": [Command.create(extra_line)]})
+        self.assertTrue(
+            allocation.line_ids.filtered(
+                lambda line: line.external_invoice_id == "INV-DRAFT-LINE"
+            )
+        )
 
     def test_delete_command_unassigns_without_destroying_voucher(self):
         partner = self._partner("ALLOC-DELCMD")
@@ -228,16 +256,19 @@ class TestCollectionAllocation(TransactionCase):
         self.assertFalse(voucher.allocation_id)
         self.assertFalse(allocation.voucher_ids)
 
-    def test_residual_zero_confirmed_ok(self):
+    def test_residual_zero_ok_on_draft_and_confirmed(self):
         allocation, voucher, _sheet, _partner = self._balanced_allocation(amount=100.0)
-        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.total_vouchers, 100.0)
         self.assertEqual(allocation.total_applied, 100.0)
         self.assertEqual(allocation.residual, 0.0)
         self.assertFalse(allocation.residual_reason)
         self.assertEqual(voucher.allocation_id, allocation)
+        self._confirm(allocation)
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(allocation.residual, 0.0)
 
-    def test_residual_positive_requires_reason_only_when_confirmed(self):
+    def test_residual_positive_requires_reason_on_draft_and_confirmed(self):
         partner = self._partner("ALLOC-RES")
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner, sheet, amount=100.0)
@@ -255,10 +286,15 @@ class TestCollectionAllocation(TransactionCase):
             lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
             residual_reason="on_account",
         )
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.residual, 60.0)
+        self.assertEqual(allocation.residual_reason, "on_account")
+        self._confirm(allocation)
+        self.assertEqual(allocation.state, "confirmed")
         self.assertEqual(allocation.residual, 60.0)
         self.assertEqual(allocation.residual_reason, "on_account")
 
-    def test_residual_negative_rejected_only_while_confirmed(self):
+    def test_residual_negative_rejected_on_draft_and_confirmed(self):
         partner = self._partner("ALLOC-NEG")
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner, sheet, amount=50.0)
@@ -275,29 +311,30 @@ class TestCollectionAllocation(TransactionCase):
             vouchers=voucher,
             lines=[self._line_vals(amount_applied=50.0, invoice_balance=50.0)],
         )
-        allocation.action_validate()
-        voucher.write({"amount": 10.0})
-        self.assertEqual(allocation.state, "validated")
-        self.assertLess(allocation.residual, 0.0)
+        self.assertEqual(allocation.state, "draft")
+        with self.assertRaises(ValidationError):
+            voucher.write({"amount": 10.0})
+        self.assertEqual(allocation.residual, 0.0)
+        voucher.write({"amount": 50.0})
+        self._confirm(allocation)
+        self.assertEqual(allocation.state, "confirmed")
+        with self.assertRaises(ValidationError):
+            voucher.write({"amount": 10.0})
+        self.assertEqual(allocation.residual, 0.0)
 
-    def test_validate_and_reject_use_context_gate(self):
+    def test_validate_and_reject_are_gone(self):
         allocation, _voucher, _sheet, _partner = self._balanced_allocation()
-        allocation.action_validate()
-        self.assertEqual(allocation.state, "validated")
-        self.assertEqual(allocation.reviewed_by, self.env.user)
-        self.assertTrue(allocation.reviewed_at)
-
-        other, _v, _s, _p = self._balanced_allocation(
-            amount=25.0, partner=self._partner("ALLOC-REJ")
-        )
-        other.write({"state": "rejected"})
-        self.assertEqual(other.state, "rejected")
-        self.assertEqual(other.reviewed_by, self.env.user)
-
+        Alloc = type(self.env["collection.allocation"])
+        self.assertFalse(hasattr(Alloc, "action_validate"))
+        self.assertFalse(hasattr(Alloc, "action_reject"))
+        states = {key for key, _label in allocation._fields["state"].selection}
+        self.assertEqual(states, {"draft", "confirmed"})
         with self.assertRaises(UserError):
-            allocation.action_validate()
+            allocation.write({"state": "confirmed"})
+        self.assertEqual(allocation.state, "draft")
         with self.assertRaises(UserError):
-            other.action_reject()
+            allocation.write({"state": "validated"})
+        self.assertEqual(allocation.state, "draft")
 
     def test_revision_immutable_and_request_id_unique(self):
         allocation, _voucher, _sheet, _partner = self._balanced_allocation()
@@ -329,28 +366,91 @@ class TestCollectionAllocation(TransactionCase):
                     allocation, revision=1, request_id="req-unique-rev-dup"
                 )
 
-    def test_unlink_with_revisions_refused(self):
+    def test_draft_unlink_with_revisions_unassigns_vouchers(self):
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
-        self._create_revision(allocation, request_id="req-keep")
+        line_ids = allocation.line_ids.ids
+        revision = self._create_revision(allocation, request_id="req-draft-unlink")
+        revision_id = revision.id
         allocation_id = allocation.id
-        with self.assertRaises(UserError):
-            allocation.unlink()
-        self.assertTrue(
-            self.env["collection.allocation"].browse(allocation_id).exists()
-        )
-        self.assertEqual(voucher.allocation_id, allocation)
-
-    def test_unlink_without_revisions_allowed(self):
-        allocation, voucher, _sheet, _partner = self._balanced_allocation()
-        allocation_id = allocation.id
+        voucher_id = voucher.id
+        self.assertEqual(allocation.state, "draft")
         allocation.unlink()
         self.assertFalse(
             self.env["collection.allocation"].browse(allocation_id).exists()
         )
-        self.assertFalse(voucher.allocation_id)
-        self.assertTrue(voucher.exists())
+        self.assertFalse(
+            self.env["collection.allocation.revision"].browse(revision_id).exists()
+        )
+        self.assertFalse(
+            self.env["collection.allocation.line"].browse(line_ids).exists()
+        )
+        leftover = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover.exists())
+        self.assertFalse(leftover.allocation_id)
 
-    def test_allocation_id_write_only_when_both_confirmed_or_unset(self):
+    def test_confirmed_unlink_refused_without_revisions(self):
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        self._confirm(allocation)
+        allocation_id = allocation.id
+        with self.assertRaises(UserError):
+            allocation.unlink()
+        leftover = self.env["collection.allocation"].browse(allocation_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.state, "confirmed")
+        self.assertEqual(voucher.allocation_id, leftover)
+
+    def test_confirmed_unlink_refused_with_revisions(self):
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        revision = self._create_revision(allocation, request_id="req-keep-confirmed")
+        self._confirm(allocation)
+        allocation_id = allocation.id
+        revision_id = revision.id
+        with self.assertRaises(UserError):
+            allocation.unlink()
+        leftover = self.env["collection.allocation"].browse(allocation_id)
+        self.assertTrue(leftover.exists())
+        self.assertTrue(
+            self.env["collection.allocation.revision"].browse(revision_id).exists()
+        )
+        self.assertEqual(voucher.allocation_id, leftover)
+
+    def test_direct_revision_unlink_still_forbidden_on_draft(self):
+        allocation, _voucher, _sheet, _partner = self._balanced_allocation()
+        revision = self._create_revision(allocation, request_id="req-direct-unlink")
+        with self.assertRaises(UserError):
+            revision.unlink()
+        self.assertTrue(revision.exists())
+        self.assertTrue(allocation.exists())
+        self.assertEqual(allocation.state, "draft")
+
+    def test_iff_constraint_skips_under_audited_context(self):
+        allocation, _voucher, sheet, _partner = self._balanced_allocation()
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(sheet.state, "open")
+        with self.assertRaises(UserError):
+            allocation.write({"state": "confirmed"})
+        self.assertEqual(allocation.state, "draft")
+        self._confirm(allocation)
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(sheet.state, "open")
+        with self.assertRaises(ValidationError):
+            allocation._check_sheet_state_iff()
+        sheet.action_close()
+        allocation._check_sheet_state_iff()
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(sheet.state, "closed")
+
+    def test_iff_matching_draft_on_open_passes(self):
+        """Triangulation: draft on an open sheet MUST satisfy the iff constrain."""
+        allocation, _voucher, sheet, _partner = self._balanced_allocation()
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(sheet.state, "open")
+        allocation._check_sheet_state_iff()
+
+    def test_allocation_id_write_on_draft_or_unset(self):
+        """Write of allocation_id MUST succeed when current and target are draft
+        or unset.
+        """
         partner = self._partner("ALLOC-WRITE")
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner, sheet, amount=40.0)
@@ -360,36 +460,92 @@ class TestCollectionAllocation(TransactionCase):
             vouchers=voucher,
             residual_reason="on_account",
         )
+        self.assertEqual(allocation.state, "draft")
         voucher.write({"allocation_id": False})
         self.assertFalse(voucher.allocation_id)
         voucher.write({"allocation_id": allocation.id})
         self.assertEqual(voucher.allocation_id, allocation)
 
-        allocation.action_validate()
+    def test_confirmed_membership_write_refused(self):
+        """Write of allocation_id MUST be refused when current or target is
+        confirmed.
+        """
+        partner = self._partner("ALLOC-WRITE-CONF")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=40.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            residual_reason="on_account",
+        )
+        self._confirm(allocation)
+        stored = voucher.allocation_id
         with self.assertRaises(UserError):
             voucher.write({"allocation_id": False})
-        self.assertEqual(voucher.allocation_id, allocation)
-
-        pending = self._create_voucher(
-            self._partner("ALLOC-WRITE-P2"),
-            allocation.sheet_id,
-            amount=15.0,
-            document_id="ALLOC-WRITE-PEND",
+        self.assertEqual(voucher.allocation_id, stored)
+        outsider = self._create_voucher(
+            partner, sheet, amount=10.0, document_id="ALLOC-WRITE-OUT"
         )
         with self.assertRaises(UserError):
-            pending.write({"allocation_id": allocation.id})
-        self.assertFalse(pending.allocation_id)
+            outsider.write({"allocation_id": allocation.id})
+        self.assertFalse(outsider.allocation_id)
 
-    def test_allocated_voucher_unlink_refused_including_pending(self):
-        _allocation, voucher, _sheet, _partner = self._balanced_allocation()
+    def test_pending_unlink_on_draft_allowed_when_residual_holds(self):
+        """Pending unlink on draft MUST succeed when projected residual stays ≥ 0."""
+        partner = self._partner("ALLOC-UNL-DRAFT")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=40.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            residual_reason="on_account",
+        )
         self.assertEqual(voucher.state, "pending")
-        self.assertTrue(voucher.allocation_id)
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.residual, 40.0)
+        voucher_id = voucher.id
+        voucher.unlink()
+        self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
+        self.assertFalse(allocation.voucher_ids)
+
+    def test_pending_unlink_on_confirmed_refused(self):
+        """Pending plus confirmed MUST refuse unlink; voucher and allocation remain."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        self._confirm(allocation)
+        self.assertEqual(voucher.state, "pending")
         voucher_id = voucher.id
         with self.assertRaises(UserError):
             voucher.unlink()
         leftover = self.env["collection.voucher"].browse(voucher_id)
         self.assertTrue(leftover.exists())
-        self.assertTrue(leftover.allocation_id)
+        self.assertEqual(leftover.allocation_id, allocation)
+
+    def test_pending_unlink_on_draft_negative_residual_refused(self):
+        """Draft residual underflow MUST refuse pending unlink without editing lines."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.residual, 0.0)
+        line_before = [
+            (line.id, line.amount_applied, line.external_invoice_id)
+            for line in allocation.line_ids
+        ]
+        self.assertTrue(line_before)
+        voucher_id = voucher.id
+        with self.assertRaises(UserError):
+            voucher.unlink()
+        leftover = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.allocation_id, allocation)
+        allocation.invalidate_recordset(["line_ids"])
+        self.assertEqual(
+            [
+                (line.id, line.amount_applied, line.external_invoice_id)
+                for line in allocation.line_ids
+            ],
+            line_before,
+        )
 
     def test_unallocated_pending_voucher_unlink_still_allowed(self):
         partner = self._partner("ALLOC-UNL-OK")
@@ -440,7 +596,7 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(rev_company.precompute)
 
     def test_fully_applied_source_detach_via_partner_write_refused(self):
-        """Fully applied confirmed allocation MUST refuse a voucher partner move."""
+        """Fully applied draft allocation MUST refuse a voucher partner move."""
         allocation, voucher, _sheet, partner = self._balanced_allocation()
         other = self._partner("ALLOC-DETACH-Q")
         with self.assertRaises(UserError):
@@ -450,7 +606,7 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(voucher.allocation_id, allocation)
 
     def test_projected_residual_less_than_amount_detach_refused(self):
-        """Projected residual below the voucher amount MUST refuse detach."""
+        """Draft projected residual below the voucher amount MUST refuse detach."""
         partner = self._partner("ALLOC-PROJ-P")
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner, sheet, amount=100.0)
@@ -461,6 +617,7 @@ class TestCollectionAllocation(TransactionCase):
             lines=[self._line_vals(amount_applied=60.0, invoice_balance=60.0)],
             residual_reason="on_account",
         )
+        self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.residual, 40.0)
         residual_before = allocation.residual
         other = self._partner("ALLOC-PROJ-Q")
@@ -480,7 +637,7 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(voucher.allocation_id, allocation)
 
     def test_same_write_matching_partner_and_allocation_holds(self):
-        """Same-vals partner Q + allocation B MUST keep partner match."""
+        """Same-vals partner Q + draft allocation B MUST keep partner match."""
         partner_p = self._partner("ALLOC-SAME-P")
         partner_q = self._partner("ALLOC-SAME-Q")
         sheet = self._create_sheet()
@@ -496,3 +653,13 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(voucher.allocation_id, allocation_b)
         self.assertIn(voucher, allocation_b.voucher_ids)
         self.assertNotIn(voucher, allocation_a.voucher_ids)
+
+    def test_confirmed_source_partner_write_refused(self):
+        """Confirmed source MUST refuse partner_id write with no field change."""
+        allocation, voucher, _sheet, partner = self._balanced_allocation()
+        self._confirm(allocation)
+        other = self._partner("ALLOC-CONF-SRC-Q")
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": other.id})
+        self.assertEqual(voucher.partner_id, partner)
+        self.assertEqual(voucher.allocation_id, allocation)

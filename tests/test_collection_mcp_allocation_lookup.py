@@ -311,8 +311,8 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self._assert_null(result)
         self.assertEqual(self._counts(), before)
 
-    def test_confirmed_payload_includes_lists_and_residual_reason(self):
-        """Confirmed allocation MUST return residual_reason plus lists."""
+    def test_found_payload_includes_lists_and_residual_reason(self):
+        """Found open-sheet allocation MUST return residual_reason plus lists."""
         sheet = self._create_sheet()
         voucher = self._create_voucher(sheet, self.partner, 150.0)
         allocation = self._create_allocation(
@@ -330,7 +330,8 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(set(body), _ALLOC_KEYS)
         self.assertEqual(body["id"], allocation.id)
         self.assertEqual(body["name"], allocation.name)
-        self.assertEqual(body["state"], "confirmed")
+        self.assertEqual(body["state"], "draft")
+        self.assertNotIn(body["state"], ("validated", "rejected"))
         self.assertIsInstance(body["revision"], int)
         self.assertNotIsInstance(body["revision"], bool)
         self.assertEqual(body["revision"], 1)
@@ -373,13 +374,14 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         result = self._call(self._args())
         self.assertEqual(set(result), _TOP_KEYS)
         self.assertEqual(result["allocation"]["id"], allocation.id)
+        self.assertEqual(result["allocation"]["state"], "draft")
         self.assertEqual(result["allocation"]["residual_reason"], "on_account")
         self.assertEqual(result["allocation"]["residual"], 80.0)
         self.assertEqual(len(result["vouchers"]), 1)
         self.assertEqual(result["invoices"], [])
 
-    def test_validated_allocation_returned_with_stored_state(self):
-        """Validated allocation MUST be returned with state validated."""
+    def test_found_open_sheet_state_is_draft(self):
+        """Found open-sheet allocation MUST return state draft, never validated."""
         sheet = self._create_sheet()
         voucher = self._create_voucher(sheet, self.partner, 100.0)
         allocation = self._create_allocation(
@@ -388,12 +390,12 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
             vouchers=voucher,
             lines=[self._line_vals(amount_applied=100.0, invoice_balance=100.0)],
         )
-        allocation.action_validate()
-        self.assertEqual(allocation.state, "validated")
+        self.assertEqual(allocation.state, "draft")
         before = self._counts()
         result = self._call(self._args())
-        self.assertEqual(result["allocation"]["state"], "validated")
+        self.assertEqual(result["allocation"]["state"], "draft")
         self.assertEqual(result["allocation"]["id"], allocation.id)
+        self.assertNotIn(result["allocation"]["state"], ("validated", "rejected"))
         self.assertIsInstance(result["vouchers"], list)
         self.assertIsInstance(result["invoices"], list)
         self.assertEqual(self._counts(), before)

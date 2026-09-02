@@ -11,4 +11,4 @@ access_collection_connector_customer_binding_user,collection.connector.customer.
 access_collection_connector_customer_binding_system,collection.connector.customer.binding.system,model_collection_connector_customer_binding,base.group_system,1,1,1,1
 access_collection_allocation_user,collection.allocation.user,model_collection_allocation,base.group_user,1,1,1,1
 access_collection_allocation_line_user,collection.allocation.line.user,model_collection_allocation_line,base.group_user,1,1,1,1
-access_collection_allocation_revision_user,collection.allocation.revision.user,model_collection_allocation_revision,base.group_user,1,0,1,0
+access_collection_allocation_revision_user,collection.allocation.revision.user,model_collection_allocation_revision,base.group_user,1,0,1,1

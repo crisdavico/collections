@@ -78,6 +78,26 @@ class TestCollectionVoucher(TransactionCase):
         vals.update(extra)
         return self.env["collection.allocation"].create(vals)
 
+    def _confirm(self, allocation):
+        allocation.with_context(collection_allocation_audited_state=True).write(
+            {"state": "confirmed"}
+        )
+        return allocation
+
+    def _line_vals(self, amount_applied=100.0, invoice_balance=100.0, **extra):
+        vals = {
+            "external_invoice_id": extra.pop("external_invoice_id", "INV-1"),
+            "invoice_number": extra.pop("invoice_number", "A-1"),
+            "issue_date": extra.pop("issue_date", date(2026, 1, 1)),
+            "due_date": extra.pop("due_date", date(2026, 1, 31)),
+            "invoice_amount": extra.pop("invoice_amount", invoice_balance),
+            "invoice_balance": invoice_balance,
+            "invoice_state": extra.pop("invoice_state", "open"),
+            "amount_applied": amount_applied,
+        }
+        vals.update(extra)
+        return vals
+
     # --- Sequence naming ---
 
     def test_sequence_assigned_on_create(self):
@@ -363,10 +383,122 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(rejected.state, "rejected")
 
     def test_unlink_allowed_when_pending(self):
+        """Pending unlink MUST be allowed when allocation is unset."""
         voucher = self._create_voucher()
+        self.assertFalse(voucher.allocation_id)
         voucher_id = voucher.id
         voucher.unlink()
         self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
+
+    def test_unlink_pending_on_draft_allowed_when_residual_holds(self):
+        """Pending unlink on a draft allocation MUST succeed when residual stays ≥ 0."""
+        partner = dummy_customer_partner(self.env, customer="UNL-DRAFT-OK")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=50.0,
+            document_id="UNL-DRAFT-OK",
+        )
+        allocation = self._create_allocation(
+            sheet, partner, vouchers=voucher, residual_reason="on_account"
+        )
+        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.residual, 50.0)
+        voucher_id = voucher.id
+        voucher.unlink()
+        self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
+        self.assertFalse(allocation.voucher_ids)
+
+    def test_unlink_pending_on_draft_with_sibling_when_residual_holds(self):
+        """Triangulation: deleting one pending draft member MUST keep the sibling."""
+        partner = dummy_customer_partner(self.env, customer="UNL-DRAFT-SIB")
+        sheet = self._create_sheet()
+        first = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=30.0,
+            document_id="UNL-DRAFT-SIB-1",
+        )
+        second = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=70.0,
+            document_id="UNL-DRAFT-SIB-2",
+        )
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=first | second,
+            residual_reason="on_account",
+        )
+        self.assertEqual(allocation.residual, 100.0)
+        first_id = first.id
+        first.unlink()
+        self.assertFalse(self.env["collection.voucher"].browse(first_id).exists())
+        self.assertEqual(allocation.voucher_ids, second)
+        self.assertEqual(second.allocation_id, allocation)
+
+    def test_unlink_pending_on_confirmed_refused(self):
+        """Pending unlink on a confirmed allocation MUST refuse; voucher stays."""
+        partner = dummy_customer_partner(self.env, customer="UNL-CONF")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_id="UNL-CONF",
+        )
+        allocation = self._create_allocation(
+            sheet, partner, vouchers=voucher, residual_reason="on_account"
+        )
+        self._confirm(allocation)
+        self.assertEqual(voucher.state, "pending")
+        voucher_id = voucher.id
+        with self.assertRaises(UserError):
+            voucher.unlink()
+        leftover = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.allocation_id, allocation)
+
+    def test_unlink_pending_on_draft_negative_residual_refused(self):
+        """Pending unlink MUST refuse when draft residual would be < 0; lines stay."""
+        partner = dummy_customer_partner(self.env, customer="UNL-NEG")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=100.0,
+            document_id="UNL-NEG",
+        )
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=100.0, invoice_balance=100.0)],
+        )
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.residual, 0.0)
+        line_before = [
+            (line.id, line.amount_applied, line.external_invoice_id)
+            for line in allocation.line_ids
+        ]
+        self.assertTrue(line_before)
+        voucher_id = voucher.id
+        with self.assertRaises(UserError):
+            voucher.unlink()
+        leftover = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.allocation_id, allocation)
+        allocation.invalidate_recordset(["line_ids"])
+        self.assertEqual(
+            [
+                (line.id, line.amount_applied, line.external_invoice_id)
+                for line in allocation.line_ids
+            ],
+            line_before,
+        )
 
     def test_unlink_blocked_when_not_pending(self):
         voucher = self._create_voucher()
@@ -564,8 +696,59 @@ class TestCollectionVoucher(TransactionCase):
 
     # --- Partner write follows allocation ---
 
-    def test_partner_write_same_vals_attaches_confirmed_allocation(self):
-        """Open-sheet voucher on A (P) attaches unique confirmed B (Q) in one write."""
+    def test_allocation_id_write_on_draft_or_unset(self):
+        """Write of allocation_id MUST succeed when current and target are draft
+        or unset.
+        """
+        partner = dummy_customer_partner(self.env, customer="MEMB-DRAFT")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_id="MEMB-DRAFT",
+        )
+        allocation = self._create_allocation(
+            sheet, partner, vouchers=voucher, residual_reason="on_account"
+        )
+        self.assertEqual(allocation.state, "draft")
+        voucher.write({"allocation_id": False})
+        self.assertFalse(voucher.allocation_id)
+        voucher.write({"allocation_id": allocation.id})
+        self.assertEqual(voucher.allocation_id, allocation)
+
+    def test_confirmed_membership_write_refused(self):
+        """Write of allocation_id MUST be refused when current or target is
+        confirmed.
+        """
+        partner = dummy_customer_partner(self.env, customer="MEMB-CONF")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_id="MEMB-CONF",
+        )
+        allocation = self._create_allocation(
+            sheet, partner, vouchers=voucher, residual_reason="on_account"
+        )
+        self._confirm(allocation)
+        stored = voucher.allocation_id
+        with self.assertRaises(UserError):
+            voucher.write({"allocation_id": False})
+        self.assertEqual(voucher.allocation_id, stored)
+        outsider = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=10.0,
+            document_id="MEMB-CONF-OUT",
+        )
+        with self.assertRaises(UserError):
+            outsider.write({"allocation_id": allocation.id})
+        self.assertFalse(outsider.allocation_id)
+
+    def test_partner_write_same_vals_attaches_draft_allocation(self):
+        """Open-sheet voucher on A (P) attaches unique draft B (Q) in one write."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-Q")
         sheet = self._create_sheet()
@@ -589,7 +772,7 @@ class TestCollectionVoucher(TransactionCase):
         self.assertNotIn(voucher, allocation_a.voucher_ids)
 
     def test_partner_write_fully_applied_source_refused(self):
-        """Confirmed source with residual 0 MUST refuse partner_id write."""
+        """Draft source with residual 0 MUST refuse partner_id write."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-FULL-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-FULL-Q")
         sheet = self._create_sheet()
@@ -619,7 +802,7 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(voucher.allocation_id, allocation)
 
     def test_partner_write_attaches_when_target_residual_holds(self):
-        """Unallocated voucher attaches unique confirmed same-sheet allocation for Q."""
+        """Unallocated voucher attaches unique draft same-sheet allocation for Q."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-ATT-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-ATT-Q")
         sheet = self._create_sheet()
@@ -658,45 +841,25 @@ class TestCollectionVoucher(TransactionCase):
             f"chatter must record unallocated outcome, got {bodies!r}",
         )
 
-    def test_partner_write_non_confirmed_source_refused(self):
-        """Validated or rejected source allocation MUST refuse partner_id write."""
-        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-VAL-P")
-        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-VAL-Q")
+    def test_partner_write_confirmed_source_refused(self):
+        """Confirmed source allocation MUST refuse partner_id write; fields stay."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-CONF-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-CONF-Q")
         sheet = self._create_sheet()
         voucher = self._create_voucher(
             partner_id=partner_p.id,
             sheet_id=sheet.id,
             amount=25.0,
-            document_id="REASSIGN-VALIDATED",
+            document_id="REASSIGN-CONFIRMED",
         )
         allocation = self._create_allocation(
             sheet, partner_p, vouchers=voucher, residual_reason="on_account"
         )
-        allocation.action_validate()
+        self._confirm(allocation)
         with self.assertRaises(UserError):
             voucher.write({"partner_id": partner_q.id})
         self.assertEqual(voucher.partner_id, partner_p)
         self.assertEqual(voucher.allocation_id, allocation)
-
-        rejected_partner = dummy_customer_partner(self.env, customer="REASSIGN-REJ-P")
-        rejected_q = dummy_customer_partner(self.env, customer="REASSIGN-REJ-Q")
-        rejected_voucher = self._create_voucher(
-            partner_id=rejected_partner.id,
-            sheet_id=sheet.id,
-            amount=15.0,
-            document_id="REASSIGN-REJECTED-SRC",
-        )
-        rejected_alloc = self._create_allocation(
-            sheet,
-            rejected_partner,
-            vouchers=rejected_voucher,
-            residual_reason="on_account",
-        )
-        rejected_alloc.action_reject()
-        with self.assertRaises(UserError):
-            rejected_voucher.write({"partner_id": rejected_q.id})
-        self.assertEqual(rejected_voucher.partner_id, rejected_partner)
-        self.assertEqual(rejected_voucher.allocation_id, rejected_alloc)
 
     def test_approved_or_rejected_voucher_may_change_partner(self):
         """Voucher state MUST NOT freeze partner_id on an open sheet."""

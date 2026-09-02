@@ -1,0 +1,22 @@
+change: draft-until-close
+phase: verify
+artifact_store: openspec
+execution_mode: automatic
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+subagent_model: cursor-grok-4.6-high
+apply_scope: odoo-only
+nebula_deferred: true
+verdict: pass_with_warnings
+artifacts:
+  explore: true
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+  apply-progress: true
+  verify-report: true
+tasks_progress:
+  completed: [1.1-6.2]
+  pending: []
+last_updated: "2026-09-02T19:10:00-03:00"

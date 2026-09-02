@@ -56,11 +56,10 @@ class CollectionAllocation(models.Model):
     )
     state = fields.Selection(
         selection=[
+            ("draft", "Draft"),
             ("confirmed", "Confirmed"),
-            ("validated", "Validated"),
-            ("rejected", "Rejected"),
         ],
-        default="confirmed",
+        default="draft",
         required=True,
         tracking=True,
         copy=False,
@@ -165,51 +164,30 @@ class CollectionAllocation(models.Model):
         if not self:
             return True
         if _FROZEN_FIELDS & set(vals) and any(
-            allocation.state != "confirmed" for allocation in self
+            allocation.state == "confirmed" for allocation in self
         ):
-            raise UserError(
-                _("Validated or rejected allocations cannot change membership.")
-            )
+            raise UserError(_("Confirmed allocations cannot change membership."))
         if "voucher_ids" in vals:
             vals = dict(vals)
             vals["voucher_ids"] = self._sanitize_voucher_commands(vals["voucher_ids"])
         if "state" in vals and not self.env.context.get(
             "collection_allocation_audited_state"
         ):
-            target = vals["state"]
-            rest = {key: value for key, value in vals.items() if key != "state"}
-            if rest:
-                super().write(rest)
-            if target == "validated":
-                return self.action_validate()
-            if target == "rejected":
-                return self.action_reject()
             raise UserError(
-                _("Allocation state can only be changed via Validate or Reject.")
+                _("Allocation state can only be changed via Close or Reopen.")
             )
         return super().write(vals)
 
-    def action_validate(self):
-        if any(allocation.state != "confirmed" for allocation in self):
-            raise UserError(_("Only confirmed allocations can be validated."))
-        return self.with_context(collection_allocation_audited_state=True).write(
-            {
-                "state": "validated",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
-        )
-
-    def action_reject(self):
-        if any(allocation.state != "confirmed" for allocation in self):
-            raise UserError(_("Only confirmed allocations can be rejected."))
-        return self.with_context(collection_allocation_audited_state=True).write(
-            {
-                "state": "rejected",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
-        )
+    def unlink(self):
+        if not self:
+            return True
+        if not self.env.context.get("collection_allocation_parent_unlink"):
+            return self.with_context(collection_allocation_parent_unlink=True).unlink()
+        drafts = self.filtered(lambda allocation: allocation.state != "confirmed")
+        vouchers = drafts.mapped("voucher_ids")
+        if vouchers:
+            models.Model.write(vouchers, {"allocation_id": False})
+        return super().unlink()
 
     @api.private
     def _sanitize_voucher_commands(self, commands):
@@ -256,15 +234,13 @@ class CollectionAllocation(models.Model):
 
     @api.constrains("residual", "residual_reason", "state", "currency_id")
     def _check_residual(self):
+        if self.env.context.get("collection_allocation_parent_unlink"):
+            return
         for allocation in self:
-            if allocation.state != "confirmed":
-                continue
             currency = allocation.currency_id
             residual = allocation.residual or 0.0
             if currency.compare_amounts(residual, 0.0) < 0:
-                raise ValidationError(
-                    _("Confirmed allocations cannot have a negative residual.")
-                )
+                raise ValidationError(_("Allocations cannot have a negative residual."))
             if (
                 currency.compare_amounts(residual, 0.0) > 0
                 and not allocation.residual_reason
@@ -273,7 +249,24 @@ class CollectionAllocation(models.Model):
                     _("A residual reason is required when the residual is positive.")
                 )
 
+    @api.constrains("state", "sheet_id")
+    def _check_sheet_state_iff(self):
+        if self.env.context.get("collection_allocation_audited_state"):
+            return
+        for allocation in self:
+            sheet = allocation.sheet_id
+            if not sheet:
+                continue
+            if allocation.state == "draft" and sheet.state != "open":
+                raise ValidationError(
+                    _("Draft allocations must belong to an open collection sheet.")
+                )
+            if allocation.state == "confirmed" and sheet.state != "closed":
+                raise ValidationError(
+                    _("Confirmed allocations must belong to a closed collection sheet.")
+                )
+
     @api.ondelete(at_uninstall=False)
-    def _unlink_if_no_revisions(self):
-        if any(allocation.revision_ids for allocation in self):
-            raise UserError(_("Allocations with revisions cannot be deleted."))
+    def _unlink_if_confirmed(self):
+        if any(allocation.state == "confirmed" for allocation in self):
+            raise UserError(_("Confirmed allocations cannot be deleted."))

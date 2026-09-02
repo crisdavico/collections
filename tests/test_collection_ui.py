@@ -1181,8 +1181,8 @@ class TestCollectionUi(TransactionCase):
                 ),
             )
 
-    def test_collection_allocations_form_statusbar_validate_reject(self):
-        """Allocation form: <list> not <tree>, Validate/Reject when confirmed."""
+    def test_collection_allocations_form_statusbar_no_validate_reject(self):
+        """Allocation form: <list> not <tree>; freeze when confirmed; no Validate/Reject."""
         form_root = self._arch_root("collection.view_collection_allocation_form")
         self.assertEqual(form_root.tag, "form")
         self._assert_create_edit_enabled(form_root, "allocation form")
@@ -1196,6 +1196,8 @@ class TestCollectionUi(TransactionCase):
             "line_ids",
         ):
             self.assertIn(field_name, names, f"form must show {field_name}")
+        self.assertNotIn("reviewed_by", names)
+        self.assertNotIn("reviewed_at", names)
         self.assertFalse(
             form_root.xpath("//tree"),
             "allocation form arch must not use deprecated <tree>",
@@ -1211,35 +1213,37 @@ class TestCollectionUi(TransactionCase):
             partner.get("domain"),
             "allocation form partner_id must have no domain",
         )
+        self.assertEqual(partner.get("readonly"), "state == 'confirmed'")
         statusbar = form_root.xpath(
             '//header/field[@name="state" and @widget="statusbar"]'
         )
         self.assertTrue(
             statusbar, "allocation form must include state statusbar in header"
         )
-        validate = form_root.xpath(
-            '//header/button[@name="action_validate" and @type="object"]'
+        self.assertEqual(statusbar[0].get("statusbar_visible"), "draft,confirmed")
+        self.assertFalse(
+            form_root.xpath('//header/button[@name="action_validate"]'),
+            "form must not keep action_validate",
         )
-        reject = form_root.xpath(
-            '//header/button[@name="action_reject" and @type="object"]'
+        self.assertFalse(
+            form_root.xpath('//header/button[@name="action_reject"]'),
+            "form must not keep action_reject",
         )
-        self.assertTrue(validate, "form must include Validate button")
-        self.assertTrue(reject, "form must include Reject button")
-        self.assertIn(
-            "state != 'confirmed'",
-            validate[0].get("invisible", ""),
-            "Validate must be invisible when not confirmed",
-        )
-        self.assertIn(
-            "state != 'confirmed'",
-            reject[0].get("invisible", ""),
-            "Reject must be invisible when not confirmed",
-        )
+        revision_lists = form_root.xpath('//field[@name="revision_ids"]//list')
+        self.assertTrue(revision_lists, "form must embed revision_ids <list>")
+        self.assertEqual(revision_lists[0].get("delete"), "false")
         chatter = form_root.xpath("//chatter")
         self.assertTrue(
             chatter,
             "allocation form must include <chatter/> for messaging/activities",
         )
+
+        search_root = self._arch_root("collection.view_collection_allocation_search")
+        filter_names = [node.get("name") for node in search_root.xpath(".//filter")]
+        self.assertIn("filter_draft", filter_names)
+        self.assertIn("filter_confirmed", filter_names)
+        self.assertNotIn("filter_validated", filter_names)
+        self.assertNotIn("filter_rejected", filter_names)
 
     def test_sheet_form_notebook_allocations_only(self):
         """Sheet form MUST show Allocations only; Customer after name before state."""

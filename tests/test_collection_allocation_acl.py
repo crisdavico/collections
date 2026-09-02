@@ -21,7 +21,9 @@ def _source_without_comments(method):
 
 
 class TestCollectionAllocationAcl(TransactionCase):
-    """RED: allocation/line CRUD ACL, revision 1,0,1,0, company ir.rule, no sudo."""
+    """RED: allocation/line CRUD ACL, revision 1,0,1,1, parent-unlink, company
+    ir.rule.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -285,9 +287,11 @@ class TestCollectionAllocationAcl(TransactionCase):
         allocation.unlink()
         self.assertFalse(Alloc.browse(allocation_id).exists())
 
-    def test_revision_acl_read_create_no_write_unlink(self):
-        """revision MUST be 1,0,1,0; create gated; write/unlink denied."""
-        self._assert_acl("collection.allocation.revision", (1, 0, 1, 0))
+    def test_revision_acl_read_create_unlink_no_write(self):
+        """revision MUST be 1,0,1,1; create gated; write denied; direct unlink
+        UserError.
+        """
+        self._assert_acl("collection.allocation.revision", (1, 0, 1, 1))
         allocation = self._create_allocation()
         Revision = self.env["collection.allocation.revision"].with_user(
             self.internal_user
@@ -308,9 +312,63 @@ class TestCollectionAllocationAcl(TransactionCase):
             self.env["collection.allocation.revision"].browse(rev.id).unlink()
         with self.assertRaises(UserError):
             Revision.browse(rev.id).write({"content_hash": "acl-nope"})
-        with self.assertRaises(AccessError):
+        with self.assertRaises(UserError):
             Revision.browse(rev.id).unlink()
         self.assertTrue(rev.exists())
+        self.assertTrue(allocation.exists())
+
+    def test_parent_unlink_deletes_revisions_on_draft(self):
+        """Draft parent unlink MUST delete revisions under the parent-unlink gate."""
+        allocation = self._create_allocation()
+        self.assertEqual(allocation.state, "draft")
+        rev = (
+            self.env["collection.allocation.revision"]
+            .with_context(collection_allocation_revision=True)
+            .create(
+                self._revision_vals(
+                    allocation,
+                    request_id="req-parent-unlink",
+                    confirmed_by=self.internal_user.id,
+                )
+            )
+        )
+        rev_id = rev.id
+        allocation_id = allocation.id
+        allocation.with_user(self.internal_user).unlink()
+        self.assertFalse(
+            self.env["collection.allocation"].browse(allocation_id).exists()
+        )
+        self.assertFalse(
+            self.env["collection.allocation.revision"].browse(rev_id).exists()
+        )
+
+    def test_parent_unlink_refused_when_confirmed(self):
+        """Confirmed parent unlink MUST be refused; revisions MUST remain."""
+        allocation = self._create_allocation()
+        rev = (
+            self.env["collection.allocation.revision"]
+            .with_context(collection_allocation_revision=True)
+            .create(
+                self._revision_vals(
+                    allocation,
+                    request_id="req-parent-confirmed",
+                    confirmed_by=self.internal_user.id,
+                )
+            )
+        )
+        allocation.with_context(collection_allocation_audited_state=True).write(
+            {"state": "confirmed"}
+        )
+        allocation_id = allocation.id
+        rev_id = rev.id
+        with self.assertRaises(UserError):
+            allocation.with_user(self.internal_user).unlink()
+        self.assertTrue(
+            self.env["collection.allocation"].browse(allocation_id).exists()
+        )
+        self.assertTrue(
+            self.env["collection.allocation.revision"].browse(rev_id).exists()
+        )
 
     def test_portal_denied_on_allocation_models(self):
         allocation = self._create_allocation()
@@ -403,8 +461,7 @@ class TestCollectionAllocationAcl(TransactionCase):
             [
                 inspect.getsource(alloc_cls.create),
                 inspect.getsource(alloc_cls.write),
-                inspect.getsource(alloc_cls.action_validate),
-                inspect.getsource(alloc_cls.action_reject),
+                inspect.getsource(alloc_cls.unlink),
                 inspect.getsource(rev_cls.create),
                 inspect.getsource(rev_cls.write),
                 inspect.getsource(rev_cls._unlink_forbidden),

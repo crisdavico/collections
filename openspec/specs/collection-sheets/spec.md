@@ -58,10 +58,12 @@ gated by the company enabled list.)
 A voucher MUST belong to at most one sheet. Membership MUST be editable only
 while `open` and frozen while `closed`. Empty sheets MUST be allowed.
 `date_from`/`date_to` MUST be UTC min/max of member `create_date` (empty if no
-members); MUST NOT use `received_date`. Unlink with no allocations MUST
-unassign members and MUST NOT delete vouchers. Unlink MUST fail when
-allocations exist (restrict).
-(Previously: Deleting any sheet unassigned members regardless of allocations.)
+members); MUST NOT use `received_date`. Unlink of an `open` sheet MUST unlink
+its draft allocations first (vouchers MUST persist unassigned; MUST NOT be
+destroyed), then delete the sheet. Unlink of a `closed` sheet MUST be refused
+even when the sheet has no allocations or members.
+(Previously: Unlink with no allocations unassigned members; unlink failed when
+allocations existed; empty closed sheets were deletable.)
 
 #### Scenario: Assign and reassign
 
@@ -81,17 +83,32 @@ allocations exist (restrict).
 - WHEN dates are read
 - THEN `date_from` earliest, `date_to` latest
 
-#### Scenario: Unlink unassigns when no allocations
+#### Scenario: Unlink open unassigns when no allocations
 
-- GIVEN sheet with members, no allocations
+- GIVEN an open sheet with members and no allocations
 - WHEN deleted
 - THEN vouchers persist unassigned
 
-#### Scenario: Unlink refused when allocations exist
+#### Scenario: Unlink open cascades draft allocations
 
-- GIVEN sheet with allocations
+- GIVEN an open sheet with draft allocations and linked vouchers
 - WHEN deleted
-- THEN delete fails; members stay assigned
+- THEN the sheet and those allocations MUST be gone
+- AND vouchers MUST persist unassigned (MUST NOT be destroyed)
+
+#### Scenario: Unlink closed refused even when empty
+
+- GIVEN a closed sheet with no allocations and no members
+- WHEN deleted
+- THEN delete MUST fail
+- AND the sheet MUST remain `closed`
+
+#### Scenario: Unlink closed with allocations refused
+
+- GIVEN a closed sheet with confirmed allocations
+- WHEN deleted
+- THEN delete MUST fail
+- AND members MUST stay assigned
 
 ### Requirement: Create sheet Action
 
@@ -235,11 +252,14 @@ unsaved sheet.
 ### Requirement: Open/closed lifecycle
 
 Sheets MUST have required `state` `open` or `closed`, default `open`. Existing sheets
-MUST become `open` on upgrade. Close MUST succeed when `open`. Reopen MUST succeed when
-`closed` if that seller has no other open sheet in that company. Any internal user MAY
-Close or Reopen. Write of raw `state` MUST be rejected except via Close or Reopen.
-Reopen of a historical sheet MUST remain allowed even if the seller is later disabled.
-(Previously: Reopen counted open sheets per seller across all companies.)
+MUST become `open` on upgrade. Close MUST succeed when `open` and MUST confirm every
+allocation on that sheet. Reopen MUST succeed when `closed` if that seller has no
+other open sheet in that company, and MUST return every allocation to `draft`. Any
+internal user MAY Close or Reopen. Write of raw `state` MUST be rejected except via
+Close or Reopen. Reopen of a historical sheet MUST remain allowed even if the seller
+is later disabled.
+(Previously: Close and Reopen wrote only sheet `state` and did not sync
+allocations.)
 
 #### Scenario: Default open on create
 
@@ -249,21 +269,31 @@ Reopen of a historical sheet MUST remain allowed even if the seller is later dis
 
 #### Scenario: Close when open
 
-- GIVEN an open sheet
+- GIVEN an open sheet with zero or more draft allocations
 - WHEN an internal user Closes it
 - THEN `state` MUST become `closed`
+- AND every allocation MUST be `confirmed`
 
 #### Scenario: Reopen when no other open
 
-- GIVEN a closed sheet and that seller has no other open sheet in that company
+- GIVEN a closed sheet with confirmed allocations and that seller has no other
+  open sheet in that company
 - WHEN an internal user Reopens it
 - THEN `state` MUST become `open`
+- AND every allocation MUST be `draft`
 
 #### Scenario: Raw state write rejected
 
 - GIVEN a sheet
 - WHEN `state` is written except via Close or Reopen
 - THEN the write MUST be rejected
+
+#### Scenario: Reopen rejected if another open exists
+
+- GIVEN a closed sheet and that seller has another open sheet in the same company
+- WHEN Reopen runs
+- THEN the action MUST be rejected and `state` MUST remain `closed`
+- AND allocations MUST remain `confirmed`
 
 ### Requirement: At most one open sheet per seller (new operations)
 
@@ -317,10 +347,11 @@ when `auto_create_sheet` is OFF. The system MUST NOT add a UNIQUE SQL constraint
 While a sheet is `closed`, membership MUST NOT be added, removed, or
 reassigned via sheet members or voucher `sheet_id`, and voucher `partner_id`
 MUST NOT change. Operators MUST Reopen first. Freeze applies while the sheet
-exists; sheet delete is not a membership edit. Closed `partner_id` writes MUST
-raise the same membership `UserError` as closed `sheet_id` membership writes.
-
-(Previously: Freeze applied only to membership / `sheet_id`, not Customer.)
+exists. Closed unlink MUST be refused even when empty. Closed `partner_id`
+writes MUST raise the same membership `UserError` as closed `sheet_id`
+membership writes.
+(Previously: Sheet delete was not a membership edit, so empty closed sheets
+could be unlinked.)
 
 #### Scenario: Freeze add, remove, and reassign
 
@@ -334,6 +365,13 @@ raise the same membership `UserError` as closed `sheet_id` membership writes.
 - WHEN `partner_id` is written
 - THEN the write MUST raise the membership `UserError`
 - AND `partner_id` MUST be unchanged
+
+#### Scenario: Closed empty unlink refused
+
+- GIVEN a closed sheet with no members
+- WHEN deleted
+- THEN delete MUST fail
+- AND the sheet MUST remain
 
 ### Requirement: Company ownership of sheets
 

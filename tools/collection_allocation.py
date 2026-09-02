@@ -125,8 +125,10 @@ class CollectionAllocationMixin(models.AbstractModel):
     @mcp_tool(
         name="create_collection_allocation",
         description=(
-            "Create or amend a confirmed collection allocation for an Enabled "
-            "Seller. Returns {sheet_id, vouchers, allocation}. Internal users only."
+            "Create or amend a draft collection allocation for an Enabled "
+            "Seller. Persists draft until sheet close. Amend is allowed only "
+            "while draft. Returns {sheet_id, vouchers, allocation}. Internal "
+            "users only."
         ),
         input_schema=_CREATE_COLLECTION_ALLOCATION_SCHEMA,
         category="write",
@@ -480,7 +482,7 @@ class CollectionAllocationMixin(models.AbstractModel):
             domain = [
                 ("external_invoice_id", "=", external_id),
                 ("company_id", "=", self.env.company.id),
-                ("allocation_id.state", "in", ("confirmed", "validated")),
+                ("allocation_id.state", "in", ("draft", "confirmed")),
             ]
             if dest_id:
                 domain.append(("allocation_id", "!=", dest_id))
@@ -600,10 +602,8 @@ class CollectionAllocationMixin(models.AbstractModel):
                     limit=1,
                 )
             if existing:
-                if existing.state != "confirmed":
-                    raise UserError(
-                        _("This allocation was already reviewed and cannot be amended.")
-                    )
+                if existing.state != "draft":
+                    raise UserError(_("Only draft allocations can be amended."))
                 self._collection_lock_allocation_row(existing)
                 current_ids = set(existing.voucher_ids.ids)
                 if not current_ids <= set(vouchers.ids):
@@ -669,7 +669,7 @@ class CollectionAllocationMixin(models.AbstractModel):
         residual_reason,
         fresh_total,
     ):
-        """Replace confirmed membership while residual stays valid mid-write."""
+        """Replace draft membership while residual stays valid mid-write."""
         # Command.clear() unlinks lines first and flushes computes before creates.
         placeholder = residual_reason or allocation.residual_reason or "on_account"
         allocation.write(

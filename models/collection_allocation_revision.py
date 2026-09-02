@@ -74,4 +74,6 @@ class CollectionAllocationRevision(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_forbidden(self):
+        if self.env.context.get("collection_allocation_parent_unlink"):
+            return
         raise UserError(_("Allocation revisions cannot be deleted."))

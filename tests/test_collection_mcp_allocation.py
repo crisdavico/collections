@@ -368,6 +368,12 @@ class TestCollectionMcpAllocation(TransactionCase):
 
         return patch("odoo.models.Model.search", search_proxy), calls
 
+    def _confirm(self, allocation):
+        allocation.with_context(collection_allocation_audited_state=True).write(
+            {"state": "confirmed"}
+        )
+        return allocation
+
     def test_discovered_as_method_write_mcp(self):
         """create_collection_allocation is method-discovered write/mcp; no DB row."""
         by_name = {
@@ -426,6 +432,9 @@ class TestCollectionMcpAllocation(TransactionCase):
             _INVOICE_ITEM_SCHEMA["properties"]["amount_applied"]["exclusiveMinimum"],
             0,
         )
+        description = (by_name[TOOL_NAME].get("description") or "").lower()
+        self.assertIn("draft", description)
+        self.assertNotIn("confirmed collection allocation", description)
 
     def test_create_collection_vouchers_absent_from_mcp_registry(self):
         """Retired voucher write MUST not be an MCP tool; `_collection_*` remain."""
@@ -495,8 +504,8 @@ class TestCollectionMcpAllocation(TransactionCase):
         with self.assertRaises(UserError):
             mixin._collection_parse_payment_vals(payments, "   ")
 
-    def test_first_create_confirmed_revision_one_totals(self):
-        """First create MUST persist confirmed revision 1 with matching totals."""
+    def test_first_create_draft_revision_one_totals(self):
+        """First create MUST persist draft revision 1 with matching totals."""
         payment = self._payment(100.0)
         before = self._counts()
         result = self._call(
@@ -506,7 +515,8 @@ class TestCollectionMcpAllocation(TransactionCase):
             result["allocation"]["id"]
         )
         self.assertTrue(allocation.exists())
-        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(result["allocation"]["state"], "draft")
         self.assertEqual(allocation.revision, 1)
         self.assertEqual(allocation.partner_id, self.partner)
         self.assertEqual(allocation.sheet_id, self.sheet)
@@ -837,6 +847,8 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(allocation.total_vouchers, 150.0)
         self.assertEqual(allocation.total_applied, 150.0)
         self.assertEqual(allocation.residual, 0.0)
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(second["allocation"]["state"], "draft")
         self.assertEqual(len(allocation.revision_ids), 2)
         self._assert_payload(
             second,
@@ -1208,14 +1220,14 @@ class TestCollectionMcpAllocation(TransactionCase):
             before,
         )
 
-    def test_destination_not_confirmed_refuses_amend(self):
-        """Validated or rejected destination MUST refuse amend with no writes."""
+    def test_confirmed_destination_refuses_amend(self):
+        """Confirmed destination MUST refuse amend with no writes."""
         payment = self._payment(100.0)
         first = self._call(
             self._payload([payment], [self._applied(INVOICE_OVERDUE, 100.0)])
         )
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
-        allocation.action_validate()
+        self._confirm(allocation)
         extra = self._create_vouchers([50.0])
         first_voucher = self.env["collection.voucher"].search(
             [("document_id", "=", payment["document_id"])]
@@ -1235,26 +1247,71 @@ class TestCollectionMcpAllocation(TransactionCase):
             before,
         )
         allocation.invalidate_recordset()
-        self.assertEqual(allocation.state, "validated")
+        self.assertEqual(allocation.state, "confirmed")
         self.assertEqual(allocation.revision, 1)
         self.assertEqual(allocation.voucher_ids, first_voucher)
 
-    def test_revalidation_subtracts_other_confirmed_and_validated(self):
-        """Available MUST be fresh balance minus other confirmed/validated applies."""
-        first_payment = self._payment(40.0)
+    def test_closed_sheet_refuses_amend(self):
+        """Closed-sheet destination MUST refuse amend with no writes."""
+        payment = self._payment(100.0)
         first = self._call(
-            self._payload(
-                [first_payment],
-                [self._applied(INVOICE_OPEN, 40.0)],
-                request_id="req-prior",
-            )
+            self._payload([payment], [self._applied(INVOICE_OVERDUE, 100.0)])
         )
-        first_alloc = self.env["collection.allocation"].browse(
-            first["allocation"]["id"]
+        allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
+        extra = self._create_vouchers([50.0])
+        first_voucher = self.env["collection.voucher"].search(
+            [("document_id", "=", payment["document_id"])]
         )
         self.sheet.action_close()
-        sheet_two = self._create_sheet(force_new=True)
-        over = self._create_vouchers([20.0], sheet=sheet_two, prefix="ALLOC-OVER")
+        self.assertEqual(allocation.state, "confirmed")
+        before = self._counts()
+        self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    self._payments_from_vouchers(first_voucher | extra),
+                    [
+                        self._applied(INVOICE_OVERDUE, 100.0),
+                        self._applied(INVOICE_OPEN, 50.0),
+                    ],
+                    request_id="req-closed-amend",
+                )
+            ),
+            before,
+        )
+        allocation.invalidate_recordset()
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(allocation.revision, 1)
+        self.assertEqual(allocation.voucher_ids, first_voucher)
+
+    def test_revalidation_subtracts_other_draft_and_confirmed(self):
+        """Available MUST be fresh balance minus other draft and confirmed applies."""
+        other_partner = dummy_customer_partner(self.env, customer="ALLOC-OTHER-DRAFT")
+        other_vouchers = self._create_vouchers(
+            [40.0], partner=other_partner, prefix="ALLOC-DRAFT-OTHER"
+        )
+        other_alloc = self.env["collection.allocation"].create(
+            {
+                "sheet_id": self.sheet.id,
+                "partner_id": other_partner.id,
+                "voucher_ids": [Command.set(other_vouchers.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": INVOICE_OPEN["external_invoice_id"],
+                            "invoice_number": INVOICE_OPEN["number"],
+                            "issue_date": INVOICE_OPEN["issue_date"],
+                            "due_date": INVOICE_OPEN["due_date"],
+                            "invoice_amount": INVOICE_OPEN["amount"],
+                            "invoice_balance": INVOICE_OPEN["balance"],
+                            "invoice_state": INVOICE_OPEN["state"],
+                            "amount_applied": 40.0,
+                        }
+                    )
+                ],
+            }
+        )
+        self.assertEqual(other_alloc.state, "draft")
+        over = self._create_vouchers([20.0], prefix="ALLOC-OVER")
         before = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
@@ -1266,64 +1323,39 @@ class TestCollectionMcpAllocation(TransactionCase):
             ),
             before,
         )
-        ok = self._create_vouchers([10.0], sheet=sheet_two, prefix="ALLOC-OK")
-        second = self._call(
+        ok = self._create_vouchers([10.0], prefix="ALLOC-OK")
+        first = self._call(
             self._payload(
                 self._payments_from_vouchers(ok),
                 [self._applied(INVOICE_OPEN, 10.0)],
                 request_id="req-ok-available",
             )
         )
-        second_alloc = self.env["collection.allocation"].browse(
-            second["allocation"]["id"]
+        first_alloc = self.env["collection.allocation"].browse(
+            first["allocation"]["id"]
         )
-        self.assertEqual(second_alloc.total_applied, 10.0)
-        self.assertNotEqual(second_alloc.id, first_alloc.id)
+        self.assertEqual(first_alloc.total_applied, 10.0)
+        self.assertEqual(first_alloc.state, "draft")
+        self.assertNotEqual(first_alloc.id, other_alloc.id)
 
-        first_alloc.action_validate()
-        sheet_two.action_close()
-        sheet_three = self._create_sheet(force_new=True)
-        too_much = self._create_vouchers([10.0], sheet=sheet_three, prefix="ALLOC-VAL")
-        before_val = self._counts()
+        self.sheet.action_close()
+        other_alloc.invalidate_recordset()
+        first_alloc.invalidate_recordset()
+        self.assertEqual(other_alloc.state, "confirmed")
+        self.assertEqual(first_alloc.state, "confirmed")
+        sheet_two = self._create_sheet(force_new=True)
+        too_much = self._create_vouchers([10.0], sheet=sheet_two, prefix="ALLOC-CONF")
+        before_conf = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
                     self._payments_from_vouchers(too_much),
                     [self._applied(INVOICE_OPEN, 10.0)],
-                    request_id="req-validated-subtract",
+                    request_id="req-confirmed-subtract",
                 )
             ),
-            before_val,
+            before_conf,
         )
-
-    def test_rejected_allocation_does_not_reduce_available(self):
-        """Triangulation: rejected applications MUST NOT reduce available balance."""
-        first_payment = self._payment(40.0)
-        first = self._call(
-            self._payload(
-                [first_payment],
-                [self._applied(INVOICE_OPEN, 40.0)],
-                request_id="req-rej-prior",
-            )
-        )
-        first_alloc = self.env["collection.allocation"].browse(
-            first["allocation"]["id"]
-        )
-        first_alloc.action_reject()
-        self.sheet.action_close()
-        sheet_two = self._create_sheet(force_new=True)
-        later = self._create_vouchers([50.0], sheet=sheet_two, prefix="ALLOC-REJ-OK")
-        result = self._call(
-            self._payload(
-                self._payments_from_vouchers(later),
-                [self._applied(INVOICE_OPEN, 50.0)],
-                request_id="req-rej-available",
-            )
-        )
-        allocation = self.env["collection.allocation"].browse(
-            result["allocation"]["id"]
-        )
-        self.assertEqual(allocation.total_applied, 50.0)
 
     def test_invoice_missing_from_fresh_debt_rejected(self):
         """external_invoice_id absent from fresh get_customer_debt MUST error."""
@@ -1398,6 +1430,8 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertNotIn("sudo()", code)
         self.assertNotIn('{"error"', code)
         self.assertNotIn("{'error'", code)
+        self.assertIn("draft", code.lower())
+        self.assertNotIn("confirmed collection allocation", code.lower())
 
         mixin = self.env["muk_mcp.mixin"]
         method = getattr(type(mixin), TOOL_NAME, None)

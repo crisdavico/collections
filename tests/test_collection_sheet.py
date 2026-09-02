@@ -100,6 +100,34 @@ class TestCollectionSheet(TransactionCase):
                 leftover_sheet.unlink()
         return voucher
 
+    def _create_balanced_allocation(self, sheet, voucher, invoice_id="INV-SHEET"):
+        amount = voucher.amount or 0.0
+        return self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": voucher.partner_id.id,
+                "voucher_ids": [Command.set(voucher.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": invoice_id,
+                            "invoice_number": invoice_id,
+                            "invoice_balance": amount,
+                            "amount_applied": amount,
+                        }
+                    )
+                ],
+            }
+        )
+
+    def _force_confirmed_and_closed(self, sheet, allocations):
+        allocations.with_context(collection_allocation_audited_state=True).write(
+            {"state": "confirmed"}
+        )
+        sheet.with_context(collection_sheet_audited_state=True).write(
+            {"state": "closed"}
+        )
+
     def _sheet_count(self):
         return self.env["collection.sheet"].search_count([])
 
@@ -138,8 +166,52 @@ class TestCollectionSheet(TransactionCase):
     def test_action_close_from_open(self):
         sheet = self._create_sheet()
         self.assertEqual(sheet.state, "open")
+        self.assertFalse(sheet.allocation_ids)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
+
+    def test_action_close_confirms_then_closes(self):
+        """Close MUST confirm every draft allocation, then close the sheet."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CLOSE-1",
+            sheet_id=sheet.id,
+            amount=25.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-CLOSE-1"
+        )
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(sheet.state, "open")
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        allocation._check_sheet_state_iff()
+
+    def test_action_close_confirms_every_allocation(self):
+        """Triangulation: Close MUST confirm all allocations on the sheet."""
+        sheet = self._create_sheet()
+        first_voucher = self._create_voucher(
+            customer_identification="CUST-CLOSE-A",
+            sheet_id=sheet.id,
+            amount=10.0,
+        )
+        second_voucher = self._create_voucher(
+            customer_identification="CUST-CLOSE-B",
+            sheet_id=sheet.id,
+            amount=15.0,
+        )
+        first = self._create_balanced_allocation(
+            sheet, first_voucher, invoice_id="INV-CLOSE-A"
+        )
+        second = self._create_balanced_allocation(
+            sheet, second_voucher, invoice_id="INV-CLOSE-B"
+        )
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(first.state, "confirmed")
+        self.assertEqual(second.state, "confirmed")
+        (first | second)._check_sheet_state_iff()
 
     def test_action_close_rejected_when_already_closed(self):
         sheet = self._create_sheet()
@@ -152,8 +224,54 @@ class TestCollectionSheet(TransactionCase):
         sheet = self._create_sheet()
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
+        self.assertFalse(sheet.allocation_ids)
         sheet.action_reopen()
         self.assertEqual(sheet.state, "open")
+
+    def test_action_reopen_opens_then_drafts(self):
+        """Reopen MUST open the sheet, then return every allocation to draft."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-REOPEN-1",
+            sheet_id=sheet.id,
+            amount=30.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-REOPEN-1"
+        )
+        self._force_confirmed_and_closed(sheet, allocation)
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        sheet.action_reopen()
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_action_reopen_drafts_every_allocation(self):
+        """Triangulation: Reopen MUST draft all allocations on the sheet."""
+        sheet = self._create_sheet()
+        first_voucher = self._create_voucher(
+            customer_identification="CUST-REOPEN-A",
+            sheet_id=sheet.id,
+            amount=8.0,
+        )
+        second_voucher = self._create_voucher(
+            customer_identification="CUST-REOPEN-B",
+            sheet_id=sheet.id,
+            amount=12.0,
+        )
+        first = self._create_balanced_allocation(
+            sheet, first_voucher, invoice_id="INV-REOPEN-A"
+        )
+        second = self._create_balanced_allocation(
+            sheet, second_voucher, invoice_id="INV-REOPEN-B"
+        )
+        self._force_confirmed_and_closed(sheet, first | second)
+        sheet.action_reopen()
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(first.state, "draft")
+        self.assertEqual(second.state, "draft")
+        (first | second)._check_sheet_state_iff()
 
     def test_action_reopen_rejected_when_already_open(self):
         sheet = self._create_sheet()
@@ -209,6 +327,26 @@ class TestCollectionSheet(TransactionCase):
             closed.action_reopen()
         self.assertEqual(closed.state, "closed")
         self.assertEqual(first.state, "open")
+
+    def test_blocked_reopen_keeps_allocations_confirmed(self):
+        """Blocked Reopen MUST leave the sheet closed and allocations confirmed."""
+        closed = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-REOPEN-BLOCK",
+            sheet_id=closed.id,
+            amount=20.0,
+        )
+        allocation = self._create_balanced_allocation(
+            closed, voucher, invoice_id="INV-REOPEN-BLOCK"
+        )
+        self._force_confirmed_and_closed(closed, allocation)
+        first = self._create_sheet()
+        with self.assertRaises(UserError):
+            closed.action_reopen()
+        self.assertEqual(closed.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(first.state, "open")
+        allocation._check_sheet_state_iff()
 
     def test_leftover_multiple_opens_still_closeable(self):
         first = self._create_sheet()
@@ -418,44 +556,29 @@ class TestCollectionSheet(TransactionCase):
         self.assertTrue(leftover.exists())
         self.assertFalse(leftover.sheet_id)
 
-    def test_unlink_closed_sheet_unassigns_vouchers(self):
+    def test_unlink_closed_empty_refused(self):
+        """Unlink of a closed sheet MUST fail even with no allocations or members."""
+        sheet = self._create_sheet()
+        sheet.action_close()
+        self.assertFalse(sheet.allocation_ids)
+        self.assertFalse(sheet.voucher_ids)
+        sheet_id = sheet.id
+        with self.assertRaises(UserError):
+            sheet.unlink()
+        leftover = self.env["collection.sheet"].browse(sheet_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.state, "closed")
+
+    def test_unlink_closed_with_members_refused(self):
+        """Triangulation: closed unlink with members MUST fail; members stay
+        assigned.
+        """
         sheet = self._create_sheet()
         voucher = self._create_voucher(
             customer_identification="CUST-UNL-CL", sheet_id=sheet.id
         )
         self.assertFalse(sheet.allocation_ids)
         sheet.action_close()
-        voucher_id = voucher.id
-        sheet.unlink()
-        leftover = self.env["collection.voucher"].browse(voucher_id)
-        self.assertTrue(leftover.exists())
-        self.assertFalse(leftover.sheet_id)
-
-    def test_unlink_refused_when_allocations_exist(self):
-        sheet = self._create_sheet()
-        voucher = self._create_voucher(
-            customer_identification="CUST-UNL-ALLOC",
-            sheet_id=sheet.id,
-            amount=25.0,
-        )
-        allocation = self.env["collection.allocation"].create(
-            {
-                "sheet_id": sheet.id,
-                "partner_id": voucher.partner_id.id,
-                "voucher_ids": [Command.set(voucher.ids)],
-                "line_ids": [
-                    Command.create(
-                        {
-                            "external_invoice_id": "INV-UNL",
-                            "invoice_number": "U-1",
-                            "invoice_balance": 25.0,
-                            "amount_applied": 25.0,
-                        }
-                    )
-                ],
-            }
-        )
-        self.assertTrue(sheet.allocation_ids)
         sheet_id = sheet.id
         voucher_id = voucher.id
         with self.assertRaises(UserError):
@@ -463,10 +586,95 @@ class TestCollectionSheet(TransactionCase):
         leftover_sheet = self.env["collection.sheet"].browse(sheet_id)
         leftover_voucher = self.env["collection.voucher"].browse(voucher_id)
         self.assertTrue(leftover_sheet.exists())
+        self.assertEqual(leftover_sheet.state, "closed")
         self.assertTrue(leftover_voucher.exists())
         self.assertEqual(leftover_voucher.sheet_id, leftover_sheet)
-        self.assertEqual(leftover_voucher.allocation_id, allocation)
-        self.assertEqual(allocation.sheet_id, leftover_sheet)
+
+    def test_unlink_open_cascades_draft_allocations(self):
+        """Open unlink MUST delete draft allocations; vouchers persist unassigned."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-UNL-ALLOC",
+            sheet_id=sheet.id,
+            amount=25.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-UNL"
+        )
+        self.assertEqual(allocation.state, "draft")
+        sheet_id = sheet.id
+        allocation_id = allocation.id
+        voucher_id = voucher.id
+        sheet.unlink()
+        self.assertFalse(self.env["collection.sheet"].browse(sheet_id).exists())
+        self.assertFalse(
+            self.env["collection.allocation"].browse(allocation_id).exists()
+        )
+        leftover_voucher = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover_voucher.exists())
+        self.assertFalse(leftover_voucher.sheet_id)
+        self.assertFalse(leftover_voucher.allocation_id)
+
+    def test_unlink_open_cascades_every_draft_allocation(self):
+        """Triangulation: open unlink MUST cascade every draft allocation."""
+        sheet = self._create_sheet()
+        first_voucher = self._create_voucher(
+            customer_identification="CUST-UNL-A",
+            sheet_id=sheet.id,
+            amount=11.0,
+        )
+        second_voucher = self._create_voucher(
+            customer_identification="CUST-UNL-B",
+            sheet_id=sheet.id,
+            amount=14.0,
+        )
+        first = self._create_balanced_allocation(
+            sheet, first_voucher, invoice_id="INV-UNL-A"
+        )
+        second = self._create_balanced_allocation(
+            sheet, second_voucher, invoice_id="INV-UNL-B"
+        )
+        first_id, second_id = first.id, second.id
+        first_voucher_id, second_voucher_id = first_voucher.id, second_voucher.id
+        sheet.unlink()
+        self.assertFalse(self.env["collection.allocation"].browse(first_id).exists())
+        self.assertFalse(self.env["collection.allocation"].browse(second_id).exists())
+        leftover_first = self.env["collection.voucher"].browse(first_voucher_id)
+        leftover_second = self.env["collection.voucher"].browse(second_voucher_id)
+        self.assertTrue(leftover_first.exists())
+        self.assertTrue(leftover_second.exists())
+        self.assertFalse(leftover_first.sheet_id)
+        self.assertFalse(leftover_second.sheet_id)
+        self.assertFalse(leftover_first.allocation_id)
+        self.assertFalse(leftover_second.allocation_id)
+
+    def test_unlink_closed_with_allocations_refused(self):
+        """Closed unlink with confirmed allocations MUST fail; members stay assigned."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-UNL-CL-ALLOC",
+            sheet_id=sheet.id,
+            amount=25.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-UNL-CL"
+        )
+        self._force_confirmed_and_closed(sheet, allocation)
+        sheet_id = sheet.id
+        allocation_id = allocation.id
+        voucher_id = voucher.id
+        with self.assertRaises(UserError):
+            sheet.unlink()
+        leftover_sheet = self.env["collection.sheet"].browse(sheet_id)
+        leftover_allocation = self.env["collection.allocation"].browse(allocation_id)
+        leftover_voucher = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover_sheet.exists())
+        self.assertEqual(leftover_sheet.state, "closed")
+        self.assertTrue(leftover_allocation.exists())
+        self.assertEqual(leftover_allocation.state, "confirmed")
+        self.assertTrue(leftover_voucher.exists())
+        self.assertEqual(leftover_voucher.sheet_id, leftover_sheet)
+        self.assertEqual(leftover_voucher.allocation_id, leftover_allocation)
 
     def test_delete_command_unassigns_without_destroying_voucher(self):
         sheet = self._create_sheet()

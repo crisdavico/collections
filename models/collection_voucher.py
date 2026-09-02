@@ -455,18 +455,18 @@ class CollectionVoucher(models.Model):
         current = self.allocation_id
         if not current:
             return
-        if current.state != "confirmed":
+        if current.state != "draft":
             raise UserError(
                 _(
                     "Allocation membership can only change when the current "
-                    "and target allocations are confirmed or unset."
+                    "and target allocations are draft or unset."
                 )
             )
         projected = self._projected_residual(current, -(self.amount or 0.0))
         if current.currency_id.compare_amounts(projected, 0.0) < 0:
             raise UserError(
                 _(
-                    "Cannot reassign this voucher because the source "
+                    "Cannot detach this voucher because the source "
                     "allocation residual would be negative."
                 )
             )
@@ -481,7 +481,7 @@ class CollectionVoucher(models.Model):
             [
                 ("sheet_id", "=", self.sheet_id.id),
                 ("partner_id", "=", partner_id),
-                ("state", "=", "confirmed"),
+                ("state", "=", "draft"),
             ],
             limit=1,
         )
@@ -552,24 +552,22 @@ class CollectionVoucher(models.Model):
             raise UserError(_("You can only delete vouchers in the Pending state."))
 
     @api.ondelete(at_uninstall=False)
-    def _unlink_if_unallocated(self):
-        if any(voucher.allocation_id for voucher in self):
-            raise UserError(
-                _("You cannot delete a voucher that belongs to an allocation.")
-            )
+    def _unlink_if_draft_or_unset(self):
+        for voucher in self.filtered("allocation_id"):
+            voucher._ensure_source_allocation_detachable()
 
     @api.private
     def _ensure_allocation_membership_writable(self, new_allocation_id):
         target = self._allocation_from_value(new_allocation_id)
         for voucher in self:
             current = voucher.allocation_id
-            if not self._allocation_is_confirmed_or_unset(
+            if not self._allocation_is_draft_or_unset(
                 current
-            ) or not self._allocation_is_confirmed_or_unset(target):
+            ) or not self._allocation_is_draft_or_unset(target):
                 raise UserError(
                     _(
                         "Allocation membership can only change when the current "
-                        "and target allocations are confirmed or unset."
+                        "and target allocations are draft or unset."
                     )
                 )
 
@@ -582,8 +580,8 @@ class CollectionVoucher(models.Model):
         return self.env["collection.allocation"].browse(int(value))
 
     @api.private
-    def _allocation_is_confirmed_or_unset(self, allocation):
-        return not allocation or allocation.state == "confirmed"
+    def _allocation_is_draft_or_unset(self, allocation):
+        return not allocation or allocation.state == "draft"
 
     def _message_set_main_attachment_id(
         self, attachments, force=False, filter_xml=True
