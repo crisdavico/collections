@@ -14,6 +14,7 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tools import SQL
 
+from odoo.addons.collection.tools.collection_voucher import _PAYMENT_SCHEMA
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
 _RESIDUAL_REASONS = ("on_account", "advance", "pending_invoice", "rounding")
@@ -82,11 +83,11 @@ _CREATE_COLLECTION_ALLOCATION_SCHEMA = {
             "minLength": 1,
             "description": "Idempotency key for this allocation write.",
         },
-        "vouchers": {
+        "payments": {
             "type": "array",
             "minItems": 1,
-            "items": {"type": "string", "minLength": 1},
-            "description": "Payment document_id values to allocate.",
+            "items": _PAYMENT_SCHEMA,
+            "description": "Inline payments to persist then allocate.",
         },
         "invoices": {
             "type": "array",
@@ -105,7 +106,13 @@ _CREATE_COLLECTION_ALLOCATION_SCHEMA = {
             "description": "Required when residual is greater than zero.",
         },
     },
-    "required": ["seller_id", "customer_identification", "request_id", "vouchers"],
+    "required": [
+        "seller_id",
+        "customer_identification",
+        "request_id",
+        "payments",
+        "invoices",
+    ],
 }
 
 
@@ -119,7 +126,7 @@ class CollectionAllocationMixin(models.AbstractModel):
         name="create_collection_allocation",
         description=(
             "Create or amend a confirmed collection allocation for an Enabled "
-            "Seller. Returns {allocation}. Internal users only."
+            "Seller. Returns {sheet_id, vouchers, allocation}. Internal users only."
         ),
         input_schema=_CREATE_COLLECTION_ALLOCATION_SCHEMA,
         category="write",
@@ -130,12 +137,12 @@ class CollectionAllocationMixin(models.AbstractModel):
         seller_id: int,
         customer_identification: str,
         request_id: str,
-        vouchers: list[str],
-        invoices: list[dict[str, Any]] | None = None,
+        payments: list[dict[str, Any]],
+        invoices: list[dict[str, Any]],
         total_debt: float | None = None,
         residual_reason: str | None = None,
     ) -> dict[str, Any]:
-        """Validate, revalidate ERP debt, then create or amend an allocation.
+        """Validate, persist inline payments, revalidate ERP, then allocate.
 
         :raise AccessError: when the caller is not an internal user.
         :raise UserError: when input, seller, records, or revalidation fail.
@@ -143,16 +150,27 @@ class CollectionAllocationMixin(models.AbstractModel):
         del total_debt  # Caller total is informational; persist fresh ERP snapshot.
         if not self.env.user.has_group("base.group_user"):
             raise AccessError(_("Only internal users can create allocations."))
-        document_ids, invoice_rows, request_key, identification, reason = (
-            self._collection_parse_allocation_form(
-                vouchers, invoices, request_id, customer_identification, residual_reason
-            )
+        (
+            document_ids,
+            invoice_rows,
+            request_key,
+            identification,
+            reason,
+            payment_vals_list,
+        ) = self._collection_parse_allocation_form(
+            payments, invoices, request_id, customer_identification, residual_reason
         )
         seller = self._collection_require_internal_seller(seller_id)
-        replayed = self._collection_allocation_classify_request(request_key)
+        replayed = self._collection_allocation_classify_request(
+            request_key, document_ids
+        )
         if replayed is not None:
             return replayed
         self.env.company._assert_new_work(seller.id)
+        if not self.env.company.auto_create_sheet:
+            raise UserError(
+                _("This company requires a collection sheet chosen in Odoo.")
+            )
         try:
             return self._collection_allocation_write(
                 seller,
@@ -161,10 +179,14 @@ class CollectionAllocationMixin(models.AbstractModel):
                 document_ids,
                 invoice_rows,
                 reason,
+                payments,
+                payment_vals_list,
             )
         except UniqueViolation:
             self.env.invalidate_all()
-            replayed = self._collection_allocation_classify_request(request_key)
+            replayed = self._collection_allocation_classify_request(
+                request_key, document_ids
+            )
             if replayed is not None:
                 return replayed
             raise self._collection_allocation_conflict_error() from None
@@ -173,12 +195,19 @@ class CollectionAllocationMixin(models.AbstractModel):
     @api.private
     def _collection_parse_allocation_form(
         self,
-        vouchers: Any,
+        payments: Any,
         invoices: Any,
         request_id: Any,
         customer_identification: Any,
         residual_reason: Any,
-    ) -> tuple[list[str], list[dict[str, Any]], str, str, str | bool]:
+    ) -> tuple[
+        list[str],
+        list[dict[str, Any]],
+        str,
+        str,
+        str | bool,
+        list[dict[str, Any]],
+    ]:
         """Validate MCP form fields in Python (do not trust schema minItems)."""
         if not isinstance(request_id, str) or not request_id.strip():
             raise UserError(_("request_id is required."))
@@ -187,21 +216,17 @@ class CollectionAllocationMixin(models.AbstractModel):
             or not customer_identification.strip()
         ):
             raise UserError(_("customer_identification is required."))
-        if not isinstance(vouchers, list) or not vouchers:
-            raise UserError(_("vouchers must be a non-empty list."))
-        document_ids: list[str] = []
-        for index, raw in enumerate(vouchers):
-            if not isinstance(raw, str) or not raw.strip():
-                raise UserError(
-                    _(
-                        "Each voucher requires a non-empty document_id "
-                        "(index %(index)s).",
-                        index=index,
-                    )
-                )
-            document_ids.append(raw.strip())
+        identification = customer_identification.strip()
+        if not isinstance(payments, list) or not payments:
+            raise UserError(_("payments must be a non-empty list."))
+        payment_vals_list, _identifications = self._collection_parse_payment_vals(
+            payments, identification
+        )
+        document_ids = [vals["document_id"] for vals in payment_vals_list]
         if len(document_ids) != len(set(document_ids)):
             raise UserError(_("Duplicate document_id in the same call is not allowed."))
+        if not isinstance(invoices, list):
+            raise UserError(_("invoices must be a list."))
         invoice_rows = self._collection_parse_allocation_invoices(invoices)
         if residual_reason in (None, False, ""):
             reason: str | bool = False
@@ -213,8 +238,9 @@ class CollectionAllocationMixin(models.AbstractModel):
             document_ids,
             invoice_rows,
             request_id.strip(),
-            customer_identification.strip(),
+            identification,
             reason,
+            payment_vals_list,
         )
 
     @api.model
@@ -223,8 +249,6 @@ class CollectionAllocationMixin(models.AbstractModel):
         self, invoices: Any
     ) -> list[dict[str, Any]]:
         """Validate invoice application rows."""
-        if invoices in (None, False, ""):
-            invoices = []
         if not isinstance(invoices, list):
             raise UserError(_("invoices must be a list."))
         invoice_rows: list[dict[str, Any]] = []
@@ -292,35 +316,47 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_allocation_classify_request(self, request_id: str):
+    def _collection_allocation_classify_request(
+        self, request_id: str, document_ids: list[str]
+    ):
         """Return replay payload, raise on other-company, or None if new."""
         revision = self._collection_allocation_by_request_id(request_id)
         if not revision:
             return None
         if revision.company_id != self.env.company:
             raise self._collection_allocation_conflict_error()
-        return self._collection_allocation_payload(revision.allocation_id, revision)
+        return self._collection_allocation_payload(
+            revision.allocation_id, revision, document_ids
+        )
 
     @api.model
     @api.private
-    def _collection_allocation_payload(self, allocation, revision) -> dict[str, Any]:
-        """Build the MCP allocation response from header + revision snapshot."""
+    def _collection_allocation_payload(
+        self, allocation, revision, document_ids: list[str]
+    ) -> dict[str, Any]:
+        """Build the MCP allocation response with sheet_id and ordered vouchers."""
+        found = self._collection_vouchers_by_document_ids(document_ids)
+        voucher_payload = self._collection_vouchers_payload(found, document_ids)
         return {
+            "sheet_id": allocation.sheet_id.id,
+            "vouchers": voucher_payload["vouchers"],
             "allocation": {
                 "id": allocation.id,
                 "name": allocation.name,
                 "state": allocation.state,
-                "revision": revision.revision,
+                "revision": int(revision.revision),
                 "total_vouchers": revision.total_vouchers,
                 "total_applied": revision.total_applied,
                 "residual": revision.residual,
-            }
+            },
         }
 
     @api.model
     @api.private
-    def _collection_allocation_content_hash(self, vouchers, invoice_rows) -> str:
-        """SHA-256 of sorted voucher ids plus (invoice, applied) pairs."""
+    def _collection_allocation_content_hash(
+        self, vouchers, invoice_rows, residual_reason
+    ) -> str:
+        """SHA-256 of sorted voucher ids, invoice pairs, and residual_reason."""
         payload = {
             "vouchers": sorted(vouchers.ids),
             "invoices": sorted(
@@ -332,6 +368,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                     for row in invoice_rows
                 ]
             ),
+            "residual_reason": residual_reason or None,
         }
         encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         return hashlib.sha256(encoded.encode()).hexdigest()
@@ -400,7 +437,7 @@ class CollectionAllocationMixin(models.AbstractModel):
     @api.model
     @api.private
     def _collection_allocation_bound_partner(self, identification: str, vouchers):
-        """Resolve customer from an existing binding only (never create)."""
+        """Assert identification resolves to the voucher partner; never sudo."""
         connector = self.env.company._collection_active_connector()
         binding = self.env["collection.connector.customer.binding"].search(
             [
@@ -518,57 +555,85 @@ class CollectionAllocationMixin(models.AbstractModel):
         document_ids: list[str],
         invoice_rows: list[dict[str, Any]],
         residual_reason: str | bool,
+        payments: list[dict[str, Any]],
+        payment_vals_list: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Resolve records, revalidate ERP, then create or amend inside a savepoint."""
-        vouchers, sheet = self._collection_allocation_vouchers(document_ids, seller)
-        partner, connector = self._collection_allocation_bound_partner(
-            identification, vouchers
-        )
-        Allocation = self.env["collection.allocation"]
-        existing = Allocation.search(
-            [("sheet_id", "=", sheet.id), ("partner_id", "=", partner.id)],
-            limit=1,
-        )
-        if not existing:
-            self._collection_lock_allocation_pair(sheet.id, partner.id)
+        """Create or reuse vouchers, revalidate ERP, then persist allocation."""
+        existing_docs = self._collection_vouchers_by_document_ids(document_ids)
+        classified = self._collection_classify_visible(existing_docs, document_ids)
+        sidecars: list[tuple[str, bytes] | None] | None = None
+        provenances: list[dict[str, Any] | None] | None = None
+        if classified is None:
+            sidecars = self._collection_parse_payment_attachments(payments)
+            provenances = self._collection_parse_payment_provenance(
+                payments, payment_vals_list
+            )
+
+        with self.env.cr.savepoint():
+            if classified is None:
+                try:
+                    self._collection_create_vouchers(
+                        payment_vals_list,
+                        seller.id,
+                        sidecars or [],
+                        provenances or [],
+                        [identification] * len(payment_vals_list),
+                    )
+                except UniqueViolation:
+                    self.env.invalidate_all()
+                    replayed = self._collection_replay_existing(document_ids)
+                    if replayed is None:
+                        raise self._collection_document_conflict_error() from None
+            vouchers, sheet = self._collection_allocation_vouchers(document_ids, seller)
+            partner, connector = self._collection_allocation_bound_partner(
+                identification, vouchers
+            )
+            Allocation = self.env["collection.allocation"]
             existing = Allocation.search(
                 [("sheet_id", "=", sheet.id), ("partner_id", "=", partner.id)],
                 limit=1,
             )
-        if existing:
-            if existing.state != "confirmed":
-                raise UserError(
-                    _("This allocation was already reviewed and cannot be amended.")
+            if not existing:
+                self._collection_lock_allocation_pair(sheet.id, partner.id)
+                existing = Allocation.search(
+                    [("sheet_id", "=", sheet.id), ("partner_id", "=", partner.id)],
+                    limit=1,
                 )
-            self._collection_lock_allocation_row(existing)
-            current_ids = set(existing.voucher_ids.ids)
-            if not current_ids <= set(vouchers.ids):
-                raise UserError(
-                    _(
-                        "Amended vouchers must include all previously allocated "
-                        "vouchers."
+            if existing:
+                if existing.state != "confirmed":
+                    raise UserError(
+                        _("This allocation was already reviewed and cannot be amended.")
                     )
+                self._collection_lock_allocation_row(existing)
+                current_ids = set(existing.voucher_ids.ids)
+                if not current_ids <= set(vouchers.ids):
+                    raise UserError(
+                        _(
+                            "Amended vouchers must include all previously allocated "
+                            "vouchers."
+                        )
+                    )
+                content_hash = self._collection_allocation_content_hash(
+                    vouchers, invoice_rows, residual_reason
                 )
-            content_hash = self._collection_allocation_content_hash(
-                vouchers, invoice_rows
-            )
-            last = existing.revision_ids.sorted("revision")[-1:]
-            if last and last.content_hash == content_hash:
-                return self._collection_allocation_payload(existing, last)
-        else:
-            content_hash = self._collection_allocation_content_hash(
-                vouchers, invoice_rows
-            )
+                last = existing.revision_ids.sorted("revision")[-1:]
+                if last and last.content_hash == content_hash:
+                    return self._collection_allocation_payload(
+                        existing, last, document_ids
+                    )
+            else:
+                content_hash = self._collection_allocation_content_hash(
+                    vouchers, invoice_rows, residual_reason
+                )
 
-        currency = self.env.company.currency_id
-        fresh_total, line_vals = self._collection_allocation_revalidate(
-            connector, seller, identification, invoice_rows, existing, currency
-        )
-        self._collection_allocation_check_residual(
-            vouchers, invoice_rows, residual_reason, currency
-        )
-        line_commands = [Command.create(vals) for vals in line_vals]
-        with self.env.cr.savepoint():
+            currency = self.env.company.currency_id
+            fresh_total, line_vals = self._collection_allocation_revalidate(
+                connector, seller, identification, invoice_rows, existing, currency
+            )
+            self._collection_allocation_check_residual(
+                vouchers, invoice_rows, residual_reason, currency
+            )
+            line_commands = [Command.create(vals) for vals in line_vals]
             if existing:
                 allocation = self._collection_allocation_persist_amend(
                     existing,
@@ -592,7 +657,7 @@ class CollectionAllocationMixin(models.AbstractModel):
             revision = self._collection_allocation_insert_revision(
                 allocation, request_id, content_hash
             )
-        return self._collection_allocation_payload(allocation, revision)
+        return self._collection_allocation_payload(allocation, revision, document_ids)
 
     @api.model
     @api.private

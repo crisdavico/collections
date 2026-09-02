@@ -18,6 +18,7 @@ from odoo.addons.muk_mcp.core.tool import get_tool_index
 from .common_connector import (
     install_bound_test_connector,
     install_test_connector_type,
+    mcp_env_with_listable_customers,
 )
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
@@ -27,7 +28,36 @@ from .test_collection_payment import (
 )
 
 TOOL_NAME = "create_collection_allocation"
+VOUCHER_TOOL_NAME = "create_collection_vouchers"
+_COLLECTION_HELPERS = (
+    "_collection_parse_payment_vals",
+    "_collection_parse_payment_attachments",
+    "_collection_parse_payment_provenance",
+    "_collection_parse_provenance_nests",
+    "_collection_parse_attachment_nest",
+    "_collection_create_vouchers",
+    "_collection_vouchers_payload",
+    "_collection_classify_visible",
+    "_collection_replay_or_reject",
+    "_collection_replay_existing",
+    "_collection_document_conflict_error",
+    "_collection_require_internal_seller",
+    "_collection_vouchers_by_document_ids",
+)
 IDENT = "20-11111111-1"
+UNBOUND_LISTABLE = "20-88888888-8"
+SHEET_REQUIRED_MSG = "This company requires a collection sheet chosen in Odoo."
+_TOP_KEYS = {"sheet_id", "vouchers", "allocation"}
+_ALLOC_KEYS = {
+    "id",
+    "name",
+    "state",
+    "revision",
+    "total_vouchers",
+    "total_applied",
+    "residual",
+}
+_VOUCHER_KEYS = {"id", "name", "state", "document_id"}
 _LEAK_TOKENS = (
     "SELECT",
     "INSERT",
@@ -63,7 +93,7 @@ INVOICE_OPEN = {
 
 
 class TestCollectionMcpAllocation(TransactionCase):
-    """RED: MCP create_collection_allocation create, replay, amend, gates."""
+    """RED: MCP create_collection_allocation inline payments, replay, amend, gates."""
 
     @classmethod
     def setUpClass(cls):
@@ -170,16 +200,31 @@ class TestCollectionMcpAllocation(TransactionCase):
         row["amount_applied"] = amount_applied
         return row
 
-    def _payload(self, vouchers, invoices, **extra):
+    def _payment(self, amount, document_id=None, **extra):
+        payment = {
+            "document_id": document_id or self._next_document_id(),
+            "document_type": extra.pop("document_type", "bank_transfer"),
+            "amount": amount,
+        }
+        payment.update(extra)
+        return payment
+
+    def _payments_from_vouchers(self, vouchers):
+        return [
+            {
+                "document_id": voucher.document_id,
+                "document_type": voucher.document_type,
+                "amount": voucher.amount,
+            }
+            for voucher in vouchers
+        ]
+
+    def _payload(self, payments, invoices, **extra):
         arguments = {
             "seller_id": extra.pop("seller_id", self.seller.id),
             "customer_identification": extra.pop("customer_identification", IDENT),
             "request_id": extra.pop("request_id", f"req-{self._testMethodName}"),
-            "vouchers": (
-                list(vouchers)
-                if vouchers and isinstance(vouchers[0], str)
-                else [voucher.document_id for voucher in vouchers]
-            ),
+            "payments": payments,
             "invoices": invoices,
         }
         arguments.update(extra)
@@ -187,10 +232,19 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def _call(self, arguments, user=None, context=None):
         uid = user if user else self.internal_user
-        ctx = dict(self.env.context)
+        echo_args = dict(arguments)
+        ident = arguments.get("customer_identification")
+        if ident:
+            echoed = []
+            raw_payments = arguments.get("payments") or [{}]
+            for payment in raw_payments:
+                item = dict(payment) if isinstance(payment, dict) else {}
+                item.setdefault("customer_identification", ident)
+                echoed.append(item)
+            echo_args = {**arguments, "payments": echoed}
+        env = mcp_env_with_listable_customers(self.env, echo_args, uid, uid)
         if context:
-            ctx.update(context)
-        env = self.env(user=uid, context=ctx)
+            env = env(context={**env.context, **context})
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
@@ -199,6 +253,8 @@ class TestCollectionMcpAllocation(TransactionCase):
             "allocations": self.env["collection.allocation"].search_count([]),
             "lines": self.env["collection.allocation.line"].search_count([]),
             "revisions": self.env["collection.allocation.revision"].search_count([]),
+            "vouchers": self.env["collection.voucher"].search_count([]),
+            "sheets": self.env["collection.sheet"].search_count([]),
         }
 
     def _partner_binding_counts(self):
@@ -209,21 +265,22 @@ class TestCollectionMcpAllocation(TransactionCase):
             ),
         }
 
-    def _assert_payload(self, result, allocation, *, revision=1):
-        self.assertEqual(set(result), {"allocation"})
+    def _assert_payload(self, result, allocation, *, revision=1, document_ids):
+        self.assertEqual(set(result), _TOP_KEYS)
+        self.assertEqual(result["sheet_id"], allocation.sheet_id.id)
+        rows = result["vouchers"]
+        self.assertEqual(len(rows), len(document_ids))
+        self.assertGreater(len(rows), 0)
+        for row, doc_id in zip(rows, document_ids, strict=True):
+            self.assertEqual(set(row), _VOUCHER_KEYS)
+            self.assertEqual(row["document_id"], doc_id)
+            self.assertIsInstance(row["id"], int)
+            self.assertTrue(row["name"])
+            self.assertTrue(row["state"])
         body = result["allocation"]
-        self.assertEqual(
-            set(body),
-            {
-                "id",
-                "name",
-                "state",
-                "revision",
-                "total_vouchers",
-                "total_applied",
-                "residual",
-            },
-        )
+        self.assertEqual(set(body), _ALLOC_KEYS)
+        self.assertIsInstance(body["revision"], int)
+        self.assertNotIsInstance(body["revision"], bool)
         self.assertEqual(body["id"], allocation.id)
         self.assertEqual(body["name"], allocation.name)
         self.assertEqual(body["state"], allocation.state)
@@ -238,6 +295,7 @@ class TestCollectionMcpAllocation(TransactionCase):
             func()
         message = str(ctx.exception)
         self.assertNotIn("tool not found", message.lower())
+        self.assertNotIn('{"error"', message)
         for token in _LEAK_TOKENS:
             self.assertNotIn(token, message)
         self.assertEqual(self._counts(), before)
@@ -316,6 +374,11 @@ class TestCollectionMcpAllocation(TransactionCase):
             entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
         }
         self.assertIn(TOOL_NAME, by_name)
+        self.assertNotIn(
+            VOUCHER_TOOL_NAME,
+            by_name,
+            "create_collection_vouchers must not remain registered",
+        )
         entry = get_tool_index(self.env, registry="mcp")[TOOL_NAME]
         self.assertEqual(entry["category"], "write")
         self.assertEqual(entry["registry"], "mcp")
@@ -328,15 +391,27 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(schema["type"], "object")
         self.assertEqual(
             set(schema["required"]),
-            {"seller_id", "customer_identification", "request_id", "vouchers"},
+            {
+                "seller_id",
+                "customer_identification",
+                "request_id",
+                "payments",
+                "invoices",
+            },
         )
+        self.assertNotIn("vouchers", schema["properties"])
         self.assertEqual(schema["properties"]["seller_id"]["type"], "integer")
         self.assertEqual(
             schema["properties"]["customer_identification"]["type"], "string"
         )
         self.assertEqual(schema["properties"]["request_id"]["type"], "string")
-        self.assertEqual(schema["properties"]["vouchers"]["type"], "array")
-        self.assertGreaterEqual(schema["properties"]["vouchers"].get("minItems", 0), 1)
+        payments = schema["properties"]["payments"]
+        self.assertEqual(payments["type"], "array")
+        self.assertGreaterEqual(payments.get("minItems", 0), 1)
+        self.assertNotIn("customer_identification", payments["items"]["properties"])
+        self.assertNotIn(
+            "customer_identification", payments["items"].get("required", [])
+        )
         invoices = schema["properties"]["invoices"]
         self.assertEqual(invoices["type"], "array")
         applied = invoices["items"]["properties"]["amount_applied"]
@@ -344,18 +419,88 @@ class TestCollectionMcpAllocation(TransactionCase):
         from odoo.addons.collection.tools.collection_allocation import (
             _INVOICE_ITEM_SCHEMA,
         )
+        from odoo.addons.collection.tools.collection_voucher import _PAYMENT_SCHEMA
 
+        self.assertEqual(payments["items"], _PAYMENT_SCHEMA)
         self.assertEqual(
             _INVOICE_ITEM_SCHEMA["properties"]["amount_applied"]["exclusiveMinimum"],
             0,
         )
 
+    def test_create_collection_vouchers_absent_from_mcp_registry(self):
+        """Retired voucher write MUST not be an MCP tool; `_collection_*` remain."""
+        by_name = {
+            entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
+        }
+        self.assertNotIn(
+            VOUCHER_TOOL_NAME,
+            by_name,
+            "create_collection_vouchers must not appear in MCP registry tools",
+        )
+        self.assertFalse(
+            self.env["muk_mcp.tool"].search([("name", "=", VOUCHER_TOOL_NAME)]),
+            "create_collection_vouchers must not have a DB muk_mcp.tool row",
+        )
+        mixin_cls = type(self.env["muk_mcp.mixin"])
+        self.assertFalse(
+            hasattr(mixin_cls, VOUCHER_TOOL_NAME),
+            "muk_mcp.mixin must not expose create_collection_vouchers",
+        )
+        for helper_name in _COLLECTION_HELPERS:
+            self.assertTrue(
+                callable(getattr(mixin_cls, helper_name, None)),
+                f"{helper_name} must remain on muk_mcp.mixin",
+            )
+            self.assertNotIn(helper_name, by_name)
+            self.assertFalse(
+                self.env["muk_mcp.tool"].search([("name", "=", helper_name)]),
+                f"{helper_name} must not have a DB muk_mcp.tool row",
+            )
+            helper = getattr(mixin_cls, helper_name)
+            self.assertFalse(
+                getattr(helper, "_mcp_tool", False)
+                or getattr(helper, "_mcp_name", None),
+                f"{helper_name} must not be decorated as an MCP tool",
+            )
+
+    def test_payment_schema_and_parse_replicate_top_level_identification(self):
+        """_PAYMENT_SCHEMA omits ident; parse replicates the top-level argument."""
+        from odoo.addons.collection.tools.collection_voucher import _PAYMENT_SCHEMA
+
+        self.assertNotIn("customer_identification", _PAYMENT_SCHEMA["properties"])
+        self.assertEqual(
+            set(_PAYMENT_SCHEMA["required"]), {"document_id", "document_type"}
+        )
+        mixin = self.env["muk_mcp.mixin"]
+        payments = [
+            {
+                "document_id": "DOC-PARSE-A",
+                "document_type": "bank_transfer",
+                "amount": 10.0,
+            },
+            {
+                "document_id": "DOC-PARSE-B",
+                "document_type": "cash_deposit",
+                "amount": 20.0,
+            },
+        ]
+        vals, idents = mixin._collection_parse_payment_vals(payments, f"  {IDENT}  ")
+        self.assertEqual(idents, [IDENT, IDENT])
+        self.assertEqual(
+            [row["document_id"] for row in vals],
+            ["DOC-PARSE-A", "DOC-PARSE-B"],
+        )
+        self.assertNotIn("customer_identification", vals[0])
+        self.assertNotIn("customer_identification", vals[1])
+        with self.assertRaises(UserError):
+            mixin._collection_parse_payment_vals(payments, "   ")
+
     def test_first_create_confirmed_revision_one_totals(self):
         """First create MUST persist confirmed revision 1 with matching totals."""
-        vouchers = self._create_vouchers([100.0])
+        payment = self._payment(100.0)
         before = self._counts()
         result = self._call(
-            self._payload(vouchers, [self._applied(INVOICE_OVERDUE, 100.0)])
+            self._payload([payment], [self._applied(INVOICE_OVERDUE, 100.0)])
         )
         allocation = self.env["collection.allocation"].browse(
             result["allocation"]["id"]
@@ -365,22 +510,45 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(allocation.revision, 1)
         self.assertEqual(allocation.partner_id, self.partner)
         self.assertEqual(allocation.sheet_id, self.sheet)
-        self.assertEqual(allocation.voucher_ids, vouchers)
         self.assertEqual(allocation.total_vouchers, 100.0)
         self.assertEqual(allocation.total_applied, 100.0)
         self.assertEqual(allocation.residual, 0.0)
         self.assertEqual(allocation.total_debt, 150.0)
         self.assertEqual(len(allocation.revision_ids), 1)
         self.assertEqual(allocation.revision_ids.revision, 1)
-        self._assert_payload(result, allocation, revision=1)
+        self._assert_payload(
+            result, allocation, revision=1, document_ids=[payment["document_id"]]
+        )
         self.assertEqual(self._counts()["allocations"], before["allocations"] + 1)
         self.assertEqual(self._counts()["revisions"], before["revisions"] + 1)
+        self.assertEqual(self._counts()["vouchers"], before["vouchers"] + 1)
+
+    def test_response_shape_freeze_ordered_vouchers(self):
+        """Success body MUST freeze {sheet_id,vouchers,allocation} with send order."""
+        first = self._payment(40.0)
+        second = self._payment(60.0)
+        result = self._call(
+            self._payload(
+                [second, first],
+                [self._applied(INVOICE_OVERDUE, 100.0)],
+            )
+        )
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        document_ids = [second["document_id"], first["document_id"]]
+        self._assert_payload(result, allocation, revision=1, document_ids=document_ids)
+        self.assertEqual(
+            [row["document_id"] for row in result["vouchers"]], document_ids
+        )
 
     def test_request_id_replay_zero_writes(self):
-        """Identical request_id MUST replay with unchanged write_date and no writes."""
-        vouchers = self._create_vouchers([100.0])
+        """Identical request_id MUST replay full payload with no writes."""
+        payment = self._payment(100.0)
         arguments = self._payload(
-            vouchers, [self._applied(INVOICE_OVERDUE, 100.0)], request_id="req-replay"
+            [payment],
+            [self._applied(INVOICE_OVERDUE, 100.0)],
+            request_id="req-replay",
         )
         first = self._call(arguments)
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
@@ -389,13 +557,16 @@ class TestCollectionMcpAllocation(TransactionCase):
         before = self._counts()
         second = self._call(
             self._payload(
-                vouchers,
+                [payment],
                 [self._applied(INVOICE_OPEN, 50.0)],
                 request_id="req-replay",
                 residual_reason="on_account",
             )
         )
         self.assertEqual(second, first)
+        self._assert_payload(
+            second, allocation, revision=1, document_ids=[payment["document_id"]]
+        )
         allocation.invalidate_recordset()
         self.assertEqual(allocation.write_date, write_date)
         self.assertEqual(len(allocation.revision_ids), revision_count)
@@ -404,36 +575,251 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_content_hash_replay_new_request_id_no_extra_revision(self):
         """Matching content_hash with a new request_id MUST not add a revision."""
-        vouchers = self._create_vouchers([100.0])
+        payment = self._payment(100.0)
         invoices = [self._applied(INVOICE_OVERDUE, 100.0)]
-        first = self._call(self._payload(vouchers, invoices, request_id="req-hash-1"))
+        first = self._call(self._payload([payment], invoices, request_id="req-hash-1"))
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
         write_date = allocation.write_date
         before = self._counts()
-        second = self._call(self._payload(vouchers, invoices, request_id="req-hash-2"))
+        second = self._call(self._payload([payment], invoices, request_id="req-hash-2"))
         self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])
         self.assertEqual(second["allocation"]["revision"], 1)
+        self.assertEqual(second["sheet_id"], first["sheet_id"])
         allocation.invalidate_recordset()
         self.assertEqual(len(allocation.revision_ids), 1)
         self.assertEqual(allocation.revision_ids.request_id, "req-hash-1")
         self.assertEqual(allocation.write_date, write_date)
         self.assertEqual(self._counts(), before)
 
-    def test_amend_superset_bumps_revision(self):
-        """SUPERSET voucher set MUST amend revision+1 and link the new voucher."""
-        first_vouchers = self._create_vouchers([100.0])
+    def test_exact_document_id_reuse_continues_to_allocation(self):
+        """Exact same-company document_id set MUST reuse rows and persist allocation."""
+        vouchers = self._create_vouchers([100.0])
+        before = self._counts()
+        result = self._call(
+            self._payload(
+                self._payments_from_vouchers(vouchers),
+                [self._applied(INVOICE_OVERDUE, 100.0)],
+                request_id="req-reuse",
+            )
+        )
+        self.assertEqual(self._counts()["vouchers"], before["vouchers"])
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        self.assertTrue(allocation.exists())
+        self.assertEqual(allocation.voucher_ids, vouchers)
+        self._assert_payload(
+            result,
+            allocation,
+            revision=1,
+            document_ids=vouchers.mapped("document_id"),
+        )
+        self.assertEqual(self._counts()["allocations"], before["allocations"] + 1)
+
+    def test_partial_overlap_conflict_no_writes(self):
+        """Partial same-company document_id overlap MUST generic-conflict."""
+        existing = self._create_vouchers([100.0])
+        payments = self._payments_from_vouchers(existing) + [self._payment(50.0)]
+        before = self._counts()
+        err = self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    payments,
+                    [
+                        self._applied(INVOICE_OVERDUE, 100.0),
+                        self._applied(INVOICE_OPEN, 50.0),
+                    ],
+                    request_id="req-partial",
+                )
+            ),
+            before,
+        )
+        self._assert_generic_conflict(err, existing)
+
+    def test_other_company_document_id_conflict(self):
+        """Other-company document_id hit MUST generic-conflict with no writes."""
+        company_b = self._create_company("MCP-Alloc-DocCo")
+        self.seller.write({"company_ids": [Command.link(company_b.id)]})
+        sheet_b = self._create_sheet(company=company_b, force_new=True)
+        foreign = self._create_vouchers([100.0], sheet=sheet_b, prefix="ALLOC-OC-DOC")
+        before = self._counts()
+        err = self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    self._payments_from_vouchers(foreign),
+                    [self._applied(INVOICE_OVERDUE, 100.0)],
+                    request_id="req-other-doc",
+                )
+            ),
+            before,
+        )
+        self._assert_generic_conflict(err, foreign, company_b)
+
+    def test_auto_create_sheet_off_named_error_zero_writes(self):
+        """auto_create_sheet False MUST raise the named error with zero writes."""
+        self.env.company.auto_create_sheet = False
+        before = self._counts()
+        err = self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    [self._payment(100.0)],
+                    [self._applied(INVOICE_OVERDUE, 100.0)],
+                    request_id="req-sheet-off",
+                )
+            ),
+            before,
+        )
+        self.assertEqual(str(err), SHEET_REQUIRED_MSG)
+
+    def test_empty_invoices_on_account(self):
+        """Required empty invoices MUST allocate the full amount on account."""
+        payment = self._payment(80.0)
+        result = self._call(
+            self._payload(
+                [payment],
+                [],
+                request_id="req-empty-invoices",
+                residual_reason="on_account",
+            )
+        )
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        self.assertFalse(allocation.line_ids)
+        self.assertEqual(allocation.total_applied, 0.0)
+        self.assertEqual(allocation.total_vouchers, 80.0)
+        self.assertEqual(allocation.residual, 80.0)
+        self.assertEqual(allocation.residual_reason, "on_account")
+        self.assertEqual(allocation.total_debt, 150.0)
+        self._assert_payload(
+            result, allocation, revision=1, document_ids=[payment["document_id"]]
+        )
+
+    def test_residual_without_reason_fails(self):
+        """Positive residual without residual_reason MUST fail with no writes."""
+        before = self._counts()
+        self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    [self._payment(150.0)],
+                    [self._applied(INVOICE_OVERDUE, 100.0)],
+                    request_id="req-missing-reason",
+                )
+            ),
+            before,
+        )
+
+    def test_residual_negative_fails(self):
+        """Applied amount above voucher total MUST fail with no writes."""
+        before = self._counts()
+        self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    [self._payment(10.0)],
+                    [self._applied(INVOICE_OVERDUE, 100.0)],
+                    request_id="req-negative-residual",
+                )
+            ),
+            before,
+        )
+
+    def test_reason_only_retry_not_noop_hash_includes_reason(self):
+        """content_hash MUST include residual_reason so a reason-only retry amends."""
+        payment = self._payment(150.0)
+        invoices = [self._applied(INVOICE_OVERDUE, 100.0)]
         first = self._call(
             self._payload(
-                first_vouchers,
+                [payment],
+                invoices,
+                request_id="req-reason-1",
+                residual_reason="on_account",
+            )
+        )
+        allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
+        self.assertEqual(allocation.revision, 1)
+        self.assertEqual(allocation.residual_reason, "on_account")
+        second = self._call(
+            self._payload(
+                [payment],
+                invoices,
+                request_id="req-reason-2",
+                residual_reason="advance",
+            )
+        )
+        allocation.invalidate_recordset()
+        self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])
+        self.assertEqual(allocation.revision, 2)
+        self.assertEqual(second["allocation"]["revision"], 2)
+        self.assertEqual(allocation.residual_reason, "advance")
+        self.assertEqual(len(allocation.revision_ids), 2)
+
+    def test_revalidation_rolls_back_vouchers(self):
+        """ERP revalidation failure MUST roll back newly created vouchers."""
+        paid = {
+            "external_invoice_id": "inv-bound-paid",
+            "number": "A-0003",
+            "issue_date": "2026-02-01",
+            "due_date": "2026-03-01",
+            "amount": 20.0,
+            "balance": 20.0,
+            "state": "paid",
+        }
+        before = self._counts()
+        self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    [self._payment(20.0)],
+                    [self._applied(paid, 20.0)],
+                    request_id="req-reval-rollback",
+                )
+            ),
+            before,
+        )
+
+    def test_unbound_write_lazy_creates_partner_and_binding(self):
+        """Unbound listable identification MUST lazy-create partner and binding."""
+        before_partners = self._partner_binding_counts()
+        payment = self._payment(80.0)
+        result = self._call(
+            self._payload(
+                [payment],
+                [],
+                customer_identification=UNBOUND_LISTABLE,
+                request_id="req-lazy-partner",
+                residual_reason="on_account",
+            )
+        )
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        after = self._partner_binding_counts()
+        self.assertEqual(after["partners"], before_partners["partners"] + 1)
+        self.assertEqual(after["bindings"], before_partners["bindings"] + 1)
+        self.assertEqual(allocation.partner_id.vat, UNBOUND_LISTABLE)
+        binding = self.env["collection.connector.customer.binding"].search(
+            [("identification", "=", UNBOUND_LISTABLE)]
+        )
+        self.assertEqual(binding.partner_id, allocation.partner_id)
+        self.assertEqual(allocation.voucher_ids.partner_id, allocation.partner_id)
+
+    def test_amend_superset_bumps_revision(self):
+        """SUPERSET voucher set MUST amend revision+1 and link the new voucher."""
+        first_payment = self._payment(100.0)
+        first = self._call(
+            self._payload(
+                [first_payment],
                 [self._applied(INVOICE_OVERDUE, 100.0)],
                 request_id="req-amend-1",
             )
         )
         extra = self._create_vouchers([50.0])
-        combined = first_vouchers | extra
+        first_voucher = self.env["collection.voucher"].search(
+            [("document_id", "=", first_payment["document_id"])]
+        )
+        combined = first_voucher | extra
         second = self._call(
             self._payload(
-                combined,
+                self._payments_from_vouchers(combined),
                 [
                     self._applied(INVOICE_OVERDUE, 100.0),
                     self._applied(INVOICE_OPEN, 50.0),
@@ -452,6 +838,12 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(allocation.total_applied, 150.0)
         self.assertEqual(allocation.residual, 0.0)
         self.assertEqual(len(allocation.revision_ids), 2)
+        self._assert_payload(
+            second,
+            allocation,
+            revision=2,
+            document_ids=combined.mapped("document_id"),
+        )
 
     def test_subset_and_partial_overlap_rejected(self):
         """Subset or partial overlap MUST UserError with no writes."""
@@ -460,7 +852,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         current = v1 | v2
         self._call(
             self._payload(
-                current,
+                self._payments_from_vouchers(current),
                 [
                     self._applied(INVOICE_OVERDUE, 100.0),
                     self._applied(INVOICE_OPEN, 50.0),
@@ -472,7 +864,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    v1,
+                    self._payments_from_vouchers(v1),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-overlap-subset",
                 )
@@ -480,16 +872,17 @@ class TestCollectionMcpAllocation(TransactionCase):
             before,
         )
         v3 = self._create_vouchers([40.0])
+        before_partial = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    v2 | v3,
+                    self._payments_from_vouchers(v2 | v3),
                     [self._applied(INVOICE_OPEN, 50.0)],
                     request_id="req-overlap-partial",
                     residual_reason="on_account",
                 )
             ),
-            before,
+            before_partial,
         )
         allocation = self.env["collection.allocation"].search(
             [("sheet_id", "=", self.sheet.id), ("partner_id", "=", self.partner.id)]
@@ -499,9 +892,9 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_unique_violation_same_company_replays(self):
         """UniqueViolation then same-company request_id re-lookup MUST replay."""
-        vouchers = self._create_vouchers([100.0])
+        payment = self._payment(100.0)
         arguments = self._payload(
-            vouchers,
+            [payment],
             [self._applied(INVOICE_OVERDUE, 100.0)],
             request_id="req-uv-replay",
         )
@@ -528,6 +921,9 @@ class TestCollectionMcpAllocation(TransactionCase):
         )
         self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])
         self.assertEqual(second["allocation"]["revision"], 1)
+        self._assert_payload(
+            second, allocation, revision=1, document_ids=[payment["document_id"]]
+        )
         allocation.invalidate_recordset()
         self.assertEqual(allocation.write_date, write_date)
         self.assertEqual(self._counts(), before)
@@ -583,13 +979,12 @@ class TestCollectionMcpAllocation(TransactionCase):
             .search([("request_id", "=", "req-uv-hidden")])
         )
         self.assertFalse(hidden, "Caller must not see company B's revision")
-        vouchers = self._create_vouchers([100.0])
         before = self._counts()
         with mute_logger("odoo.sql_db"):
             err = self._assert_user_error_no_writes(
                 lambda: self._call(
                     self._payload(
-                        vouchers,
+                        [self._payment(100.0)],
                         [self._applied(INVOICE_OVERDUE, 100.0)],
                         request_id="req-uv-hidden",
                     )
@@ -601,12 +996,11 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_amount_null_or_non_positive_rejected(self):
         """Null or ≤0 voucher amount MUST error with no writes."""
-        zero = self._create_vouchers([0.0], prefix="ALLOC-ZERO")
         before = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    zero,
+                    [self._payment(0.0)],
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-zero-amount",
                 )
@@ -619,15 +1013,16 @@ class TestCollectionMcpAllocation(TransactionCase):
             [empty.id],
         )
         empty.invalidate_recordset(["amount"])
+        before_null = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    empty,
+                    self._payments_from_vouchers(empty),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-null-amount",
                 )
             ),
-            before,
+            before_null,
         )
 
     def test_rejected_voucher_other_company_other_sheet_mixed_rejected(self):
@@ -638,7 +1033,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    rejected,
+                    self._payments_from_vouchers(rejected),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-rejected-voucher",
                 )
@@ -650,15 +1045,16 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.seller.write({"company_ids": [Command.link(company_b.id)]})
         sheet_b = self._create_sheet(company=company_b, force_new=True)
         other_company = self._create_vouchers([100.0], sheet=sheet_b, prefix="ALLOC-OC")
+        before_other_company = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    other_company,
+                    self._payments_from_vouchers(other_company),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-other-company",
                 )
             ),
-            before,
+            before_other_company,
         )
 
         closed_vouchers = self._create_vouchers(
@@ -666,15 +1062,16 @@ class TestCollectionMcpAllocation(TransactionCase):
         )
         self.sheet.action_close()
         other_sheet = self._create_sheet(force_new=True)
+        before_closed = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    closed_vouchers,
+                    self._payments_from_vouchers(closed_vouchers),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-closed-sheet",
                 )
             ),
-            before,
+            before_closed,
         )
         mixed_sheet = self._create_vouchers(
             [50.0], sheet=other_sheet, prefix="ALLOC-MS"
@@ -682,31 +1079,35 @@ class TestCollectionMcpAllocation(TransactionCase):
         open_vouchers = self._create_vouchers(
             [50.0], sheet=other_sheet, prefix="ALLOC-OPEN"
         )
+        before_mixed_sheet = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    closed_vouchers | mixed_sheet,
+                    self._payments_from_vouchers(closed_vouchers | mixed_sheet),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-mixed-sheet",
                 )
             ),
-            before,
+            before_mixed_sheet,
         )
 
         other_partner = dummy_customer_partner(self.env, customer="ALLOC-MIX-PARTNER")
         mixed_partner = self._create_vouchers(
             [50.0], partner=other_partner, sheet=other_sheet, prefix="ALLOC-MP"
         )
+        before_mixed = self._partner_binding_counts()
+        before_mixed_partner = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    open_vouchers | mixed_partner,
+                    self._payments_from_vouchers(open_vouchers | mixed_partner),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-mixed-partner",
                 )
             ),
-            before,
+            before_mixed_partner,
         )
+        self.assertEqual(self._partner_binding_counts(), before_mixed)
 
         other_seller = create_internal_seller(self.env, "collection_mcp_alloc_mixed")
         ensure_enabled_seller(self.env, other_seller)
@@ -721,7 +1122,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    open_vouchers,
+                    self._payments_from_vouchers(open_vouchers),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     seller_id=other_seller.id,
                     request_id="req-mixed-seller",
@@ -730,38 +1131,15 @@ class TestCollectionMcpAllocation(TransactionCase):
             before_mixed_seller,
         )
 
-    def test_binding_only_resolve_does_not_create_or_call_partner_resolve(self):
-        """Customer MUST resolve via existing binding only; never create or resolve."""
-        vouchers = self._create_vouchers([100.0])
-        before_partners_bindings = self._partner_binding_counts()
-        with patch.object(
-            type(self.env["collection.connector"]),
-            "resolve_customer_partner",
-            side_effect=AssertionError("MUST NOT call resolve_customer_partner"),
-        ):
-            result = self._call(
-                self._payload(vouchers, [self._applied(INVOICE_OVERDUE, 100.0)])
-            )
-        allocation = self.env["collection.allocation"].browse(
-            result["allocation"]["id"]
-        )
-        self.assertEqual(allocation.partner_id, self.partner)
-        self.assertEqual(self._partner_binding_counts(), before_partners_bindings)
-
-        source_path = (
-            Path(__file__).resolve().parents[1] / "tools" / "collection_allocation.py"
-        )
-        source = source_path.read_text(encoding="utf-8")
-        self.assertNotIn("resolve_customer_partner", source)
-
-    def test_unbound_and_partner_mismatch_rejected_no_create(self):
-        """Unbound identification or voucher-partner mismatch MUST not create rows."""
+    def test_unbound_reuse_and_partner_mismatch_rejected_no_create(self):
+        """Reuse with unbound ident or partner mismatch MUST not create rows."""
         vouchers = self._create_vouchers([100.0])
         before = self._counts()
+        before_partners = self._partner_binding_counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    vouchers,
+                    self._payments_from_vouchers(vouchers),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     customer_identification="99-99999999-9",
                     request_id="req-unbound",
@@ -769,36 +1147,39 @@ class TestCollectionMcpAllocation(TransactionCase):
             ),
             before,
         )
+        self.assertEqual(self._partner_binding_counts(), before_partners)
         other = dummy_customer_partner(self.env, customer="ALLOC-MISMATCH")
         mismatched = self._create_vouchers([100.0], partner=other, prefix="ALLOC-MM")
         before_mismatch = self._counts()
+        before_mismatch_partners = self._partner_binding_counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    mismatched,
+                    self._payments_from_vouchers(mismatched),
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     request_id="req-mismatch",
                 )
             ),
             before_mismatch,
         )
+        self.assertEqual(self._partner_binding_counts(), before_mismatch_partners)
 
-    def test_empty_vouchers_and_authorization_denied(self):
-        """Empty vouchers, portal/public, and non-enabled seller MUST fail closed."""
+    def test_empty_payments_and_authorization_denied(self):
+        """Empty payments, portal/public, and non-enabled seller MUST fail closed."""
         before = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
                     [],
                     [self._applied(INVOICE_OVERDUE, 100.0)],
-                    request_id="req-empty-vouchers",
+                    request_id="req-empty-payments",
                 )
             ),
             before,
         )
-        vouchers = self._create_vouchers([100.0])
+        payment = self._payment(100.0)
         arguments = self._payload(
-            vouchers, [self._applied(INVOICE_OVERDUE, 100.0)], request_id="req-auth"
+            [payment], [self._applied(INVOICE_OVERDUE, 100.0)], request_id="req-auth"
         )
         for user in (self.portal_user, self.public_user):
             with self.subTest(login=user.login):
@@ -818,7 +1199,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    vouchers,
+                    [self._payment(100.0)],
                     [self._applied(INVOICE_OVERDUE, 100.0)],
                     seller_id=other.id,
                     request_id="req-disabled-seller",
@@ -829,18 +1210,21 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_destination_not_confirmed_refuses_amend(self):
         """Validated or rejected destination MUST refuse amend with no writes."""
-        vouchers = self._create_vouchers([100.0])
+        payment = self._payment(100.0)
         first = self._call(
-            self._payload(vouchers, [self._applied(INVOICE_OVERDUE, 100.0)])
+            self._payload([payment], [self._applied(INVOICE_OVERDUE, 100.0)])
         )
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
         allocation.action_validate()
         extra = self._create_vouchers([50.0])
+        first_voucher = self.env["collection.voucher"].search(
+            [("document_id", "=", payment["document_id"])]
+        )
         before = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    vouchers | extra,
+                    self._payments_from_vouchers(first_voucher | extra),
                     [
                         self._applied(INVOICE_OVERDUE, 100.0),
                         self._applied(INVOICE_OPEN, 50.0),
@@ -853,14 +1237,14 @@ class TestCollectionMcpAllocation(TransactionCase):
         allocation.invalidate_recordset()
         self.assertEqual(allocation.state, "validated")
         self.assertEqual(allocation.revision, 1)
-        self.assertEqual(allocation.voucher_ids, vouchers)
+        self.assertEqual(allocation.voucher_ids, first_voucher)
 
     def test_revalidation_subtracts_other_confirmed_and_validated(self):
         """Available MUST be fresh balance minus other confirmed/validated applies."""
-        first_vouchers = self._create_vouchers([40.0], prefix="ALLOC-PRIOR")
+        first_payment = self._payment(40.0)
         first = self._call(
             self._payload(
-                first_vouchers,
+                [first_payment],
                 [self._applied(INVOICE_OPEN, 40.0)],
                 request_id="req-prior",
             )
@@ -875,7 +1259,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    over,
+                    self._payments_from_vouchers(over),
                     [self._applied(INVOICE_OPEN, 20.0)],
                     request_id="req-over-available",
                 )
@@ -885,7 +1269,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         ok = self._create_vouchers([10.0], sheet=sheet_two, prefix="ALLOC-OK")
         second = self._call(
             self._payload(
-                ok,
+                self._payments_from_vouchers(ok),
                 [self._applied(INVOICE_OPEN, 10.0)],
                 request_id="req-ok-available",
             )
@@ -904,7 +1288,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    too_much,
+                    self._payments_from_vouchers(too_much),
                     [self._applied(INVOICE_OPEN, 10.0)],
                     request_id="req-validated-subtract",
                 )
@@ -914,10 +1298,10 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_rejected_allocation_does_not_reduce_available(self):
         """Triangulation: rejected applications MUST NOT reduce available balance."""
-        first_vouchers = self._create_vouchers([40.0], prefix="ALLOC-REJ-PRIOR")
+        first_payment = self._payment(40.0)
         first = self._call(
             self._payload(
-                first_vouchers,
+                [first_payment],
                 [self._applied(INVOICE_OPEN, 40.0)],
                 request_id="req-rej-prior",
             )
@@ -931,7 +1315,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         later = self._create_vouchers([50.0], sheet=sheet_two, prefix="ALLOC-REJ-OK")
         result = self._call(
             self._payload(
-                later,
+                self._payments_from_vouchers(later),
                 [self._applied(INVOICE_OPEN, 50.0)],
                 request_id="req-rej-available",
             )
@@ -943,7 +1327,6 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_invoice_missing_from_fresh_debt_rejected(self):
         """external_invoice_id absent from fresh get_customer_debt MUST error."""
-        vouchers = self._create_vouchers([100.0])
         paid = {
             "external_invoice_id": "inv-bound-paid",
             "number": "A-0003",
@@ -957,7 +1340,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    vouchers,
+                    [self._payment(100.0)],
                     [self._applied(paid, 20.0)],
                     request_id="req-stale-invoice",
                 )
@@ -967,10 +1350,10 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_ignores_caller_total_debt_stores_fresh_summary(self):
         """Caller total_debt MUST be ignored; store fresh summary.total_balance."""
-        vouchers = self._create_vouchers([100.0])
+        payment = self._payment(100.0)
         result = self._call(
             self._payload(
-                vouchers,
+                [payment],
                 [self._applied(INVOICE_OVERDUE, 100.0)],
                 total_debt=999.0,
             )
@@ -981,66 +1364,24 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(allocation.total_debt, 150.0)
         self.assertNotEqual(allocation.total_debt, 999.0)
 
-    def test_residual_reason_and_empty_invoices_on_account(self):
-        """Residual ≥ 0; reason required iff residual > 0; empty invoices allowed."""
-        leftover = self._create_vouchers([150.0], prefix="ALLOC-RES")
+    def test_disallowed_document_type_rejected(self):
+        """Disallowed document_type MUST fail via _assert_new_work with no writes."""
+        allowed = self.env["collection.document.type"].search(
+            [("code", "=", "cash_deposit")]
+        )
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.set(allowed.ids)]}
+        )
         before = self._counts()
         self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
-                    leftover,
+                    [self._payment(100.0, document_type="bank_transfer")],
                     [self._applied(INVOICE_OVERDUE, 100.0)],
-                    request_id="req-missing-reason",
+                    request_id="req-disallowed-type",
                 )
             ),
             before,
-        )
-        result = self._call(
-            self._payload(
-                leftover,
-                [self._applied(INVOICE_OVERDUE, 100.0)],
-                request_id="req-with-reason",
-                residual_reason="on_account",
-            )
-        )
-        allocation = self.env["collection.allocation"].browse(
-            result["allocation"]["id"]
-        )
-        self.assertEqual(allocation.residual, 50.0)
-        self.assertEqual(allocation.residual_reason, "on_account")
-
-        self.sheet.action_close()
-        sheet_two = self._create_sheet(force_new=True)
-        on_account = self._create_vouchers([80.0], sheet=sheet_two, prefix="ALLOC-OA")
-        empty = self._call(
-            self._payload(
-                on_account,
-                [],
-                request_id="req-empty-invoices",
-                residual_reason="on_account",
-            )
-        )
-        empty_alloc = self.env["collection.allocation"].browse(
-            empty["allocation"]["id"]
-        )
-        self.assertFalse(empty_alloc.line_ids)
-        self.assertEqual(empty_alloc.total_applied, 0.0)
-        self.assertEqual(empty_alloc.total_vouchers, 80.0)
-        self.assertEqual(empty_alloc.residual, 80.0)
-        self.assertEqual(empty_alloc.residual_reason, "on_account")
-        self.assertEqual(empty_alloc.total_debt, 150.0)
-
-        over_apply = self._create_vouchers([10.0], sheet=sheet_two, prefix="ALLOC-NEG")
-        before_neg = self._counts()
-        self._assert_user_error_no_writes(
-            lambda: self._call(
-                self._payload(
-                    over_apply,
-                    [self._applied(INVOICE_OVERDUE, 100.0)],
-                    request_id="req-negative-residual",
-                )
-            ),
-            before_neg,
         )
 
     def test_tool_source_has_no_sudo(self):
@@ -1055,6 +1396,8 @@ class TestCollectionMcpAllocation(TransactionCase):
         )
         self.assertNotIn(".sudo(", code)
         self.assertNotIn("sudo()", code)
+        self.assertNotIn('{"error"', code)
+        self.assertNotIn("{'error'", code)
 
         mixin = self.env["muk_mcp.mixin"]
         method = getattr(type(mixin), TOOL_NAME, None)

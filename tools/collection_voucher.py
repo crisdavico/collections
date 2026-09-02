@@ -12,8 +12,6 @@ from odoo import _, api, models
 from odoo.exceptions import UserError
 from odoo.tools.mimetypes import guess_mimetype
 
-from odoo.addons.muk_mcp.core.tool import mcp_tool
-
 _PAYMENT_OPTIONAL_FIELDS = (
     "amount",
     "from_account",
@@ -121,197 +119,90 @@ _PROVENANCE_NEST_SCHEMA = {
     "required": ["document_type"],
 }
 
+_PAYMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "document_id": {
+            "type": "string",
+            "description": "Unique payment document identifier.",
+        },
+        "document_type": {
+            "type": "string",
+            "enum": list(_DOCUMENT_TYPES),
+            "description": "Payment document type.",
+        },
+        "amount": {
+            "type": "number",
+            "nullable": True,
+            "description": "Payment amount.",
+        },
+        "from_account": {
+            "type": "string",
+            "nullable": True,
+            "description": "Source account.",
+        },
+        "to_account": {
+            "type": "string",
+            "nullable": True,
+            "description": "Destination account.",
+        },
+        "voucher_number": {
+            "type": "string",
+            "nullable": True,
+            "description": "Bank voucher number.",
+        },
+        "voucher_date": {
+            "type": "string",
+            "nullable": True,
+            "description": "Bank voucher date (ISO).",
+        },
+        "check_number": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check number.",
+        },
+        "check_bank": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check bank name.",
+        },
+        "check_issue_date": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check issue date (ISO).",
+        },
+        "check_payment_date": {
+            "type": "string",
+            "nullable": True,
+            "description": "Check payment date (ISO).",
+        },
+        "check_type": {
+            "type": "string",
+            "nullable": True,
+            "enum": list(_CHECK_TYPES),
+            "description": "Check type.",
+        },
+        "attachment": _ATTACHMENT_NEST_SCHEMA,
+        "raw_ocr": _PROVENANCE_NEST_SCHEMA,
+        "seller_confirmed": _PROVENANCE_NEST_SCHEMA,
+    },
+    "required": ["document_id", "document_type"],
+}
+
 
 class CollectionMcpMixin(models.AbstractModel):
-    """MuK MCP write tools for collection vouchers."""
+    """Internal collection payment helpers on muk_mcp.mixin."""
 
     _inherit = "muk_mcp.mixin"
 
     @api.model
-    @mcp_tool(
-        name="create_collection_vouchers",
-        description=(
-            "Create one payment voucher per payment. "
-            "Requires seller_id and a non-empty payments array. "
-            "Does not accept top-level customer_identification. "
-            "seller_id must be an internal user (not portal/share). "
-            "Each payment must include a non-empty customer_identification, "
-            "document_id, and document_type. "
-            "Mixed customers in one payments array are allowed. "
-            "Each payment may include an optional attachment "
-            "{name, mimetype, datas}. "
-            "Each payment may include raw_ocr and seller_confirmed nests "
-            "with typed payment fields (both required together). "
-            "Does not accept received_date; registration time is automatic."
-        ),
-        input_schema={
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "seller_id": {
-                    "type": "integer",
-                    "description": (
-                        "Internal user id of the seller. Required on every call; "
-                        "stamped only on all-new create. Ignored on exact replay."
-                    ),
-                },
-                "payments": {
-                    "type": "array",
-                    "minItems": 1,
-                    "description": "Payments to persist as standalone vouchers.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "customer_identification": {
-                                "type": "string",
-                                "description": (
-                                    "Customer identification for this payment."
-                                ),
-                            },
-                            "document_id": {
-                                "type": "string",
-                                "description": "Unique payment document identifier.",
-                            },
-                            "document_type": {
-                                "type": "string",
-                                "enum": list(_DOCUMENT_TYPES),
-                                "description": "Payment document type.",
-                            },
-                            "amount": {
-                                "type": "number",
-                                "nullable": True,
-                                "description": "Payment amount.",
-                            },
-                            "from_account": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Source account.",
-                            },
-                            "to_account": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Destination account.",
-                            },
-                            "voucher_number": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Bank voucher number.",
-                            },
-                            "voucher_date": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Bank voucher date (ISO).",
-                            },
-                            "check_number": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Check number.",
-                            },
-                            "check_bank": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Check bank name.",
-                            },
-                            "check_issue_date": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Check issue date (ISO).",
-                            },
-                            "check_payment_date": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": "Check payment date (ISO).",
-                            },
-                            "check_type": {
-                                "type": "string",
-                                "nullable": True,
-                                "enum": list(_CHECK_TYPES),
-                                "description": "Check type.",
-                            },
-                            "attachment": _ATTACHMENT_NEST_SCHEMA,
-                            "raw_ocr": _PROVENANCE_NEST_SCHEMA,
-                            "seller_confirmed": _PROVENANCE_NEST_SCHEMA,
-                        },
-                        "required": [
-                            "document_id",
-                            "document_type",
-                            "customer_identification",
-                        ],
-                    },
-                },
-            },
-            "required": ["payments", "seller_id"],
-        },
-        category="write",
-        registry="mcp",
-    )
-    def create_collection_vouchers(
-        self,
-        payments: list[dict[str, Any]],
-        seller_id: int | None = None,
-    ) -> dict[str, Any]:
-        """Validate, resolve document_id idempotency, then create or replay.
-
-        Nested attachments and provenance nests are validated and mapped only
-        on the all-new create path. Exact-retry ignores attachment nests,
-        provenance nests, per-payment customer, and seller_id (no
-        add/replace/compare; no writes to matching vouchers).
-
-        :raise UserError: when required fields are missing/invalid or conflicts.
-        :raise AccessError: when the caller lacks voucher create rights.
-        """
-        if not isinstance(payments, list) or not payments:
-            raise UserError(_("payments must be a non-empty list."))
-        seller = self._collection_require_internal_seller(seller_id)
-
-        payment_vals_list, identifications = self._collection_parse_payment_vals(
-            payments
-        )
-        document_ids = [vals["document_id"] for vals in payment_vals_list]
-        if len(document_ids) != len(set(document_ids)):
-            raise UserError(_("Duplicate document_id in the same call is not allowed."))
-
-        # Caller env only — never sudo(); ORM ACL enforces base.group_user rights.
-        existing = self._collection_vouchers_by_document_ids(document_ids)
-        classified = self._collection_classify_visible(existing, document_ids)
-        if classified is not None:
-            # Exact same-company retry: ignore nests, seller, type, and sheets.
-            return classified
-
-        try:
-            # Create-only: validate nests before writes (fail-closed).
-            sidecars = self._collection_parse_payment_attachments(payments)
-            provenances = self._collection_parse_payment_provenance(
-                payments, payment_vals_list
-            )
-        except UserError:
-            replayed = self._collection_replay_existing(document_ids)
-            if replayed is not None:
-                return replayed
-            raise
-
-        try:
-            return self._collection_create_vouchers(
-                payment_vals_list,
-                seller.id,
-                sidecars,
-                provenances,
-                identifications,
-            )
-        except UniqueViolation:
-            # Race: concurrent create won the unique(document_id) race.
-            # Savepoint already rolled back + cleared; refresh ORM caches.
-            # Attachment nests are ignored on the post-race replay path.
-            replayed = self._collection_replay_existing(document_ids)
-            if replayed is not None:
-                return replayed
-            raise self._collection_document_conflict_error() from None
-
-    @api.model
     def _collection_parse_payment_vals(
-        self, payments: list[dict[str, Any]]
+        self, payments: list[dict[str, Any]], identification: str
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        """Validate payment dicts and return voucher vals plus identifications."""
+        """Validate payment dicts and replicate top-level identification."""
+        if not isinstance(identification, str) or not identification.strip():
+            raise UserError(_("customer_identification is required."))
+        identification = identification.strip()
         payment_vals_list: list[dict[str, Any]] = []
         identifications: list[str] = []
         for index, raw in enumerate(payments):
@@ -344,19 +235,6 @@ class CollectionMcpMixin(models.AbstractModel):
                         index=index,
                     )
                 )
-            customer_identification = raw.get("customer_identification")
-            if (
-                not isinstance(customer_identification, str)
-                or not customer_identification.strip()
-            ):
-                raise UserError(
-                    _(
-                        "Each payment requires a non-empty customer_identification "
-                        "(index %(index)s).",
-                        index=index,
-                    )
-                )
-            identification = customer_identification.strip()
             identifications.append(identification)
             vals: dict[str, Any] = {
                 "document_id": document_id.strip(),

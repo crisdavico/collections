@@ -13,6 +13,7 @@ from . import test_collection_document_review
 from . import test_collection_document_review_flag
 from . import test_collection_mail
 from . import test_collection_mcp_allocation
+from . import test_collection_mcp_allocation_lookup
 from . import test_collection_mcp_customer_debt
 from . import test_collection_mcp_customer_list
 from . import test_collection_mcp_partner_resolve

@@ -94,36 +94,38 @@ Cross-company document_id reject not replay.)
 
 ### Requirement: MCP optional payment attachment on create
 
-`create_collection_vouchers` MAY accept one optional nested attachment per payment with
-required `name`, `mimetype`, and base64 `datas` when present. Declared `mimetype` MUST
-match content detection (`image/*` or PDF only); mismatch or bad base64 MUST raise
-`UserError` with no writes. Create with attachments MUST persist all vouchers and files
-atomically under a savepoint by posting each nest onto the new voucher chatter via
-`message_post` (MUST NOT write Binary `attachment`). Exact same-company retry by
-`document_id` MUST return all matching vouchers and MUST NOT add, replace, or compare
-attachments (even when a voucher has none). All-new and conflict rules MUST remain
-unchanged except as this change specifies for company, seller, and type gates.
-(Previously: Exact-retry matched any company.)
+`create_collection_allocation` MAY accept one optional nested attachment per
+payment with required `name`, `mimetype`, and base64 `datas` when present.
+Declared `mimetype` MUST match content detection (`image/*` or PDF only);
+mismatch or bad base64 MUST raise `UserError` with no writes. Create with
+attachments MUST persist all vouchers and files atomically under a savepoint
+by posting each nest onto the new voucher chatter via `message_post` (MUST
+NOT write Binary `attachment`). Exact same-company `document_id` reuse MUST
+NOT add, replace, or compare attachments (even when a voucher has none) and
+MUST continue to allocation. All-new and conflict rules MUST remain unchanged
+except as this change specifies for company, seller, and type gates.
+(Previously: Nested attachments were accepted by MCP `create_collection_vouchers`.)
 
 #### Scenario: MCP create with nested attachment
 
 - GIVEN unused `document_id`s and a payment with valid nested attachment
-- WHEN `create_collection_vouchers` runs
+- WHEN `create_collection_allocation` runs
 - THEN vouchers and the nested file MUST persist atomically under a savepoint
 - AND the file MUST appear on that voucher's chatter as designated proof
 
 #### Scenario: MCP attachment MIME mismatch rejected
 
 - GIVEN nested attachment with mismatched or non-image/non-PDF `mimetype`
-- WHEN `create_collection_vouchers` runs
+- WHEN `create_collection_allocation` runs
 - THEN MUST raise `UserError` with no writes
 
 #### Scenario: Exact-retry skips attachment writes
 
 - GIVEN every submitted `document_id` already exists in the same company
 - WHEN retried with or without nested attachments
-- THEN all matching vouchers return unchanged; attachments MUST NOT be
+- THEN matching vouchers MUST be unchanged; attachments MUST NOT be
   written/replaced/compared
+- AND the write MUST continue to allocation
 
 ### Requirement: Concurrent and stale review attempts
 
@@ -371,200 +373,6 @@ Collections → Payment Vouchers (e.g. filter `document_type=unsupported`).
   `unsupported`
 - THEN that voucher MUST be listed
 
-### Requirement: MCP tool create_collection_vouchers
-
-The system MUST expose `create_collection_vouchers` via `@mcp_tool` on `muk_mcp.mixin`
-(`category=write`, `registry=mcp`), method-discovered — MUST NOT use a DB `muk_mcp.tool`
-record. Calls MUST use the authenticated user (MUST NOT `sudo()`); voucher ACL and
-allowed-company rules MUST apply. Input MUST require non-empty `payments` and top-level
-`seller_id`. Input MUST NOT accept top-level `customer_identification` (not a method
-argument and not a schema required/property) and MUST NOT accept `received_date`. The
-MCP input schema MUST remain unchanged: each payment MUST still send a
-`customer_identification` string. `seller_id` MUST identify an existing internal user;
-missing, portal/share, or unknown ids MUST be rejected with no writes. All-new create
-MUST also require that seller enabled for the voucher company and each payment
-`document_type` allowed. Each MCP payment MUST include a non-empty trimmed
-`customer_identification`, non-empty `document_id`, and existing payment fields
-(`document_type` required). Missing or blank (including whitespace-only) per-payment
-`customer_identification` MUST raise `UserError` with no writes. The old shape
-(top-level `customer_identification` with payments that omit per-payment customer) MUST
-be rejected by schema and at runtime with no writes. Mixed customers in one `payments`
-array MUST create one voucher per payment, each stamped with that payment's resolved
-`partner_id`. The server MUST resolve identification to `partner_id` on the create path
-only, inside the create savepoint, AFTER exact-replay classification. Replay MUST NOT
-resolve, MUST NOT call the adapter, and MUST ignore a changed per-payment
-`customer_identification`; stored `partner_id` MUST remain the first-call value. One
-invalid customer in a batch MUST fail the whole batch with no voucher, partner, or
-binding leftovers. Create MUST persist one voucher per payment atomically
-(`state=pending`, company currency) and MUST stamp `seller_id` only on all-new create.
-All-new create MUST follow the same ORM sheet rules as UI voucher create (`seller_id`
-set, `sheet_id` omitted), including `auto_create_sheet`. Exact same-company replay MUST
-skip enabled-seller and allowed-type gates, MUST NOT attach, move, or clear sheets
-(including leftover unassigned), and MUST ignore per-payment `customer_identification`
-(customer stays outside provenance equality), nested attachments, provenance nests, and
-`seller_id`. The tool MUST NOT accept `sheet_id` in the payload and MUST NOT return
-`sheet_id`. Response MUST include each voucher `id`/`name`/`state` and `document_id` in
-payment order (`state` is voucher state) and MUST NOT include `partner_id`. Idempotency
-by `document_id` is per the current company: all-new in that company → create N
-vouchers; every submitted `document_id` already exists on that company → return ALL
-those vouchers unchanged; in-call duplicate or partial overlap in that company → reject
-with no writes. Submitted `document_id`s that already exist on different vouchers of
-that company MUST succeed as exact replay. A hit only in another company MUST reject,
-not replay, with no ids or names disclosed. (Previously: Each payment's Char
-`customer_identification` was stored on the voucher; resolution did not exist.)
-
-#### Scenario: All-new create
-
-- GIVEN an internal user, unused payment `document_id`s, a valid enabled internal
-  `seller_id`, allowed types, and listable per-payment customers
-- WHEN `create_collection_vouchers` runs with per-payment customers, payments, and
-  `seller_id`
-- THEN one voucher per payment MUST be created atomically with that `seller_id`
-- AND each voucher MUST be stamped with that payment's resolved `partner_id`
-- AND response MUST include each voucher `id`/`name`/`state` and `document_id` in
-  payment order
-
-#### Scenario: Mixed-customer batch create
-
-- GIVEN two payments with different non-empty `customer_identification` values and
-  unused `document_id`s
-- WHEN `create_collection_vouchers` runs in one atomic call
-- THEN one voucher per payment MUST be created
-- AND each voucher MUST keep its own payment's resolved `partner_id`
-- AND response MUST be in payment order
-
-#### Scenario: Mixed-customer batch atomic failure
-
-- GIVEN two payments for different customers where one payment is invalid
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST raise `UserError` with no vouchers written
-- AND MUST NOT leave partners or bindings from the failed batch
-
-#### Scenario: Missing or blank per-payment customer rejected
-
-- GIVEN a payment that omits `customer_identification` or supplies `""` or
-  whitespace-only
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST raise `UserError` with no writes
-
-#### Scenario: Old top-level customer shape rejected
-
-- GIVEN a payload with top-level `customer_identification` and payments that omit
-  per-payment customer
-- WHEN `create_collection_vouchers` runs
-- THEN schema and runtime MUST reject the call with no writes
-
-#### Scenario: All-new resolves after classify inside savepoint
-
-- GIVEN unused `document_id`s and a listable identification
-- WHEN `create_collection_vouchers` runs
-- THEN resolution MUST run after exact-replay classification and inside the create
-  savepoint
-- AND the input schema MUST still require per-payment `customer_identification`
-
-#### Scenario: Exact-retry returns all vouchers
-
-- GIVEN every submitted `document_id` already exists in the same company, including
-  legacy null `seller_id` or a now-disabled seller
-- WHEN the same payload is retried with any `seller_id`, a now-disallowed type, or
-  different per-payment `customer_identification` values
-- THEN all matching vouchers MUST return unchanged with no new rows
-- AND stored `partner_id` MUST stay the first-call values
-- AND nested attachments, `seller_id`, and type gates MUST be skipped
-- AND matching vouchers MUST NOT be mutated
-
-#### Scenario: Exact replay performs no customer resolution
-
-- GIVEN every submitted `document_id` already exists in the same company
-- WHEN retried with a different per-payment `customer_identification`
-- THEN the call MUST NOT resolve customers or call the adapter
-- AND stored `partner_id` MUST stay the first-call value
-
-#### Scenario: Duplicate document_id in call
-
-- GIVEN two payments in one call share a `document_id`
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST be rejected with no writes
-
-#### Scenario: Partial-conflict
-
-- GIVEN some submitted `document_id`s exist in the current company and others do not
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST be rejected with no writes
-
-#### Scenario: Existing document_ids on different vouchers succeed
-
-- GIVEN submitted `document_id`s already exist on more than one voucher of the current
-  company
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST succeed as exact replay
-- AND response MUST include all those vouchers
-
-#### Scenario: ACL denial for non-permitted user
-
-- GIVEN a caller without voucher create rights
-- WHEN `create_collection_vouchers` runs
-- THEN access MUST be denied with no writes
-
-#### Scenario: Missing or invalid seller_id rejected
-
-- GIVEN a payload missing `seller_id`, or with a portal/share or unknown user
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST be rejected with no writes
-
-#### Scenario: All-new with unique open assigns the batch
-
-- GIVEN unused `document_id`s, a valid enabled `seller_id`, `auto_create_sheet` ON, and
-  that seller has exactly one open sheet in that company
-- WHEN `create_collection_vouchers` runs
-- THEN every created voucher MUST be assigned to that sheet
-- AND response MUST include each voucher `id`/`name`/`state` and `document_id`
-- AND MUST NOT include `sheet_id`
-
-#### Scenario: All-new with no open creates one open sheet and assigns all
-
-- GIVEN unused `document_id`s, a valid enabled `seller_id`, `auto_create_sheet` ON, and
-  that seller has zero open sheets in that company
-- WHEN `create_collection_vouchers` runs
-- THEN one open sheet MUST be created
-- AND every created voucher MUST be assigned to it
-
-#### Scenario: All-new with more than one open rejected
-
-- GIVEN unused `document_id`s, a valid enabled `seller_id`, `auto_create_sheet` ON, and
-  that seller has more than one open sheet in that company
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST raise `UserError` with no vouchers written
-
-#### Scenario: Exact replay does not change sheet_id
-
-- GIVEN every submitted `document_id` already exists in the same company, including
-  leftover unassigned vouchers
-- WHEN the payload is retried
-- THEN each matching voucher’s `sheet_id` MUST be unchanged
-- AND no sheet MUST be created, attached, or mutated
-
-#### Scenario: All-new empty or disabled seller rejected
-
-- GIVEN unused `document_id`s and a seller missing from the company's enabled list
-  (including an empty list)
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST be rejected with no writes
-
-#### Scenario: All-new disallowed type rejected
-
-- GIVEN unused `document_id`s, an enabled seller, and a disabled `document_type`
-- WHEN `create_collection_vouchers` runs
-- THEN the call MUST be rejected with no writes
-
-#### Scenario: All-new with auto_create_sheet off stays unassigned
-
-- GIVEN unused `document_id`s, an enabled seller, `auto_create_sheet` OFF, omitted
-  `sheet_id`, and zero or one open sheet for that seller in that company
-- WHEN `create_collection_vouchers` runs
-- THEN vouchers MUST be created with no `sheet_id`
-- AND no sheet MUST be created or attached
-
 ### Requirement: Optional image or PDF attachment per voucher
 
 Each `collection.voucher` MAY store one optional designated proof as a chatter
@@ -798,13 +606,15 @@ reject provenance keys after create. (Previously: Exclusion named Char
 
 ### Requirement: MCP nested provenance on all-new create
 
-`create_collection_vouchers` MAY accept nested `raw_ocr` and `seller_confirmed` with the
-same typed keys as current fields. When both nests are present, seller-confirmed MUST
-equal top-level fields; current MUST initialize from seller-confirmed; raw MUST persist
-as submitted. Omitting both nests MUST leave empty provenance; UI/ORM create MUST remain
-allowed. Malformed, one-sided, or mismatched nests MUST fail the batch with no writes.
-Exact same-company replay MUST ignore those nests with no provenance mutation.
-(Previously: Exact replay matched any company.)
+`create_collection_allocation` MAY accept nested `raw_ocr` and
+`seller_confirmed` with the same typed keys as current fields. When both
+nests are present, seller-confirmed MUST equal top-level fields; current MUST
+initialize from seller-confirmed; raw MUST persist as submitted. Omitting
+both nests MUST leave empty provenance; UI/ORM create MUST remain allowed.
+Malformed, one-sided, or mismatched nests MUST fail the batch with no writes.
+Exact same-company `document_id` reuse MUST ignore those nests with no
+provenance mutation and MUST continue to allocation.
+(Previously: Nested provenance was accepted by MCP `create_collection_vouchers`.)
 
 #### Scenario: Unchanged seller confirmation
 
@@ -814,7 +624,8 @@ Exact same-company replay MUST ignore those nests with no provenance mutation.
 
 #### Scenario: Seller correction
 
-- GIVEN raw nest differs from seller-confirmed, and seller-confirmed equals top-level
+- GIVEN raw nest differs from seller-confirmed, and seller-confirmed equals
+  top-level
 - WHEN all-new create runs
 - THEN raw MUST persist unchanged
 - AND seller-confirmed and current MUST contain the correction
@@ -829,13 +640,13 @@ Exact same-company replay MUST ignore those nests with no provenance mutation.
 #### Scenario: Bad provenance fails the batch
 
 - GIVEN a payment with one-sided, malformed, or mismatched nests
-- WHEN `create_collection_vouchers` runs
+- WHEN `create_collection_allocation` runs
 - THEN the call MUST fail with no writes
 
 #### Scenario: Exact replay ignores provenance nests
 
-- GIVEN every submitted `document_id` already exists in the same company, with or
-  without stored provenance
+- GIVEN every submitted `document_id` already exists in the same company, with
+  or without stored provenance
 - WHEN retried with different or omitted nests
 - THEN matching vouchers MUST return unchanged
 - AND provenance and snapshots MUST NOT be written, backfilled, or mutated
@@ -980,10 +791,12 @@ system MUST NOT hide or delete them for that reason.
 
 ### Requirement: Cross-company document_id reject not replay
 
-`document_id` uniqueness MUST remain global among non-null values. When a new write
-collides with another company's `document_id`, the system MUST reject it (MUST NOT
-replay) and MUST NOT disclose that voucher's id or name. A user who can read both
-companies MUST NOT receive the other company's voucher as an MCP replay.
+`document_id` uniqueness MUST remain global among non-null values. When a new
+write collides with another company's `document_id`, the system MUST reject
+it (MUST NOT replay) and MUST NOT disclose that voucher's id or name. A user
+who can read both companies MUST NOT receive the other company's voucher as
+an MCP replay via `create_collection_allocation`.
+(Previously: Multi-company MCP replay named `create_collection_vouchers`.)
 
 #### Scenario: Global uniqueness still holds
 
@@ -1001,7 +814,7 @@ companies MUST NOT receive the other company's voucher as an MCP replay.
 #### Scenario: Multi-company reader must not replay the other company
 
 - GIVEN a user allowed to read companies A and B, and D exists only on B
-- WHEN they call `create_collection_vouchers` in company A with D
+- WHEN they call `create_collection_allocation` in company A with D
 - THEN the call MUST be rejected with no writes
 - AND MUST NOT return B's voucher as replay
 
@@ -1158,3 +971,30 @@ MUST return that sheet's allocation customers union member-voucher customers
   customer has no allocation on that sheet
 - WHEN group expand runs
 - THEN that voucher's customer MUST appear as a column
+
+### Requirement: Internal collection payment helpers
+
+Internal `_collection_*` helpers on `muk_mcp.mixin` MUST remain (parse payment
+vals, attachment nest, provenance nests, create vouchers, submit-order
+payload, classify/replay/conflict, require internal seller). They MUST NOT be
+registered as MCP tools. `create_collection_allocation` MUST reuse them.
+Payment items MUST omit `customer_identification`; helpers MUST take
+top-level identification and replicate it per payment. Exact same-company
+`document_id` set MUST be reusable by allocation (continue; MUST NOT
+voucher-only early-return). Partial overlap and other-company hits MUST stay
+generic conflict with no writes. Optional nested `attachment` and
+`raw_ocr`/`seller_confirmed` parse rules MUST still apply on the fused write.
+
+#### Scenario: Helpers not discovered as MCP tools
+
+- GIVEN the MCP registry for `registry=mcp`
+- WHEN tools are discovered
+- THEN `create_collection_vouchers` MUST NOT appear
+- AND `_collection_*` helpers MUST NOT have `@mcp_tool` or a `muk_mcp.tool` row
+
+#### Scenario: Allocation reuses helpers
+
+- GIVEN inline payments with top-level identification
+- WHEN `create_collection_allocation` runs
+- THEN helpers MUST parse payments, nests, and payload order
+- AND MUST NOT require per-payment `customer_identification`

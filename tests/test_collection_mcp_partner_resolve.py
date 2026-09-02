@@ -20,7 +20,7 @@ from .test_collection_payment import (
     ensure_enabled_seller,
 )
 
-TOOL_NAME = "create_collection_vouchers"
+TOOL_NAME = "create_collection_allocation"
 BINDING = "collection.connector.customer.binding"
 CUSTOMER_UNAVAILABLE = "The requested customer is not available."
 DOCUMENT_CONFLICT = "Payment document_id conflict could not be resolved."
@@ -46,20 +46,38 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         install_bound_test_connector(self, self.internal_user)
 
     def _call(self, arguments, user=None):
+        arguments = dict(arguments)
+        ident = arguments.get("customer_identification")
+        echo_args = dict(arguments)
+        if ident:
+            echoed = []
+            for payment in arguments.get("payments") or [{}]:
+                item = dict(payment) if isinstance(payment, dict) else {}
+                item.setdefault("customer_identification", ident)
+                echoed.append(item)
+            echo_args = {**arguments, "payments": echoed}
         env = mcp_env_with_listable_customers(
-            self.env, arguments, user, self.internal_user
+            self.env, echo_args, user, self.internal_user
         )
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
-    def _payload(self, customer, payments):
-        stamped = []
+    def _payload(self, customer, payments, **extra):
+        cleaned = []
         for payment in payments:
             item = dict(payment)
-            if "customer_identification" not in item:
-                item["customer_identification"] = customer
-            stamped.append(item)
-        return {"payments": stamped, "seller_id": self.internal_user.id}
+            item.pop("customer_identification", None)
+            cleaned.append(item)
+        payload = {
+            "payments": cleaned,
+            "seller_id": self.internal_user.id,
+            "customer_identification": customer,
+            "request_id": extra.pop("request_id", f"req-{self._testMethodName}"),
+            "invoices": extra.pop("invoices", []),
+            "residual_reason": extra.pop("residual_reason", "on_account"),
+        }
+        payload.update(extra)
+        return payload
 
     def _partners(self, identification):
         return self.env["res.partner"].search([("vat", "=", identification)])
@@ -110,42 +128,11 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
         self.assertEqual(voucher.partner_id.vat, IDENT_ACTIVE)
         self.assertNotIn("partner_id", result["vouchers"][0])
+        self.assertIn("allocation", result)
+        self.assertIn("sheet_id", result)
 
-    def test_mixed_customer_batch_stamps_distinct_partners(self):
-        """Mixed customers in one call MUST stamp distinct resolved partners."""
-        ident_b = "MCP-P4-MIX-B"
-        result = self._call(
-            self._payload(
-                IDENT_ACTIVE,
-                [
-                    {
-                        "customer_identification": IDENT_ACTIVE,
-                        "document_id": "MCP-P4-MIX-A",
-                        "document_type": "bank_transfer",
-                        "amount": 10.0,
-                    },
-                    {
-                        "customer_identification": ident_b,
-                        "document_id": "MCP-P4-MIX-B",
-                        "document_type": "cash_deposit",
-                        "amount": 20.0,
-                    },
-                ],
-            )
-        )
-        first = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
-        second = self.env["collection.voucher"].browse(result["vouchers"][1]["id"])
-        self.assertEqual(first.partner_id.vat, IDENT_ACTIVE)
-        self.assertEqual(second.partner_id.vat, ident_b)
-        self.assertNotEqual(first.partner_id, second.partner_id)
-        self.assertEqual(
-            [item["document_id"] for item in result["vouchers"]],
-            ["MCP-P4-MIX-A", "MCP-P4-MIX-B"],
-        )
-
-    def test_invalid_customer_batch_rolls_back_partners_and_bindings(self):
-        """One invalid customer MUST fail the batch with no leftover writes."""
-        valid = "MCP-P4-ATOMIC-OK"
+    def test_invalid_customer_rolls_back_partners_and_bindings(self):
+        """Invalid top-level identification MUST fail with no leftover writes."""
         cases = {
             "inactive": IDENT_INACTIVE,
             "other_seller": IDENT_OTHER_SELLER,
@@ -153,47 +140,31 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         before_vouchers = self.env["collection.voucher"].search_count([])
         for label, invalid in cases.items():
             with self.subTest(label=label):
-                ident_ok = f"{valid}-{label}"
-                before_partners = self._partners(ident_ok)
-                before_bindings = self._bindings(ident_ok)
+                before_partners = self._partners(invalid)
+                before_bindings = self._bindings(invalid)
                 with self.assertRaises(UserError) as err:
                     self._call(
                         self._payload(
-                            ident_ok,
+                            invalid,
                             [
                                 {
-                                    "customer_identification": ident_ok,
-                                    "document_id": f"MCP-P4-ATOMIC-OK-{label}",
+                                    "document_id": f"MCP-P4-ATOMIC-BAD-{label}",
                                     "document_type": "bank_transfer",
                                     "amount": 10.0,
                                 },
-                                {
-                                    "customer_identification": invalid,
-                                    "document_id": f"MCP-P4-ATOMIC-BAD-{label}",
-                                    "document_type": "cash_deposit",
-                                    "amount": 20.0,
-                                },
                             ],
+                            request_id=f"req-{self._testMethodName}-{label}",
                         )
                     )
                 self.assertEqual(str(err.exception), CUSTOMER_UNAVAILABLE)
                 self.assertNotIn(DOCUMENT_CONFLICT, str(err.exception))
                 self.assertFalse(
                     self.env["collection.voucher"].search(
-                        [
-                            (
-                                "document_id",
-                                "in",
-                                [
-                                    f"MCP-P4-ATOMIC-OK-{label}",
-                                    f"MCP-P4-ATOMIC-BAD-{label}",
-                                ],
-                            )
-                        ]
+                        [("document_id", "=", f"MCP-P4-ATOMIC-BAD-{label}")]
                     )
                 )
-                self.assertEqual(self._partners(ident_ok), before_partners)
-                self.assertEqual(self._bindings(ident_ok), before_bindings)
+                self.assertEqual(self._partners(invalid), before_partners)
+                self.assertEqual(self._bindings(invalid), before_bindings)
         self.assertEqual(
             self.env["collection.voucher"].search_count([]),
             before_vouchers,
