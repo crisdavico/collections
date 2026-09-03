@@ -263,9 +263,12 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertEqual(payload["seller_name"], sheet.seller_id.name)
         self.assertEqual(payload["customer_count"], 1)
         self.assertEqual(payload["voucher_count"], 1)
-        self.assertEqual(payload["customers"][0]["collected"], allocation.total_vouchers)
+        self.assertEqual(
+            payload["customers"][0]["collected"], allocation.total_vouchers
+        )
         self.assertEqual(payload["customers"][0]["applied"], allocation.total_applied)
         self.assertEqual(payload["customers"][0]["residual"], allocation.residual)
+        self.assertEqual(payload["customers"][0]["residual_reason"], "")
         self.assertEqual(
             payload["customer_totals"]["collected"], allocation.total_vouchers
         )
@@ -273,27 +276,67 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertIs(payload["sheet"], sheet)
         self.assertEqual(payload["currency"], sheet.currency_id)
 
+    def test_payload_residual_reason_is_empty_without_field_read(self):
+        """Report MUST emit residual_reason '' without reading the dropped field."""
+        allocation, _voucher, sheet, _partner = self._balanced(amount=80.0)
+        payload = sheet._collection_report_data()
+        self.assertEqual(payload["customers"][0]["residual_reason"], "")
+        self.assertNotIn("residual_reason", allocation._fields)
+        source = inspect.getsource(type(sheet)._collection_report_customers)
+        self.assertNotIn('_fields["residual_reason"]', source)
+        self.assertNotIn("_fields['residual_reason']", source)
+        self.assertNotIn("allocation.residual_reason", source)
+        self.assertIn('"residual_reason": ""', source)
+
+    def test_payload_residual_reason_empty_for_each_customer(self):
+        """Every customer row MUST carry residual_reason as empty string."""
+        sheet = self._create_sheet()
+        first_partner = dummy_customer_partner(self.env, customer="RPT-REASON-A")
+        second_partner = dummy_customer_partner(self.env, customer="RPT-REASON-B")
+        first = self._create_voucher(first_partner, sheet, amount=10.0)
+        second = self._create_voucher(second_partner, sheet, amount=20.0)
+        self._create_allocation(
+            sheet,
+            first_partner,
+            vouchers=first,
+            lines=[self._line_vals(amount_applied=10.0, invoice_balance=10.0)],
+        )
+        self._create_allocation(
+            sheet,
+            second_partner,
+            vouchers=second,
+            lines=[self._line_vals(amount_applied=5.0, invoice_balance=20.0)],
+        )
+        payload = sheet._collection_report_data()
+        self.assertEqual(len(payload["customers"]), 2)
+        reasons = [row["residual_reason"] for row in payload["customers"]]
+        self.assertEqual(reasons, ["", ""])
+
     def test_open_sheet_prints_drafts(self):
         """Open-sheet payload MUST include draft allocations and mixed vouchers."""
         sheet = self._create_sheet()
-        pending_partner = dummy_customer_partner(self.env, customer="RPT-PENDING")
-        approved_partner = dummy_customer_partner(self.env, customer="RPT-APPROVED")
-        rejected_partner = dummy_customer_partner(self.env, customer="RPT-REJECTED")
-        pending = self._create_voucher(pending_partner, sheet, amount=10.0)
-        approved = self._create_voucher(approved_partner, sheet, amount=20.0)
-        rejected = self._create_voucher(rejected_partner, sheet, amount=30.0)
-        approved.action_approve()
-        rejected.action_reject()
+        draft_partner = dummy_customer_partner(self.env, customer="RPT-DRAFT")
+        seller_partner = dummy_customer_partner(self.env, customer="RPT-SELLER")
+        collections_partner = dummy_customer_partner(
+            self.env, customer="RPT-COLLECTIONS"
+        )
+        draft = self._create_voucher(draft_partner, sheet, amount=10.0)
+        seller = self._create_voucher(seller_partner, sheet, amount=20.0)
+        collections = self._create_voucher(collections_partner, sheet, amount=30.0)
+        seller.action_validate_seller()
+        collections.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
         first = self._create_allocation(
             sheet,
-            pending_partner,
-            vouchers=pending,
+            draft_partner,
+            vouchers=draft,
             lines=[self._line_vals(amount_applied=10.0, invoice_balance=10.0)],
         )
         second = self._create_allocation(
             sheet,
-            approved_partner,
-            vouchers=approved,
+            seller_partner,
+            vouchers=seller,
             lines=[self._line_vals(amount_applied=20.0, invoice_balance=20.0)],
         )
         self.assertEqual(first.state, "draft")
@@ -303,7 +346,7 @@ class TestCollectionSheetReportData(TransactionCase):
         customer_names = {row["name"] for row in payload["customers"]}
         self.assertEqual(
             customer_names,
-            {pending_partner.name, approved_partner.name},
+            {draft_partner.name, seller_partner.name},
         )
         voucher_amounts = sorted(
             row["amount"]
@@ -311,11 +354,21 @@ class TestCollectionSheetReportData(TransactionCase):
             for row in block["rows"]
         )
         self.assertEqual(voucher_amounts, [10.0, 20.0, 30.0])
+        voucher_states = {
+            row["state"] for block in payload["voucher_blocks"] for row in block["rows"]
+        }
+        self.assertEqual(
+            voucher_states,
+            {"draft", "validated_seller", "validated_collections"},
+        )
+        self.assertNotIn("pending", voucher_states)
+        self.assertNotIn("approved", voucher_states)
+        self.assertNotIn("rejected", voucher_states)
         self.assertEqual(payload["voucher_count"], 3)
         self.assertEqual(payload["collected_total"], 60.0)
-        self.assertEqual(rejected.state, "rejected")
-        self.assertEqual(approved.state, "approved")
-        self.assertEqual(pending.state, "pending")
+        self.assertEqual(collections.state, "validated_collections")
+        self.assertEqual(seller.state, "validated_seller")
+        self.assertEqual(draft.state, "draft")
 
     def test_binding_code_vs_blank_last(self):
         """Bound customer code MUST print; unbound blank code MUST sort last."""
@@ -397,9 +450,7 @@ class TestCollectionSheetReportData(TransactionCase):
         """Voucher blocks MUST be check then unsupported; empty types dropped."""
         sheet = self._create_sheet()
         partner = dummy_customer_partner(self.env, customer="RPT-VOUCHERS")
-        check = self._create_voucher(
-            partner, sheet, amount=15.0, document_type="check"
-        )
+        check = self._create_voucher(partner, sheet, amount=15.0, document_type="check")
         other = self._create_voucher(
             partner, sheet, amount=25.0, document_type="unsupported"
         )
@@ -427,13 +478,20 @@ class TestCollectionSheetReportData(TransactionCase):
         """tendered.cash MUST equal cash_on_hand and be included in tendered.total."""
         sheet = self._create_sheet()
         sheet.write({"cash_on_hand": 17.5})
-        self._balanced(amount=100.0, sheet=sheet, voucher_extra={"document_type": "check"})
+        self._balanced(
+            amount=100.0, sheet=sheet, voucher_extra={"document_type": "check"}
+        )
         payload = sheet._collection_report_data()
         tendered = payload["tendered"]
         self.assertEqual(tendered["cash"], 17.5)
         self.assertEqual(tendered["checks"], 100.0)
-        self.assertEqual(tendered["total"], tendered["cash"] + tendered["deposits"]
-            + tendered["checks"] + tendered["transfers"])
+        self.assertEqual(
+            tendered["total"],
+            tendered["cash"]
+            + tendered["deposits"]
+            + tendered["checks"]
+            + tendered["transfers"],
+        )
         self.assertGreater(tendered["total"], tendered["cash"])
         self.assertIn(17.5, (tendered["cash"], tendered["total"]))
 
@@ -498,9 +556,7 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertFalse(stray.allocation_id)
         payload = sheet._collection_report_data()
         self.assertTrue(payload["mismatch"])
-        self.assertEqual(
-            payload["collected_total"], allocated.amount + stray.amount
-        )
+        self.assertEqual(payload["collected_total"], allocated.amount + stray.amount)
         self.assertEqual(
             payload["customer_totals"]["collected"], allocation.total_vouchers
         )

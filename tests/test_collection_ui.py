@@ -1,6 +1,9 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import ast
+import json
+
 from lxml import etree
 
 from odoo.tests import TransactionCase
@@ -32,6 +35,15 @@ NOTEBOOK_SELLER = "Seller Confirmed"
 NOTEBOOK_HISTORY = "History"
 SHEET_NOTEBOOK_VOUCHERS = "Vouchers"
 SHEET_NOTEBOOK_ALLOCATIONS = "Allocations"
+ALLOCATION_NOTEBOOK_CUSTOMER_DEBT = "Customer Debt"
+ALLOCATION_TOTAL_FIELDS = (
+    "total_vouchers",
+    "total_applied",
+    "total_debt",
+    "total_invoices",
+    "total_quotations",
+    "residual",
+)
 PROVENANCE_LAYERS = (
     (NOTEBOOK_RAW, "ocr_", "ocr_document_type"),
     (NOTEBOOK_SELLER, "seller_", "seller_document_type"),
@@ -58,8 +70,29 @@ class TestCollectionUi(TransactionCase):
     VIEW_XMLIDS = (
         "collection.view_collection_voucher_list",
         "collection.view_collection_voucher_search",
-        "collection.view_collection_voucher_kanban",
         "collection.view_collection_voucher_form",
+    )
+    VISIBLE_LIST_FIELDS = (
+        "name",
+        "create_date",
+        "sheet_id",
+        "seller_id",
+        "document_type",
+        "amount",
+        "state",
+    )
+    OPTIONAL_HIDE_LIST_FIELDS = (
+        "partner_id",
+        "company_id",
+        "document_id",
+        "reviewed_by",
+        "reviewed_at",
+    )
+    DOCUMENT_TYPE_FILTERS = (
+        "bank_transfer",
+        "check",
+        "cash_deposit",
+        "unsupported",
     )
     ATTACHMENT_ACCEPT = "image/*,.pdf"
 
@@ -72,6 +105,19 @@ class TestCollectionUi(TransactionCase):
 
     def _field_nodes(self, root, field_name):
         return root.xpath(f'//field[@name="{field_name}"]')
+
+    def _list_visible_field_names(self, root):
+        """Direct list columns that are neither hidden nor optional-hide."""
+        names = []
+        for node in root.xpath("./field"):
+            if (node.get("column_invisible") or "").lower() in ("1", "true"):
+                continue
+            if node.get("optional") == "hide":
+                continue
+            if (node.get("invisible") or "").lower() in ("1", "true"):
+                continue
+            names.append(node.get("name"))
+        return names
 
     def _reassign_sheet_expand_fixture(self):
         """Open sheet with an empty allocation column and a stray voucher customer."""
@@ -234,6 +280,15 @@ class TestCollectionUi(TransactionCase):
             f"{field_name} must be readonly (got {node.get('readonly')!r})",
         )
 
+    def _parse_view_options(self, raw):
+        text = (raw or "").strip()
+        if not text:
+            return {}
+        try:
+            return ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            return json.loads(text.replace("'", '"'))
+
     def test_menu_and_action_xmlids(self):
         """Collections → Payment Vouchers menu must wire the voucher act_window."""
         root_menu = self.env.ref("collection.menu_collection_root")
@@ -246,9 +301,18 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(voucher_menu.parent_id, root_menu)
         self.assertEqual(voucher_menu.action, action)
         self.assertEqual(action.res_model, "collection.voucher")
-        self.assertIn("kanban", action.view_mode)
-        self.assertIn("list", action.view_mode)
-        self.assertIn("form", action.view_mode)
+        self.assertEqual(action.view_mode, "list,form")
+        self.assertNotIn("kanban", action.view_mode)
+        self.assertEqual(voucher_menu.sequence, 10)
+        self.assertEqual(
+            self.env.ref("collection.menu_collection_config").sequence,
+            100,
+        )
+        self.assertLess(
+            voucher_menu.sequence,
+            self.env.ref("collection.menu_collection_config").sequence,
+            "Payment Vouchers must appear before Configuration",
+        )
         self.assertEqual(
             action.search_view_id,
             self.env.ref("collection.view_collection_voucher_search"),
@@ -308,16 +372,21 @@ class TestCollectionUi(TransactionCase):
                 f"search view must show field {field_name}",
             )
         self._assert_create_date_readonly(list_root, "list")
+        self.assertEqual(
+            self._list_visible_field_names(list_root),
+            list(self.VISIBLE_LIST_FIELDS),
+            "Payment Vouchers list visible columns must match spec order",
+        )
         group_create = search_root.xpath('//filter[contains(@context, "create_date")]')
         self.assertTrue(
             group_create,
             "search view must offer group_by create_date",
         )
 
-    def test_search_filters_pending_approved_rejected(self):
-        """Payment Vouchers search MUST filter pending, approved, and rejected."""
+    def test_search_filters_draft_validated_seller_collections(self):
+        """Payment Vouchers search MUST filter each voucher state."""
         search_root = self._arch_root("collection.view_collection_voucher_search")
-        for value in ("pending", "approved", "rejected"):
+        for value in ("draft", "validated_seller", "validated_collections"):
             filters = search_root.xpath(f'//filter[contains(@domain, "{value}")]')
             matching = [
                 node for node in filters if "state" in (node.get("domain") or "")
@@ -327,31 +396,86 @@ class TestCollectionUi(TransactionCase):
                 f"Payment Vouchers search must filter state={value}",
             )
 
-    def test_kanban_groups_by_state_and_shows_card_fields(self):
-        """Kanban must group by state and show reference, ID, and create_date."""
-        kanban_root = self._arch_root("collection.view_collection_voucher_kanban")
-        self.assertEqual(kanban_root.tag, "kanban")
-        self.assertEqual(kanban_root.get("default_group_by"), "state")
+    def test_list_hides_optional_and_currency_columns(self):
+        """partner_id/company_id/document_id optional-hide; currency_id invisible."""
+        list_root = self._arch_root("collection.view_collection_voucher_list")
+        for field_name in self.OPTIONAL_HIDE_LIST_FIELDS:
+            nodes = self._field_nodes(list_root, field_name)
+            self.assertEqual(
+                len(nodes),
+                1,
+                f"list must declare {field_name} once as optional hide",
+            )
+            self.assertEqual(
+                nodes[0].get("optional"),
+                "hide",
+                f"list {field_name} must be optional=hide",
+            )
+        currency = self._field_nodes(list_root, "currency_id")
+        self.assertEqual(len(currency), 1, "list must declare currency_id once")
         self.assertEqual(
-            kanban_root.get("records_draggable"),
+            (currency[0].get("column_invisible") or "").lower(),
             "1",
-            "kanban cards must be draggable between columns",
+            "list currency_id must be column-invisible",
         )
 
-        card = kanban_root.xpath('//templates/t[@t-name="card"]')
-        self.assertTrue(card, "kanban must define a card template")
-        self.assertFalse(
-            kanban_root.xpath('//templates/t[@t-name="kanban-box"]'),
-            "kanban must not use deprecated t-name=kanban-box",
-        )
-        card_fields = self._field_names(card[0])
-        for field_name in ("name", "partner_id", "create_date"):
-            self.assertIn(
-                field_name,
-                card_fields,
-                f"kanban card must show field {field_name}",
+    def test_search_filters_each_document_type(self):
+        """Payment Vouchers search MUST filter each document_type."""
+        search_root = self._arch_root("collection.view_collection_voucher_search")
+        for value in self.DOCUMENT_TYPE_FILTERS:
+            filters = search_root.xpath(f'//filter[contains(@domain, "{value}")]')
+            matching = [
+                node
+                for node in filters
+                if "document_type" in (node.get("domain") or "")
+            ]
+            self.assertTrue(
+                matching,
+                f"Payment Vouchers search must filter document_type={value}",
             )
-            self._assert_create_date_readonly(kanban_root, "kanban")
+
+    def test_search_created_on_is_date_filter(self):
+        """Created On MUST be a date filter on create_date, not only group_by."""
+        search_root = self._arch_root("collection.view_collection_voucher_search")
+        date_filters = search_root.xpath('//filter[@date="create_date"]')
+        self.assertTrue(
+            date_filters,
+            "Payment Vouchers search must include date=create_date filter",
+        )
+        self.assertEqual(
+            date_filters[0].get("date"),
+            "create_date",
+        )
+
+    def test_stages_kanban_deleted_action_is_list_form(self):
+        """Stages kanban MUST be deleted; Payment Vouchers view_mode is list,form."""
+        self.assertFalse(
+            self.env.ref(
+                "collection.view_collection_voucher_kanban",
+                raise_if_not_found=False,
+            ),
+            "stages kanban xmlid must be deleted",
+        )
+        leftover = self.env["ir.ui.view"].search(
+            [
+                ("name", "=", "collection.voucher.kanban"),
+                ("model", "=", "collection.voucher"),
+            ]
+        )
+        self.assertFalse(
+            leftover,
+            "leftover stages kanban ir.ui.view must be deleted",
+        )
+        action = self.env.ref("collection.action_collection_voucher")
+        self.assertEqual(action.view_mode, "list,form")
+        self.assertNotIn("kanban", action.view_mode)
+        self.assertTrue(
+            self.env.ref(
+                "collection.view_collection_voucher_reassign_kanban",
+                raise_if_not_found=False,
+            ),
+            "Reassign Customers kanban MUST remain",
+        )
 
     def test_reassign_kanban_groups_by_customer_and_disables_create(self):
         """Reassign kanban MUST group by Customer and disable create/group."""
@@ -383,31 +507,19 @@ class TestCollectionUi(TransactionCase):
                 ("1", "true"),
                 "reassign kanban partner_id must not be readonly",
             )
-
-        state_root = self._arch_root("collection.view_collection_voucher_kanban")
-        self.assertEqual(state_root.get("default_group_by"), "state")
-        self.assertNotEqual(
-            (state_root.get("create") or "").lower(),
-            "0",
-            "state kanban must keep create enabled",
-        )
-        self.assertNotEqual(
-            (state_root.get("create") or "").lower(),
-            "false",
-            "state kanban must keep create enabled",
-        )
-        self.assertNotEqual(
-            self.env.ref("collection.view_collection_voucher_kanban").id,
-            self.env.ref("collection.view_collection_voucher_reassign_kanban").id,
-            "reassign kanban MUST be a distinct view from the state kanban",
+        self.assertFalse(
+            self.env.ref(
+                "collection.view_collection_voucher_kanban",
+                raise_if_not_found=False,
+            ),
+            "stages kanban must stay deleted while reassign kanban remains",
         )
 
     def test_customer_field_is_partner_id_without_domain(self):
-        """List, search, kanban, form, and sheet member list use unbound partner_id."""
+        """List, search, form, and Reassign kanban use unbound partner_id."""
         expected_counts = {
             "collection.view_collection_voucher_list": 1,
             "collection.view_collection_voucher_search": 1,
-            "collection.view_collection_voucher_kanban": 2,
             "collection.view_collection_voucher_reassign_kanban": 2,
             "collection.view_collection_voucher_form": 1,
             "collection.view_collection_sheet_form": 1,
@@ -449,21 +561,12 @@ class TestCollectionUi(TransactionCase):
                 f"{xmlid} must not declare received_date fields",
             )
 
-    def test_state_group_expand_shows_all_columns(self):
-        """Kanban grouping must return Pending/Approved/Rejected even when empty."""
+    def test_state_group_expand_dropped(self):
+        """Stages kanban group_expand on state MUST be off."""
         Voucher = self.env["collection.voucher"]
-        self.assertTrue(
+        self.assertFalse(
             Voucher._fields["state"].group_expand,
-            "state must enable group_expand so empty columns stay visible",
-        )
-        groups = Voucher.with_context(read_group_expand=True).formatted_read_group(
-            domain=[],
-            groupby=["state"],
-            aggregates=["__count"],
-        )
-        self.assertEqual(
-            [group["state"] for group in groups],
-            ["pending", "approved", "rejected"],
+            "state must not group_expand after dropping stages kanban",
         )
 
     def test_partner_group_expand_identity_without_readable_sheet(self):
@@ -547,8 +650,8 @@ class TestCollectionUi(TransactionCase):
         }
         self.assertEqual(by_id[stray_partner.id]["__count"], 1)
 
-    def test_form_statusbar_approve_reject_when_pending(self):
-        """Form must show statusbar and Approve/Reject only when pending."""
+    def test_form_statusbar_validate_seller_when_draft(self):
+        """Form must show statusbar and Validate by Seller only when draft."""
         voucher = self.env["collection.voucher"].create(
             {
                 "partner_id": dummy_customer_partner(
@@ -558,7 +661,7 @@ class TestCollectionUi(TransactionCase):
                 "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
 
         form_root = self._arch_root("collection.view_collection_voucher_form")
         self.assertEqual(form_root.tag, "form")
@@ -567,24 +670,26 @@ class TestCollectionUi(TransactionCase):
             '//header/field[@name="state" and @widget="statusbar"]'
         )
         self.assertTrue(statusbar, "form must include state statusbar in header")
+        options = statusbar[0].get("options") or ""
+        self.assertIn("clickable", options)
+        self.assertIn("False", options)
 
-        approve = form_root.xpath(
-            '//header/button[@name="action_approve" and @type="object"]'
+        validate = form_root.xpath(
+            '//header/button[@name="action_validate_seller" and @type="object"]'
         )
-        reject = form_root.xpath(
-            '//header/button[@name="action_reject" and @type="object"]'
-        )
-        self.assertTrue(approve, "form must include Approve button")
-        self.assertTrue(reject, "form must include Reject button")
+        self.assertTrue(validate, "form must include Validate by Seller button")
         self.assertIn(
-            "state != 'pending'",
-            approve[0].get("invisible", ""),
-            "Approve must be invisible when not pending",
+            "state != 'draft'",
+            validate[0].get("invisible", ""),
+            "Validate by Seller must be invisible when not draft",
         )
-        self.assertIn(
-            "state != 'pending'",
-            reject[0].get("invisible", ""),
-            "Reject must be invisible when not pending",
+        self.assertFalse(
+            form_root.xpath('//header/button[@name="action_approve"]'),
+            "form must not keep action_approve",
+        )
+        self.assertFalse(
+            form_root.xpath('//header/button[@name="action_reject"]'),
+            "form must not keep action_reject",
         )
         self.assertFalse(
             form_root.xpath('//header/button[@name="action_validate"]'),
@@ -602,28 +707,20 @@ class TestCollectionUi(TransactionCase):
         )
 
     def test_form_has_no_typed_payment_ids_tables(self):
-        """Standalone form MUST NOT embed payment_ids; history <list> is allowed."""
+        """Standalone form MUST NOT embed payment_ids or History snapshot lists."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
         self.assertFalse(
             form_root.xpath('//field[@name="payment_ids"]'),
             "form must not declare payment_ids",
         )
-        history_lists = form_root.xpath('//field[@name="review_snapshot_ids"]//list')
-        self.assertTrue(
-            history_lists,
-            "form must embed a review history One2many <list>",
+        self.assertFalse(
+            form_root.xpath('//field[@name="review_snapshot_ids"]'),
+            "form must not declare review_snapshot_ids after dropping History",
         )
-        self.assertEqual(history_lists[0].tag, "list")
-        self.assertNotEqual(history_lists[0].tag, "tree")
-        for list_node in form_root.xpath(".//list"):
-            ancestor_names = [
-                node.get("name") for node in list_node.xpath("ancestor::field[@name]")
-            ]
-            self.assertIn(
-                "review_snapshot_ids",
-                ancestor_names,
-                "form <list> must be the history One2many, not payment_ids",
-            )
+        self.assertFalse(
+            form_root.xpath(".//list"),
+            "form must not embed leftover history/payment <list>",
+        )
 
     def test_form_typed_invisible_payment_fields(self):
         """Form MUST show type-specific payment fields via invisible=."""
@@ -652,17 +749,22 @@ class TestCollectionUi(TransactionCase):
         self.assertFalse(bank_only & check_only)
 
     def test_form_notebook_current_raw_seller_pages(self):
-        """Form MUST notebook Current, Raw OCR, Seller Confirmed, and History."""
+        """Form MUST notebook Current, Raw OCR, and Seller Confirmed (no History)."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
         notebook = form_root.xpath("//notebook")
         self.assertTrue(notebook, "form must wrap payment layers in a notebook")
         page_strings = [page.get("string") for page in notebook[0].xpath("./page")]
-        for expected in (
-            NOTEBOOK_CURRENT,
-            NOTEBOOK_RAW,
-            NOTEBOOK_SELLER,
+        self.assertEqual(
+            page_strings,
+            [NOTEBOOK_CURRENT, NOTEBOOK_RAW, NOTEBOOK_SELLER],
+            "form notebook must keep Current / Raw OCR / Seller Confirmed only",
+        )
+        self.assertNotIn(
             NOTEBOOK_HISTORY,
-        ):
+            page_strings,
+            "form notebook must not include a History page",
+        )
+        for expected in (NOTEBOOK_CURRENT, NOTEBOOK_RAW, NOTEBOOK_SELLER):
             self.assertIn(
                 expected,
                 page_strings,
@@ -809,48 +911,28 @@ class TestCollectionUi(TransactionCase):
                     nodes[0], "bank_transfer", layered
                 )
 
-    def test_form_review_history_list_readonly_by_revision(self):
-        """History page MUST list snapshots readonly, ordered by revision."""
+    def test_form_has_no_history_page(self):
+        """History page and review_snapshot_ids MUST be gone from the form."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
-        history = self._notebook_page(form_root, NOTEBOOK_HISTORY)
-        fields = history.xpath('.//field[@name="review_snapshot_ids"]')
+        self.assertFalse(
+            form_root.xpath(f'//notebook/page[@string="{NOTEBOOK_HISTORY}"]'),
+            "form must not include a History notebook page",
+        )
+        self.assertFalse(
+            form_root.xpath('//field[@name="review_snapshot_ids"]'),
+            "form must not declare review_snapshot_ids",
+        )
+        chatter = form_root.xpath("//chatter")
         self.assertTrue(
-            fields,
-            "History page must declare review_snapshot_ids",
+            chatter,
+            "form must keep chatter after dropping History",
         )
-        node = fields[0]
-        self._assert_readonly_field(node, "review_snapshot_ids")
-        lists = node.xpath("./list")
-        self.assertTrue(lists, "review_snapshot_ids must embed a <list>")
-        history_list = lists[0]
-        self.assertEqual(history_list.tag, "list")
-        self.assertNotEqual(history_list.tag, "tree")
-        default_order = history_list.get("default_order") or ""
-        self.assertIn(
-            "revision",
-            default_order,
-            f"history list default_order must include revision (got {default_order!r})",
-        )
-        list_fields = self._field_names(history_list)
-        self.assertIn("revision", list_fields)
-        for attr in ("create", "delete", "edit"):
-            self.assertEqual(
-                (history_list.get(attr) or "").lower(),
-                "false",
-                f"history list must set {attr}=false",
-            )
-        arch = etree.tostring(history, encoding="unicode")
-        self.assertNotIn("payment_ids", arch)
-        self.assertNotIn("attachment", arch)
-        self.assertNotIn("datas", arch)
-        self.assertNotIn("base64", arch)
 
     def test_payment_vouchers_views_omit_binary_widgets(self):
-        """Form, list, and kanban MUST omit Binary widgets; form chatter remains."""
+        """Form and list MUST omit Binary widgets; form chatter remains."""
         for xmlid, label in (
             ("collection.view_collection_voucher_form", "form"),
             ("collection.view_collection_voucher_list", "list"),
-            ("collection.view_collection_voucher_kanban", "kanban"),
         ):
             root = self._arch_root(xmlid)
             self._assert_no_attachment_binary_widgets(root, label)
@@ -865,7 +947,7 @@ class TestCollectionUi(TransactionCase):
         self._assert_form_chatter_open_attachments(form_root)
 
     def test_create_and_edit_enabled_on_payment_vouchers(self):
-        """Payment Vouchers kanban/list/form and action MUST allow create and edit."""
+        """Payment Vouchers list/form and action MUST allow create and edit."""
         action = self.env.ref("collection.action_collection_voucher")
         context = action.context or {}
         if isinstance(context, str):
@@ -878,7 +960,6 @@ class TestCollectionUi(TransactionCase):
 
         for xmlid, label in (
             ("collection.view_collection_voucher_list", "list"),
-            ("collection.view_collection_voucher_kanban", "kanban"),
             ("collection.view_collection_voucher_form", "form"),
         ):
             self._assert_create_edit_enabled(self._arch_root(xmlid), label)
@@ -986,14 +1067,19 @@ class TestCollectionUi(TransactionCase):
             self.assertIn("seller_id", names, f"{label} view must expose seller_id")
 
     def test_voucher_list_form_search_expose_sheet_id(self):
-        """List optional-hide, form editable after seller_id, search field+groupby."""
+        """List visible sheet_id, form editable after seller_id, search+groupby."""
         list_root = self._arch_root("collection.view_collection_voucher_list")
         list_nodes = self._field_nodes(list_root, "sheet_id")
         self.assertEqual(len(list_nodes), 1, "voucher list must declare sheet_id once")
-        self.assertEqual(
+        self.assertNotEqual(
             list_nodes[0].get("optional"),
             "hide",
-            "voucher list sheet_id must be optional=hide",
+            "voucher list sheet_id must be visible, not optional=hide",
+        )
+        self.assertEqual(
+            self._list_visible_field_names(list_root)[2],
+            "sheet_id",
+            "visible list column 3 must be sheet_id",
         )
 
         form_root = self._arch_root("collection.view_collection_voucher_form")
@@ -1030,10 +1116,15 @@ class TestCollectionUi(TransactionCase):
         ]
         self.assertTrue(group_sheet, "search view must offer group_by sheet_id")
 
-        kanban_root = self._arch_root("collection.view_collection_voucher_kanban")
-        self.assertFalse(
-            self._field_nodes(kanban_root, "sheet_id"),
-            "kanban must not add sheet_id",
+        kanban_root = self._arch_root(
+            "collection.view_collection_voucher_reassign_kanban"
+        )
+        card = kanban_root.xpath('//templates/t[@t-name="card"]')
+        self.assertTrue(card, "reassign kanban must define a card template")
+        self.assertNotIn(
+            "sheet_id",
+            self._field_names(card[0]),
+            "Reassign kanban MUST NOT show sheet_id as a card field",
         )
 
     def test_collection_sheets_menu_list_form_search(self):
@@ -1182,7 +1273,7 @@ class TestCollectionUi(TransactionCase):
             )
 
     def test_collection_allocations_form_statusbar_no_validate_reject(self):
-        """Allocation form: <list> not <tree>; freeze when confirmed; no Validate/Reject."""
+        """Allocation form: list not tree; freeze when confirmed; no Validate/Reject."""
         form_root = self._arch_root("collection.view_collection_allocation_form")
         self.assertEqual(form_root.tag, "form")
         self._assert_create_edit_enabled(form_root, "allocation form")
@@ -1244,6 +1335,97 @@ class TestCollectionUi(TransactionCase):
         self.assertIn("filter_confirmed", filter_names)
         self.assertNotIn("filter_validated", filter_names)
         self.assertNotIn("filter_rejected", filter_names)
+
+    def test_allocation_form_vouchers_existing_only_many2many(self):
+        """Vouchers tab MUST be existing-only many2many with document_type."""
+        form_root = self._arch_root("collection.view_collection_allocation_form")
+        voucher_fields = form_root.xpath('//notebook//field[@name="voucher_ids"]')
+        self.assertEqual(
+            len(voucher_fields),
+            1,
+            "allocation form must expose voucher_ids once in the notebook",
+        )
+        voucher_field = voucher_fields[0]
+        self.assertEqual(voucher_field.get("widget"), "many2many")
+        options = self._parse_view_options(voucher_field.get("options"))
+        self.assertTrue(options.get("no_create"), "voucher_ids must set no_create")
+        self.assertTrue(
+            options.get("no_create_edit"),
+            "voucher_ids must set no_create_edit",
+        )
+        domain = voucher_field.get("domain") or ""
+        self.assertIn("partner_id", domain)
+        self.assertIn("sheet_id", domain)
+        self.assertIn("allocation_id", domain)
+        self.assertIn("False", domain)
+        lists = voucher_field.xpath("./list")
+        self.assertTrue(lists, "voucher_ids must embed a <list>")
+        list_names = self._field_names(lists[0], xpath="./field")
+        self.assertIn("document_type", list_names)
+        self.assertIn("name", list_names)
+        self.assertIn("amount", list_names)
+
+    def test_allocation_form_customer_debt_helpers_no_residual_reason(self):
+        """Notebook MUST be Customer Debt; six totals have help; no Residual Reason."""
+        form_root = self._arch_root("collection.view_collection_allocation_form")
+        notebooks = form_root.xpath("//notebook")
+        self.assertTrue(notebooks, "allocation form must include a notebook")
+        page_strings = [page.get("string") for page in notebooks[0].xpath("./page")]
+        self.assertIn(ALLOCATION_NOTEBOOK_CUSTOMER_DEBT, page_strings)
+        self.assertNotIn(
+            "Invoices",
+            page_strings,
+            "allocation form must rename Invoices to Customer Debt",
+        )
+        self._notebook_page(form_root, ALLOCATION_NOTEBOOK_CUSTOMER_DEBT)
+        arch_text = etree.tostring(form_root, encoding="unicode")
+        self.assertNotIn("residual_reason", arch_text)
+        self.assertNotIn("Residual Reason", arch_text)
+        names = self._field_names(form_root)
+        self.assertNotIn("residual_reason", names)
+        for field_name in ALLOCATION_TOTAL_FIELDS:
+            nodes = [
+                node
+                for node in self._field_nodes(form_root, field_name)
+                if node.getparent() is not None
+                and "notebook" not in node.getparent().tag
+            ]
+            if not nodes:
+                nodes = self._field_nodes(form_root, field_name)
+            self.assertTrue(nodes, f"allocation form must show {field_name}")
+            self.assertTrue(
+                (nodes[0].get("help") or "").strip(),
+                f"{field_name} must have a help tooltip",
+            )
+
+    def test_allocation_form_stat_button_opens_vouchers(self):
+        """Allocation form MUST copy the sheet Vouchers smart-button box."""
+        form_root = self._arch_root("collection.view_collection_allocation_form")
+        sheet_nodes = form_root.xpath("./sheet")
+        self.assertTrue(sheet_nodes, "allocation form must include a <sheet>")
+        first_child = sheet_nodes[0][0]
+        self.assertEqual(
+            first_child.tag,
+            "div",
+            "first child inside <sheet> must be the smart-button box",
+        )
+        self.assertEqual(first_child.get("class"), "oe_button_box")
+        self.assertEqual(first_child.get("name"), "button_box")
+        buttons = first_child.xpath(
+            './button[@name="action_open_vouchers" and @type="object"]'
+        )
+        self.assertEqual(
+            len(buttons),
+            1,
+            "button box must expose action_open_vouchers once",
+        )
+        button = buttons[0]
+        self.assertIn("oe_stat_button", (button.get("class") or "").split())
+        self.assertEqual(button.get("invisible"), "not id")
+        count_fields = button.xpath('.//field[@name="voucher_count"]')
+        self.assertTrue(count_fields, "stat button must show voucher_count")
+        self.assertEqual(count_fields[0].get("widget"), "statinfo")
+        self.assertEqual(count_fields[0].get("string"), "Vouchers")
 
     def test_sheet_form_notebook_allocations_only(self):
         """Sheet form MUST show Allocations only; Customer after name before state."""

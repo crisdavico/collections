@@ -43,16 +43,13 @@ class CollectionAllocationLine(models.Model):
     invoice_state = fields.Char()
     amount_applied = fields.Monetary(
         required=True,
+        default=0.0,
         currency_field="currency_id",
     )
 
     _amount_applied_positive = models.Constraint(
-        "CHECK(amount_applied > 0)",
-        "Applied amount must be greater than zero.",
-    )
-    _amount_applied_lte_balance = models.Constraint(
-        "CHECK(amount_applied <= invoice_balance)",
-        "Applied amount cannot exceed the invoice balance.",
+        "CHECK(amount_applied >= 0)",
+        "Applied amount cannot be negative.",
     )
     _allocation_invoice_uniq = models.Constraint(
         "UNIQUE(allocation_id, external_invoice_id)",

@@ -5,6 +5,7 @@ from odoo.tests import TransactionCase
 
 from .test_collection_payment import (
     PNG_B64,
+    create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
     post_voucher_proof,
@@ -69,29 +70,81 @@ class TestCollectionMail(TransactionCase):
         self.assertIn(activity, voucher.activity_ids)
         self.assertEqual(activity.summary, "Review collection voucher")
 
-    def test_approve_tracks_state_in_chatter(self):
+    def test_validate_seller_tracks_state_in_chatter(self):
         voucher = self._create_voucher(customer_identification="MAIL-VAL")
-        voucher.action_approve()
+        voucher.action_validate_seller()
         self._flush_tracking()
         tracking = voucher.message_ids.sudo().mapped("tracking_value_ids")
         tracked_fields = tracking.mapped("field_id.name")
         self.assertIn("state", tracked_fields)
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
         self.assertTrue(state_tracking)
-        self.assertEqual(state_tracking[-1].old_value_char, "Pending")
-        self.assertEqual(state_tracking[-1].new_value_char, "Approved")
+        self.assertEqual(state_tracking[-1].old_value_char, "Draft")
+        self.assertEqual(state_tracking[-1].new_value_char, "Validated by Seller")
 
-    def test_reject_tracks_state_in_chatter(self):
+    def test_validate_seller_tracks_state_from_draft_triangulation(self):
         voucher = self._create_voucher(customer_identification="MAIL-REJ")
-        voucher.action_reject()
+        self.assertEqual(voucher.state, "draft")
+        voucher.action_validate_seller()
         self._flush_tracking()
         tracking = voucher.message_ids.sudo().mapped("tracking_value_ids")
-        tracked_fields = tracking.mapped("field_id.name")
-        self.assertIn("state", tracked_fields)
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
         self.assertTrue(state_tracking)
-        self.assertEqual(state_tracking[-1].old_value_char, "Pending")
-        self.assertEqual(state_tracking[-1].new_value_char, "Rejected")
+        self.assertEqual(state_tracking[-1].old_value_char, "Draft")
+        self.assertEqual(state_tracking[-1].new_value_char, "Validated by Seller")
+
+    def test_voucher_tracks_seller_sheet_type_and_amount(self):
+        """seller_id, sheet_id, document_type, and amount MUST set tracking=True."""
+        Voucher = self.env["collection.voucher"]
+        for name in ("state", "seller_id", "sheet_id", "document_type", "amount"):
+            self.assertTrue(
+                getattr(Voucher._fields[name], "tracking", False),
+                f"{name} must set tracking=True",
+            )
+
+    def test_amount_write_tracks_in_chatter(self):
+        voucher = self._create_voucher(customer_identification="MAIL-AMT")
+        voucher.write({"amount": 123.45})
+        self._flush_tracking()
+        tracking = voucher.message_ids.sudo().mapped("tracking_value_ids")
+        amount_tracking = tracking.filtered(lambda t: t.field_id.name == "amount")
+        self.assertTrue(amount_tracking, "amount write must post a tracking value")
+        self.assertAlmostEqual(amount_tracking[-1].new_value_float, 123.45)
+
+    def test_seller_id_write_tracks_in_chatter(self):
+        """Triangulation: relational seller_id changes MUST track in chatter."""
+        self.env.company.write({"auto_create_sheet": False})
+        voucher = self._create_voucher(customer_identification="MAIL-SELLER")
+        self.assertFalse(voucher.sheet_id)
+        other = ensure_enabled_seller(
+            self.env, create_internal_seller(self.env, "mail_track_seller")
+        )
+        self.assertNotEqual(voucher.seller_id, other)
+        voucher.write({"seller_id": other.id})
+        self._flush_tracking()
+        tracking = voucher.message_ids.sudo().mapped("tracking_value_ids")
+        seller_tracking = tracking.filtered(lambda t: t.field_id.name == "seller_id")
+        self.assertTrue(seller_tracking, "seller_id write must post a tracking value")
+        self.assertEqual(seller_tracking[-1].new_value_char, other.display_name)
+
+    def test_sheet_id_and_document_type_write_track_in_chatter(self):
+        """sheet_id and document_type writes MUST each post tracking values."""
+        self.env.company.write({"auto_create_sheet": False})
+        voucher = self._create_voucher(
+            customer_identification="MAIL-SHEET-TYPE",
+            document_type="bank_transfer",
+        )
+        sheet = self._create_sheet(seller_id=voucher.seller_id.id)
+        voucher.write({"sheet_id": sheet.id, "document_type": "check"})
+        self._flush_tracking()
+        tracking = voucher.message_ids.sudo().mapped("tracking_value_ids")
+        tracked = set(tracking.mapped("field_id.name"))
+        self.assertIn("sheet_id", tracked)
+        self.assertIn("document_type", tracked)
+        sheet_tracking = tracking.filtered(lambda t: t.field_id.name == "sheet_id")
+        type_tracking = tracking.filtered(lambda t: t.field_id.name == "document_type")
+        self.assertEqual(sheet_tracking[-1].new_value_char, sheet.display_name)
+        self.assertEqual(type_tracking[-1].new_value_char, "Check")
 
     def test_message_post_image_becomes_designated_proof(self):
         """MCP/chatter nest of a valid image MUST become message_main_attachment_id."""

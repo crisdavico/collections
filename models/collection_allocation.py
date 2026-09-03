@@ -71,6 +71,7 @@ class CollectionAllocation(models.Model):
         inverse_name="allocation_id",
         string="Vouchers",
     )
+    voucher_count = fields.Integer(compute="_compute_voucher_count")
     line_ids = fields.One2many(
         comodel_name="collection.allocation.line",
         inverse_name="allocation_id",
@@ -95,20 +96,29 @@ class CollectionAllocation(models.Model):
         tracking=True,
         currency_field="currency_id",
     )
-    total_debt = fields.Monetary(currency_field="currency_id")
-    residual = fields.Monetary(
+    total_debt = fields.Monetary(
         compute="_compute_totals",
         store=True,
         tracking=True,
         currency_field="currency_id",
     )
-    residual_reason = fields.Selection(
-        selection=[
-            ("on_account", "On Account"),
-            ("advance", "Advance"),
-            ("pending_invoice", "Pending Invoice"),
-            ("rounding", "Rounding"),
-        ],
+    total_invoices = fields.Monetary(
+        compute="_compute_totals",
+        store=True,
+        tracking=True,
+        currency_field="currency_id",
+    )
+    total_quotations = fields.Monetary(
+        compute="_compute_totals",
+        store=True,
+        tracking=True,
+        currency_field="currency_id",
+    )
+    residual = fields.Monetary(
+        compute="_compute_totals",
+        store=True,
+        tracking=True,
+        currency_field="currency_id",
     )
     reviewed_by = fields.Many2one(
         comodel_name="res.users",
@@ -124,6 +134,8 @@ class CollectionAllocation(models.Model):
     @api.depends(
         "voucher_ids.amount",
         "line_ids.amount_applied",
+        "line_ids.invoice_balance",
+        "line_ids.document_kind",
     )
     def _compute_totals(self):
         for allocation in self:
@@ -133,9 +145,81 @@ class CollectionAllocation(models.Model):
             total_applied = sum(
                 line.amount_applied or 0.0 for line in allocation.line_ids
             )
+            total_invoices = 0.0
+            total_quotations = 0.0
+            total_debt = 0.0
+            for line in allocation.line_ids:
+                balance = line.invoice_balance or 0.0
+                total_debt += balance
+                if line.document_kind == "quotation":
+                    total_quotations += balance
+                else:
+                    total_invoices += balance
             allocation.total_vouchers = total_vouchers
             allocation.total_applied = total_applied
-            allocation.residual = total_vouchers - total_applied
+            allocation.total_debt = total_debt
+            allocation.total_invoices = total_invoices
+            allocation.total_quotations = total_quotations
+            allocation.residual = total_debt - total_applied
+
+    @api.depends("voucher_ids")
+    def _compute_voucher_count(self):
+        for allocation in self:
+            allocation.voucher_count = len(allocation.voucher_ids)
+
+    @api.model
+    @api.private
+    def _prepare_customer_debt_lines(self, sheet, partner):
+        """Map outstanding ERP invoices to allocation line vals (applied 0)."""
+        if not sheet or not partner:
+            return []
+        company = sheet.company_id or self.env.company
+        connector = company.collection_connector_id
+        if not connector or not connector.active:
+            return []
+        binding = self.env["collection.connector.customer.binding"].search(
+            [
+                ("connector_id", "=", connector.id),
+                ("partner_id", "=", partner.id),
+            ],
+            limit=1,
+        )
+        if not binding:
+            return []
+        try:
+            debt = connector.with_company(company).get_customer_debt(
+                sheet.seller_id.id,
+                binding.identification,
+            )
+        except UserError:
+            return []
+        return [
+            self._customer_debt_line_vals(invoice)
+            for invoice in debt.get("invoices") or []
+        ]
+
+    @api.model
+    @api.private
+    def _customer_debt_line_vals(self, invoice):
+        """Map one ERP invoice dict to allocation line vals (applied 0)."""
+        return {
+            "external_invoice_id": invoice.get("external_invoice_id") or False,
+            "invoice_number": invoice.get("number") or False,
+            "issue_date": invoice.get("issue_date") or False,
+            "due_date": invoice.get("due_date") or False,
+            "invoice_amount": invoice.get("amount") or 0.0,
+            "invoice_balance": invoice.get("balance") or 0.0,
+            "invoice_state": invoice.get("state") or False,
+            "amount_applied": 0.0,
+            "document_kind": "invoice",
+        }
+
+    @api.onchange("partner_id", "sheet_id")
+    def _onchange_customer_debt_lines(self):
+        if self.state == "confirmed":
+            return
+        line_vals = self._prepare_customer_debt_lines(self.sheet_id, self.partner_id)
+        self.line_ids = [Command.clear()] + [Command.create(vals) for vals in line_vals]
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -145,13 +229,15 @@ class CollectionAllocation(models.Model):
                 vals["voucher_ids"] = self._sanitize_voucher_commands(
                     vals["voucher_ids"]
                 )
+            sheet = self.env["collection.sheet"].browse(vals.get("sheet_id") or [])
+            if "line_ids" not in vals:
+                partner = self.env["res.partner"].browse(vals.get("partner_id") or [])
+                line_vals = self._prepare_customer_debt_lines(sheet, partner)
+                vals["line_ids"] = [Command.create(item) for item in line_vals]
             if vals.get("name", "/") in (False, "/", "New"):
                 company_id = self.env.company.id
-                sheet_id = vals.get("sheet_id")
-                if sheet_id:
-                    sheet = self.env["collection.sheet"].browse(sheet_id)
-                    if sheet.company_id:
-                        company_id = sheet.company_id.id
+                if sheet.company_id:
+                    company_id = sheet.company_id.id
                 vals["name"] = (
                     sequence.with_company(company_id).next_by_code(
                         "collection.allocation"
@@ -232,23 +318,6 @@ class CollectionAllocation(models.Model):
                     _("Allocation vouchers must belong to the allocation company.")
                 )
 
-    @api.constrains("residual", "residual_reason", "state", "currency_id")
-    def _check_residual(self):
-        if self.env.context.get("collection_allocation_parent_unlink"):
-            return
-        for allocation in self:
-            currency = allocation.currency_id
-            residual = allocation.residual or 0.0
-            if currency.compare_amounts(residual, 0.0) < 0:
-                raise ValidationError(_("Allocations cannot have a negative residual."))
-            if (
-                currency.compare_amounts(residual, 0.0) > 0
-                and not allocation.residual_reason
-            ):
-                raise ValidationError(
-                    _("A residual reason is required when the residual is positive.")
-                )
-
     @api.constrains("state", "sheet_id")
     def _check_sheet_state_iff(self):
         if self.env.context.get("collection_allocation_audited_state"):
@@ -270,3 +339,25 @@ class CollectionAllocation(models.Model):
     def _unlink_if_confirmed(self):
         if any(allocation.state == "confirmed" for allocation in self):
             raise UserError(_("Confirmed allocations cannot be deleted."))
+
+    @api.private
+    def _ensure_saved_allocation(self):
+        self.ensure_one()
+        if isinstance(self.id, bool) or not isinstance(self.id, int) or self.id <= 0:
+            raise UserError(_("This action requires a saved collection allocation."))
+
+    def action_open_vouchers(self):
+        self.ensure_one()
+        self._ensure_saved_allocation()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Vouchers"),
+            "res_model": "collection.voucher",
+            "view_mode": "list,kanban,form",
+            "domain": [("allocation_id", "=", self.id)],
+            "context": {
+                "default_allocation_id": self.id,
+                "default_partner_id": self.partner_id.id,
+                "default_sheet_id": self.sheet_id.id,
+            },
+        }

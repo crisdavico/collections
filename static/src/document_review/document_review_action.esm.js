@@ -330,15 +330,6 @@ export class DocumentReviewAction extends Component {
     );
   }
 
-  async reject() {
-    const sheetId = this.reviewSheetId;
-    await this.runDecision(
-      () =>
-        this.orm.call(LINE_MODEL, "action_review_reject", [[this.current.id], sheetId]),
-      _t("Payment voucher rejected.")
-    );
-  }
-
   async runDecision(rpcCall, successMessage) {
     if (!this.current || this.state.busy) {
       return;

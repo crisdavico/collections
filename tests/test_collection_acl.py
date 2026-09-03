@@ -236,10 +236,11 @@ class TestCollectionAcl(TransactionCase):
             }
         )
         post_voucher_proof(voucher, "acl-proof.png", PNG_B64)
+        voucher.action_validate_seller()
         return voucher
 
     def test_portal_user_review_queue_approve_reject_denied(self):
-        """Non-internal users must be denied queue, approve, reject, and read."""
+        """Non-internal users must be denied queue, approve, rotation, and read."""
         admin_voucher = self._create_attached_pending_voucher(
             self.env,
             document_id="ACL-REV-PORTAL-DOC",
@@ -255,8 +256,7 @@ class TestCollectionAcl(TransactionCase):
             Voucher.browse(admin_voucher.id).action_review_approve(
                 sheet_id, {"amount": 1.0}
             )
-        with self.assertRaises(AccessError):
-            Voucher.browse(admin_voucher.id).action_review_reject(sheet_id)
+        self.assertFalse(hasattr(Voucher, "action_review_reject"))
         with self.assertRaises(AccessError):
             Voucher.browse(admin_voucher.id).action_review_set_rotation(sheet_id, 90)
 
@@ -268,30 +268,28 @@ class TestCollectionAcl(TransactionCase):
             document_id="ACL-REV-INT-APPROVE-DOC",
             customer_identification="ACL-REV-INT-APPROVE",
         )
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "validated_seller")
         sheet_id = voucher.sheet_id.id
         queue = env["collection.voucher"].get_review_queue(sheet_id)
         queued_ids = [item["id"] for item in queue]
         self.assertIn(voucher.id, queued_ids)
         voucher.action_review_approve(sheet_id, {"amount": 150.0})
-        self.assertEqual(voucher.state, "approved")
+        self.assertEqual(voucher.state, "validated_collections")
         self.assertEqual(voucher.amount, 150.0)
         self.assertEqual(voucher.reviewed_by, self.internal_user)
         self.assertTrue(voucher.reviewed_at)
 
     def test_internal_user_review_reject_allowed(self):
-        """Triangulation: internal users must reject an attached pending voucher."""
+        """Triangulation: internal users have no review reject RPC."""
         env = self.env(user=self.internal_user)
         voucher = self._create_attached_pending_voucher(
             env,
             document_id="ACL-REV-INT-REJECT-DOC",
             customer_identification="ACL-REV-INT-REJECT",
         )
-        self.assertEqual(voucher.state, "pending")
-        voucher.action_review_reject(voucher.sheet_id.id)
-        self.assertEqual(voucher.state, "rejected")
-        self.assertEqual(voucher.reviewed_by, self.internal_user)
-        self.assertTrue(voucher.reviewed_at)
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertFalse(hasattr(voucher, "action_review_reject"))
+        self.assertFalse(voucher.reviewed_by)
 
     def test_internal_user_review_set_rotation_allowed(self):
         """Internal users must persist viewer rotation on an eligible voucher."""
@@ -304,8 +302,8 @@ class TestCollectionAcl(TransactionCase):
         voucher.action_review_set_rotation(voucher.sheet_id.id, 90)
         self.assertEqual(voucher.attachment_rotation, 90)
 
-    def test_internal_user_form_approve_allowed_when_review_off(self):
-        """Payment Vouchers Approve must work even when Document Review is OFF."""
+    def test_internal_user_form_validate_seller_allowed_when_review_off(self):
+        """Payment Vouchers Validate by Seller works when Document Review is OFF."""
         self.env.company.write({"document_review_enabled": False})
         env = self.env(user=self.internal_user)
         voucher = env["collection.voucher"].create(
@@ -313,8 +311,10 @@ class TestCollectionAcl(TransactionCase):
         )
         with self.assertRaises(UserError):
             env["collection.voucher"].get_review_queue()
-        voucher.action_approve()
-        self.assertEqual(voucher.state, "approved")
+        voucher.action_validate_seller()
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
 
     def _sheet_vals(self, **extra):
         vals = {"seller_id": self.internal_user.id}

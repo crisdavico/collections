@@ -19,6 +19,7 @@ from .common_connector import (
 )
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_mcp_allocation import INVOICE_OVERDUE, TOOL_NAME
+from .test_collection_mcp_allocation_lookup import TOOL_NAME as GET_TOOL_NAME
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -27,14 +28,10 @@ from .test_collection_payment import (
 
 IDENT = "20-11111111-1"
 INHERIT_VIEW = (
-    Path(__file__).resolve().parents[1]
-    / "views"
-    / "collection_sheet_report_views.xml"
+    Path(__file__).resolve().parents[1] / "views" / "collection_sheet_report_views.xml"
 )
 PARENT_VIEW = (
-    Path(__file__).resolve().parents[1]
-    / "views"
-    / "collection_allocation_views.xml"
+    Path(__file__).resolve().parents[1] / "views" / "collection_allocation_views.xml"
 )
 
 
@@ -152,7 +149,10 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         field = self.env["collection.allocation.line"]._fields["document_kind"]
         self.assertTrue(field.required)
         self.assertEqual(field.type, "selection")
-        self.assertEqual(field.default(self.env["collection.allocation.line"]), "invoice")
+        self.assertEqual(
+            field.default(self.env["collection.allocation.line"]),
+            "invoice",
+        )
         keys = [value for value, _label in field.selection]
         self.assertEqual(keys, ["invoice", "quotation"])
 
@@ -173,51 +173,62 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         line.invalidate_recordset(["document_kind"])
         self.assertEqual(line.document_kind, "quotation")
 
-    def test_inherited_view_before_invoice_number(self):
-        """Inherited view MUST inject document_kind immediately before invoice_number."""
-        self.assertTrue(INHERIT_VIEW.is_file(), INHERIT_VIEW)
-        inherit_root = etree.parse(str(INHERIT_VIEW)).getroot()
-        records = inherit_root.xpath(".//record[@model='ir.ui.view']")
-        self.assertEqual(len(records), 1)
-        inherit_id = records[0].xpath("./field[@name='inherit_id']/@ref")
-        self.assertEqual(inherit_id, ["collection.view_collection_allocation_form"])
-        xpath_nodes = records[0].xpath(".//xpath")
-        self.assertEqual(len(xpath_nodes), 1)
-        expr = xpath_nodes[0].get("expr")
-        self.assertEqual(
-            expr,
-            "//field[@name='line_ids']/list/field[@name='invoice_number']",
-        )
-        self.assertEqual(xpath_nodes[0].get("position"), "before")
-        kind_fields = xpath_nodes[0].xpath("./field[@name='document_kind']")
-        self.assertEqual(len(kind_fields), 1)
+    def test_parent_arch_document_kind_before_invoice_number(self):
+        """Parent form line list MUST show document_kind before invoice_number."""
         self.assertFalse(
-            inherit_root.xpath(".//tree"),
-            "Inherited line list MUST use <list>, not <tree>",
+            INHERIT_VIEW.is_file(),
+            "views/collection_sheet_report_views.xml MUST be deleted",
         )
-
         parent_root = etree.parse(str(PARENT_VIEW)).getroot()
-        parent_lists = parent_root.xpath(
+        invoice_fields = parent_root.xpath(
             "//field[@name='line_ids']/list/field[@name='invoice_number']"
         )
-        self.assertEqual(len(parent_lists), 1)
-        self.assertEqual(parent_lists[0].getparent().tag, "list")
+        self.assertEqual(len(invoice_fields), 1)
+        line_list = invoice_fields[0].getparent()
+        self.assertEqual(line_list.tag, "list")
+        names = [
+            node.get("name") for node in line_list.xpath("./field") if node.get("name")
+        ]
+        self.assertIn("invoice_number", names)
+        invoice_index = names.index("invoice_number")
+        self.assertGreater(invoice_index, 0)
+        self.assertEqual(names[invoice_index - 1], "document_kind")
+        self.assertFalse(
+            parent_root.xpath(".//tree"),
+            "Parent line list MUST use <list>, not <tree>",
+        )
 
-        combined_names = [
-            node.get("name")
-            for node in parent_lists[0].getparent().xpath("./field")
-            if node.get("name")
-        ]
-        invoice_index = combined_names.index("invoice_number")
-        injected = etree.Element("field", name="document_kind")
-        parent_lists[0].addprevious(injected)
-        merged_names = [
-            node.get("name")
-            for node in parent_lists[0].getparent().xpath("./field")
-            if node.get("name")
-        ]
-        self.assertEqual(merged_names[invoice_index], "document_kind")
-        self.assertEqual(merged_names[invoice_index + 1], "invoice_number")
+    def test_get_invoices_include_document_kind(self):
+        """GET invoice rows MUST include stored document_kind."""
+        voucher = self._create_voucher(self.partner, self.sheet, amount=50.0)
+        self._create_allocation(
+            self.sheet,
+            self.partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    document_kind="quotation",
+                )
+            ],
+        )
+        env = self.env(user=self.internal_user)
+        text, _info = self.tool_model._call(
+            GET_TOOL_NAME,
+            {
+                "seller_id": self.seller.id,
+                "customer_identification": IDENT,
+            },
+            env,
+        )
+        result = json.loads(text)
+        invoices = result["invoices"]
+        self.assertTrue(invoices)
+        kinds = {row["document_kind"] for row in invoices}
+        self.assertEqual(kinds, {"quotation"})
+        for row in invoices:
+            self.assertIn("document_kind", row)
 
     def test_mcp_create_omits_kind_defaults_invoice(self):
         """MCP create MUST omit document_kind and persist the invoice default."""

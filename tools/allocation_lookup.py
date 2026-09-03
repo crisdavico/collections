@@ -98,7 +98,6 @@ class CollectionAllocationLookupMixin(models.AbstractModel):
                 "total_vouchers": allocation.total_vouchers,
                 "total_applied": allocation.total_applied,
                 "residual": allocation.residual,
-                "residual_reason": allocation.residual_reason or None,
             },
             "vouchers": [
                 {
@@ -125,6 +124,7 @@ class CollectionAllocationLookupMixin(models.AbstractModel):
                     "balance": line.invoice_balance,
                     "state": line.invoice_state or None,
                     "amount_applied": line.amount_applied,
+                    "document_kind": line.document_kind or "invoice",
                 }
                 for line in allocation.line_ids
             ],

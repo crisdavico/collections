@@ -64,6 +64,21 @@
           />
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button
+              name="action_open_vouchers"
+              type="object"
+              class="oe_stat_button"
+              icon="fa-list"
+              invisible="not id"
+            >
+                            <field
+                name="voucher_count"
+                widget="statinfo"
+                string="Vouchers"
+              />
+                        </button>
+                    </div>
                     <div class="oe_title">
                         <label for="name" />
                         <h1>
@@ -80,28 +95,55 @@
                         <group>
                             <field name="revision" readonly="1" />
                             <field name="currency_id" groups="base.group_no_one" />
-                            <field name="total_vouchers" />
-                            <field name="total_applied" />
-                            <field name="total_debt" />
-                            <field name="residual" />
-                            <field name="residual_reason" />
+                            <field
+                name="total_vouchers"
+                help="Sum of payment voucher amounts assigned to this allocation."
+              />
+                            <field
+                name="total_applied"
+                help="Sum of amounts applied to customer debt lines."
+              />
+                            <field
+                name="total_debt"
+                help="Sum of outstanding invoice balances snapshotted on this allocation."
+              />
+                            <field
+                name="total_invoices"
+                help="Outstanding balances classified as invoices."
+              />
+                            <field
+                name="total_quotations"
+                help="Outstanding balances classified as quotations."
+              />
+                            <field
+                name="residual"
+                help="Total debt minus total applied. May be negative."
+              />
                         </group>
                     </group>
                     <notebook>
                         <page string="Vouchers">
-                            <field name="voucher_ids" readonly="state == 'confirmed'">
+                            <field
+                name="voucher_ids"
+                widget="many2many"
+                options="{'no_create': True, 'no_create_edit': True}"
+                domain="[('partner_id', '=', partner_id), ('sheet_id', '=', sheet_id), '|', ('allocation_id', '=', False), ('allocation_id', '=', id)]"
+                readonly="state == 'confirmed'"
+              >
                                 <list>
                                     <field name="name" />
                                     <field name="partner_id" />
                                     <field name="state" />
+                                    <field name="document_type" />
                                     <field name="amount" />
                                     <field name="currency_id" column_invisible="1" />
                                 </list>
                             </field>
                         </page>
-                        <page string="Invoices">
+                        <page string="Customer Debt">
                             <field name="line_ids" readonly="state == 'confirmed'">
                                 <list>
+                                    <field name="document_kind" />
                                     <field name="invoice_number" />
                                     <field name="external_invoice_id" optional="hide" />
                                     <field name="due_date" />

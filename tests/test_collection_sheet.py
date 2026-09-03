@@ -424,7 +424,7 @@ class TestCollectionSheet(TransactionCase):
         )
         pending.write({"seller_id": self._seller().id})
         approved.write({"seller_id": self._seller().id})
-        approved.action_approve()
+        approved.action_validate_seller()
         before = self._sheet_count()
         action = (pending | approved).action_create_collection_sheet()
         self.assertEqual(self._sheet_count(), before + 1)
@@ -482,7 +482,7 @@ class TestCollectionSheet(TransactionCase):
         )
         pending.write({"seller_id": self._seller().id})
         approved.write({"seller_id": self._seller().id})
-        approved.action_approve()
+        approved.action_validate_seller()
         before = self._sheet_count()
         with self.assertRaises(UserError):
             (pending | approved).action_create_collection_sheet()

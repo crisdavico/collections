@@ -551,7 +551,7 @@ class CollectionMcpMixin(models.AbstractModel):
                     ) from None
                 row = {
                     **vals,
-                    "state": "pending",
+                    "state": "validated_seller",
                     "seller_id": seller_id,
                     "partner_id": partner.id,
                 }

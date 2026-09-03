@@ -163,11 +163,6 @@ class CollectionSheetReport(models.Model):
     def _collection_report_customers(self, codes):
         """Customer rows sorted coded-first, then code, then name."""
         self.ensure_one()
-        reason_labels = dict(
-            self.env["collection.allocation"]
-            ._fields["residual_reason"]
-            ._description_selection(self.env)
-        )
         rows = []
         for allocation in self.allocation_ids:
             partner = allocation.partner_id
@@ -181,10 +176,7 @@ class CollectionSheetReport(models.Model):
                         "collected": allocation.total_vouchers or 0.0,
                         "applied": allocation.total_applied or 0.0,
                         "residual": allocation.residual or 0.0,
-                        "residual_reason": reason_labels.get(
-                            allocation.residual_reason, ""
-                        )
-                        or "",
+                        "residual_reason": "",
                     },
                 )
             )

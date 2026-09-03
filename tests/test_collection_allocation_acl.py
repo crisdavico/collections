@@ -260,11 +260,9 @@ class TestCollectionAllocationAcl(TransactionCase):
                 "sheet_id": sheet.id,
                 "partner_id": partner.id,
                 "voucher_ids": [Command.set(voucher.ids)],
-                "residual_reason": "on_account",
             }
         )
         self.assertTrue(allocation.id)
-        allocation.write({"total_debt": 10.0})
         line = (
             self.env["collection.allocation.line"]
             .with_user(self.internal_user)

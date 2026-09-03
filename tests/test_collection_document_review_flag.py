@@ -121,20 +121,18 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         with self.assertRaises(UserError) as error:
             voucher.action_review_approve({"amount": 1.0})
         self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
         self.assertAlmostEqual(voucher.amount, 100.0, places=2)
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
 
     def test_action_review_reject_does_not_run_when_review_off(self):
-        """When OFF, review reject must raise and leave the voucher pending."""
+        """When OFF, review reject MUST NOT exist; voucher stays draft."""
         self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self._create_pending_attached("CUST-FLAG-REJ-OFF", "DOC-FLAG-REJ-OFF")
-        with self.assertRaises(UserError) as error:
-            voucher.action_review_reject()
-        self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
-        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(hasattr(voucher, "action_review_reject"))
+        self.assertEqual(voucher.state, "draft")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
 
@@ -149,7 +147,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         self.assertEqual(voucher.attachment_rotation, 0)
 
     def test_review_rpcs_refuse_when_off_with_or_without_sheet_id(self):
-        """When OFF, all four RPCs refuse whether a sheet id is passed or omitted."""
+        """When OFF, remaining RPCs refuse whether a sheet id is passed or omitted."""
         self._force_document_review_enabled(False)
         sheet = self._create_sheet()
         voucher = self._create_pending_attached(
@@ -165,15 +163,14 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         for call in (
             lambda: voucher.action_review_approve({"amount": 1.0}),
             lambda: voucher.action_review_approve(sheet.id, {"amount": 1.0}),
-            lambda: voucher.action_review_reject(),
-            lambda: voucher.action_review_reject(sheet.id),
             lambda: voucher.action_review_set_rotation(90),
             lambda: voucher.action_review_set_rotation(sheet.id, 90),
         ):
             with self.assertRaises(UserError) as error:
                 call()
             self.assertEqual(str(error.exception), _REVIEW_DISABLED_MSG)
-        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(hasattr(voucher, "action_review_reject"))
+        self.assertEqual(voucher.state, "draft")
         self.assertEqual(voucher.attachment_rotation, 0)
         self.assertAlmostEqual(voucher.amount, 100.0, places=2)
 
@@ -194,15 +191,14 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
                 with self.assertRaises(UserError):
                     voucher.action_review_approve(invalid_id, {"amount": 1.0})
                 with self.assertRaises(UserError):
-                    voucher.action_review_reject(invalid_id)
-                with self.assertRaises(UserError):
                     voucher.action_review_set_rotation(invalid_id, 90)
-        self.assertEqual(voucher.state, "pending")
+        self.assertFalse(hasattr(voucher, "action_review_reject"))
+        self.assertEqual(voucher.state, "draft")
         self.assertEqual(voucher.attachment_rotation, 0)
         self.assertAlmostEqual(voucher.amount, 100.0, places=2)
 
-    def test_form_approve_works_when_review_off(self):
-        """Payment Vouchers Approve must work even when Document Review is OFF."""
+    def test_form_validate_seller_works_when_review_off(self):
+        """Payment Vouchers Validate by Seller works when Document Review is OFF."""
         self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self.env["collection.voucher"].create(
@@ -217,13 +213,13 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
         )
         with self.assertRaises(UserError):
             self.env["collection.voucher"].get_review_queue()
-        voucher.action_approve()
-        self.assertEqual(voucher.state, "approved")
-        self.assertEqual(voucher.reviewed_by, self.env.user)
-        self.assertTrue(voucher.reviewed_at)
+        voucher.action_validate_seller()
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
 
-    def test_form_reject_works_when_review_off(self):
-        """Triangulation: Payment Vouchers Reject must work when the flag is OFF."""
+    def test_form_reject_gone_when_review_off(self):
+        """Triangulation: form Reject and review reject are both gone when OFF."""
         self._force_document_review_enabled(False)
         self.assertFalse(self.env.company.document_review_enabled)
         voucher = self.env["collection.voucher"].create(
@@ -236,12 +232,11 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
                 "seller_id": ensure_enabled_seller(self.env).id,
             }
         )
-        with self.assertRaises(UserError):
-            voucher.action_review_reject()
-        voucher.action_reject()
-        self.assertEqual(voucher.state, "rejected")
-        self.assertEqual(voucher.reviewed_by, self.env.user)
-        self.assertTrue(voucher.reviewed_at)
+        self.assertFalse(hasattr(voucher, "action_review_reject"))
+        self.assertFalse(hasattr(voucher, "action_reject"))
+        self.assertEqual(voucher.state, "draft")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
 
     def test_document_review_xmlids_kept(self):
         action = self.env.ref("collection.action_collection_document_review")
@@ -272,7 +267,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
             search_root.xpath('.//field[@name="state"]'),
             "Payment Vouchers search must expose state regardless of the flag",
         )
-        for value in ("pending", "approved", "rejected"):
+        for value in ("draft", "validated_seller", "validated_collections"):
             matching = [
                 node
                 for node in search_root.xpath(f'//filter[contains(@domain, "{value}")]')

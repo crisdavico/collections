@@ -37,11 +37,13 @@ class CollectionVoucher(models.Model):
         string="Seller",
         required=False,
         domain=[("share", "=", False)],
+        tracking=True,
     )
     sheet_id = fields.Many2one(
         comodel_name="collection.sheet",
         string="Collection Sheet",
         ondelete="set null",
+        tracking=True,
     )
     allocation_id = fields.Many2one(
         comodel_name="collection.allocation",
@@ -52,15 +54,14 @@ class CollectionVoucher(models.Model):
     )
     state = fields.Selection(
         selection=[
-            ("pending", "Pending"),
-            ("approved", "Approved"),
-            ("rejected", "Rejected"),
+            ("draft", "Draft"),
+            ("validated_seller", "Validated by Seller"),
+            ("validated_collections", "Validated by Collections"),
         ],
-        default="pending",
+        default="draft",
         required=True,
         tracking=True,
         copy=False,
-        group_expand=True,
     )
     currency_id = fields.Many2one(
         comodel_name="res.currency",
@@ -79,8 +80,9 @@ class CollectionVoucher(models.Model):
     document_type = fields.Selection(
         selection="_selection_document_type",
         required=True,
+        tracking=True,
     )
-    amount = fields.Monetary()
+    amount = fields.Monetary(tracking=True)
     from_account = fields.Char()
     to_account = fields.Char()
     voucher_number = fields.Char()
@@ -213,6 +215,10 @@ class CollectionVoucher(models.Model):
             company._assert_new_work(vals.get("seller_id"), vals.get("document_type"))
         self._apply_open_sheet_auto_assign(vals_list)
         for vals in vals_list:
+            if vals.get("state") == "validated_collections":
+                raise UserError(
+                    _("Validated by Collections is only available via Document Review.")
+                )
             # Registration time is ORM-owned; callers must not forge create_date.
             vals.pop("create_date", None)
             vals.pop("write_date", None)
@@ -313,26 +319,11 @@ class CollectionVoucher(models.Model):
             self._post_unallocated_reassign_notice()
         return result
 
-    def action_approve(self):
-        if any(voucher.state != "pending" for voucher in self):
-            raise UserError(_("Only pending vouchers can be approved."))
+    def action_validate_seller(self):
+        if any(voucher.state != "draft" for voucher in self):
+            raise UserError(_("Only draft vouchers can be validated by seller."))
         return self.with_context(collection_audited_state=True).write(
-            {
-                "state": "approved",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
-        )
-
-    def action_reject(self):
-        if any(voucher.state != "pending" for voucher in self):
-            raise UserError(_("Only pending vouchers can be rejected."))
-        return self.with_context(collection_audited_state=True).write(
-            {
-                "state": "rejected",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
+            {"state": "validated_seller"}
         )
 
     def action_create_collection_sheet(self):
@@ -382,16 +373,24 @@ class CollectionVoucher(models.Model):
         if "state" not in vals or self.env.context.get("collection_audited_state"):
             return None
         target = vals["state"]
-        if target in ("approved", "rejected"):
+        if target == "validated_collections":
+            raise UserError(
+                _("Validated by Collections is only available via Document Review.")
+            )
+        if target == "validated_seller":
+            if "message_main_attachment_id" in vals:
+                return None
             rest = {key: value for key, value in vals.items() if key != "state"}
             if rest:
                 super().write(rest)
                 if post_unallocated:
                     self._post_unallocated_reassign_notice()
-            if target == "approved":
-                return self.action_approve()
-            return self.action_reject()
-        if target == "pending" and "message_main_attachment_id" not in vals:
+            return self.action_validate_seller()
+        if (
+            target == "draft"
+            and "message_main_attachment_id" not in vals
+            and any(voucher.state != "draft" for voucher in self)
+        ):
             raise UserError(
                 _("Cannot reopen a decided voucher without replacing the attachment.")
             )
@@ -462,14 +461,6 @@ class CollectionVoucher(models.Model):
                     "and target allocations are draft or unset."
                 )
             )
-        projected = self._projected_residual(current, -(self.amount or 0.0))
-        if current.currency_id.compare_amounts(projected, 0.0) < 0:
-            raise UserError(
-                _(
-                    "Cannot detach this voucher because the source "
-                    "allocation residual would be negative."
-                )
-            )
 
     @api.private
     def _target_allocation_for_partner(self, partner_id):
@@ -477,7 +468,7 @@ class CollectionVoucher(models.Model):
         Allocation = self.env["collection.allocation"]
         if not partner_id or not self.sheet_id:
             return Allocation
-        allocation = Allocation.search(
+        return Allocation.search(
             [
                 ("sheet_id", "=", self.sheet_id.id),
                 ("partner_id", "=", partner_id),
@@ -485,28 +476,6 @@ class CollectionVoucher(models.Model):
             ],
             limit=1,
         )
-        if not allocation:
-            return allocation
-        projected = self._projected_residual(allocation, self.amount or 0.0)
-        if self._allocation_residual_holds(allocation, projected):
-            return allocation
-        return Allocation
-
-    @api.private
-    def _projected_residual(self, allocation, amount_delta):
-        return (allocation.residual or 0.0) + amount_delta
-
-    @api.private
-    def _allocation_residual_holds(self, allocation, projected):
-        currency = allocation.currency_id
-        if currency.compare_amounts(projected, 0.0) < 0:
-            return False
-        if (
-            currency.compare_amounts(projected, 0.0) > 0
-            and not allocation.residual_reason
-        ):
-            return False
-        return True
 
     @api.private
     def _partner_id_from_value(self, value):
@@ -547,9 +516,9 @@ class CollectionVoucher(models.Model):
                 raise ValidationError(_("Voucher seller must match the sheet seller."))
 
     @api.ondelete(at_uninstall=False)
-    def _unlink_if_pending(self):
-        if any(voucher.state != "pending" for voucher in self):
-            raise UserError(_("You can only delete vouchers in the Pending state."))
+    def _unlink_if_draft(self):
+        if any(voucher.state != "draft" for voucher in self):
+            raise UserError(_("You can only delete vouchers in the Draft state."))
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_draft_or_unset(self):
@@ -636,7 +605,7 @@ class CollectionVoucher(models.Model):
         sheet = self._require_review_sheet(sheet_id)
         vouchers = self.search(
             [
-                ("state", "=", "pending"),
+                ("state", "=", "validated_seller"),
                 ("message_main_attachment_id", "!=", False),
                 ("sheet_id", "=", sheet.id),
             ],
@@ -653,15 +622,7 @@ class CollectionVoucher(models.Model):
         self.ensure_one()
         self._ensure_review_sheet_member(sheet)
         self._lock_and_ensure_review_eligible()
-        self._write_review_decision("approved", self._editable_review_vals(vals))
-        return True
-
-    def action_review_reject(self, sheet_id=None):
-        sheet = self._require_review_sheet(sheet_id)
-        self.ensure_one()
-        self._ensure_review_sheet_member(sheet)
-        self._lock_and_ensure_review_eligible()
-        self._write_review_decision("rejected")
+        self._write_review_decision(self._editable_review_vals(vals))
         return True
 
     def action_review_set_rotation(self, sheet_id=None, degrees=None):
@@ -740,8 +701,8 @@ class CollectionVoucher(models.Model):
             return vals
         vals = dict(vals)
         vals["attachment_rotation"] = 0
-        if new_id:
-            vals["state"] = "pending"
+        if old_id and new_id:
+            vals["state"] = "validated_seller"
             vals["reviewed_by"] = False
             vals["reviewed_at"] = False
         return vals
@@ -771,16 +732,16 @@ class CollectionVoucher(models.Model):
         }
 
     @api.private
-    def _write_review_decision(self, status, extra_vals=None):
+    def _write_review_decision(self, extra_vals=None):
         vals = {
-            "state": status,
+            "state": "validated_collections",
             "reviewed_by": self.env.user.id,
             "reviewed_at": fields.Datetime.now(),
         }
         if extra_vals:
             vals.update(extra_vals)
         self.with_context(collection_audited_state=True).write(vals)
-        self._append_review_snapshot(status)
+        self._append_review_snapshot("approved")
 
     @api.private
     def _append_review_snapshot(self, decision):
@@ -825,7 +786,9 @@ class CollectionVoucher(models.Model):
     @api.private
     def _is_review_eligible(self):
         self.ensure_one()
-        return bool(self.state == "pending" and self._records_with_attachment())
+        return bool(
+            self.state == "validated_seller" and self._records_with_attachment()
+        )
 
     @api.private
     def _records_with_attachment(self):

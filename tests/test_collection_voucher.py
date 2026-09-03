@@ -75,6 +75,7 @@ class TestCollectionVoucher(TransactionCase):
         lines = extra.pop("lines", None)
         if lines is not None:
             vals["line_ids"] = [Command.create(line) for line in lines]
+        extra.pop("residual_reason", None)
         vals.update(extra)
         return self.env["collection.allocation"].create(vals)
 
@@ -135,9 +136,13 @@ class TestCollectionVoucher(TransactionCase):
             voucher.create_date,
             "create_date must be set automatically by the ORM",
         )
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
         state_keys = {key for key, _label in fields_map["state"].selection}
-        self.assertEqual(state_keys, {"pending", "approved", "rejected"})
+        self.assertEqual(
+            state_keys,
+            {"draft", "validated_seller", "validated_collections"},
+        )
+        self.assertFalse(fields_map["state"].group_expand)
         self.assertEqual(
             voucher.currency_id,
             self.env.company.currency_id,
@@ -346,52 +351,65 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(check.check_type, "common")
         self.assertEqual(check.check_number, "CHK-COMMON")
 
-    # --- 1.4 / 1.5 Approve, reject, unlink ---
+    # --- 1.4 / 1.5 Seller validate, intercept, unlink ---
 
-    def test_action_approve_from_pending_records_reviewer(self):
+    def test_action_validate_seller_from_draft_does_not_stamp_reviewer(self):
         voucher = self._create_voucher()
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
-        voucher.action_approve()
-        self.assertEqual(voucher.state, "approved")
-        self.assertEqual(voucher.reviewed_by, self.env.user)
-        self.assertTrue(voucher.reviewed_at)
+        voucher.action_validate_seller()
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
 
-    def test_action_reject_from_pending_records_reviewer(self):
+    def test_action_reject_does_not_exist(self):
         voucher = self._create_voucher(customer_identification="CUST-REJ")
-        voucher.action_reject()
-        self.assertEqual(voucher.state, "rejected")
-        self.assertEqual(voucher.reviewed_by, self.env.user)
-        self.assertTrue(voucher.reviewed_at)
+        self.assertFalse(hasattr(voucher, "action_reject"))
+        self.assertFalse(hasattr(voucher, "action_approve"))
+        self.assertEqual(voucher.state, "draft")
 
-    def test_terminal_states_block_approve_and_reject(self):
-        approved = self._create_voucher(customer_identification="V1")
-        approved.action_approve()
+    def test_terminal_states_block_validate_seller(self):
+        seller_done = self._create_voucher(customer_identification="V1")
+        seller_done.action_validate_seller()
         with self.assertRaises(UserError):
-            approved.action_approve()
-        with self.assertRaises(UserError):
-            approved.action_reject()
-        self.assertEqual(approved.state, "approved")
+            seller_done.action_validate_seller()
+        self.assertEqual(seller_done.state, "validated_seller")
 
-        rejected = self._create_voucher(customer_identification="R1")
-        rejected.action_reject()
+        collections_done = self._create_voucher(customer_identification="R1")
+        collections_done.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
         with self.assertRaises(UserError):
-            rejected.action_approve()
-        with self.assertRaises(UserError):
-            rejected.action_reject()
-        self.assertEqual(rejected.state, "rejected")
+            collections_done.action_validate_seller()
+        self.assertEqual(collections_done.state, "validated_collections")
 
-    def test_unlink_allowed_when_pending(self):
-        """Pending unlink MUST be allowed when allocation is unset."""
+    def test_create_refuses_validated_collections(self):
+        with self.assertRaises(UserError):
+            self._create_voucher(
+                customer_identification="CUST-CREATE-COLL",
+                state="validated_collections",
+            )
+
+    def test_create_may_stamp_validated_seller(self):
+        """MCP-style create MAY stamp validated_seller; default remains draft."""
+        stamped = self._create_voucher(
+            customer_identification="CUST-CREATE-SELLER",
+            state="validated_seller",
+        )
+        self.assertEqual(stamped.state, "validated_seller")
+        self.assertEqual(self._create_voucher().state, "draft")
+
+    def test_unlink_allowed_when_draft(self):
+        """Draft unlink MUST be allowed when allocation is unset."""
         voucher = self._create_voucher()
         self.assertFalse(voucher.allocation_id)
         voucher_id = voucher.id
         voucher.unlink()
         self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
 
-    def test_unlink_pending_on_draft_allowed_when_residual_holds(self):
-        """Pending unlink on a draft allocation MUST succeed when residual stays ≥ 0."""
+    def test_unlink_draft_on_draft_allowed_when_residual_holds(self):
+        """Draft unlink on a draft allocation MUST succeed when residual stays ≥ 0."""
         partner = dummy_customer_partner(self.env, customer="UNL-DRAFT-OK")
         sheet = self._create_sheet()
         voucher = self._create_voucher(
@@ -401,9 +419,18 @@ class TestCollectionVoucher(TransactionCase):
             document_id="UNL-DRAFT-OK",
         )
         allocation = self._create_allocation(
-            sheet, partner, vouchers=voucher, residual_reason="on_account"
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-UNL-DRAFT-OK",
+                )
+            ],
         )
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.residual, 50.0)
         voucher_id = voucher.id
@@ -411,8 +438,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
         self.assertFalse(allocation.voucher_ids)
 
-    def test_unlink_pending_on_draft_with_sibling_when_residual_holds(self):
-        """Triangulation: deleting one pending draft member MUST keep the sibling."""
+    def test_unlink_draft_on_draft_with_sibling_when_residual_holds(self):
+        """Triangulation: deleting one draft member MUST keep the sibling."""
         partner = dummy_customer_partner(self.env, customer="UNL-DRAFT-SIB")
         sheet = self._create_sheet()
         first = self._create_voucher(
@@ -431,7 +458,13 @@ class TestCollectionVoucher(TransactionCase):
             sheet,
             partner,
             vouchers=first | second,
-            residual_reason="on_account",
+            lines=[
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=100.0,
+                    external_invoice_id="INV-UNL-DRAFT-SIB",
+                )
+            ],
         )
         self.assertEqual(allocation.residual, 100.0)
         first_id = first.id
@@ -440,8 +473,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(allocation.voucher_ids, second)
         self.assertEqual(second.allocation_id, allocation)
 
-    def test_unlink_pending_on_confirmed_refused(self):
-        """Pending unlink on a confirmed allocation MUST refuse; voucher stays."""
+    def test_unlink_draft_on_confirmed_refused(self):
+        """Draft unlink on a confirmed allocation MUST refuse; voucher stays."""
         partner = dummy_customer_partner(self.env, customer="UNL-CONF")
         sheet = self._create_sheet()
         voucher = self._create_voucher(
@@ -454,7 +487,7 @@ class TestCollectionVoucher(TransactionCase):
             sheet, partner, vouchers=voucher, residual_reason="on_account"
         )
         self._confirm(allocation)
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
         voucher_id = voucher.id
         with self.assertRaises(UserError):
             voucher.unlink()
@@ -462,15 +495,15 @@ class TestCollectionVoucher(TransactionCase):
         self.assertTrue(leftover.exists())
         self.assertEqual(leftover.allocation_id, allocation)
 
-    def test_unlink_pending_on_draft_negative_residual_refused(self):
-        """Pending unlink MUST refuse when draft residual would be < 0; lines stay."""
-        partner = dummy_customer_partner(self.env, customer="UNL-NEG")
+    def test_unlink_draft_on_draft_at_residual_zero_succeeds(self):
+        """Draft unlink MUST succeed at residual 0; residual stays debt−applied."""
+        partner = dummy_customer_partner(self.env, customer="UNL-ZERO")
         sheet = self._create_sheet()
         voucher = self._create_voucher(
             partner_id=partner.id,
             sheet_id=sheet.id,
             amount=100.0,
-            document_id="UNL-NEG",
+            document_id="UNL-ZERO",
         )
         allocation = self._create_allocation(
             sheet,
@@ -486,11 +519,10 @@ class TestCollectionVoucher(TransactionCase):
         ]
         self.assertTrue(line_before)
         voucher_id = voucher.id
-        with self.assertRaises(UserError):
-            voucher.unlink()
-        leftover = self.env["collection.voucher"].browse(voucher_id)
-        self.assertTrue(leftover.exists())
-        self.assertEqual(leftover.allocation_id, allocation)
+        voucher.unlink()
+        self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
+        self.assertFalse(allocation.voucher_ids)
+        self.assertEqual(allocation.residual, 0.0)
         allocation.invalidate_recordset(["line_ids"])
         self.assertEqual(
             [
@@ -500,59 +532,116 @@ class TestCollectionVoucher(TransactionCase):
             line_before,
         )
 
-    def test_unlink_blocked_when_not_pending(self):
+    def test_unlink_draft_on_draft_leftover_less_than_amount_succeeds(self):
+        """Draft unlink MUST succeed when residual is less than voucher amount."""
+        partner = dummy_customer_partner(self.env, customer="UNL-LEFT")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=100.0,
+            document_id="UNL-LEFT",
+        )
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=60.0, invoice_balance=100.0)],
+        )
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.residual, 40.0)
+        line_before = [
+            (line.id, line.amount_applied, line.external_invoice_id)
+            for line in allocation.line_ids
+        ]
+        voucher_id = voucher.id
+        voucher.unlink()
+        self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
+        self.assertFalse(allocation.voucher_ids)
+        self.assertEqual(allocation.residual, 40.0)
+        allocation.invalidate_recordset(["line_ids"])
+        self.assertEqual(
+            [
+                (line.id, line.amount_applied, line.external_invoice_id)
+                for line in allocation.line_ids
+            ],
+            line_before,
+        )
+
+    def test_unlink_blocked_when_not_draft(self):
         voucher = self._create_voucher()
-        voucher.action_approve()
+        voucher.action_validate_seller()
         with self.assertRaises(UserError):
             voucher.unlink()
         self.assertTrue(voucher.exists())
 
-        rejected = self._create_voucher(customer_identification="CUST-UNL-REJ")
-        rejected.action_reject()
+        collections_done = self._create_voucher(customer_identification="CUST-UNL-COLL")
+        collections_done.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
         with self.assertRaises(UserError):
-            rejected.unlink()
-        self.assertTrue(rejected.exists())
+            collections_done.unlink()
+        self.assertTrue(collections_done.exists())
 
     def test_action_validate_removed(self):
         """Aggregate header validate must not exist on the standalone voucher."""
         voucher = self._create_voucher()
         self.assertFalse(hasattr(voucher, "action_validate"))
 
-    # --- 1.6 / 1.7 Audited write() / kanban drag ---
+    # --- Intercept / attachment reopen ---
 
-    def test_kanban_drag_writes_state(self):
-        """write({state}) without collection_audited_state must run approve/reject."""
+    def test_raw_write_validated_seller_routes_through_seller_action(self):
+        """Bare write({state: validated_seller}) MUST run action_validate_seller."""
         voucher = self._create_voucher()
-        voucher.write({"state": "approved"})
-        self.assertEqual(voucher.state, "approved")
-        self.assertEqual(voucher.reviewed_by, self.env.user)
-        self.assertTrue(voucher.reviewed_at)
+        voucher.write({"state": "validated_seller"})
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
 
-        other = self._create_voucher(customer_identification="CUST-DRAG-REJ")
-        other.write({"state": "rejected"})
-        self.assertEqual(other.state, "rejected")
-        self.assertEqual(other.reviewed_by, self.env.user)
-        self.assertTrue(other.reviewed_at)
-
-    def test_kanban_reopen_without_attachment_refused(self):
-        """state=pending without replacing designated proof must refuse reopen."""
+    def test_raw_write_validated_collections_refused(self):
+        """Raw write of validated_collections MUST refuse; Review is the only path."""
         voucher = self._create_voucher()
-        voucher.action_approve()
+        voucher.action_validate_seller()
         with self.assertRaises(UserError):
-            voucher.write({"state": "pending"})
-        self.assertEqual(voucher.state, "approved")
-        self.assertEqual(voucher.reviewed_by, self.env.user)
+            voucher.write({"state": "validated_collections"})
+        self.assertEqual(voucher.state, "validated_seller")
 
-    def test_replace_main_resets_pending_clears_audit_and_rotation(self):
-        """Replacing the designated proof MUST reopen review and reset rotation."""
+        draft = self._create_voucher(customer_identification="CUST-RAW-COLL-DRAFT")
+        with self.assertRaises(UserError):
+            draft.write({"state": "validated_collections"})
+        self.assertEqual(draft.state, "draft")
+
+    def test_reopen_to_draft_without_attachment_refused(self):
+        """state=draft without replacing designated proof must refuse reopen."""
+        voucher = self._create_voucher()
+        voucher.action_validate_seller()
+        with self.assertRaises(UserError):
+            voucher.write({"state": "draft"})
+        self.assertEqual(voucher.state, "validated_seller")
+
+    def test_validate_seller_when_review_is_off(self):
+        """Validate by Seller MUST remain when Document Review is OFF."""
+        self.env.company.write({"document_review_enabled": False})
+        voucher = self._create_voucher(customer_identification="CUST-REVIEW-OFF")
+        voucher.action_validate_seller()
+        self.assertEqual(voucher.state, "validated_seller")
+
+    def test_replace_main_resets_to_validated_seller_clears_audit_and_rotation(self):
+        """Replacing designated proof MUST set validated_seller and reset rotation."""
         voucher = self._create_voucher(
             customer_identification="CUST-ATT-RST",
             document_id="DOC-ATT-RST",
         )
         first = post_voucher_proof(voucher, "old.png", PNG_B64)
         voucher.write({"attachment_rotation": 90})
-        voucher.action_approve()
-        self.assertEqual(voucher.state, "approved")
+        voucher.with_context(collection_audited_state=True).write(
+            {
+                "state": "validated_collections",
+                "reviewed_by": self.env.user.id,
+                "reviewed_at": fields.Datetime.now(),
+            }
+        )
+        self.assertEqual(voucher.state, "validated_collections")
         self.assertTrue(voucher.reviewed_by)
         replacement = self.env["ir.attachment"].create(
             {
@@ -563,7 +652,7 @@ class TestCollectionVoucher(TransactionCase):
             }
         )
         voucher.write({"message_main_attachment_id": replacement.id})
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
         self.assertEqual(voucher.attachment_rotation, 0)
@@ -575,7 +664,13 @@ class TestCollectionVoucher(TransactionCase):
         voucher = self._create_voucher(customer_identification="CUST-ATT-EXTRA")
         proof = post_voucher_proof(voucher, "keep.png", PNG_B64)
         voucher.write({"attachment_rotation": 180})
-        voucher.action_reject()
+        voucher.with_context(collection_audited_state=True).write(
+            {
+                "state": "validated_collections",
+                "reviewed_by": self.env.user.id,
+                "reviewed_at": fields.Datetime.now(),
+            }
+        )
         extra = self.env["ir.attachment"].create(
             {
                 "name": "notes.txt",
@@ -586,7 +681,7 @@ class TestCollectionVoucher(TransactionCase):
         )
         extra._post_add_create()
         voucher.invalidate_recordset()
-        self.assertEqual(voucher.state, "rejected")
+        self.assertEqual(voucher.state, "validated_collections")
         self.assertEqual(voucher.reviewed_by, self.env.user)
         self.assertTrue(voucher.reviewed_at)
         self.assertEqual(voucher.attachment_rotation, 180)
@@ -597,10 +692,9 @@ class TestCollectionVoucher(TransactionCase):
         voucher = self._create_voucher(customer_identification="CUST-ATT-CLR")
         post_voucher_proof(voucher, "clear-me.png", PNG_B64)
         voucher.write({"attachment_rotation": 270})
-        voucher.action_approve()
+        voucher.action_validate_seller()
         voucher.write({"message_main_attachment_id": False})
-        self.assertEqual(voucher.state, "approved")
-        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertEqual(voucher.attachment_rotation, 0)
         self.assertFalse(voucher.message_main_attachment_id)
 
@@ -709,13 +803,19 @@ class TestCollectionVoucher(TransactionCase):
             document_id="MEMB-DRAFT",
         )
         allocation = self._create_allocation(
-            sheet, partner, vouchers=voucher, residual_reason="on_account"
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
         )
         self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.residual, 0.0)
         voucher.write({"allocation_id": False})
         self.assertFalse(voucher.allocation_id)
+        self.assertEqual(allocation.residual, 0.0)
         voucher.write({"allocation_id": allocation.id})
         self.assertEqual(voucher.allocation_id, allocation)
+        self.assertEqual(allocation.residual, 0.0)
 
     def test_confirmed_membership_write_refused(self):
         """Write of allocation_id MUST be refused when current or target is
@@ -759,10 +859,27 @@ class TestCollectionVoucher(TransactionCase):
             document_id="REASSIGN-SAME-VALS",
         )
         allocation_a = self._create_allocation(
-            sheet, partner_p, vouchers=voucher, residual_reason="on_account"
+            sheet,
+            partner_p,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=80.0,
+                    external_invoice_id="INV-REASSIGN-A",
+                )
+            ],
         )
         allocation_b = self._create_allocation(
-            sheet, partner_q, residual_reason="on_account"
+            sheet,
+            partner_q,
+            lines=[
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=80.0,
+                    external_invoice_id="INV-REASSIGN-B",
+                )
+            ],
         )
         voucher.write({"partner_id": partner_q.id})
         self.assertEqual(voucher.partner_id, partner_q)
@@ -771,8 +888,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertIn(voucher, allocation_b.voucher_ids)
         self.assertNotIn(voucher, allocation_a.voucher_ids)
 
-    def test_partner_write_fully_applied_source_refused(self):
-        """Draft source with residual 0 MUST refuse partner_id write."""
+    def test_partner_write_fully_applied_source_succeeds(self):
+        """Draft source with residual 0 MUST allow partner_id write."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-FULL-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-FULL-Q")
         sheet = self._create_sheet()
@@ -796,10 +913,35 @@ class TestCollectionVoucher(TransactionCase):
             ],
         )
         self.assertEqual(allocation.residual, 0.0)
-        with self.assertRaises(UserError):
-            voucher.write({"partner_id": partner_q.id})
-        self.assertEqual(voucher.partner_id, partner_p)
-        self.assertEqual(voucher.allocation_id, allocation)
+        voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_q)
+        self.assertFalse(voucher.allocation_id)
+        self.assertEqual(allocation.residual, 0.0)
+        self.assertNotIn(voucher, allocation.voucher_ids)
+
+    def test_partner_write_leftover_less_than_amount_succeeds(self):
+        """Draft source residual below voucher amount MUST allow partner write."""
+        partner_p = dummy_customer_partner(self.env, customer="REASSIGN-LEFT-P")
+        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-LEFT-Q")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner_p.id,
+            sheet_id=sheet.id,
+            amount=100.0,
+            document_id="REASSIGN-LEFT-SRC",
+        )
+        allocation = self._create_allocation(
+            sheet,
+            partner_p,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=60.0, invoice_balance=100.0)],
+        )
+        self.assertEqual(allocation.residual, 40.0)
+        voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_q)
+        self.assertFalse(voucher.allocation_id)
+        self.assertEqual(allocation.residual, 40.0)
+        self.assertNotIn(voucher, allocation.voucher_ids)
 
     def test_partner_write_attaches_when_target_residual_holds(self):
         """Unallocated voucher attaches unique draft same-sheet allocation for Q."""
@@ -821,7 +963,7 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(voucher.allocation_id, allocation_q)
 
     def test_partner_write_left_unallocated_posts_chatter(self):
-        """Empty target without residual_reason leaves voucher unallocated + chatter."""
+        """No unique draft same-sheet allocation for Q leaves voucher unallocated."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-UNALLOC-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-UNALLOC-Q")
         sheet = self._create_sheet()
@@ -831,7 +973,6 @@ class TestCollectionVoucher(TransactionCase):
             amount=40.0,
             document_id="REASSIGN-UNALLOC",
         )
-        self._create_allocation(sheet, partner_q)
         voucher.write({"partner_id": partner_q.id})
         self.assertEqual(voucher.partner_id, partner_q)
         self.assertFalse(voucher.allocation_id)
@@ -861,33 +1002,35 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(voucher.partner_id, partner_p)
         self.assertEqual(voucher.allocation_id, allocation)
 
-    def test_approved_or_rejected_voucher_may_change_partner(self):
-        """Voucher state MUST NOT freeze partner_id on an open sheet."""
+    def test_all_voucher_states_may_change_partner(self):
+        """Any voucher state MUST NOT freeze partner_id on an open sheet."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-Q")
         partner_r = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-R")
         sheet = self._create_sheet()
-        approved = self._create_voucher(
+        seller_done = self._create_voucher(
             partner_id=partner_p.id,
             sheet_id=sheet.id,
             amount=10.0,
-            document_id="REASSIGN-APPROVED",
+            document_id="REASSIGN-SELLER",
         )
-        approved.action_approve()
-        approved.write({"partner_id": partner_q.id})
-        self.assertEqual(approved.partner_id, partner_q)
-        self.assertEqual(approved.state, "approved")
+        seller_done.action_validate_seller()
+        seller_done.write({"partner_id": partner_q.id})
+        self.assertEqual(seller_done.partner_id, partner_q)
+        self.assertEqual(seller_done.state, "validated_seller")
 
-        rejected = self._create_voucher(
+        collections_done = self._create_voucher(
             partner_id=partner_p.id,
             sheet_id=sheet.id,
             amount=10.0,
-            document_id="REASSIGN-REJECTED-VOUCHER",
+            document_id="REASSIGN-COLLECTIONS",
         )
-        rejected.action_reject()
-        rejected.write({"partner_id": partner_r.id})
-        self.assertEqual(rejected.partner_id, partner_r)
-        self.assertEqual(rejected.state, "rejected")
+        collections_done.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        collections_done.write({"partner_id": partner_r.id})
+        self.assertEqual(collections_done.partner_id, partner_r)
+        self.assertEqual(collections_done.state, "validated_collections")
 
     def test_constrain_mismatch_allocation_id_without_partner_refused(self):
         """allocation_id of another customer without matching partner_id MUST refuse."""
@@ -1285,7 +1428,7 @@ class TestCollectionNewWorkHelper(TransactionCase):
             voucher.write({"document_type": "unsupported"})
         self.assertEqual(voucher.document_type, "bank_transfer")
 
-    def test_disabled_seller_voucher_stays_visible_and_approvable(self):
+    def test_disabled_seller_voucher_stays_visible_and_validatable(self):
         seller = self._admin_seller()
         self._enable_sellers(seller)
         voucher = self._create_voucher(
@@ -1295,12 +1438,12 @@ class TestCollectionNewWorkHelper(TransactionCase):
         self._enable_sellers()  # clear: empty set
         found = self.env["collection.voucher"].search([("id", "=", voucher.id)])
         self.assertEqual(found, voucher, "disabled-seller voucher must stay listed")
-        voucher.action_approve()
-        self.assertEqual(voucher.state, "approved")
+        voucher.action_validate_seller()
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertTrue(voucher.exists())
 
-    def test_disabled_seller_voucher_reject_skips_helper(self):
-        """Triangulation: Reject without seller/type write MUST skip the helper."""
+    def test_disabled_seller_validate_seller_skips_helper(self):
+        """Triangulation: Validate by Seller without seller/type write skips helper."""
         seller = self._admin_seller()
         self._enable_sellers(seller)
         voucher = self._create_voucher(
@@ -1308,8 +1451,8 @@ class TestCollectionNewWorkHelper(TransactionCase):
             seller_id=seller.id,
         )
         self._clear_enabled_sellers()
-        voucher.action_reject()
-        self.assertEqual(voucher.state, "rejected")
+        voucher.action_validate_seller()
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertTrue(voucher.exists())
 
     def test_document_type_selection_is_allowed_union_current(self):

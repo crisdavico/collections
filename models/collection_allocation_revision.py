@@ -40,15 +40,9 @@ class CollectionAllocationRevision(models.Model):
     total_vouchers = fields.Monetary(currency_field="currency_id")
     total_applied = fields.Monetary(currency_field="currency_id")
     total_debt = fields.Monetary(currency_field="currency_id")
+    total_invoices = fields.Monetary(currency_field="currency_id")
+    total_quotations = fields.Monetary(currency_field="currency_id")
     residual = fields.Monetary(currency_field="currency_id")
-    residual_reason = fields.Selection(
-        selection=[
-            ("on_account", "On Account"),
-            ("advance", "Advance"),
-            ("pending_invoice", "Pending Invoice"),
-            ("rounding", "Rounding"),
-        ],
-    )
 
     _allocation_revision_uniq = models.Constraint(
         "UNIQUE(allocation_id, revision)",

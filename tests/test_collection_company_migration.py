@@ -152,22 +152,15 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_30_0(self):
+    def test_manifest_version_is_1_32_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.30.0"', manifest.read_text(encoding="utf-8"))
-        self.assertFalse(
-            (module_root / "migrations" / "19.0.1.27.0").exists(),
-            "No migrations/19.0.1.27.0/ folder",
-        )
-        self.assertFalse(
-            (module_root / "migrations" / "19.0.1.29.0").exists(),
-            "No migrations/19.0.1.29.0/ folder — ORM Float add only",
-        )
-        self.assertFalse(
-            (module_root / "migrations" / "19.0.1.30.0").exists(),
-            "No migrations/19.0.1.30.0/ folder — report fields via _init_column",
-        )
+        self.assertIn('"version": "19.0.1.32.0"', manifest.read_text(encoding="utf-8"))
+        for leftover in ("19.0.1.26.0", "19.0.1.27.0", "19.0.1.29.0", "19.0.1.30.0"):
+            self.assertFalse(
+                (module_root / "migrations" / leftover).exists(),
+                f"No migrations/{leftover}/ folder",
+            )
         migrate_128 = module_root / "migrations" / "19.0.1.28.0" / "post-migrate.py"
         self.assertTrue(migrate_128.is_file(), "Need 19.0.1.28.0 allocation remap")
         text_128 = migrate_128.read_text(encoding="utf-8")
@@ -176,6 +169,23 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("'validated'", text_128)
         self.assertNotIn("CA/", text_128)
         self.assertNotIn("_collection_copy_sequences", text_128)
+        migrate_131 = module_root / "migrations" / "19.0.1.31.0" / "post-migrate.py"
+        self.assertTrue(migrate_131.is_file(), "Need 19.0.1.31.0 voucher state remap")
+        text_131 = migrate_131.read_text(encoding="utf-8")
+        self.assertIn("UPDATE collection_voucher", text_131)
+        self.assertIn("THEN 'draft'", text_131)
+        self.assertIn("THEN 'validated_collections'", text_131)
+        self.assertIn("'pending'", text_131)
+        self.assertIn("'approved'", text_131)
+        self.assertIn("'rejected'", text_131)
+        self.assertNotIn("UPDATE collection_voucher_review_snapshot", text_131)
+        migrate_132 = module_root / "migrations" / "19.0.1.32.0" / "post-migrate.py"
+        self.assertTrue(migrate_132.is_file(), "Need 19.0.1.32.0 residual_reason drop")
+        text_132 = migrate_132.read_text(encoding="utf-8")
+        self.assertIn("DROP", text_132)
+        self.assertIn("residual_reason", text_132)
+        self.assertIn("collection_allocation", text_132)
+        self.assertIn("collection_allocation_revision", text_132)
 
     def test_allocation_sequence_in_specs_not_in_1_17_0_codes(self):
         specs_path = Path(__file__).resolve().parents[1] / "models" / "res_company.py"

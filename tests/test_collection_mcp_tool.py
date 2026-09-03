@@ -52,9 +52,7 @@ class TestCollectionMcpAttachment(TransactionCase):
         ident = arguments.get("customer_identification")
         if not ident:
             for payment in payments:
-                if isinstance(payment, dict) and payment.get(
-                    "customer_identification"
-                ):
+                if isinstance(payment, dict) and payment.get("customer_identification"):
                     ident = payment["customer_identification"]
                     break
         if ident:
@@ -138,6 +136,8 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertEqual(result["vouchers"][0]["document_id"], "MCP-DOC-ATT-PNG")
         self.assertEqual(voucher.message_main_attachment_id.name, "proof.png")
         self.assertTrue(voucher.message_main_attachment_id)
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertEqual(result["vouchers"][0]["state"], "validated_seller")
         attachments = self._voucher_attachments(voucher)
         self.assertEqual(len(attachments), 1)
         self.assertEqual(attachments.datas, PNG_B64.encode())
@@ -193,6 +193,8 @@ class TestCollectionMcpAttachment(TransactionCase):
         )
         voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
         self.assertTrue(voucher.exists())
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertEqual(result["vouchers"][0]["state"], "validated_seller")
         self.assertFalse(voucher.message_main_attachment_id)
         self.assertFalse(self._voucher_attachments(voucher))
         self.assertFalse(self._field_attachments(voucher))
@@ -751,9 +753,7 @@ class TestCollectionMcpProvenance(TransactionCase):
         ident = arguments.get("customer_identification")
         if not ident:
             for payment in payments:
-                if isinstance(payment, dict) and payment.get(
-                    "customer_identification"
-                ):
+                if isinstance(payment, dict) and payment.get("customer_identification"):
                     ident = payment["customer_identification"]
                     break
         if ident:

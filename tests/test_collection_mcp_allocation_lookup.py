@@ -34,7 +34,6 @@ _ALLOC_KEYS = {
     "total_vouchers",
     "total_applied",
     "residual",
-    "residual_reason",
 }
 _VOUCHER_KEYS = {
     "id",
@@ -53,6 +52,7 @@ _INVOICE_KEYS = {
     "balance",
     "state",
     "amount_applied",
+    "document_kind",
 }
 _LEAK_TOKENS = (
     "SELECT",
@@ -214,6 +214,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
             vals["voucher_ids"] = [Command.set(vouchers.ids)]
         if lines is not None:
             vals["line_ids"] = [Command.create(line) for line in lines]
+        extra.pop("residual_reason", None)
         vals.update(extra)
         return self.env["collection.allocation"].create(vals)
 
@@ -311,8 +312,8 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self._assert_null(result)
         self.assertEqual(self._counts(), before)
 
-    def test_found_payload_includes_lists_and_residual_reason(self):
-        """Found open-sheet allocation MUST return residual_reason plus lists."""
+    def test_found_payload_omits_reason_includes_document_kind(self):
+        """Found payload MUST omit residual_reason and include invoice document_kind."""
         sheet = self._create_sheet()
         voucher = self._create_voucher(sheet, self.partner, 150.0)
         allocation = self._create_allocation(
@@ -320,7 +321,6 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
             self.partner,
             vouchers=voucher,
             lines=[self._line_vals(amount_applied=100.0, invoice_balance=100.0)],
-            residual_reason="on_account",
         )
         before = self._counts()
         result = self._call(self._args())
@@ -328,6 +328,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(self._counts(), before)
         body = result["allocation"]
         self.assertEqual(set(body), _ALLOC_KEYS)
+        self.assertNotIn("residual_reason", body)
         self.assertEqual(body["id"], allocation.id)
         self.assertEqual(body["name"], allocation.name)
         self.assertEqual(body["state"], "draft")
@@ -337,8 +338,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(body["revision"], 1)
         self.assertEqual(body["total_vouchers"], 150.0)
         self.assertEqual(body["total_applied"], 100.0)
-        self.assertEqual(body["residual"], 50.0)
-        self.assertEqual(body["residual_reason"], "on_account")
+        self.assertEqual(body["residual"], 0.0)
         self.assertEqual(len(result["vouchers"]), 1)
         row = result["vouchers"][0]
         self.assertEqual(set(row), _VOUCHER_KEYS)
@@ -359,6 +359,44 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(invoice["balance"], 100.0)
         self.assertEqual(invoice["state"], "overdue")
         self.assertEqual(invoice["amount_applied"], 100.0)
+        self.assertEqual(invoice["document_kind"], "invoice")
+
+    def test_get_invoices_include_stored_document_kind(self):
+        """GET invoice rows MUST echo stored document_kind, including quotation."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(sheet, self.partner, 150.0)
+        self._create_allocation(
+            sheet,
+            self.partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(amount_applied=100.0, invoice_balance=100.0),
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="inv-bound-open",
+                    invoice_number="A-0002",
+                    invoice_amount=50.0,
+                    invoice_state="open",
+                    document_kind="quotation",
+                ),
+            ],
+        )
+        result = self._call(self._args())
+        kinds = {
+            row["external_invoice_id"]: row["document_kind"]
+            for row in result["invoices"]
+        }
+        self.assertEqual(
+            kinds,
+            {
+                "inv-bound-overdue": "invoice",
+                "inv-bound-open": "quotation",
+            },
+        )
+        for row in result["invoices"]:
+            self.assertIn("document_kind", row)
+        self.assertNotIn("residual_reason", result["allocation"])
 
     def test_on_account_empty_invoices_still_present_as_list(self):
         """On-account allocation MUST include invoices as an empty list."""
@@ -375,8 +413,8 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(set(result), _TOP_KEYS)
         self.assertEqual(result["allocation"]["id"], allocation.id)
         self.assertEqual(result["allocation"]["state"], "draft")
-        self.assertEqual(result["allocation"]["residual_reason"], "on_account")
-        self.assertEqual(result["allocation"]["residual"], 80.0)
+        self.assertEqual(result["allocation"]["residual"], 0.0)
+        self.assertNotIn("residual_reason", result["allocation"])
         self.assertEqual(len(result["vouchers"]), 1)
         self.assertEqual(result["invoices"], [])
 

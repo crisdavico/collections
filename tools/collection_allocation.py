@@ -59,8 +59,8 @@ _INVOICE_ITEM_SCHEMA = {
         },
         "amount_applied": {
             "type": "number",
-            "exclusiveMinimum": 0,
-            "description": "Amount applied to this invoice.",
+            "minimum": 0,
+            "description": "Amount applied to this invoice (zero allowed).",
         },
     },
     "required": ["external_invoice_id", "amount_applied"],
@@ -103,7 +103,7 @@ _CREATE_COLLECTION_ALLOCATION_SCHEMA = {
             "type": "string",
             "nullable": True,
             "enum": list(_RESIDUAL_REASONS),
-            "description": "Required when residual is greater than zero.",
+            "description": "Optional; enum is validated then ignored.",
         },
     },
     "required": [
@@ -162,6 +162,7 @@ class CollectionAllocationMixin(models.AbstractModel):
         ) = self._collection_parse_allocation_form(
             payments, invoices, request_id, customer_identification, residual_reason
         )
+        del reason  # Enum-validated then ignored; never persisted or hashed.
         seller = self._collection_require_internal_seller(seller_id)
         replayed = self._collection_allocation_classify_request(
             request_key, document_ids
@@ -180,7 +181,6 @@ class CollectionAllocationMixin(models.AbstractModel):
                 request_key,
                 document_ids,
                 invoice_rows,
-                reason,
                 payments,
                 payment_vals_list,
             )
@@ -281,15 +281,15 @@ class CollectionAllocationMixin(models.AbstractModel):
             except (TypeError, ValueError) as err:
                 raise UserError(
                     _(
-                        "Invoice amount_applied must be greater than zero "
+                        "Invoice amount_applied must be greater than or equal to zero "
                         "(index %(index)s).",
                         index=index,
                     )
                 ) from err
-            if applied_amount <= 0:
+            if applied_amount < 0:
                 raise UserError(
                     _(
-                        "Invoice amount_applied must be greater than zero "
+                        "Invoice amount_applied must be greater than or equal to zero "
                         "(index %(index)s).",
                         index=index,
                     )
@@ -355,10 +355,8 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_allocation_content_hash(
-        self, vouchers, invoice_rows, residual_reason
-    ) -> str:
-        """SHA-256 of sorted voucher ids, invoice pairs, and residual_reason."""
+    def _collection_allocation_content_hash(self, vouchers, invoice_rows) -> str:
+        """SHA-256 of sorted voucher ids and applied invoice pairs."""
         payload = {
             "vouchers": sorted(vouchers.ids),
             "invoices": sorted(
@@ -370,7 +368,6 @@ class CollectionAllocationMixin(models.AbstractModel):
                     for row in invoice_rows
                 ]
             ),
-            "residual_reason": residual_reason or None,
         }
         encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         return hashlib.sha256(encoded.encode()).hexdigest()
@@ -421,8 +418,6 @@ class CollectionAllocationMixin(models.AbstractModel):
                 raise UserError(
                     _("Each voucher must have an amount greater than zero.")
                 )
-            if voucher.state == "rejected":
-                raise UserError(_("Rejected vouchers cannot be allocated."))
         if len(vouchers.partner_id) != 1:
             raise UserError(_("Vouchers must share a single customer."))
         if len(vouchers.seller_id) != 1 or vouchers.seller_id != seller:
@@ -464,21 +459,26 @@ class CollectionAllocationMixin(models.AbstractModel):
         invoice_rows: list[dict[str, Any]],
         destination,
         currency,
-    ) -> tuple[float, list[dict[str, Any]]]:
-        """Revalidate invoices against fresh ERP debt minus other applications."""
+    ) -> list[dict[str, Any]]:
+        """Revalidate applied rows, then expand to every outstanding ERP invoice."""
         debt = connector.get_customer_debt(seller.id, identification)
         fresh_invoices = {
             row["external_invoice_id"]: row for row in debt.get("invoices") or []
         }
+        applied_by_id = {
+            row["external_invoice_id"]: row["amount_applied"] for row in invoice_rows
+        }
         Line = self.env["collection.allocation.line"]
         dest_id = destination.id if destination else False
-        line_vals: list[dict[str, Any]] = []
-        for row in invoice_rows:
-            external_id = row["external_invoice_id"]
-            applied = row["amount_applied"]
-            fresh = fresh_invoices.get(external_id)
-            if not fresh:
+        for external_id, applied in applied_by_id.items():
+            if (
+                currency.compare_amounts(applied, 0.0) > 0
+                and external_id not in fresh_invoices
+            ):
                 raise UserError(_("An invoice is no longer outstanding."))
+        line_vals: list[dict[str, Any]] = []
+        for external_id, fresh in fresh_invoices.items():
+            applied = applied_by_id.get(external_id, 0.0)
             domain = [
                 ("external_invoice_id", "=", external_id),
                 ("company_id", "=", self.env.company.id),
@@ -502,24 +502,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                     "amount_applied": applied,
                 }
             )
-        summary = debt.get("summary") or {}
-        return float(summary.get("total_balance") or 0.0), line_vals
-
-    @api.model
-    @api.private
-    def _collection_allocation_check_residual(
-        self, vouchers, invoice_rows, residual_reason, currency
-    ) -> None:
-        """Reject a negative residual or a missing reason when residual > 0."""
-        total_vouchers = sum(voucher.amount or 0.0 for voucher in vouchers)
-        total_applied = sum(row["amount_applied"] for row in invoice_rows)
-        residual = total_vouchers - total_applied
-        if currency.compare_amounts(residual, 0.0) < 0:
-            raise UserError(_("Residual cannot be negative."))
-        if currency.compare_amounts(residual, 0.0) > 0 and not residual_reason:
-            raise UserError(
-                _("A residual reason is required when the residual is positive.")
-            )
+        return line_vals
 
     @api.model
     @api.private
@@ -541,8 +524,9 @@ class CollectionAllocationMixin(models.AbstractModel):
                     "total_vouchers": allocation.total_vouchers,
                     "total_applied": allocation.total_applied,
                     "total_debt": allocation.total_debt,
+                    "total_invoices": allocation.total_invoices,
+                    "total_quotations": allocation.total_quotations,
                     "residual": allocation.residual,
-                    "residual_reason": allocation.residual_reason,
                 }
             )
         )
@@ -556,7 +540,6 @@ class CollectionAllocationMixin(models.AbstractModel):
         request_id: str,
         document_ids: list[str],
         invoice_rows: list[dict[str, Any]],
-        residual_reason: str | bool,
         payments: list[dict[str, Any]],
         payment_vals_list: list[dict[str, Any]],
     ) -> dict[str, Any]:
@@ -613,25 +596,19 @@ class CollectionAllocationMixin(models.AbstractModel):
                             "vouchers."
                         )
                     )
-                content_hash = self._collection_allocation_content_hash(
-                    vouchers, invoice_rows, residual_reason
-                )
+            content_hash = self._collection_allocation_content_hash(
+                vouchers, invoice_rows
+            )
+            if existing:
                 last = existing.revision_ids.sorted("revision")[-1:]
                 if last and last.content_hash == content_hash:
                     return self._collection_allocation_payload(
                         existing, last, document_ids
                     )
-            else:
-                content_hash = self._collection_allocation_content_hash(
-                    vouchers, invoice_rows, residual_reason
-                )
 
             currency = self.env.company.currency_id
-            fresh_total, line_vals = self._collection_allocation_revalidate(
+            line_vals = self._collection_allocation_revalidate(
                 connector, seller, identification, invoice_rows, existing, currency
-            )
-            self._collection_allocation_check_residual(
-                vouchers, invoice_rows, residual_reason, currency
             )
             line_commands = [Command.create(vals) for vals in line_vals]
             if existing:
@@ -639,16 +616,12 @@ class CollectionAllocationMixin(models.AbstractModel):
                     existing,
                     vouchers,
                     line_commands,
-                    residual_reason,
-                    fresh_total,
                 )
             else:
                 allocation = Allocation.create(
                     {
                         "sheet_id": sheet.id,
                         "partner_id": partner.id,
-                        "residual_reason": residual_reason,
-                        "total_debt": fresh_total,
                         "revision": 1,
                         "voucher_ids": [Command.set(vouchers.ids)],
                         "line_ids": line_commands,
@@ -666,21 +639,14 @@ class CollectionAllocationMixin(models.AbstractModel):
         allocation,
         vouchers,
         line_commands,
-        residual_reason,
-        fresh_total,
     ):
-        """Replace draft membership while residual stays valid mid-write."""
+        """Replace draft membership lines and voucher set, then bump revision."""
         # Command.clear() unlinks lines first and flushes computes before creates.
-        placeholder = residual_reason or allocation.residual_reason or "on_account"
         allocation.write(
             {
                 "revision": allocation.revision + 1,
-                "residual_reason": placeholder,
-                "total_debt": fresh_total,
                 "voucher_ids": [Command.set(vouchers.ids)],
                 "line_ids": [Command.clear(), *line_commands],
             }
         )
-        if allocation.residual_reason != residual_reason:
-            allocation.write({"residual_reason": residual_reason})
         return allocation

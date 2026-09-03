@@ -1,0 +1,18 @@
+# SDD change state — orchestrator-managed
+change: allocation-customer-debt
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: grok-4.6
+phase: archive
+updated: 2026-09-03
+notes: |
+  Source plan: ~/.cursor/plans/allocation_form_debt_c70c2828.plan.md
+  User asked automatic pipeline through verify inclusive.
+  One grok 4.6 subagent per SDD phase; apply uses one grok 4.6 subagent per task phase.
+  Settled product decisions are in the source plan; do not reopen them.
+  Nebula agent is out of scope (MCP keeps optional residual_reason ignored).
+  Concurrent sibling change voucher-states-ui reserved manifest 19.0.1.31.0;
+  this change uses 19.0.1.32.0. Do not edit voucher-states-ui artifacts.

@@ -367,8 +367,8 @@ class TestCollectionPaymentAttachment(TransactionCase):
         self.assertEqual(voucher.message_main_attachment_id, replacement)
         self.assertEqual(voucher.message_main_attachment_id.name, "new.pdf")
 
-    def test_write_replace_resets_approved_review_to_pending(self):
-        """Replacing designated proof must reopen review and clear audit."""
+    def test_write_replace_resets_collections_review_to_validated_seller(self):
+        """Replacing designated proof must set validated_seller and clear audit."""
         voucher = self.env["collection.voucher"].create(
             self._voucher_vals(
                 customer_identification="CUST-ATT-RST",
@@ -376,8 +376,10 @@ class TestCollectionPaymentAttachment(TransactionCase):
             )
         )
         post_voucher_proof(voucher, "old.png", PNG_B64)
-        voucher.action_approve()
-        self.assertEqual(voucher.state, "approved")
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        self.assertEqual(voucher.state, "validated_collections")
         replacement = self.env["ir.attachment"].create(
             {
                 "name": "new.pdf",
@@ -387,13 +389,13 @@ class TestCollectionPaymentAttachment(TransactionCase):
             }
         )
         voucher.write({"message_main_attachment_id": replacement.id})
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
         self.assertEqual(voucher.message_main_attachment_id.name, "new.pdf")
 
-    def test_write_replace_resets_rejected_review_to_pending(self):
-        """Triangulation: replacing a rejected voucher's proof also reopens review."""
+    def test_write_replace_resets_seller_validated_to_validated_seller(self):
+        """Triangulation: replacing a seller-validated proof also reopens to seller."""
         voucher = self.env["collection.voucher"].create(
             self._voucher_vals(
                 customer_identification="CUST-ATT-RST-REJ",
@@ -401,7 +403,7 @@ class TestCollectionPaymentAttachment(TransactionCase):
             )
         )
         post_voucher_proof(voucher, "rej.png", PNG_B64)
-        voucher.action_reject()
+        voucher.action_validate_seller()
         replacement = self.env["ir.attachment"].create(
             {
                 "name": "again.png",
@@ -411,7 +413,7 @@ class TestCollectionPaymentAttachment(TransactionCase):
             }
         )
         voucher.write({"message_main_attachment_id": replacement.id})
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
 

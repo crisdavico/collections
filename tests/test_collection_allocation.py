@@ -1,8 +1,10 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import inspect
 from datetime import date
 from re import fullmatch
+from unittest.mock import patch
 
 from psycopg2 import IntegrityError
 
@@ -11,11 +13,15 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from .common_connector import install_bound_test_connector, install_test_connector_type
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
 )
+
+ERP_CUSTOMER_IDENT = "20-11111111-1"
+ERP_OUTSTANDING_IDS = frozenset({"inv-bound-overdue", "inv-bound-open"})
 
 
 class TestCollectionAllocation(TransactionCase):
@@ -84,8 +90,7 @@ class TestCollectionAllocation(TransactionCase):
             vals["voucher_ids"] = [Command.set(vouchers.ids)]
         if lines is not None:
             vals["line_ids"] = [Command.create(line) for line in lines]
-        if extra.get("residual_reason"):
-            vals["residual_reason"] = extra.pop("residual_reason")
+        extra.pop("residual_reason", None)
         vals.update(extra)
         return self.env["collection.allocation"].create(vals)
 
@@ -114,8 +119,11 @@ class TestCollectionAllocation(TransactionCase):
             "total_vouchers": extra.pop("total_vouchers", allocation.total_vouchers),
             "total_applied": extra.pop("total_applied", allocation.total_applied),
             "total_debt": extra.pop("total_debt", allocation.total_debt),
+            "total_invoices": extra.pop("total_invoices", allocation.total_invoices),
+            "total_quotations": extra.pop(
+                "total_quotations", allocation.total_quotations
+            ),
             "residual": extra.pop("residual", allocation.residual),
-            "residual_reason": extra.pop("residual_reason", allocation.residual_reason),
         }
         vals.update(extra)
         return (
@@ -129,6 +137,30 @@ class TestCollectionAllocation(TransactionCase):
             {"state": "confirmed"}
         )
         return allocation
+
+    def _bind_erp_customer(self, partner, seller, identification=ERP_CUSTOMER_IDENT):
+        install_test_connector_type(self)
+        connector = install_bound_test_connector(self, seller)
+        Binding = self.env["collection.connector.customer.binding"]
+        existing = Binding.search(
+            [
+                ("connector_id", "=", connector.id),
+                ("partner_id", "=", partner.id),
+            ],
+            limit=1,
+        )
+        if existing:
+            return connector, existing
+        binding = Binding.create(
+            {
+                "connector_id": connector.id,
+                "external_customer_id": f"cust-{partner.id}",
+                "identification": identification,
+                "partner_id": partner.id,
+                "customer_code": "C-BOUND-1",
+            }
+        )
+        return connector, binding
 
     def test_unique_sheet_partner_rejected(self):
         """UNIQUE(sheet_id, partner_id) MUST reject a second header."""
@@ -226,12 +258,7 @@ class TestCollectionAllocation(TransactionCase):
             partner, sheet, amount=20.0, document_id="ALLOC-DRAFT-EXTRA"
         )
         self.assertEqual(allocation.state, "draft")
-        allocation.write(
-            {
-                "voucher_ids": [Command.link(extra.id)],
-                "residual_reason": "on_account",
-            }
-        )
+        allocation.write({"voucher_ids": [Command.link(extra.id)]})
         self.assertIn(extra, allocation.voucher_ids)
         self.assertIn(voucher, allocation.voucher_ids)
         extra_line = self._line_vals(
@@ -261,66 +288,81 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.total_vouchers, 100.0)
         self.assertEqual(allocation.total_applied, 100.0)
+        self.assertEqual(allocation.total_debt, 100.0)
         self.assertEqual(allocation.residual, 0.0)
-        self.assertFalse(allocation.residual_reason)
+        self.assertNotIn("residual_reason", allocation._fields)
         self.assertEqual(voucher.allocation_id, allocation)
         self._confirm(allocation)
         self.assertEqual(allocation.state, "confirmed")
         self.assertEqual(allocation.residual, 0.0)
 
-    def test_residual_positive_requires_reason_on_draft_and_confirmed(self):
+    def test_residual_is_debt_minus_applied(self):
+        """Residual MUST be total_debt − total_applied (150 − 40 = 110)."""
         partner = self._partner("ALLOC-RES")
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner, sheet, amount=100.0)
-        with self.assertRaises(ValidationError):
-            self._create_allocation(
-                sheet,
-                partner,
-                vouchers=voucher,
-                lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
-            )
         allocation = self._create_allocation(
             sheet,
             partner,
             vouchers=voucher,
-            lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
-            residual_reason="on_account",
+            lines=[self._line_vals(amount_applied=40.0, invoice_balance=150.0)],
         )
         self.assertEqual(allocation.state, "draft")
-        self.assertEqual(allocation.residual, 60.0)
-        self.assertEqual(allocation.residual_reason, "on_account")
+        self.assertEqual(allocation.total_debt, 150.0)
+        self.assertEqual(allocation.total_applied, 40.0)
+        self.assertEqual(allocation.total_invoices, 150.0)
+        self.assertEqual(allocation.total_quotations, 0.0)
+        self.assertEqual(allocation.residual, 110.0)
+        self.assertNotIn("residual_reason", allocation._fields)
         self._confirm(allocation)
         self.assertEqual(allocation.state, "confirmed")
-        self.assertEqual(allocation.residual, 60.0)
-        self.assertEqual(allocation.residual_reason, "on_account")
+        self.assertEqual(allocation.residual, 110.0)
 
-    def test_residual_negative_rejected_on_draft_and_confirmed(self):
+    def test_residual_negative_saves_on_draft_and_confirmed(self):
+        """Applied exceeding debt MUST persist a negative residual."""
         partner = self._partner("ALLOC-NEG")
         sheet = self._create_sheet()
-        voucher = self._create_voucher(partner, sheet, amount=50.0)
-        with self.assertRaises(ValidationError):
-            self._create_allocation(
-                sheet,
-                partner,
-                vouchers=voucher,
-                lines=[self._line_vals(amount_applied=80.0, invoice_balance=80.0)],
-            )
         allocation = self._create_allocation(
             sheet,
             partner,
-            vouchers=voucher,
-            lines=[self._line_vals(amount_applied=50.0, invoice_balance=50.0)],
+            lines=[self._line_vals(amount_applied=80.0, invoice_balance=40.0)],
         )
         self.assertEqual(allocation.state, "draft")
-        with self.assertRaises(ValidationError):
-            voucher.write({"amount": 10.0})
-        self.assertEqual(allocation.residual, 0.0)
-        voucher.write({"amount": 50.0})
+        self.assertEqual(allocation.total_debt, 40.0)
+        self.assertEqual(allocation.total_applied, 80.0)
+        self.assertEqual(allocation.residual, -40.0)
+        self.assertNotIn("residual_reason", allocation._fields)
         self._confirm(allocation)
         self.assertEqual(allocation.state, "confirmed")
-        with self.assertRaises(ValidationError):
-            voucher.write({"amount": 10.0})
-        self.assertEqual(allocation.residual, 0.0)
+        self.assertEqual(allocation.residual, -40.0)
+
+    def test_totals_split_invoices_and_quotations(self):
+        """total_invoices / total_quotations MUST split invoice_balance by kind."""
+        partner = self._partner("ALLOC-KIND-TOT")
+        sheet = self._create_sheet()
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            lines=[
+                self._line_vals(
+                    amount_applied=10.0,
+                    invoice_balance=100.0,
+                    document_kind="invoice",
+                ),
+                self._line_vals(
+                    amount_applied=20.0,
+                    invoice_balance=50.0,
+                    document_kind="quotation",
+                    external_invoice_id="QUO-1",
+                    invoice_number="Q-1",
+                ),
+            ],
+        )
+        self.assertEqual(allocation.total_invoices, 100.0)
+        self.assertEqual(allocation.total_quotations, 50.0)
+        self.assertEqual(allocation.total_debt, 150.0)
+        self.assertEqual(allocation.total_applied, 30.0)
+        self.assertEqual(allocation.residual, 120.0)
 
     def test_validate_and_reject_are_gone(self):
         allocation, _voucher, _sheet, _partner = self._balanced_allocation()
@@ -500,9 +542,9 @@ class TestCollectionAllocation(TransactionCase):
             sheet,
             partner,
             vouchers=voucher,
-            residual_reason="on_account",
+            lines=[self._line_vals(amount_applied=0.0, invoice_balance=40.0)],
         )
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.residual, 40.0)
         voucher_id = voucher.id
@@ -514,7 +556,7 @@ class TestCollectionAllocation(TransactionCase):
         """Pending plus confirmed MUST refuse unlink; voucher and allocation remain."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         self._confirm(allocation)
-        self.assertEqual(voucher.state, "pending")
+        self.assertEqual(voucher.state, "draft")
         voucher_id = voucher.id
         with self.assertRaises(UserError):
             voucher.unlink()
@@ -522,8 +564,8 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(leftover.exists())
         self.assertEqual(leftover.allocation_id, allocation)
 
-    def test_pending_unlink_on_draft_negative_residual_refused(self):
-        """Draft residual underflow MUST refuse pending unlink without editing lines."""
+    def test_pending_unlink_on_draft_at_residual_zero_succeeds(self):
+        """Draft unlink at residual 0 MUST succeed; lines and residual stay."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.residual, 0.0)
@@ -533,11 +575,10 @@ class TestCollectionAllocation(TransactionCase):
         ]
         self.assertTrue(line_before)
         voucher_id = voucher.id
-        with self.assertRaises(UserError):
-            voucher.unlink()
-        leftover = self.env["collection.voucher"].browse(voucher_id)
-        self.assertTrue(leftover.exists())
-        self.assertEqual(leftover.allocation_id, allocation)
+        voucher.unlink()
+        self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
+        self.assertFalse(allocation.voucher_ids)
+        self.assertEqual(allocation.residual, 0.0)
         allocation.invalidate_recordset(["line_ids"])
         self.assertEqual(
             [
@@ -556,26 +597,42 @@ class TestCollectionAllocation(TransactionCase):
         voucher.unlink()
         self.assertFalse(self.env["collection.voucher"].browse(voucher_id).exists())
 
-    def test_line_amount_applied_must_be_positive_and_lte_balance(self):
+    def test_zero_applied_line_persists(self):
+        """amount_applied 0 MUST persist; residual stays the invoice balance."""
         partner = self._partner("ALLOC-LINE")
         sheet = self._create_sheet()
-        voucher = self._create_voucher(partner, sheet, amount=10.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            lines=[self._line_vals(amount_applied=0.0, invoice_balance=10.0)],
+        )
+        self.assertEqual(len(allocation.line_ids), 1)
+        self.assertEqual(allocation.line_ids.amount_applied, 0.0)
+        self.assertEqual(allocation.total_debt, 10.0)
+        self.assertEqual(allocation.total_applied, 0.0)
+        self.assertEqual(allocation.residual, 10.0)
+        omitted = self._line_vals(
+            invoice_balance=5.0,
+            external_invoice_id="INV-DEFAULT-0",
+        )
+        omitted.pop("amount_applied")
+        defaulted = self._create_allocation(
+            sheet,
+            self._partner("ALLOC-LINE-DEF"),
+            lines=[omitted],
+        )
+        self.assertEqual(defaulted.line_ids.amount_applied, 0.0)
+
+    def test_negative_amount_applied_rejected(self):
+        """CHECK amount_applied >= 0 MUST reject a negative applied amount."""
+        partner = self._partner("ALLOC-LINE-NEG")
+        sheet = self._create_sheet()
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
             with self.env.cr.savepoint():
                 self._create_allocation(
                     sheet,
                     partner,
-                    vouchers=voucher,
-                    lines=[self._line_vals(amount_applied=0.0, invoice_balance=10.0)],
-                    residual_reason="on_account",
-                )
-        with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
-            with self.env.cr.savepoint():
-                self._create_allocation(
-                    sheet,
-                    partner,
-                    vouchers=voucher,
-                    lines=[self._line_vals(amount_applied=20.0, invoice_balance=10.0)],
+                    lines=[self._line_vals(amount_applied=-1.0, invoice_balance=10.0)],
                 )
 
     def test_related_stored_currency_and_company_on_line_and_revision(self):
@@ -595,18 +652,20 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(rev_company.required)
         self.assertTrue(rev_company.precompute)
 
-    def test_fully_applied_source_detach_via_partner_write_refused(self):
-        """Fully applied draft allocation MUST refuse a voucher partner move."""
+    def test_fully_applied_source_detach_via_partner_write_succeeds(self):
+        """Fully applied draft allocation MUST allow a voucher partner move."""
         allocation, voucher, _sheet, partner = self._balanced_allocation()
         other = self._partner("ALLOC-DETACH-Q")
-        with self.assertRaises(UserError):
-            voucher.write({"partner_id": other.id})
-        self.assertEqual(allocation.voucher_ids, voucher)
-        self.assertEqual(voucher.partner_id, partner)
-        self.assertEqual(voucher.allocation_id, allocation)
+        self.assertEqual(allocation.residual, 0.0)
+        voucher.write({"partner_id": other.id})
+        self.assertEqual(voucher.partner_id, other)
+        self.assertFalse(voucher.allocation_id)
+        self.assertEqual(allocation.residual, 0.0)
+        self.assertNotIn(voucher, allocation.voucher_ids)
+        self.assertNotEqual(partner, other)
 
-    def test_projected_residual_less_than_amount_detach_refused(self):
-        """Draft projected residual below the voucher amount MUST refuse detach."""
+    def test_leftover_less_than_amount_detach_succeeds(self):
+        """Draft residual below the voucher amount MUST allow detach."""
         partner = self._partner("ALLOC-PROJ-P")
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner, sheet, amount=100.0)
@@ -614,18 +673,17 @@ class TestCollectionAllocation(TransactionCase):
             sheet,
             partner,
             vouchers=voucher,
-            lines=[self._line_vals(amount_applied=60.0, invoice_balance=60.0)],
-            residual_reason="on_account",
+            lines=[self._line_vals(amount_applied=60.0, invoice_balance=100.0)],
         )
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.residual, 40.0)
         residual_before = allocation.residual
         other = self._partner("ALLOC-PROJ-Q")
-        with self.assertRaises(UserError):
-            voucher.write({"partner_id": other.id})
+        voucher.write({"partner_id": other.id})
         self.assertEqual(allocation.residual, residual_before)
-        self.assertEqual(voucher.allocation_id, allocation)
-        self.assertEqual(voucher.partner_id, partner)
+        self.assertFalse(voucher.allocation_id)
+        self.assertEqual(voucher.partner_id, other)
+        self.assertNotIn(voucher, allocation.voucher_ids)
 
     def test_voucher_partner_write_mismatch_without_matching_allocation_refused(self):
         """Partner Q with the source allocation still in vals MUST refuse."""
@@ -643,10 +701,21 @@ class TestCollectionAllocation(TransactionCase):
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner_p, sheet, amount=50.0)
         allocation_a = self._create_allocation(
-            sheet, partner_p, vouchers=voucher, residual_reason="on_account"
+            sheet,
+            partner_p,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=0.0, invoice_balance=50.0)],
         )
         allocation_b = self._create_allocation(
-            sheet, partner_q, residual_reason="on_account"
+            sheet,
+            partner_q,
+            lines=[
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-B",
+                )
+            ],
         )
         voucher.write({"partner_id": partner_q.id, "allocation_id": allocation_b.id})
         self.assertEqual(voucher.partner_id, partner_q)
@@ -663,3 +732,258 @@ class TestCollectionAllocation(TransactionCase):
             voucher.write({"partner_id": other.id})
         self.assertEqual(voucher.partner_id, partner)
         self.assertEqual(voucher.allocation_id, allocation)
+
+    def test_prepare_customer_debt_lines_snapshots_outstanding_zeros(self):
+        """Helper MUST map every outstanding ERP invoice with amount_applied 0."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer=ERP_CUSTOMER_IDENT)
+        sheet = self._create_sheet(seller_id=seller.id)
+        self._bind_erp_customer(partner, seller)
+        Allocation = self.env["collection.allocation"]
+        rows = Allocation._prepare_customer_debt_lines(sheet, partner)
+        self.assertEqual(
+            {row["external_invoice_id"] for row in rows},
+            ERP_OUTSTANDING_IDS,
+        )
+        self.assertGreaterEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row["amount_applied"], 0.0)
+            self.assertEqual(row["document_kind"], "invoice")
+            self.assertTrue(row["invoice_number"])
+            self.assertGreater(row["invoice_balance"], 0.0)
+
+    def test_prepare_customer_debt_lines_empty_without_connector(self):
+        """Missing connector MUST yield empty lines and MUST NOT raise UserError."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer="ALLOC-NO-CONN")
+        sheet = self._create_sheet(seller_id=seller.id)
+        self.env.company.write({"collection_connector_id": False})
+        Allocation = self.env["collection.allocation"]
+        rows = Allocation._prepare_customer_debt_lines(sheet, partner)
+        self.assertEqual(rows, [])
+
+    def test_prepare_customer_debt_lines_empty_without_binding(self):
+        """Missing customer binding MUST yield empty lines and MUST NOT raise."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer="ALLOC-NO-BIND")
+        sheet = self._create_sheet(seller_id=seller.id)
+        install_test_connector_type(self)
+        install_bound_test_connector(self, seller)
+        Allocation = self.env["collection.allocation"]
+        rows = Allocation._prepare_customer_debt_lines(sheet, partner)
+        self.assertEqual(rows, [])
+
+    def test_prepare_customer_debt_lines_swallows_erp_usererror(self):
+        """ERP UserError from get_customer_debt MUST become empty lines."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer="ALLOC-ERP-ERR")
+        sheet = self._create_sheet(seller_id=seller.id)
+        self._bind_erp_customer(partner, seller, identification="NO-SUCH-CUSTOMER")
+        Allocation = self.env["collection.allocation"]
+        rows = Allocation._prepare_customer_debt_lines(sheet, partner)
+        self.assertEqual(rows, [])
+
+    def test_prepare_customer_debt_lines_never_calls_active_connector(self):
+        """Helper MUST NOT call _collection_active_connector()."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer=ERP_CUSTOMER_IDENT)
+        sheet = self._create_sheet(seller_id=seller.id)
+        self._bind_erp_customer(partner, seller)
+        Allocation = self.env["collection.allocation"]
+        source = inspect.getsource(Allocation._prepare_customer_debt_lines)
+        self.assertNotIn("_collection_active_connector", source)
+        with patch.object(
+            type(self.env.company),
+            "_collection_active_connector",
+            side_effect=AssertionError("must not call _collection_active_connector"),
+        ):
+            rows = Allocation._prepare_customer_debt_lines(sheet, partner)
+        self.assertEqual(
+            {row["external_invoice_id"] for row in rows},
+            ERP_OUTSTANDING_IDS,
+        )
+
+    def test_onchange_replaces_lines_on_draft(self):
+        """Draft Customer/Sheet onchange MUST replace line_ids with the snapshot."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer=ERP_CUSTOMER_IDENT)
+        sheet = self._create_sheet(seller_id=seller.id)
+        self._bind_erp_customer(partner, seller)
+        record = self.env["collection.allocation"].new(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "state": "draft",
+                "line_ids": [
+                    Command.create(
+                        self._line_vals(
+                            external_invoice_id="OLD-LINE",
+                            amount_applied=0,
+                        )
+                    )
+                ],
+            }
+        )
+        self.assertEqual(record.line_ids.external_invoice_id, "OLD-LINE")
+        record._onchange_customer_debt_lines()
+        self.assertEqual(
+            set(record.line_ids.mapped("external_invoice_id")),
+            ERP_OUTSTANDING_IDS,
+        )
+        self.assertTrue(
+            all(line.amount_applied == 0.0 for line in record.line_ids),
+        )
+
+    def test_onchange_skips_when_confirmed(self):
+        """Confirmed onchange MUST leave line_ids unchanged."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer=ERP_CUSTOMER_IDENT)
+        sheet = self._create_sheet(seller_id=seller.id)
+        self._bind_erp_customer(partner, seller)
+        record = self.env["collection.allocation"].new(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "state": "confirmed",
+                "line_ids": [
+                    Command.create(
+                        self._line_vals(
+                            external_invoice_id="KEEP-LINE",
+                            amount_applied=5,
+                        )
+                    )
+                ],
+            }
+        )
+        record._onchange_customer_debt_lines()
+        self.assertEqual(record.line_ids.external_invoice_id, "KEEP-LINE")
+        self.assertEqual(record.line_ids.amount_applied, 5.0)
+
+    def test_onchange_empty_when_unbound_partner(self):
+        """Draft onchange with no binding MUST clear lines without UserError."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer="ALLOC-ONC-UNBOUND")
+        sheet = self._create_sheet(seller_id=seller.id)
+        install_test_connector_type(self)
+        install_bound_test_connector(self, seller)
+        record = self.env["collection.allocation"].new(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "state": "draft",
+                "line_ids": [
+                    Command.create(
+                        self._line_vals(
+                            external_invoice_id="WIPE-ME",
+                            amount_applied=0,
+                        )
+                    )
+                ],
+            }
+        )
+        record._onchange_customer_debt_lines()
+        self.assertFalse(record.line_ids)
+
+    def test_create_omitted_line_ids_snapshots(self):
+        """create MUST snapshot outstanding debt when line_ids is omitted."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer=ERP_CUSTOMER_IDENT)
+        sheet = self._create_sheet(seller_id=seller.id)
+        self._bind_erp_customer(partner, seller)
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+            }
+        )
+        self.assertEqual(
+            set(allocation.line_ids.mapped("external_invoice_id")),
+            ERP_OUTSTANDING_IDS,
+        )
+        self.assertTrue(
+            all(line.amount_applied == 0.0 for line in allocation.line_ids),
+        )
+        self.assertTrue(
+            all(line.document_kind == "invoice" for line in allocation.line_ids),
+        )
+
+    def test_create_supplied_line_ids_skips_snapshot(self):
+        """create MUST persist supplied lines without a second ERP fetch."""
+        seller = self._seller()
+        partner = dummy_customer_partner(self.env, customer=ERP_CUSTOMER_IDENT)
+        sheet = self._create_sheet(seller_id=seller.id)
+        self._bind_erp_customer(partner, seller)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            lines=[
+                self._line_vals(
+                    external_invoice_id="SUPPLIED-ONLY",
+                    invoice_number="S-1",
+                    amount_applied=0.0,
+                    invoice_balance=9.0,
+                )
+            ],
+        )
+        self.assertEqual(len(allocation.line_ids), 1)
+        self.assertEqual(allocation.line_ids.external_invoice_id, "SUPPLIED-ONLY")
+        self.assertNotIn(
+            "inv-bound-overdue",
+            allocation.line_ids.mapped("external_invoice_id"),
+        )
+
+    def test_voucher_count_matches_linked_vouchers(self):
+        """voucher_count MUST be a non-stored count of allocation.voucher_ids."""
+        field = self.env["collection.allocation"]._fields["voucher_count"]
+        self.assertTrue(field.compute)
+        self.assertFalse(field.store)
+        allocation, voucher, sheet, partner = self._balanced_allocation(amount=40.0)
+        self.assertEqual(allocation.voucher_count, 1)
+        extra = self._create_voucher(
+            partner, sheet, amount=10.0, document_id="ALLOC-VC-EXTRA"
+        )
+        extra.write({"allocation_id": allocation.id})
+        self.assertEqual(allocation.voucher_count, 2)
+        empty = self._create_allocation(
+            sheet,
+            self._partner("ALLOC-VC-EMPTY"),
+            lines=[self._line_vals(amount_applied=0.0, invoice_balance=1.0)],
+        )
+        self.assertEqual(empty.voucher_count, 0)
+
+    def test_action_open_vouchers_domain_is_allocation_id(self):
+        """Saved allocation MUST open vouchers filtered by allocation_id."""
+        allocation, _voucher, _sheet, _partner = self._balanced_allocation()
+        action = allocation.action_open_vouchers()
+        self.assertEqual(action["type"], "ir.actions.act_window")
+        self.assertEqual(action["res_model"], "collection.voucher")
+        self.assertEqual(action["view_mode"], "list,kanban,form")
+        self.assertEqual(action["domain"], [("allocation_id", "=", allocation.id)])
+        self.assertFalse(action.get("path"))
+        other = self._create_allocation(
+            allocation.sheet_id,
+            self._partner("ALLOC-BTN-B"),
+            lines=[
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=1.0,
+                    external_invoice_id="INV-BTN-B",
+                )
+            ],
+        )
+        self.assertEqual(
+            other.action_open_vouchers()["domain"],
+            [("allocation_id", "=", other.id)],
+        )
+
+    def test_action_open_vouchers_refused_on_new_id(self):
+        """Unsaved allocation NewId MUST refuse action_open_vouchers."""
+        unsaved = self.env["collection.allocation"].new(
+            {
+                "sheet_id": self._create_sheet().id,
+                "partner_id": self._partner("ALLOC-UNSAVED").id,
+            }
+        )
+        self.assertFalse(isinstance(unsaved.id, int))
+        with self.assertRaises(UserError):
+            unsaved.action_open_vouchers()
