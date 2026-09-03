@@ -28,9 +28,8 @@ per company. Each payment MUST consume one sequence number of that voucher's com
 
 ### Requirement: Mail thread and activities
 
-Each voucher MUST support messaging and activities. Voucher fields including `state`
-SHOULD be tracked in chatter. (Previously: Chatter lived on the header; scenarios used
-header state `new`.)
+Each voucher MUST support messaging and activities. MUST track `state`, `seller_id`, `sheet_id`, `document_type`, and `amount` in chatter.
+(Previously: `state` SHOULD be tracked; seller/sheet/type/amount were untracked.)
 
 #### Scenario: Chatter and activities available
 
@@ -40,8 +39,8 @@ header state `new`.)
 
 #### Scenario: State change tracked
 
-- GIVEN a voucher in `pending`
-- WHEN approved or rejected
+- GIVEN a `draft` voucher
+- WHEN Validate by Seller runs
 - THEN chatter MUST record the state change
 
 ### Requirement: Authorization for internal users
@@ -65,16 +64,13 @@ No record rules; vouchers were company-blind.)
 
 ### Requirement: Deferred integrations not required
 
-Completeness MUST NOT require HTTP API, WhatsApp metadata, or agent calls. Each voucher
-MUST require a `res.partner` Customer (`partner_id`). Optional per-voucher image/PDF
-attachments are an allowed capability and MUST NOT be required for completeness of
-unrelated voucher features. (Previously: Completeness MUST NOT require partner/CRM
-linkage.)
+Completeness MUST NOT require HTTP API, WhatsApp metadata, or agent calls. Each voucher MUST require a `res.partner` Customer (`partner_id`). Optional per-voucher image/PDF attachments are an allowed capability and MUST NOT be required for completeness of unrelated voucher features.
+(Previously: Completeness scenario named approve or reject.)
 
 #### Scenario: Completeness without deferred features
 
 - GIVEN backend-only voucher management
-- WHEN operators create, edit, approve, or reject vouchers
+- WHEN operators create, edit, or Validate by Seller
 - THEN success MUST NOT depend on deferred integrations
 - AND success MUST NOT require that vouchers have attachments
 
@@ -129,64 +125,54 @@ except as this change specifies for company, seller, and type gates.
 
 ### Requirement: Concurrent and stale review attempts
 
-Approve and reject MUST refuse stale or concurrent attempts when the voucher is no
-longer eligible (not `pending`, or designated proof (`message_main_attachment_id`) no
-longer present) and MUST NOT corrupt review or voucher state. (Previously: Eligibility
-failed when Binary attachment was no longer present.)
+Approve MUST refuse stale or concurrent attempts when the voucher is ineligible (not `validated_seller`, or designated proof absent) and MUST NOT corrupt state. Reject MUST NOT exist.
+(Previously: Eligibility was not `pending`; approve or reject.)
 
 #### Scenario: Concurrent or stale review attempt
 
-- GIVEN a voucher already decided or otherwise ineligible for review (not `pending`, or
-  designated proof no longer present)
-- WHEN approve or reject is attempted again
-- THEN the system MUST refuse the action and MUST NOT alter terminal or decided state
+- GIVEN a voucher already decided or ineligible (not `validated_seller`, or proof absent)
+- WHEN approve is attempted again
+- THEN MUST refuse and MUST NOT alter decided state
 
 ### Requirement: Attachment replacement resets review to pending
 
-Replacing a voucher's designated proof (a change of `message_main_attachment_id` to a
-different attachment) MUST reset that voucher's `state` to `pending` and MUST clear
-prior reviewer/time audit for a fresh review. Extra chatter files that do not change
-`message_main_attachment_id` MUST NOT reset review, audit, or rotation. Clearing
-designated proof MUST reset rotation to 0 and MUST NOT reopen a decided voucher.
-Omit/empty and MIME validation rules remain unchanged. (Previously: Replacement was a
-write of new Binary content.)
+Replacing designated proof (`message_main_attachment_id` to a different attachment) MUST set `state` to `validated_seller` and MUST clear reviewer/time. Extra chatter files that do not change designated proof MUST NOT reset review, audit, or rotation. Clearing proof MUST reset rotation to 0 and MUST NOT reopen a decided voucher. Omit/empty and MIME rules unchanged.
+(Previously: Replacement reset `state` to `pending` from `approved`/`rejected`.)
 
 #### Scenario: Attachment replacement resets voucher state
 
-- GIVEN a voucher previously `approved` or `rejected` with a designated proof
-- WHEN `message_main_attachment_id` changes to a different valid proof
-- THEN `state` MUST become `pending`
-- AND prior reviewer/time audit MUST be cleared for re-review
+- GIVEN `validated_seller` or `validated_collections` with designated proof
+- WHEN designated proof changes to a different valid file
+- THEN `state` MUST be `validated_seller` and reviewer/time MUST clear
 
 #### Scenario: Extra chatter files do not reset review
 
-- GIVEN a voucher with designated proof in `approved` or `rejected`
-- WHEN an extra chatter file is added without changing `message_main_attachment_id`
-- THEN `state` and reviewer/time audit MUST remain unchanged
+- GIVEN designated proof in `validated_seller` or `validated_collections`
+- WHEN an extra chatter file is added without changing designated proof
+- THEN `state` and reviewer/time MUST stay unchanged
 
 #### Scenario: Clearing proof does not reopen
 
-- GIVEN a voucher in `approved` or `rejected` with designated proof
-- WHEN designated proof is cleared with no replacement
-- THEN `state` MUST remain decided
-- AND rotation MUST reset to 0
+- GIVEN `validated_seller` or `validated_collections` with designated proof
+- WHEN proof is cleared with no replacement
+- THEN `state` MUST stay decided and rotation MUST be 0
 
 ### Requirement: Voucher fields and defaults
 
-Each `collection.voucher` MUST represent one payment. The system MUST require
-`partner_id` (label Customer; tracking; index; `ondelete` restrict). The system MUST NOT
-store or accept `customer_identification` or `received_date`. Registration time MUST be
-automatic ORM `create_date` (readonly; MUST NOT be overridable by MCP, create vals, or
-editable views). On create, `state` MUST default to `pending`. Currency MUST be the
-company default (no multi-currency UX). Upgrade MUST NOT backfill `partner_id`.
-(Previously: Required Char `customer_identification`.)
+Each `collection.voucher` MUST represent one payment. MUST require `partner_id` (label Customer; tracking; index; `ondelete` restrict). MUST NOT store `customer_identification` or `received_date`. Registration time MUST be automatic ORM `create_date` (readonly; MUST NOT be overridable). ORM/UI create MUST default `state` to `draft`. MCP `_collection_create_vouchers` MUST stamp `validated_seller`. Currency MUST be company default. Upgrade MUST NOT backfill `partner_id`.
+(Previously: Create defaulted `state` to `pending` for ORM/UI and MCP.)
 
 #### Scenario: Defaults on create
 
 - GIVEN a new voucher saved without overriding defaults
 - WHEN create completes
-- THEN `create_date` MUST be automatic, `state` `pending`, currency company default
-- AND `received_date` MUST NOT exist
+- THEN `state` MUST be `draft`, `create_date` automatic, company currency, and no `received_date`
+
+#### Scenario: MCP create stamps validated_seller
+
+- GIVEN `_collection_create_vouchers` on all-new fused create
+- WHEN persist completes
+- THEN each new voucher `state` MUST be `validated_seller`
 
 #### Scenario: Required fields
 
@@ -196,7 +182,7 @@ company default (no multi-currency UX). Upgrade MUST NOT backfill `partner_id`.
 
 #### Scenario: create_date not overridable
 
-- GIVEN a create that supplies custom creation time or `received_date`
+- GIVEN create vals with custom creation time or `received_date`
 - WHEN create runs via UI or MCP
 - THEN creation time MUST NOT be caller-overridable and `received_date` MUST NOT persist
 
@@ -204,8 +190,7 @@ company default (no multi-currency UX). Upgrade MUST NOT backfill `partner_id`.
 
 - GIVEN the voucher model after this change
 - WHEN fields are inspected
-- THEN `customer_identification` MUST NOT exist
-- AND `partner_id` MUST be required
+- THEN `customer_identification` MUST NOT exist and `partner_id` MUST be required
 
 ### Requirement: Voucher lifecycle
 
@@ -216,7 +201,7 @@ company default (no multi-currency UX). Upgrade MUST NOT backfill `partner_id`.
 | `validated_collections` | Document Review Approve only |
 
 MUST NOT have Reject or `rejected`. Form **Validate by Seller** MUST work only from `draft` and MUST NOT stamp reviewer/time. Validated by Collections MUST be only via Review Approve (no form button). Intercept MUST refuse raw `validated_collections`; `validated_seller` only via Seller action or MCP create. Statusbar MUST NOT be clickable. Unlink only when `state` is `draft` and `allocation_id` unset or `draft`. Draft plus confirmed MUST be refused. Unlink MUST NOT project voucher amounts onto residual and MUST NOT refuse because leftover-voucher residual would be `< 0`. Invoice lines MUST NOT be auto-edited. Validate by Seller MUST remain if Review is OFF. Review RPCs stay in `document-review`.
-(Previously: Projected residual `< 0` refused unlink without editing invoice lines.)
+(Previously: `pending`/`approved`/`rejected`; Approve/Reject with reviewer; kanban drag; unlink pending; projected residual `< 0` refused.)
 
 #### Scenario: Approve from pending
 
@@ -307,36 +292,28 @@ Each voucher MUST persist `document_type` `bank_transfer` | `check` | `cash_depo
 
 ### Requirement: Payment Vouchers UI
 
-The system MUST expose Collections → Payment Vouchers as the only create/edit surface
-(kanban, list, form; create and edit enabled). Kanban MUST group by `state`. List/search
-MUST show reference, Customer (`partner_id`), readonly `create_date`, status, and
-payment fields. Form MUST show statusbar, Approve/Reject when `pending`, readonly
-`create_date`, type-specific payment fields, chatter/activity, and MUST NOT show
-`received_date`. List, search, kanban, and form MUST show `partner_id` without a
-bound-partner domain. List MUST expose optional hidden `sheet_id`; form MUST expose it
-editable; search MUST expose field and group-by; kanban MUST NOT add it. Clearing
-`sheet_id` on an open member MUST unlink; closed-sheet membership writes MUST be
-rejected. MUST NOT expose a sheet-form voucher member list, Payment Lines, or
-payment-line tables.
+MUST expose Collections → Payment Vouchers as the only create/edit surface (`view_mode` `list,form`; create and edit enabled). MUST `<delete>` stages kanban. MUST keep Reassign Customers kanban. Menu Payment Vouchers MUST stay `sequence=10`. Form MUST show non-clickable statusbar, **Validate by Seller** when `draft`, readonly `create_date`, type-specific payment fields, chatter/activity; MUST NOT show `received_date`, Approve/Reject, a Collections button, History, or payment-line tables. `partner_id` MUST have no bound-partner domain. Clearing `sheet_id` on an open member MUST unlink; closed-sheet membership writes MUST be rejected. MUST NOT expose sheet-form member list or Payment Lines.
 
-(Previously: Sheet member list was a voucher UI surface; list, form, and search omitted
-`sheet_id`.)
+| Surface | MUST |
+| --- | --- |
+| List visible | `name`, `create_date`, `sheet_id`, `seller_id`, `document_type`, `amount`, `state` |
+| List hide | `partner_id`, `company_id`, `document_id` optional hide; `currency_id` column-invisible |
+| Search | one filter per state; one per `document_type`; Created On `date="create_date"`; keep name/customer/seller/sheet |
+
+(Previously: `kanban,list,form`; stages grouped by `state`; Approve/Reject when `pending`; list `partner_id` visible and `sheet_id` optional hide.)
 
 #### Scenario: Menu and form behaviors
 
-- GIVEN the module installed and a voucher in `pending`
+- GIVEN the module installed and a `draft` voucher
 - WHEN Payment Vouchers form opens
-- THEN list/search MUST show reference, Customer, `create_date`, status
-- AND form MUST show statusbar, Approve/Reject, readonly `create_date`, type-specific
-  payment fields, chatter/activity, and MUST NOT show `received_date` or payment-line
-  tables
+- THEN list MUST show `name`, `create_date`, `sheet_id`, `seller_id`, `document_type`, `amount`, `state`
+- AND form MUST show non-clickable statusbar, Validate by Seller, readonly `create_date`, type-specific fields, chatter; MUST NOT show `received_date`, Approve/Reject, Collections, History, or payment-line tables
 
 #### Scenario: Kanban grouped by state
 
-- GIVEN Payment Vouchers kanban
-- WHEN it opens
-- THEN vouchers MUST be grouped by `state`
-- AND create and edit MUST be enabled
+- GIVEN Payment Vouchers
+- WHEN views load
+- THEN stages kanban MUST NOT exist, `view_mode` MUST be `list,form`, and Reassign Customers kanban MUST remain
 
 #### Scenario: Payment Lines menu absent
 
@@ -344,37 +321,47 @@ payment-line tables.
 - WHEN menus load
 - THEN Collections → Payment Lines MUST NOT appear
 
+#### Scenario: Menu sequence locked
+
+- GIVEN Collections menus
+- WHEN sequences are inspected
+- THEN Payment Vouchers MUST be `sequence=10`
+
+#### Scenario: Search filters
+
+- GIVEN Payment Vouchers search
+- WHEN filters are inspected
+- THEN one filter per voucher state and per `document_type` MUST exist, and Created On MUST be a date filter on `create_date`
+
 #### Scenario: UI create_date visibility
 
 - GIVEN an existing voucher
-- WHEN list, search, kanban, or form is opened
+- WHEN list, search, or form is opened
 - THEN readonly `create_date` MUST be visible and not editable
 
 #### Scenario: Customer field has no domain
 
-- GIVEN Payment Vouchers list, search, kanban, or form
+- GIVEN Payment Vouchers list, search, form, or Reassign kanban
 - WHEN Customer is opened
-- THEN the field MUST be `partner_id`
-- AND MUST NOT restrict choices to bound connector customers
+- THEN the field MUST be `partner_id` with no bound-connector domain
 
 #### Scenario: sheet_id on list form search
 
 - GIVEN an existing voucher with or without a sheet
 - WHEN list, form, or search is opened
-- THEN list MUST show optional hidden `sheet_id`, form editable `sheet_id`, and search a
-  `sheet_id` field and group-by
-- AND kanban MUST NOT show `sheet_id`
+- THEN list MUST show visible `sheet_id`, form editable `sheet_id`, search field and group-by
+- AND Reassign kanban MUST NOT show `sheet_id` as a card field
 
 #### Scenario: Clear sheet_id unlinks open membership
 
 - GIVEN a voucher assigned to an open sheet
-- WHEN an internal user clears `sheet_id` on the voucher form and saves
-- THEN the voucher MUST become unassigned and the sheet MUST persist
+- WHEN `sheet_id` is cleared on the form and saved
+- THEN the voucher MUST be unassigned and the sheet MUST persist
 
 #### Scenario: Closed-sheet unlink denied
 
 - GIVEN a voucher assigned to a closed sheet
-- WHEN an internal user clears or changes `sheet_id` on the voucher form
+- WHEN `sheet_id` is cleared or changed on the form
 - THEN the write MUST be rejected and membership MUST be unchanged
 
 ### Requirement: Unsupported vouchers remain persistable
@@ -669,25 +656,20 @@ provenance mutation and MUST continue to allocation.
 
 ### Requirement: Immutable review snapshots and ACL
 
-The system MUST store immutable Document Review snapshots (revision, reviewer, time,
-decision, and current payment fields). Internal users MUST read history of snapshots for
-companies they are allowed and MUST NOT write or unlink snapshots, add dedicated groups,
-or sudo. Snapshots MUST follow the same company isolation as vouchers. Form Approve and
-Reject MUST NOT append snapshots. (Previously: No record rules on snapshots.)
+MUST store immutable Document Review snapshots (revision, reviewer, time, decision, current payment fields). Internal users MUST read snapshots for allowed companies and MUST NOT write or unlink, add dedicated groups, or sudo. Snapshots MUST follow voucher company isolation. Form Validate by Seller MUST NOT append snapshots. Snapshot `decision` MUST stay `approved`\|`rejected`.
+(Previously: Form Approve and Reject MUST NOT append snapshots.)
 
 #### Scenario: Internal users read history without client mutation
 
-- GIVEN an internal user and existing snapshots of an allowed-company voucher
-- WHEN they read voucher history
-- THEN ACL MUST allow read
-- AND client write or unlink of snapshots MUST be denied
+- GIVEN an internal user and snapshots of an allowed-company voucher
+- WHEN they read snapshots
+- THEN ACL MUST allow read and MUST deny client write or unlink
 
 #### Scenario: Form Approve and Reject do not snapshot
 
-- GIVEN a pending voucher on Payment Vouchers
-- WHEN form Approve or Reject runs
-- THEN voucher state MUST change as today
-- AND no snapshot MUST be appended
+- GIVEN a draft voucher on Payment Vouchers
+- WHEN form Validate by Seller runs
+- THEN voucher state MUST change as specified and no snapshot MUST be appended
 
 ### Requirement: Additive upgrade without provenance backfill
 
@@ -789,8 +771,8 @@ voucher MUST pass the same gates. Exact same-company MCP replay is exempt (see M
 
 ### Requirement: Historical vouchers remain operable
 
-Existing vouchers MUST stay visible and operable if their seller is later disabled. The
-system MUST NOT hide or delete them for that reason.
+Existing vouchers MUST stay visible and operable if their seller is later disabled. MUST NOT hide or delete them for that reason.
+(Previously: Operable scenario used `pending` Approve/Reject.)
 
 #### Scenario: Disabled-seller voucher stays visible
 
@@ -800,10 +782,9 @@ system MUST NOT hide or delete them for that reason.
 
 #### Scenario: Disabled-seller voucher remains operable
 
-- GIVEN a `pending` voucher whose seller is later disabled
-- WHEN Approve or Reject runs without changing seller or type
-- THEN the decision MUST persist
-- AND the voucher MUST NOT be deleted
+- GIVEN a `draft` voucher whose seller is later disabled
+- WHEN Validate by Seller runs without changing seller or type
+- THEN `validated_seller` MUST persist and the voucher MUST NOT be deleted
 
 ### Requirement: Cross-company document_id reject not replay
 
@@ -874,7 +855,7 @@ sequence steals numbers. The system MUST NOT hide or delete historical vouchers.
 ### Requirement: Voucher allocation membership
 
 Each voucher MAY have `allocation_id`. Write of `allocation_id` MUST be refused unless current and target (if set) are both `draft` or unset. Unlink MUST be allowed when voucher `state` is `draft` and `allocation_id` is unset or `draft`. Unlink MUST be refused when allocation is `confirmed`. Removing a voucher from a draft allocation MUST NOT project voucher amounts onto residual. Residual MUST remain `total_debt − total_applied`. MUST NOT refuse unlink because leftover-voucher residual would be `< 0`. Invoice lines MUST NOT be auto-edited. All three voucher states MAY be allocated.
-(Previously: Unlink when `state` is `pending`; projected residual − voucher amount `< 0` refused.)
+(Previously: Unlink when voucher `state` is `pending`; projected residual − voucher amount `< 0` refused.)
 
 #### Scenario: allocation_id write on draft or unset
 
@@ -903,7 +884,7 @@ Each voucher MAY have `allocation_id`. Write of `allocation_id` MUST be refused 
 ### Requirement: Partner write follows allocation
 
 When `partner_id` changes, the system MUST compute `allocation_id` before persist and MUST write `partner_id` and `allocation_id` in the same vals (per record when outcomes differ). MUST NOT `sudo()`. While the sheet is `open`, any voucher state MAY change Customer. Same-value `partner_id` MUST NOT recompute allocation. `confirmed` current allocation MUST refuse the move with no field change. Draft source MUST NOT refuse because residual is 0 or because leftover-voucher residual would be `< 0`. MUST attach the unique draft same-sheet allocation for the new partner without leftover-voucher residual or `residual_reason` checks; otherwise MUST leave unallocated and MUST post chatter for that outcome.
-(Previously: Draft source with projected residual − voucher amount `< 0` refused; attach required residual rules including `residual_reason`.)
+(Previously: Last scenario named `approved`/`rejected` vouchers; projected residual − voucher amount `< 0` refused.)
 
 #### Scenario: Same-write partner and allocation
 
@@ -937,7 +918,7 @@ When `partner_id` changes, the system MUST compute `allocation_id` before persis
 
 #### Scenario: Approved or rejected voucher may move
 
-- GIVEN an open-sheet voucher in `draft`, `validated_seller`, or `validated_collections` with no confirmed freeze
+- GIVEN an open-sheet voucher in `draft`, `validated_seller`, or `validated_collections` with no blocking residual
 - WHEN `partner_id` is written to another customer
 - THEN the write MUST succeed and `state` MUST stay unchanged
 
@@ -1011,3 +992,14 @@ generic conflict with no writes. Optional nested `attachment` and
 - WHEN `create_collection_allocation` runs
 - THEN helpers MUST parse payments, nests, and payload order
 - AND MUST NOT require per-payment `customer_identification`
+
+### Requirement: Voucher state SQL remap
+
+Upgrade SQL MUST remap `collection.voucher.state` before ORM browse: `pending`→`draft`, `approved`→`validated_collections`, `rejected`→`draft`. Leftover old keys MUST collapse. MUST NOT keep voucher `rejected`.
+
+#### Scenario: Remap before ORM
+
+- GIVEN rows in `pending`, `approved`, `rejected`
+- WHEN this upgrade runs
+- THEN they MUST be `draft`, `validated_collections`, `draft`
+- AND ORM MUST NOT see leftover old keys

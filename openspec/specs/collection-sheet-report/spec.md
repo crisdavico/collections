@@ -38,18 +38,8 @@ persist). Open sheets MAY edit them. Reopen MUST NOT reset stored values.
 
 ### Requirement: Shared report payload
 
-`_collection_report_data()` MUST return one payload: primitives (`str` /
-`float` / `int` / `bool` / `date` / `list` / `dict`) plus `sheet` and
-`currency` for QWeb. Nested customer, document-row, and voucher-row dict
-values MUST be primitives (XLSX MUST NOT touch the ORM). MUST include
-`company`, `printed_on`, `reference`, `state_label`, `seller_name`,
-`date_from`, `date_to`, `customer_count`, `voucher_count`,
-`commission_percent`, `customers`, `customer_totals`, `document_blocks`,
-`applied_total`, `voucher_blocks`, `collected_total`, `tendered`, `recon`,
-`mismatch`. Print MUST include every `allocation_ids` and `voucher_ids` row
-(draft/confirmed; pending/approved/rejected). Open-sheet prints MUST include
-drafts. Customer totals MUST equal allocation sums. PDF HTML and XLSX cached
-totals MUST match.
+`_collection_report_data()` MUST return one payload: primitives (`str` / `float` / `int` / `bool` / `date` / `list` / `dict`) plus `sheet` and `currency` for QWeb. Nested customer, document-row, and voucher-row dict values MUST be primitives (XLSX MUST NOT touch the ORM). MUST include `company`, `printed_on`, `reference`, `state_label`, `seller_name`, `date_from`, `date_to`, `customer_count`, `voucher_count`, `commission_percent`, `customers`, `customer_totals`, `document_blocks`, `applied_total`, `voucher_blocks`, `collected_total`, `tendered`, `recon`, `mismatch`. Print MUST include every `allocation_ids` and `voucher_ids` row (draft/confirmed; draft/validated_seller/validated_collections). Open-sheet prints MUST include drafts. Customer totals MUST equal allocation sums. PDF HTML and XLSX cached totals MUST match.
+(Previously: Print-includes voucher keys were pending/approved/rejected.)
 
 #### Scenario: Primitive nested values
 
