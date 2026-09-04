@@ -102,7 +102,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `tools/customer_debt.py`                          | `@mcp_tool` `customer_debt` (read) on `muk_mcp.mixin`                                                                                   |
 | `views/collection_views.xml`                      | List/search/form + menus/actions; no stages kanban; three-page notebook; `<delete>` reassign kanban; XLSX last before `state`           |
 | `views/collection_allocation_views.xml`           | Allocation list/form/search; Customer Debt Add Debt + `create="false"`; Receipts page; parent-arch `document_kind`; menu sequence 30    |
-| `views/collection_receipt_views.xml`              | Read-mostly receipt `<list>`/`form`/`search`; issuance readonly; menu sequence 40                                                       |
+| `views/collection_receipt_views.xml`              | Read-mostly receipt `<list>`/`form`/`search`; Values + Applied Debt pages; issuance readonly; menu sequence 40                          |
 | `report/collection_sheet_report_render.py`        | AbstractModel QWeb `_get_report_values`; `web.external_layout`; `t-out`                                                                 |
 | `report/collection_sheet_xlsx.py`                 | xlsxwriter workbook from payload; cached SUM; percent/100                                                                               |
 | `report/report_paperformat.xml`                   | A4 landscape paperformat for Planilla de Cobranza                                                                                       |
@@ -375,18 +375,21 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   Collections button, no History tab (`review_snapshot_ids` unbound). Allocations menu
   is sequence 30 under `menu_collection_root` (after sheets at 20). Collection Receipts
   menu is sequence 40. Receipt views are read-mostly: `state` is form-readonly (ERP
-  Close issues; the form does not). Collection Receipts and the allocation Receipts list
-  MUST NOT show `external_receipt_id`. Allocation form notebooks Vouchers, Customer
-  Debt, Receipts, and Revisions. Customer Debt has **Add Debt** (saved writable only)
-  and `create="false"` on the embedded list; identity/balance columns are readonly.
-  Sheet form notebook is Allocations, Vouchers, and Debt (`allocation_ids`,
-  `voucher_ids`, `debt_line_ids`); membership is via voucher `sheet_id`. Reassign
-  header, kanban XMLID, and partner `group_expand` are dropped. Allocation form has no
-  Validate/Reject; freeze fields `readonly` from `sheet_id.state`; statusbar
-  `draft,confirmed`; search filters draft+confirmed. Sheet statusbar
-  `open,proposal,closed,cancelled` with Confirm/Close/Cancel/Open by state; Document
-  Review Open-only. Document Review OWL shows one editable control per field prefilled
-  from OCR (current fallback); Approve rewrites current only. `reviewed_by` /
+  Close issues; the form does not). The receipt form notebooks Values (`value_ids`) then
+  Applied Debt (`line_ids`, computed applications with `amount_applied > 0`;
+  `create`/`delete`/`edit` false). Applied Debt lists `invoice_number`, `due_date`,
+  `invoice_amount`, `invoice_balance`, and `amount_applied`. Collection Receipts and the
+  allocation Receipts list MUST NOT show `external_receipt_id`. Allocation form
+  notebooks Vouchers, Customer Debt, Receipts, and Revisions. Customer Debt has **Add
+  Debt** (saved writable only) and `create="false"` on the embedded list;
+  identity/balance columns are readonly. Sheet form notebook is Allocations, Vouchers,
+  and Debt (`allocation_ids`, `voucher_ids`, `debt_line_ids`); membership is via voucher
+  `sheet_id`. Reassign header, kanban XMLID, and partner `group_expand` are dropped.
+  Allocation form has no Validate/Reject; freeze fields `readonly` from
+  `sheet_id.state`; statusbar `draft,confirmed`; search filters draft+confirmed. Sheet
+  statusbar `open,proposal,closed,cancelled` with Confirm/Close/Cancel/Open by state;
+  Document Review Open-only. Document Review OWL shows one editable control per field
+  prefilled from OCR (current fallback); Approve rewrites current only. `reviewed_by` /
   `reviewed_at` stay on the model and leave the form. Print → Planilla de Cobranza is
   bound `qweb-pdf` (`web.external_layout`, `t-out`). Header **Export XLSX** is last
   object button before `state` (`action_print_xlsx` →
@@ -417,7 +420,7 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_allocation_debt_picker.py`   | Missing-debt picker: exclude existing, multi-select insert, preserve applied, empty connector, unsaved/frozen, company isolation, document_kind                                                          |
 | `tests/test_collection_allocation_acl.py`           | Allocation/line `1,1,1,1`; picker transients `1,1,1,1`; revision `1,0,1,1`; company `ir.rule`; no sudo                                                                                                   |
 | `tests/test_collection_mail.py`                     | Chatter / tracking on vouchers and sheets                                                                                                                                                                |
-| `tests/test_collection_ui.py`                       | View arch; Add Debt picker; Customer Debt `create="false"`; Collection Settings; menus 10/30/40; Receipts page; form does not issue                                                                      |
+| `tests/test_collection_ui.py`                       | View arch; Add Debt picker; Customer Debt `create="false"`; Collection Settings; menus 10/30/40; Receipts page; receipt Applied Debt; form does not issue                                                |
 | `tests/test_collection_document_review.py`          | Queue `validated_seller`+proof; one editable OCR-prefilled OWL control; Approve rewrites current; no Reject; snapshots `decision` approved/rejected                                                      |
 | `tests/test_collection_company_settings.py`         | Catalog, empty sellers, defaults, Collection Settings fields                                                                                                                                             |
 | `tests/test_collection_company_migration.py`        | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; `19.0.1.28.0` remap; `19.0.1.31.0` voucher remap; manifest `19.0.1.38.0`; keep 1.31–1.34; no 1.26–1.30 / 1.35 / 1.36 / 1.37 / 1.38 migrate |

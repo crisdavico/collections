@@ -52,6 +52,8 @@ SHEET_ALLOCATION_COLUMN_STRINGS = {
 }
 ALLOCATION_NOTEBOOK_CUSTOMER_DEBT = "Customer Debt"
 ALLOCATION_NOTEBOOK_RECEIPTS = "Receipts"
+RECEIPT_NOTEBOOK_VALUES = "Values"
+RECEIPT_NOTEBOOK_APPLIED_DEBT = "Applied Debt"
 ALLOCATION_TOTAL_FIELDS = (
     "total_vouchers",
     "total_applied",
@@ -1524,7 +1526,7 @@ class TestCollectionUi(TransactionCase):
         )
 
     def test_sheet_form_vouchers_tab_existing_only_in_open(self):
-        """Vouchers tab MUST list voucher_ids; no create/remove/delete; Open-only edit."""
+        """Vouchers tab MUST list voucher_ids without create/remove; Open-only edit."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
         vouchers_page = self._notebook_page(form_root, SHEET_NOTEBOOK_VOUCHERS)
         voucher_fields = vouchers_page.xpath('.//field[@name="voucher_ids"]')
@@ -2086,6 +2088,69 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(menu.parent_id, root_menu)
         self.assertEqual(menu.action, action)
         self.assertGreater(menu.sequence, alloc_menu.sequence)
+
+    def test_receipt_form_applied_debt_page(self):
+        """Receipt form MUST notebook a read-only Applied Debt page with <list>."""
+        form_root = self._arch_root("collection.view_collection_receipt_form")
+        self.assertFalse(
+            form_root.xpath("//tree"),
+            "receipt form arch must not use deprecated <tree>",
+        )
+        page_strings = [
+            node.get("string") for node in form_root.xpath("//notebook/page")
+        ]
+        self.assertEqual(
+            page_strings,
+            [RECEIPT_NOTEBOOK_VALUES, RECEIPT_NOTEBOOK_APPLIED_DEBT],
+        )
+        values_page = self._notebook_page(form_root, RECEIPT_NOTEBOOK_VALUES)
+        self.assertTrue(
+            values_page.xpath('./field[@name="value_ids"]/list'),
+            "Values page must expose value_ids as a <list>",
+        )
+        page = self._notebook_page(form_root, RECEIPT_NOTEBOOK_APPLIED_DEBT)
+        line_fields = page.xpath('.//field[@name="line_ids"]')
+        self.assertEqual(
+            len(line_fields),
+            1,
+            "Applied Debt page must expose line_ids once",
+        )
+        line_field = line_fields[0]
+        self._assert_readonly_field(line_field, "line_ids")
+        lists = line_field.xpath("./list")
+        self.assertTrue(lists, "line_ids must embed a <list>")
+        self.assertTrue(
+            self._attr_is_false(lists[0].get("create")),
+            "Applied Debt list must disable inline create",
+        )
+        self.assertTrue(
+            self._attr_is_false(lists[0].get("delete")),
+            "Applied Debt list must disable inline delete",
+        )
+        self.assertTrue(
+            self._attr_is_false(lists[0].get("edit")),
+            "Applied Debt list must disable inline edit",
+        )
+        list_names = self._field_names(lists[0], xpath="./field")
+        for field_name in (
+            "invoice_number",
+            "due_date",
+            "invoice_amount",
+            "invoice_balance",
+            "amount_applied",
+        ):
+            self.assertIn(
+                field_name, list_names, f"Applied Debt list must show {field_name}"
+            )
+        self.assertNotIn(
+            "external_receipt_id",
+            list_names,
+            "Applied Debt list must not show external_receipt_id",
+        )
+        self.assertFalse(
+            page.xpath(".//tree"),
+            "Applied Debt page must use <list>, not <tree>",
+        )
 
     def test_allocation_form_receipts_page(self):
         """Allocation form MUST notebook a read-mostly Receipts page with <list>."""

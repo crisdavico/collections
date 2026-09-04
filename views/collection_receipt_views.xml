@@ -83,6 +83,18 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Applied Debt">
+                            <field name="line_ids" readonly="1">
+                                <list create="false" delete="false" edit="false">
+                                    <field name="invoice_number" />
+                                    <field name="due_date" />
+                                    <field name="invoice_amount" />
+                                    <field name="invoice_balance" />
+                                    <field name="amount_applied" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
                     </notebook>
                 </sheet>
             </form>
