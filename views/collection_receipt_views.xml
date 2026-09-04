@@ -13,6 +13,8 @@
                 <field name="total_values" />
                 <field name="total_applied" />
                 <field name="amount_on_account" />
+                <field name="document_count" />
+                <field name="document_numbers" optional="show" />
                 <field name="currency_id" column_invisible="1" />
             </list>
         </field>
@@ -28,6 +30,7 @@
                 <field name="sheet_id" />
                 <field name="state" />
                 <field name="external_receipt_id" />
+                <field name="document_numbers" />
                 <filter
           string="Draft"
           name="filter_draft"
@@ -73,10 +76,27 @@
                             <field name="total_values" />
                             <field name="total_applied" />
                             <field name="amount_on_account" />
+                            <field name="document_count" />
+                            <field name="voucher_count" />
+                            <field name="document_numbers" />
                             <field name="currency_id" groups="base.group_no_one" />
                         </group>
                     </group>
                     <notebook>
+                        <page string="Applications">
+                            <field name="line_ids" readonly="1">
+                                <list create="false" delete="false" edit="false">
+                                    <field name="invoice_number" />
+                                    <field name="external_invoice_id" optional="hide" />
+                                    <field name="issue_date" optional="hide" />
+                                    <field name="due_date" />
+                                    <field name="invoice_amount" optional="hide" />
+                                    <field name="invoice_balance" />
+                                    <field name="amount_applied" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
                         <page string="Values">
                             <field name="value_ids">
                                 <list>

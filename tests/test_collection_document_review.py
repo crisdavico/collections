@@ -475,7 +475,7 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         approved.action_review_approve(sheet.id, {"amount": 55.0})
         self.assertEqual(approved.state, "validated_collections")
-        self.assertAlmostEqual(approved.amount, 100.0, places=2)
+        self.assertAlmostEqual(approved.amount, 55.0, places=2)
         snaps = self.env["collection.voucher.review.snapshot"].search(
             [("voucher_id", "=", approved.id)]
         )
@@ -725,9 +725,8 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertIn('get_review_queue",[sheetId]', compact)
         self.assertRegex(
             compact,
-            r'action_review_approve",\[\[this\.current\.id\],sheetId,?\]',
+            r'action_review_approve",\[\[this\.current\.id\],sheetId,buildApproveVals\(this\.current\),?\]',
         )
-        self.assertNotIn("buildApproveVals", compact)
         self.assertNotIn("action_review_reject", compact)
         self.assertRegex(
             compact,
@@ -1189,7 +1188,7 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertFalse(clone.reviewed_at)
 
     def test_approve_persists_edits_and_records_audit(self):
-        """Non-empty client vals MUST NOT rewrite current; snapshot matches current."""
+        """Whitelisted current fields persist; identity keys are ignored."""
         voucher = self._create_review_eligible_voucher(
             customer_identification="CUST-REV-APPR",
             document_id="DOC-REV-APPR",
@@ -1208,11 +1207,11 @@ class TestCollectionDocumentReview(TransactionCase):
             },
         )
         self.assertEqual(voucher.document_id, "DOC-REV-APPR")
-        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
-        self.assertEqual(voucher.from_account, "OLD-FROM")
-        self.assertFalse(voucher.to_account)
-        self.assertFalse(voucher.voucher_number)
-        self.assertFalse(voucher.voucher_date)
+        self.assertAlmostEqual(voucher.amount, 250.75, places=2)
+        self.assertEqual(voucher.from_account, "NEW-FROM")
+        self.assertEqual(voucher.to_account, "NEW-TO")
+        self.assertEqual(voucher.voucher_number, "TRF-EDIT")
+        self.assertEqual(voucher.voucher_date, date(2026, 5, 1))
         self.assertEqual(voucher.state, "validated_collections")
         self.assertEqual(voucher.reviewed_by, self.env.user)
         self.assertTrue(voucher.reviewed_at)
@@ -1223,7 +1222,7 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertNotEqual(voucher.state, snaps.decision)
 
     def test_approve_persists_check_fields(self):
-        """Triangulation: nonempty check vals MUST leave current check fields."""
+        """Triangulation: check type-specific fields persist on approve."""
         voucher = self._create_review_eligible_voucher(
             customer_identification="CUST-REV-CHK",
             document_id="DOC-REV-CHK",
@@ -1247,12 +1246,12 @@ class TestCollectionDocumentReview(TransactionCase):
                 "check_payment_date": date(2026, 2, 10),
             },
         )
-        self.assertEqual(voucher.check_number, "CHK-CUR")
-        self.assertEqual(voucher.check_bank, "Banco Galicia")
-        self.assertEqual(voucher.check_type, "common")
-        self.assertEqual(voucher.check_issue_date, date(2026, 1, 1))
-        self.assertEqual(voucher.check_payment_date, date(2026, 1, 15))
-        self.assertAlmostEqual(voucher.amount, 10.0, places=2)
+        self.assertEqual(voucher.check_number, "CHK-9")
+        self.assertEqual(voucher.check_bank, "Banco Nación")
+        self.assertEqual(voucher.check_type, "deferred")
+        self.assertEqual(voucher.check_issue_date, date(2026, 1, 10))
+        self.assertEqual(voucher.check_payment_date, date(2026, 2, 10))
+        self.assertAlmostEqual(voucher.amount, 80.0, places=2)
         self.assertEqual(voucher.state, "validated_collections")
         snaps = self._snapshots(voucher)
         self.assertEqual(snaps.decision, "approved")
@@ -1260,20 +1259,26 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertAlmostEqual(snaps.amount, voucher.amount, places=2)
 
     def test_approve_persists_cash_deposit_fields(self):
-        """Triangulation: empty dict vals MUST leave current unchanged."""
+        """Triangulation: cash_deposit corrections persist shared fields only."""
         voucher = self._create_review_eligible_voucher(
             customer_identification="CUST-REV-CASH",
             document_id="DOC-REV-CASH",
             document_type="cash_deposit",
             amount=15.0,
         )
-        voucher.action_review_approve(self.review_sheet.id, {})
+        voucher.action_review_approve(
+            self.review_sheet.id,
+            {
+                "document_type": "cash_deposit",
+                "amount": 42.5,
+            },
+        )
         self.assertEqual(voucher.document_type, "cash_deposit")
-        self.assertAlmostEqual(voucher.amount, 15.0, places=2)
+        self.assertAlmostEqual(voucher.amount, 42.5, places=2)
         self.assertEqual(voucher.state, "validated_collections")
         snaps = self._snapshots(voucher)
         self.assertEqual(snaps.decision, "approved")
-        self.assertAlmostEqual(snaps.amount, 15.0, places=2)
+        self.assertAlmostEqual(snaps.amount, 42.5, places=2)
         self.assertEqual(snaps.document_type, "cash_deposit")
 
     def test_review_reject_rpc_does_not_exist(self):
@@ -1302,7 +1307,7 @@ class TestCollectionDocumentReview(TransactionCase):
             voucher.action_review_approve(self.review_sheet.id, {"amount": 1.0})
         self.assertFalse(hasattr(voucher, "action_review_reject"))
         self.assertEqual(voucher.state, "validated_collections")
-        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
+        self.assertAlmostEqual(voucher.amount, 40.0, places=2)
 
     def test_stale_review_when_not_pending_or_unattached(self):
         """Triangulation: ineligible state/attachment refuses approve."""
@@ -1475,8 +1480,7 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertNotEqual(voucher.state, snaps[1].decision)
 
     def test_reviewer_correction_matches_snapshot_current_only(self):
-        """Non-empty approve vals MUST leave current; snapshot matches; raw/seller
-        stay."""
+        """Reviewer edits persist on current; snapshot matches; raw/seller stay."""
         voucher = self._create_review_eligible_voucher(
             customer_identification="CUST-SNAP-EDIT",
             document_id="DOC-SNAP-EDIT",
@@ -1491,18 +1495,23 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         voucher.action_review_approve(
             self.review_sheet.id,
-            {"amount": 250.75, "from_account": "NEW-FROM"},
+            {
+                "amount": 250.75,
+                "from_account": "NEW-FROM",
+                "ocr_amount": 1.0,
+                "seller_amount": 2.0,
+            },
         )
-        self.assertAlmostEqual(voucher.amount, 100.0, places=2)
-        self.assertEqual(voucher.from_account, "OLD-FROM")
+        self.assertAlmostEqual(voucher.amount, 250.75, places=2)
+        self.assertEqual(voucher.from_account, "NEW-FROM")
         self.assertAlmostEqual(voucher.ocr_amount, 80.0, places=2)
         self.assertEqual(voucher.ocr_from_account, "OCR-FROM")
         self.assertAlmostEqual(voucher.seller_amount, 100.0, places=2)
         self.assertEqual(voucher.seller_from_account, "OLD-FROM")
         snaps = self._snapshots(voucher)
         self.assertEqual(len(snaps), 1)
-        self.assertAlmostEqual(snaps.amount, 100.0, places=2)
-        self.assertEqual(snaps.from_account, "OLD-FROM")
+        self.assertAlmostEqual(snaps.amount, 250.75, places=2)
+        self.assertEqual(snaps.from_account, "NEW-FROM")
         self.assertEqual(snaps.decision, "approved")
 
     # --- Phase 3: queue provenance + OWL three-way ---
@@ -1785,8 +1794,8 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertNotIn("check_bank", changed)
 
     def test_owl_keeps_type_visibility_hides_document_id_and_shows_provenance(self):
-        """OWL MUST show one readonly ocr_*; dual groups from OCR∪seller; no
-        document_id."""
+        """OWL MUST show readonly OCR beside editable current; dual groups from
+        OCR∪seller∪current; no document_id."""
         xml = self._viewer_template_xml()
         action_js = self._action_js()
         helpers = self._helpers_js()
@@ -1800,7 +1809,7 @@ class TestCollectionDocumentReview(TransactionCase):
         )[0]
         self.assertIn("current.ocr_document_type", layer_fn)
         self.assertIn("current.seller_document_type", layer_fn)
-        self.assertNotIn("current.document_type", layer_fn)
+        self.assertIn("current.document_type", layer_fn)
         self.assertIn('t-if="isBankTransfer"', xml)
         self.assertIn('t-if="isCheck"', xml)
         bank_block = xml.split('t-if="isBankTransfer"')[1].split('t-if="isCheck"')[0]
@@ -1808,16 +1817,21 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertIn("current.ocr_to_account", bank_block)
         self.assertIn("current.ocr_voucher_number", bank_block)
         self.assertIn("current.ocr_voucher_date", bank_block)
+        self.assertIn("current.from_account", bank_block)
+        self.assertIn("current.to_account", bank_block)
+        self.assertIn("current.voucher_number", bank_block)
+        self.assertIn("current.voucher_date", bank_block)
         self.assertNotIn("current.seller_from_account", bank_block)
-        self.assertNotIn("current.from_account", bank_block)
         check_block = xml.split('t-if="isCheck"')[1]
         self.assertIn("current.ocr_check_number", check_block)
         self.assertIn("current.ocr_check_bank", check_block)
         self.assertIn("current.ocr_check_type", check_block)
         self.assertIn("current.ocr_check_issue_date", check_block)
         self.assertIn("current.ocr_check_payment_date", check_block)
+        self.assertIn("current.check_number", check_block)
+        self.assertIn("current.check_bank", check_block)
+        self.assertIn("current.check_type", check_block)
         self.assertNotIn("current.seller_check_number", check_block)
-        self.assertNotIn("current.check_number", check_block)
         ocr_bindings = (
             "current.ocr_document_type",
             "current.ocr_amount",
@@ -1847,18 +1861,22 @@ class TestCollectionDocumentReview(TransactionCase):
             root.xpath(".//*[@t-att-value='current.seller_amount']"),
             "seller widgets must not remain in Document Review",
         )
-        self.assertFalse(
-            root.xpath(
-                ".//*[@id='collection_review_amount' and @t-att-value='current.amount']"
-            ),
-            "current amount must not stay editable",
+        current_amount = root.xpath(
+            ".//*[@id='collection_review_amount' and @t-att-value='current.amount']"
         )
-        self.assertNotIn("t-on-input", panel)
-        self.assertNotIn("t-on-change", panel)
-        self.assertNotIn("onFieldInput", panel)
-        self.assertNotIn("onFieldInput", action_js)
-        self.assertNotIn("buildApproveVals", helpers)
-        self.assertNotIn("buildApproveVals", action_js)
+        self.assertTrue(current_amount, "current amount must stay editable")
+        for node in current_amount:
+            self.assertFalse(node.get("readonly") or node.get("disabled"))
+            self.assertTrue(
+                any(key.startswith("t-on-") for key in node.attrib),
+                "current amount must have an input handler",
+            )
+        self.assertIn("t-on-input", panel)
+        self.assertIn("t-on-change", panel)
+        self.assertIn("onFieldInput", panel)
+        self.assertIn("onFieldInput", action_js)
+        self.assertIn("buildApproveVals", helpers)
+        self.assertIn("buildApproveVals", action_js)
         warnings = root.xpath(
             ".//*[contains(concat(' ', normalize-space(@class), ' '), "
             "' seller-warning ')]"
@@ -1875,22 +1893,34 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertNotIn("t-esc", xml)
 
     def test_owl_empty_provenance_still_loads(self):
-        """Empty provenance MUST still bind OCR; OWL MUST NOT gate the panel on OCR."""
+        """Empty provenance MUST still bind OCR and current; OWL MUST NOT gate the
+        panel on OCR."""
         xml = self._viewer_template_xml()
         self.assertIn("current.ocr_amount", xml)
         self.assertIn("current.ocr_document_type", xml)
+        self.assertIn("current.amount", xml)
+        self.assertIn("current.document_type", xml)
         self.assertNotIn('t-if="current.ocr_document_type"', xml)
         self.assertNotIn('t-if="current.ocr_amount"', xml)
         self.assertNotIn("t-esc", xml)
 
     def test_build_approve_vals_sends_current_keys_only(self):
-        """Approve RPC MUST send [[id], sheetId] and MUST NOT build client vals."""
+        """buildApproveVals MUST send current payment keys and skip provenance."""
         helpers = self._helpers_js()
-        action_js = self._action_js()
-        self.assertNotIn("export function buildApproveVals", helpers)
-        self.assertNotIn("buildApproveVals", action_js)
-        compact_action = "".join(action_js.split())
+        self.assertIn("export function isProvenanceKey", helpers)
+        self.assertIn('key.startsWith("ocr_")', helpers)
+        self.assertIn('key.startsWith("seller_")', helpers)
+        self.assertIn("export function buildApproveVals", helpers)
+        approve_fn = helpers.split("export function buildApproveVals")[1].split(
+            "export function"
+        )[0]
+        self.assertIn("isProvenanceKey", approve_fn)
+        self.assertIn("editableKeysForType", approve_fn)
+        lists_src = helpers.split("export const BANK_TRANSFER_FIELDS")[0]
+        self.assertNotIn("ocr_", lists_src)
+        self.assertNotIn("seller_", lists_src)
+        compact_action = "".join(self._action_js().split())
         self.assertRegex(
             compact_action,
-            r'action_review_approve",\[\[this\.current\.id\],sheetId,?\]',
+            r'action_review_approve",\[\[this\.current\.id\],sheetId,buildApproveVals\(this\.current\),?\]',
         )

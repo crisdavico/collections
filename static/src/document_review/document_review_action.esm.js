@@ -6,6 +6,7 @@ import {
   applyViewerPan,
   applyWheelZoom,
   attachmentViewerKind,
+  buildApproveVals,
   formatSellerChangedValue,
   hasSellerChangedField,
   identityViewerZoom,
@@ -74,9 +75,11 @@ export class DocumentReviewAction extends Component {
     if (!current) {
       return false;
     }
-    return [current.ocr_document_type, current.seller_document_type].includes(
-      documentType
-    );
+    return [
+      current.document_type,
+      current.ocr_document_type,
+      current.seller_document_type,
+    ].includes(documentType);
   }
 
   hasSellerChangedField(changedFields, fieldName) {
@@ -316,6 +319,14 @@ export class DocumentReviewAction extends Component {
     this.state.viewerStatus = "error";
   }
 
+  onFieldInput(fieldName, ev) {
+    const current = this.current;
+    if (!current) {
+      return;
+    }
+    current[fieldName] = ev.target.value;
+  }
+
   async approve() {
     const sheetId = this.reviewSheetId;
     await this.runDecision(
@@ -323,6 +334,7 @@ export class DocumentReviewAction extends Component {
         this.orm.call(LINE_MODEL, "action_review_approve", [
           [this.current.id],
           sheetId,
+          buildApproveVals(this.current),
         ]),
       _t("Payment voucher approved.")
     );

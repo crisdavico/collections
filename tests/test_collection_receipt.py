@@ -239,6 +239,197 @@ class TestCollectionReceipt(TransactionCase):
         )
         self.assertNotIn("receipt_id", allocation.line_ids._fields)
 
+    def test_summary_counts_and_numbers_per_kind(self):
+        """Summary MUST count and name only same-kind lines with applied > 0."""
+        partner = self._partner("RCPT-SUMMARY")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=70.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-SUM-APPLIED",
+                    invoice_number="A-0001-00000050",
+                    document_kind="invoice",
+                ),
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=30.0,
+                    external_invoice_id="INV-SUM-ZERO",
+                    invoice_number="A-0001-00000030",
+                    document_kind="invoice",
+                ),
+                self._line_vals(
+                    amount_applied=20.0,
+                    invoice_balance=20.0,
+                    external_invoice_id="QT-SUM-APPLIED",
+                    invoice_number="P-0001-00000020",
+                    document_kind="quotation",
+                ),
+            ],
+        )
+        invoice = self._create_receipt(allocation, "invoice")
+        quotation = self._create_receipt(allocation, "quotation")
+        self.assertEqual(invoice.document_count, 1)
+        self.assertEqual(invoice.document_numbers, "A-0001-00000050")
+        self.assertEqual(quotation.document_count, 1)
+        self.assertEqual(quotation.document_numbers, "P-0001-00000020")
+
+    def test_document_numbers_joins_applied_lines_by_due_date(self):
+        """Two applied lines MUST join comma-separated, oldest due date first."""
+        partner = self._partner("RCPT-JOIN")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=60.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=20.0,
+                    invoice_balance=20.0,
+                    external_invoice_id="INV-JOIN-LATE",
+                    invoice_number="A-LATE",
+                    due_date=date(2026, 3, 31),
+                ),
+                self._line_vals(
+                    amount_applied=40.0,
+                    invoice_balance=40.0,
+                    external_invoice_id="INV-JOIN-EARLY",
+                    invoice_number="A-EARLY",
+                    due_date=date(2026, 2, 28),
+                ),
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        self.assertEqual(receipt.document_count, 2)
+        self.assertEqual(receipt.document_numbers, "A-EARLY, A-LATE")
+
+    def test_document_numbers_falls_back_to_external_invoice_id(self):
+        """A line without invoice_number MUST fall back to external_invoice_id."""
+        allocation, _voucher, _sheet, _partner = self._balanced_allocation(
+            amount=40.0,
+            lines=[
+                self._line_vals(
+                    amount_applied=40.0,
+                    invoice_balance=40.0,
+                    external_invoice_id="INV-NO-NUMBER",
+                    invoice_number=False,
+                )
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        self.assertEqual(receipt.document_numbers, "INV-NO-NUMBER")
+        self.assertNotIn(", ,", receipt.document_numbers)
+
+    def test_voucher_count_matches_value_rows(self):
+        """voucher_count MUST equal the number of value rows on the receipt."""
+        partner = self._partner("RCPT-VCOUNT")
+        sheet = self._create_sheet()
+        first = self._create_voucher(partner, sheet, amount=30.0)
+        second = self._create_voucher(partner, sheet, amount=20.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=first | second,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-VCOUNT",
+                )
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        self.assertEqual(receipt.voucher_count, 0)
+        self._create_value(receipt, first, 30.0)
+        self._create_value(receipt, second, 20.0)
+        self.assertEqual(receipt.voucher_count, 2)
+        self.assertEqual(len(receipt.value_ids), 2)
+
+    def test_summary_recomputes_when_lines_change(self):
+        """Applying a zero line or renumbering it MUST refresh the summary."""
+        partner = self._partner("RCPT-RECOMPUTE")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=80.0)
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-RC-APPLIED",
+                    invoice_number="A-APPLIED",
+                    due_date=date(2026, 1, 31),
+                ),
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=30.0,
+                    external_invoice_id="INV-RC-ZERO",
+                    invoice_number="A-ZERO",
+                    due_date=date(2026, 2, 28),
+                ),
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        self.assertEqual(receipt.document_count, 1)
+        self.assertEqual(receipt.document_numbers, "A-APPLIED")
+        zero_line = allocation.line_ids.filtered(
+            lambda line: line.external_invoice_id == "INV-RC-ZERO"
+        )
+        zero_line.write({"amount_applied": 30.0})
+        self.assertEqual(receipt.document_count, 2)
+        self.assertEqual(receipt.document_numbers, "A-APPLIED, A-ZERO")
+        zero_line.write({"invoice_number": "A-RENUMBERED"})
+        self.assertEqual(receipt.document_numbers, "A-APPLIED, A-RENUMBERED")
+        zero_line.write({"amount_applied": 0.0})
+        self.assertEqual(receipt.document_count, 1)
+        self.assertEqual(receipt.document_numbers, "A-APPLIED")
+
+    def test_document_numbers_is_stored_and_searchable(self):
+        """document_numbers MUST be stored so receipts search by document number."""
+        allocation, _voucher, _sheet, _partner = self._balanced_allocation(
+            amount=25.0,
+            lines=[
+                self._line_vals(
+                    amount_applied=25.0,
+                    invoice_balance=25.0,
+                    external_invoice_id="INV-SEARCH",
+                    invoice_number="A-0001-00099999",
+                )
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        field = self.env["collection.receipt"]._fields["document_numbers"]
+        self.assertTrue(field.store, "document_numbers MUST be stored")
+        found = self.env["collection.receipt"].search(
+            [("document_numbers", "ilike", "00099999")]
+        )
+        self.assertIn(receipt, found)
+
+    def test_summary_empty_without_applied_lines(self):
+        """A receipt over unapplied lines MUST report zero documents and no numbers."""
+        allocation, _voucher, _sheet, _partner = self._balanced_allocation(
+            amount=15.0,
+            lines=[
+                self._line_vals(
+                    amount_applied=0.0,
+                    invoice_balance=15.0,
+                    external_invoice_id="INV-EMPTY",
+                    invoice_number="A-EMPTY",
+                )
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        self.assertEqual(receipt.document_count, 0)
+        self.assertFalse(receipt.document_numbers)
+
     def test_surplus_on_account_totals(self):
         """total_values 100, total_applied 70 → amount_on_account 30."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation(

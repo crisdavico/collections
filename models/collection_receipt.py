@@ -1,6 +1,8 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+from datetime import date
+
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
@@ -71,6 +73,13 @@ class CollectionReceipt(models.Model):
         compute="_compute_totals",
         currency_field="currency_id",
     )
+    document_count = fields.Integer(compute="_compute_counts")
+    voucher_count = fields.Integer(compute="_compute_counts")
+    document_numbers = fields.Char(
+        string="Documents",
+        compute="_compute_document_numbers",
+        store=True,
+    )
     external_receipt_id = fields.Char(index=True, copy=False)
     state = fields.Selection(
         selection=[
@@ -94,13 +103,21 @@ class CollectionReceipt(models.Model):
     @api.depends(
         "allocation_id.line_ids.document_kind",
         "allocation_id.line_ids.amount_applied",
+        "allocation_id.line_ids.due_date",
+        "allocation_id.line_ids.invoice_number",
         "document_kind",
     )
     def _compute_line_ids(self):
         for receipt in self:
-            receipt.line_ids = receipt.allocation_id.line_ids.filtered(
+            applied = receipt.allocation_id.line_ids.filtered(
                 lambda line, kind=receipt.document_kind: line.document_kind == kind
                 and (line.amount_applied or 0.0) > 0.0
+            )
+            receipt.line_ids = applied.sorted(
+                key=lambda line: (
+                    line.due_date or date.max,
+                    line.invoice_number or "",
+                )
             )
 
     @api.depends("value_ids.amount", "line_ids.amount_applied")
@@ -111,6 +128,30 @@ class CollectionReceipt(models.Model):
             receipt.total_values = total_values
             receipt.total_applied = total_applied
             receipt.amount_on_account = total_values - total_applied
+
+    @api.depends(
+        "document_kind",
+        "allocation_id.line_ids.document_kind",
+        "allocation_id.line_ids.amount_applied",
+        "allocation_id.line_ids.invoice_number",
+        "allocation_id.line_ids.external_invoice_id",
+    )
+    def _compute_document_numbers(self):
+        """Name the documents this receipt covers, in `line_ids` due-date order."""
+        for receipt in self:
+            receipt.document_numbers = (
+                ", ".join(
+                    line.invoice_number or line.external_invoice_id
+                    for line in receipt.line_ids
+                )
+                or False
+            )
+
+    @api.depends("line_ids", "value_ids")
+    def _compute_counts(self):
+        for receipt in self:
+            receipt.document_count = len(receipt.line_ids)
+            receipt.voucher_count = len(receipt.value_ids)
 
     def write(self, vals):
         if self.env.context.get("collection_receipt_issuing"):

@@ -416,6 +416,27 @@
     background: var(--clay-deep);
     box-shadow: inset 3px 3px 7px rgba(104, 92, 163, 0.14),
       inset -2px -2px 6px rgba(255, 255, 255, 0.55);
+
+    &.is-pair {
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+    }
+  }
+
+  .pair-col {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .pair-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-3);
   }
 
   .seller-warning {

@@ -567,8 +567,7 @@ class CollectionVoucher(models.Model):
         self.ensure_one()
         self._ensure_review_sheet_member(sheet)
         self._lock_and_ensure_review_eligible()
-        del vals  # leftover client vals must not rewrite current fields
-        self._write_review_decision()
+        self._write_review_decision(self._editable_review_vals(vals))
         return True
 
     def action_review_set_rotation(self, sheet_id=None, degrees=None):
@@ -674,14 +673,25 @@ class CollectionVoucher(models.Model):
         return rotation
 
     @api.private
-    def _write_review_decision(self):
-        self.with_context(collection_audited_state=True).write(
-            {
-                "state": "validated_collections",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
-        )
+    def _editable_review_vals(self, vals):
+        if not vals:
+            return {}
+        return {
+            key: value
+            for key, value in vals.items()
+            if key in self._REVIEW_EDITABLE_FIELDS
+        }
+
+    @api.private
+    def _write_review_decision(self, extra_vals=None):
+        vals = {
+            "state": "validated_collections",
+            "reviewed_by": self.env.user.id,
+            "reviewed_at": fields.Datetime.now(),
+        }
+        if extra_vals:
+            vals.update(extra_vals)
+        self.with_context(collection_audited_state=True).write(vals)
         self._append_review_snapshot("approved")
 
     @api.private

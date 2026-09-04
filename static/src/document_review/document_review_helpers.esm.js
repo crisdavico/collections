@@ -5,6 +5,21 @@ import {_t} from "@web/core/l10n/translation";
 export const LINE_MODEL = "collection.voucher";
 export const BINARY_KEYS = new Set(["datas", "attachment"]);
 
+export const BANK_TRANSFER_FIELDS = [
+  "from_account",
+  "to_account",
+  "voucher_number",
+  "voucher_date",
+];
+export const CHECK_FIELDS = [
+  "check_number",
+  "check_bank",
+  "check_type",
+  "check_issue_date",
+  "check_payment_date",
+];
+export const SHARED_EDITABLE_FIELDS = ["document_type", "amount"];
+
 export const DOCUMENT_TYPE_LABELS = {
   bank_transfer: "Transferencia bancaria",
   check: "Cheque",
@@ -34,6 +49,38 @@ export function sanitizeQueueItem(raw) {
     item[key] = value === false ? "" : value;
   }
   return item;
+}
+
+export function editableKeysForType(documentType) {
+  if (documentType === "bank_transfer") {
+    return SHARED_EDITABLE_FIELDS.concat(BANK_TRANSFER_FIELDS);
+  }
+  if (documentType === "check") {
+    return SHARED_EDITABLE_FIELDS.concat(CHECK_FIELDS);
+  }
+  return SHARED_EDITABLE_FIELDS.slice();
+}
+
+export function ormValue(value) {
+  if (value === "" || value === false) {
+    return false;
+  }
+  return value;
+}
+
+export function isProvenanceKey(key) {
+  return Boolean(key) && (key.startsWith("ocr_") || key.startsWith("seller_"));
+}
+
+export function buildApproveVals(item) {
+  const vals = {};
+  for (const key of editableKeysForType(item.document_type)) {
+    if (isProvenanceKey(key)) {
+      continue;
+    }
+    vals[key] = key === "amount" ? Number(item.amount) || 0 : ormValue(item[key]);
+  }
+  return vals;
 }
 
 export function hasSellerChangedField(changedFields, fieldName) {
