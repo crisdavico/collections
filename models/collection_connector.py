@@ -8,7 +8,13 @@ from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
 _DISPATCH_OPS = frozenset(
-    {"test_connection", "list_sellers", "list_customers", "get_customer_debt"}
+    {
+        "test_connection",
+        "list_sellers",
+        "list_customers",
+        "get_customer_debt",
+        "create_receipt",
+    }
 )
 _OUTSTANDING_INVOICE_STATES = frozenset({"open", "overdue"})
 
@@ -89,6 +95,10 @@ class CollectionConnector(models.Model):
             "get_customer_debt", external_seller_id, identification
         )
         return self._format_customer_debt(payload)
+
+    def create_receipt(self, receipt):
+        self.ensure_one()
+        return self._dispatch("create_receipt", receipt)
 
     def resolve_customer_partner(self, seller_id, identification):
         self.ensure_one()
@@ -279,6 +289,9 @@ class CollectionConnector(models.Model):
         for row in payload.get("invoices") or []:
             if not _invoice_is_outstanding(row):
                 continue
+            kind = row.get("document_kind")
+            if kind in (None, False, ""):
+                kind = "invoice"
             invoices.append(
                 {
                     "external_invoice_id": str(
@@ -290,6 +303,7 @@ class CollectionConnector(models.Model):
                     "amount": _format_amount(row.get("amount")),
                     "balance": _format_amount(row.get("balance")),
                     "state": row.get("state") or "",
+                    "document_kind": kind,
                 }
             )
         invoices.sort(

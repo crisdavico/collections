@@ -36,7 +36,8 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
         description=(
             "Return outstanding invoices and balances for an Enabled Seller's "
             "active customer from the company's collection connector. Returns "
-            "{customer, summary, invoices}. Internal users only."
+            "{customer, summary, invoices} with invoice document_kind "
+            "(default invoice). Internal users only."
         ),
         input_schema=_CUSTOMER_DEBT_SCHEMA,
         category="read",
@@ -55,4 +56,8 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
         connector = self.env.company._collection_active_connector()
         result = connector.get_customer_debt(seller.id, customer_identification)
         result.pop("source", None)
+        for invoice in result.get("invoices") or []:
+            kind = invoice.get("document_kind")
+            if kind in (None, False, ""):
+                invoice["document_kind"] = "invoice"
         return result

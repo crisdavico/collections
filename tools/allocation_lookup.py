@@ -128,4 +128,22 @@ class CollectionAllocationLookupMixin(models.AbstractModel):
                 }
                 for line in allocation.line_ids
             ],
+            "receipts": [
+                {
+                    "document_kind": receipt.document_kind,
+                    "state": receipt.state,
+                    "external_receipt_id": receipt.external_receipt_id or None,
+                    "total_values": receipt.total_values,
+                    "total_applied": receipt.total_applied,
+                    "amount_on_account": receipt.amount_on_account,
+                    "values": [
+                        {
+                            "document_id": value.voucher_id.document_id,
+                            "amount": value.amount,
+                        }
+                        for value in receipt.value_ids
+                    ],
+                }
+                for receipt in allocation.receipt_ids
+            ],
         }

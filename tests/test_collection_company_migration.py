@@ -152,10 +152,10 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_33_0(self):
+    def test_manifest_version_is_1_34_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.33.0"', manifest.read_text(encoding="utf-8"))
+        self.assertIn('"version": "19.0.1.34.0"', manifest.read_text(encoding="utf-8"))
         for leftover in ("19.0.1.26.0", "19.0.1.27.0", "19.0.1.29.0", "19.0.1.30.0"):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
@@ -195,6 +195,67 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertNotIn("UPDATE collection_sheet", text_133)
         self.assertNotIn("THEN 'proposal'", text_133)
         self.assertNotIn("THEN 'cancelled'", text_133)
+        migrate_134 = module_root / "migrations" / "19.0.1.34.0" / "post-migrate.py"
+        self.assertTrue(migrate_134.is_file(), "Need 19.0.1.34.0 additive migrate")
+        text_134 = migrate_134.read_text(encoding="utf-8")
+        self.assertIn("def migrate", text_134)
+        self.assertNotIn("INSERT INTO collection_receipt", text_134)
+        self.assertNotIn("INSERT INTO collection_receipt_value", text_134)
+        self.assertNotIn("INSERT INTO collection.receipt", text_134)
+
+    def test_upgrade_134_does_not_backfill_receipts(self):
+        """Upgrade to 19.0.1.34.0 MUST add tables and MUST NOT backfill receipts."""
+        seller = ensure_enabled_seller(self.env)
+        partner = dummy_customer_partner(self.env, customer="MIG-RCPT")
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        voucher = self._create_voucher(
+            {
+                "document_type": "bank_transfer",
+                "seller_id": seller.id,
+                "sheet_id": sheet.id,
+                "amount": 40.0,
+                "partner_id": partner.id,
+            }
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "voucher_ids": [(6, 0, [voucher.id])],
+                "line_ids": [
+                    (
+                        0,
+                        0,
+                        {
+                            "external_invoice_id": "MIG-INV-1",
+                            "invoice_number": "M-1",
+                            "invoice_balance": 40.0,
+                            "amount_applied": 40.0,
+                        },
+                    )
+                ],
+            }
+        )
+        self.assertFalse(allocation.receipt_ids)
+        self.env.cr.execute("SELECT to_regclass('public.collection_receipt')")
+        self.assertTrue(self.env.cr.fetchone()[0])
+        self.env.cr.execute("SELECT to_regclass('public.collection_receipt_value')")
+        self.assertTrue(self.env.cr.fetchone()[0])
+        migrate_path = (
+            Path(__file__).resolve().parents[1]
+            / "migrations"
+            / "19.0.1.34.0"
+            / "post-migrate.py"
+        )
+        spec = spec_from_file_location("collection_receipts_post_migrate", migrate_path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.migrate(self.env.cr, "19.0.1.33.0")
+        self.env.invalidate_all()
+        leftover = self.env["collection.allocation"].browse(allocation.id)
+        self.assertTrue(leftover.exists())
+        self.assertFalse(leftover.receipt_ids)
+        self.assertTrue(voucher.exists())
 
     def test_remaining_tests_drop_two_state_leftovers(self):
         """Remaining tests MUST NOT expect Close/Reopen or a two-state statusbar."""
@@ -223,11 +284,11 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.33.0`", agents)
+        self.assertIn("Module metadata `19.0.1.34.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`open`/`proposal`/`closed`/`cancelled`", agents)
         self.assertIn("Confirm/Close/Cancel/Open", agents)
-        self.assertIn("Allocations, Vouchers, and Debt", agents)
+        self.assertIn("Allocations, Vouchers, and Debt", " ".join(agents.split()))
         self.assertIn("one-open still `open` only", " ".join(agents.split()))
         self.assertNotIn("action_reopen", agents)
         self.assertNotIn("**Reassign Customers**", agents)

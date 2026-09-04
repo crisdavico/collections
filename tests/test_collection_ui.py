@@ -51,6 +51,7 @@ SHEET_ALLOCATION_COLUMN_STRINGS = {
     "residual": "Residual",
 }
 ALLOCATION_NOTEBOOK_CUSTOMER_DEBT = "Customer Debt"
+ALLOCATION_NOTEBOOK_RECEIPTS = "Receipts"
 ALLOCATION_TOTAL_FIELDS = (
     "total_vouchers",
     "total_applied",
@@ -1072,7 +1073,9 @@ class TestCollectionUi(TransactionCase):
         self.assertIn("False", options)
 
         def _header_button(name):
-            return form_root.xpath(f'./header/button[@name="{name}" and @type="object"]')
+            return form_root.xpath(
+                f'./header/button[@name="{name}" and @type="object"]'
+            )
 
         confirm = _header_button("action_confirm")
         close = _header_button("action_close")
@@ -1959,3 +1962,89 @@ class TestCollectionUi(TransactionCase):
         self.assertIn(system, menu.group_ids)
         self.assertEqual(action.res_model, "collection.connector")
         self.assertEqual(action.type, "ir.actions.act_window")
+
+    def test_receipt_views_use_list_and_form_does_not_issue(self):
+        """Receipt UI MUST use <list> and MUST keep issuance fields readonly."""
+        list_root = self._arch_root("collection.view_collection_receipt_list")
+        form_root = self._arch_root("collection.view_collection_receipt_form")
+        search_root = self._arch_root("collection.view_collection_receipt_search")
+        self.assertEqual(list_root.tag, "list")
+        self.assertNotEqual(list_root.tag, "tree")
+        self.assertFalse(
+            list_root.xpath("//tree"),
+            "receipt list arch must not use deprecated <tree>",
+        )
+        self.assertFalse(
+            form_root.xpath("//tree"),
+            "receipt form arch must not use deprecated <tree>",
+        )
+        self.assertEqual(search_root.tag, "search")
+        nested_lists = form_root.xpath(".//list")
+        self.assertTrue(nested_lists, "receipt form must embed at least one <list>")
+        for list_node in nested_lists:
+            self.assertEqual(list_node.tag, "list")
+        state_nodes = [
+            node
+            for node in self._field_nodes(form_root, "state")
+            if node.get("widget") != "statusbar"
+        ]
+        self.assertTrue(state_nodes, "receipt form must expose state as a field")
+        self._assert_readonly_field(state_nodes[0], "state")
+        ext_nodes = self._field_nodes(form_root, "external_receipt_id")
+        self.assertTrue(ext_nodes, "receipt form must expose external_receipt_id")
+        self._assert_readonly_field(ext_nodes[0], "external_receipt_id")
+        self.assertFalse(
+            form_root.xpath("//header/button"),
+            "receipt form must not expose an issuance button",
+        )
+        action = self.env.ref("collection.action_collection_receipt")
+        menu = self.env.ref("collection.menu_collection_receipt")
+        root_menu = self.env.ref("collection.menu_collection_root")
+        alloc_menu = self.env.ref("collection.menu_collection_allocation")
+        self.assertEqual(action.res_model, "collection.receipt")
+        self.assertIn("list", action.view_mode)
+        self.assertIn("form", action.view_mode)
+        self.assertEqual(menu.parent_id, root_menu)
+        self.assertEqual(menu.action, action)
+        self.assertGreater(menu.sequence, alloc_menu.sequence)
+
+    def test_allocation_form_receipts_page(self):
+        """Allocation form MUST notebook a read-mostly Receipts page with <list>."""
+        form_root = self._arch_root("collection.view_collection_allocation_form")
+        self.assertFalse(
+            form_root.xpath("//tree"),
+            "allocation form arch must not use deprecated <tree>",
+        )
+        page = self._notebook_page(form_root, ALLOCATION_NOTEBOOK_RECEIPTS)
+        receipt_fields = page.xpath('.//field[@name="receipt_ids"]')
+        self.assertEqual(
+            len(receipt_fields),
+            1,
+            "Receipts page must expose receipt_ids once",
+        )
+        receipt_field = receipt_fields[0]
+        self.assertIn(
+            receipt_field.get("readonly"),
+            ("1", "True", "true"),
+            "allocation receipt_ids must be readonly so the form does not issue",
+        )
+        lists = receipt_field.xpath("./list")
+        self.assertTrue(lists, "receipt_ids must embed a <list>")
+        self.assertEqual(lists[0].get("create"), "false")
+        self.assertEqual(lists[0].get("delete"), "false")
+        list_names = self._field_names(lists[0], xpath="./field")
+        for field_name in (
+            "document_kind",
+            "state",
+            "external_receipt_id",
+            "total_values",
+            "total_applied",
+            "amount_on_account",
+        ):
+            self.assertIn(
+                field_name, list_names, f"Receipts list must show {field_name}"
+            )
+        self.assertFalse(
+            page.xpath(".//tree"),
+            "Receipts page must use <list>, not <tree>",
+        )

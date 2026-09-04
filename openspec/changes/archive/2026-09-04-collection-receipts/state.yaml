@@ -1,0 +1,21 @@
+schema: spec-driven
+change: collection-receipts
+phase: verify-blocked-maintainer-decision
+artifact_store: openspec
+execution_mode: automatic
+delivery_strategy: auto-chain
+subagent_model: cursor-grok-4.6-high
+strict_tdd: true
+updated: "2026-09-04T12:48:00Z"
+artifacts:
+  explore: done
+  proposal: done
+  specs: done
+  design: done
+  tasks: done
+  apply: missing
+  verify: missing
+notes:
+  - Product decisions settled in at-some-point-when-rippling-ritchie.md
+  - Explore recommends Approach A (receipt + receipt.value)
+  - Coordinated sqlite + nebula sit outside collection git root

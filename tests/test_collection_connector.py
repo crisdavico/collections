@@ -1,8 +1,10 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import inspect
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 from psycopg2 import IntegrityError
 
@@ -13,6 +15,16 @@ from odoo.tools import mute_logger
 
 from .common_connector import TEST_CONNECTOR_TYPE, install_test_connector_type
 from .test_collection_payment import create_internal_seller, ensure_enabled_seller
+
+_EXPECTED_DISPATCH_OPS = frozenset(
+    {
+        "test_connection",
+        "list_sellers",
+        "list_customers",
+        "get_customer_debt",
+        "create_receipt",
+    }
+)
 
 _LEAK_TOKENS = (
     "SELECT",
@@ -117,6 +129,50 @@ class TestCollectionConnector(TransactionCase):
                 "get_customer_debt", "ext-bound", "20-11111111-1"
             )
         )
+        self._assert_user_error_no_leak(
+            lambda: connector._dispatch("create_receipt", SimpleNamespace(id=1))
+        )
+
+    def test_create_receipt_is_allowlisted(self):
+        """create_receipt MUST be an allowlisted dispatcher op, not unknown."""
+        from odoo.addons.collection.models.collection_connector import _DISPATCH_OPS
+
+        self.assertIn("create_receipt", _DISPATCH_OPS)
+        self.assertEqual(_DISPATCH_OPS, _EXPECTED_DISPATCH_OPS)
+        install_test_connector_type(self)
+        connector = self.env["collection.connector"].create(
+            {
+                "name": "Create Receipt Allow",
+                "type": TEST_CONNECTOR_TYPE,
+            }
+        )
+        result = connector.create_receipt(SimpleNamespace(id=42))
+        self.assertEqual(result, {"external_receipt_id": "stub-42"})
+
+    def test_create_receipt_stub_id_follows_receipt(self):
+        """Triangulation: stub id MUST follow the receipt id, not a hardcoded value."""
+        install_test_connector_type(self)
+        connector = self.env["collection.connector"].create(
+            {
+                "name": "Create Receipt Stub",
+                "type": TEST_CONNECTOR_TYPE,
+            }
+        )
+        result = connector.create_receipt(SimpleNamespace(id=7))
+        self.assertEqual(result, {"external_receipt_id": "stub-7"})
+        self.assertNotEqual(result["external_receipt_id"], "stub-42")
+
+    def test_import_uses_list_sellers_not_create_receipt(self):
+        """Import MUST call list_sellers() and MUST NOT dispatch create_receipt."""
+        from odoo.addons.collection.models.res_company import ResCompany
+        from odoo.addons.collection.models.res_config_settings import ResConfigSettings
+
+        sync_src = inspect.getsource(ResCompany._sync_enabled_sellers_from_connector)
+        self.assertIn("list_sellers", sync_src)
+        self.assertNotIn("create_receipt", sync_src)
+        import_src = inspect.getsource(ResConfigSettings.action_import_enabled_sellers)
+        self.assertIn("_sync_enabled_sellers_from_connector", import_src)
+        self.assertNotIn("create_receipt", import_src)
 
     def test_test_connection_returns_success_notification(self):
         """Successful connection-test MUST return a success client notification."""
@@ -563,6 +619,8 @@ class TestCollectionConnector(TransactionCase):
         self.assertEqual(invoices[0]["state"], "overdue")
         self.assertEqual(invoices[1]["state"], "open")
         self.assertEqual(invoices[1]["balance"], 50.0)
+        self.assertEqual(invoices[0]["document_kind"], "invoice")
+        self.assertEqual(invoices[1]["document_kind"], "invoice")
         self.assertEqual(
             set(invoices[0]),
             {
@@ -573,6 +631,7 @@ class TestCollectionConnector(TransactionCase):
                 "amount",
                 "balance",
                 "state",
+                "document_kind",
             },
         )
         summary = result["summary"]
@@ -595,6 +654,62 @@ class TestCollectionConnector(TransactionCase):
         self.assertEqual(source["connector_name"], connector.name)
         self.assertEqual(source["company_id"], self.env.company.id)
         self.assertEqual(self.env["res.partner"].search_count([]), before_partners)
+
+    def test_get_customer_debt_quotation_row_keeps_kind(self):
+        """Outstanding quotation MUST appear with document_kind quotation."""
+        install_test_connector_type(self)
+        connector = self.env["collection.connector"].create(
+            {"name": "Debt Quotation Connector", "type": TEST_CONNECTOR_TYPE}
+        )
+        bound_user = create_internal_seller(self.env, "cust_debt_quotation_seller")
+        self._bind_enabled_seller(connector, bound_user, "ext-bound")
+        mixed = (
+            {
+                "id": "inv-bound-open",
+                "customer_id": "cust-bound-active",
+                "number": "A-0002",
+                "issue_date": "2026-04-01",
+                "due_date": "2026-09-01",
+                "amount": 50.0,
+                "balance": 50.0,
+                "state": "open",
+            },
+            {
+                "id": "quo-bound-overdue",
+                "customer_id": "cust-bound-active",
+                "number": "Q-0001",
+                "issue_date": "2026-01-15",
+                "due_date": "2026-03-15",
+                "amount": 75.0,
+                "balance": 75.0,
+                "state": "overdue",
+                "document_kind": "quotation",
+            },
+        )
+        result = connector.with_context(
+            collection_test_invoices=mixed
+        ).get_customer_debt(bound_user.id, "20-11111111-1")
+        invoices = result["invoices"]
+        kinds = {row["external_invoice_id"]: row["document_kind"] for row in invoices}
+        self.assertEqual(kinds["inv-bound-open"], "invoice")
+        self.assertEqual(kinds["quo-bound-overdue"], "quotation")
+        self.assertEqual(result["summary"]["invoice_count"], 2)
+        self.assertEqual(result["summary"]["total_balance"], 125.0)
+        for row in invoices:
+            self.assertIn("document_kind", row)
+            self.assertEqual(
+                set(row),
+                {
+                    "external_invoice_id",
+                    "number",
+                    "issue_date",
+                    "due_date",
+                    "amount",
+                    "balance",
+                    "state",
+                    "document_kind",
+                },
+            )
 
     def test_get_customer_debt_zero_debt_succeeds(self):
         """Active customer with no outstanding invoices MUST return zeros."""

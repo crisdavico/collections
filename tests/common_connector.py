@@ -185,6 +185,11 @@ class CollectionConnectorTestProvider(models.Model):
         self.ensure_one()
         return {"ok": True}
 
+    @api.private
+    def _test_create_receipt(self, receipt):
+        self.ensure_one()
+        return {"external_receipt_id": f"stub-{receipt.id}"}
+
 
 def install_test_connector_type(case):
     """Register the test provider on this case's registry (idempotent)."""

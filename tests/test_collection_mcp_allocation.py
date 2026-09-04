@@ -69,7 +69,13 @@ _LEAK_TOKENS = (
     "/home",
 )
 _DISPATCH_OPS = frozenset(
-    {"test_connection", "list_sellers", "list_customers", "get_customer_debt"}
+    {
+        "test_connection",
+        "list_sellers",
+        "list_customers",
+        "get_customer_debt",
+        "create_receipt",
+    }
 )
 
 INVOICE_OVERDUE = {
@@ -628,6 +634,51 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(allocation.revision_ids.request_id, "req-hash-1")
         self.assertEqual(allocation.write_date, write_date)
         self.assertEqual(self._counts(), before)
+
+    def test_omitted_extras_hash_matches_legacy_payload(self):
+        """Payloads that omit splits and kind MUST hash as today's SHA-256."""
+        import hashlib
+
+        payment = self._payment(100.0)
+        invoices = [self._applied(INVOICE_OVERDUE, 100.0)]
+        first = self._call(
+            self._payload([payment], invoices, request_id="req-legacy-hash")
+        )
+        allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
+        vouchers = allocation.voucher_ids
+        mixin = self.env["muk_mcp.mixin"]
+        parsed = mixin._collection_parse_allocation_invoices(invoices)
+        digest = mixin._collection_allocation_content_hash(vouchers, parsed)
+        self.assertEqual(allocation.revision_ids.content_hash, digest)
+        legacy_payload = {
+            "vouchers": sorted(vouchers.ids),
+            "invoices": sorted(
+                [[INVOICE_OVERDUE["external_invoice_id"], "100.000000"]]
+            ),
+        }
+        legacy = hashlib.sha256(
+            json.dumps(legacy_payload, separators=(",", ":"), sort_keys=True).encode()
+        ).hexdigest()
+        self.assertEqual(digest, legacy)
+
+    def test_payload_kind_prevents_hash_replay(self):
+        """Different invoice document_kind MUST not replay as unchanged content."""
+        payment = self._payment(100.0)
+        invoices = [self._applied(INVOICE_OVERDUE, 100.0)]
+        first = self._call(self._payload([payment], invoices, request_id="req-kind-1"))
+        second = self._call(
+            self._payload(
+                [payment],
+                [{**invoices[0], "document_kind": "quotation"}],
+                request_id="req-kind-2",
+            )
+        )
+        self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])
+        self.assertEqual(second["allocation"]["revision"], 2)
+        allocation = self.env["collection.allocation"].browse(
+            second["allocation"]["id"]
+        )
+        self.assertEqual(len(allocation.revision_ids), 2)
 
     def test_exact_document_id_reuse_continues_to_allocation(self):
         """Exact same-company document_id set MUST reuse rows and persist allocation."""
@@ -1602,7 +1653,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertNotIn(".sudo(", file_source)
 
     def test_dispatch_ops_untouched(self):
-        """Allocation write MUST NOT expand connector _DISPATCH_OPS."""
+        """Connector _DISPATCH_OPS MUST include create_receipt among the five ops."""
         from odoo.addons.collection.models.collection_connector import (
             _DISPATCH_OPS as ops,
         )

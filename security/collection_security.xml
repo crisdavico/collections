@@ -45,4 +45,14 @@
         <field name="model_id" ref="model_collection_allocation_revision" />
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
+    <record id="collection_receipt_company_rule" model="ir.rule">
+        <field name="name">Collection Receipt: multi-company</field>
+        <field name="model_id" ref="model_collection_receipt" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="collection_receipt_value_company_rule" model="ir.rule">
+        <field name="name">Collection Receipt Value: multi-company</field>
+        <field name="model_id" ref="model_collection_receipt_value" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

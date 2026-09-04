@@ -132,6 +132,23 @@ class TestCollectionAllocation(TransactionCase):
             .create(vals)
         )
 
+    def _create_receipt(self, allocation, document_kind="invoice", **extra):
+        vals = {
+            "allocation_id": allocation.id,
+            "document_kind": document_kind,
+        }
+        vals.update(extra)
+        return self.env["collection.receipt"].create(vals)
+
+    def _create_value(self, receipt, voucher, amount):
+        return self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": voucher.id,
+                "amount": amount,
+            }
+        )
+
     def _confirm(self, allocation):
         allocation.with_context(collection_allocation_audited_state=True).write(
             {"state": "confirmed"}
@@ -1235,3 +1252,149 @@ class TestCollectionAllocation(TransactionCase):
         leftover = self.env["collection.allocation.line"].browse(line_id)
         self.assertTrue(leftover.exists())
         self.assertEqual(leftover.allocation_id, allocation)
+
+    def test_freeze_rejects_receipt_ids_when_confirmed(self):
+        """Confirmed allocations MUST refuse receipt_ids create and unlink."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        receipt = self._create_receipt(allocation, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        self._confirm(allocation)
+        self.assertEqual(allocation.state, "confirmed")
+        receipt_id = receipt.id
+        with self.assertRaises(UserError):
+            allocation.write(
+                {"receipt_ids": [Command.create({"document_kind": "quotation"})]}
+            )
+        with self.assertRaises(UserError):
+            allocation.write({"receipt_ids": [Command.unlink(receipt.id)]})
+        leftover_receipt = self.env["collection.receipt"].browse(receipt_id)
+        self.assertTrue(leftover_receipt.exists())
+        self.assertEqual(allocation.receipt_ids, leftover_receipt)
+        self.assertEqual(leftover_receipt.document_kind, "invoice")
+        self.assertEqual(len(leftover_receipt.value_ids), 1)
+
+    def test_draft_allocation_allows_receipt_ids_writes(self):
+        """Triangulation: draft allocations MAY still write receipt_ids."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        self.assertEqual(allocation.state, "draft")
+        allocation.write(
+            {"receipt_ids": [Command.create({"document_kind": "invoice"})]}
+        )
+        receipt = allocation.receipt_ids
+        self.assertEqual(len(receipt), 1)
+        self.assertEqual(receipt.document_kind, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        allocation.write({"receipt_ids": [Command.delete(receipt.id)]})
+        self.assertFalse(allocation.receipt_ids)
+        self.assertFalse(receipt.exists())
+
+    def test_closed_allocation_receipt_ids_writes_refused(self):
+        """Closed sheets MUST refuse receipt_ids writes; stored receipts stay."""
+        seller = self._seller()
+        install_test_connector_type(self)
+        install_bound_test_connector(self, seller)
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        receipt = self._create_receipt(allocation, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        self._mark_validated(voucher)
+        sheet.action_confirm()
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        receipt_id = receipt.id
+        with self.assertRaises(UserError):
+            allocation.write(
+                {"receipt_ids": [Command.create({"document_kind": "quotation"})]}
+            )
+        with self.assertRaises(UserError):
+            allocation.write({"receipt_ids": [Command.unlink(receipt.id)]})
+        leftover_receipt = self.env["collection.receipt"].browse(receipt_id)
+        self.assertTrue(leftover_receipt.exists())
+        self.assertEqual(allocation.receipt_ids, leftover_receipt)
+        self.assertEqual(leftover_receipt.document_kind, "invoice")
+
+    def test_cancelled_allocation_receipt_ids_writes_refused(self):
+        """Triangulation: cancelled draft allocations MUST refuse receipt_ids."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        receipt = self._create_receipt(allocation, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        self._mark_validated(voucher)
+        sheet.action_confirm()
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(allocation.state, "draft")
+        receipt_id = receipt.id
+        with self.assertRaises(UserError):
+            allocation.write(
+                {"receipt_ids": [Command.create({"document_kind": "quotation"})]}
+            )
+        with self.assertRaises(UserError):
+            allocation.write({"receipt_ids": [Command.unlink(receipt.id)]})
+        leftover_receipt = self.env["collection.receipt"].browse(receipt_id)
+        self.assertTrue(leftover_receipt.exists())
+        self.assertEqual(allocation.receipt_ids, leftover_receipt)
+        self.assertEqual(leftover_receipt.document_kind, "invoice")
+
+    def test_proposal_draft_allows_receipt_ids_writes(self):
+        """Proposal draft allocations MUST remain writable for receipt_ids."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
+        allocation.write(
+            {"receipt_ids": [Command.create({"document_kind": "invoice"})]}
+        )
+        receipt = allocation.receipt_ids
+        self.assertEqual(len(receipt), 1)
+        self.assertEqual(receipt.document_kind, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        self.assertEqual(receipt.value_ids.amount, 100.0)
+
+    def test_draft_unlink_cascades_receipts_and_values(self):
+        """Draft unlink MUST cascade receipts and values and unassign vouchers."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        receipt = self._create_receipt(allocation, "invoice")
+        value = self._create_value(receipt, voucher, 100.0)
+        revision = self._create_revision(allocation, request_id="req-rcpt-unlink")
+        receipt_id = receipt.id
+        value_id = value.id
+        revision_id = revision.id
+        voucher_id = voucher.id
+        allocation_id = allocation.id
+        line_ids = allocation.line_ids.ids
+        allocation.unlink()
+        self.assertFalse(
+            self.env["collection.allocation"].browse(allocation_id).exists()
+        )
+        self.assertFalse(self.env["collection.receipt"].browse(receipt_id).exists())
+        self.assertFalse(self.env["collection.receipt.value"].browse(value_id).exists())
+        self.assertFalse(
+            self.env["collection.allocation.revision"].browse(revision_id).exists()
+        )
+        self.assertFalse(
+            self.env["collection.allocation.line"].browse(line_ids).exists()
+        )
+        leftover_voucher = self.env["collection.voucher"].browse(voucher_id)
+        self.assertTrue(leftover_voucher.exists())
+        self.assertFalse(leftover_voucher.allocation_id)
+
+    def test_confirmed_unlink_keeps_receipts(self):
+        """Triangulation: confirmed unlink MUST keep receipts, values, vouchers."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        receipt = self._create_receipt(allocation, "invoice")
+        value = self._create_value(receipt, voucher, 100.0)
+        self._confirm(allocation)
+        receipt_id = receipt.id
+        value_id = value.id
+        allocation_id = allocation.id
+        with self.assertRaises(UserError):
+            allocation.unlink()
+        leftover = self.env["collection.allocation"].browse(allocation_id)
+        self.assertTrue(leftover.exists())
+        leftover_receipt = self.env["collection.receipt"].browse(receipt_id)
+        leftover_value = self.env["collection.receipt.value"].browse(value_id)
+        self.assertTrue(leftover_receipt.exists())
+        self.assertTrue(leftover_value.exists())
+        self.assertEqual(leftover_receipt.allocation_id, leftover)
+        self.assertEqual(voucher.allocation_id, leftover)

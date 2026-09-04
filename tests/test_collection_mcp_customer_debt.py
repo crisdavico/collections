@@ -186,11 +186,63 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
             [row["external_invoice_id"] for row in result["invoices"]],
             ["inv-bound-overdue", "inv-bound-open"],
         )
+        for row in result["invoices"]:
+            self.assertEqual(row["document_kind"], "invoice")
+            self.assertEqual(
+                set(row),
+                {
+                    "external_invoice_id",
+                    "number",
+                    "issue_date",
+                    "due_date",
+                    "amount",
+                    "balance",
+                    "state",
+                    "document_kind",
+                },
+            )
         self.assertEqual(result["summary"]["total_balance"], 150.0)
         self.assertEqual(result["summary"]["overdue_balance"], 100.0)
         self.assertEqual(result["summary"]["open_balance"], 50.0)
         self.assertEqual(result["summary"]["invoice_count"], 2)
         self.assertEqual(self.env["res.partner"].search_count([]), before_partners)
+
+    def test_quotation_debt_rows_include_kind_and_omit_source(self):
+        """MCP customer_debt MUST pass quotation kind and still omit source."""
+        mixed = (
+            {
+                "id": "inv-bound-open",
+                "customer_id": "cust-bound-active",
+                "number": "A-0002",
+                "issue_date": "2026-04-01",
+                "due_date": "2026-09-01",
+                "amount": 50.0,
+                "balance": 50.0,
+                "state": "open",
+            },
+            {
+                "id": "quo-bound-overdue",
+                "customer_id": "cust-bound-active",
+                "number": "Q-0001",
+                "issue_date": "2026-01-15",
+                "due_date": "2026-03-15",
+                "amount": 75.0,
+                "balance": 75.0,
+                "state": "overdue",
+                "document_kind": "quotation",
+            },
+        )
+        mixin = self.env["muk_mcp.mixin"].with_context(collection_test_invoices=mixed)
+        payload = mixin.customer_debt(self.seller.id, "20-11111111-1")
+        self.assertEqual(set(payload), {"customer", "summary", "invoices"})
+        self.assertNotIn("source", payload)
+        kinds = {
+            row["external_invoice_id"]: row["document_kind"]
+            for row in payload["invoices"]
+        }
+        self.assertEqual(kinds["inv-bound-open"], "invoice")
+        self.assertEqual(kinds["quo-bound-overdue"], "quotation")
+        self.assertEqual(payload["summary"]["invoice_count"], 2)
 
     def test_zero_debt_returns_empty_invoices(self):
         """Active customer with no outstanding invoices MUST succeed with zeros."""

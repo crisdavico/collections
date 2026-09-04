@@ -162,6 +162,19 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Receipts">
+                            <field name="receipt_ids" readonly="1">
+                                <list create="false" delete="false" edit="false">
+                                    <field name="document_kind" />
+                                    <field name="state" />
+                                    <field name="external_receipt_id" />
+                                    <field name="total_values" />
+                                    <field name="total_applied" />
+                                    <field name="amount_on_account" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
                         <page string="Revisions">
                             <field name="revision_ids" readonly="1">
                                 <list create="false" delete="false" edit="false">

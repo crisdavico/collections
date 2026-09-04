@@ -189,7 +189,9 @@ class CollectionSheet(models.Model):
             if action_name:
                 return getattr(self, action_name)()
             raise UserError(
-                _("Sheet state can only be changed via Confirm, Close, Cancel, or Open.")
+                _(
+                    "Sheet state can only be changed via Confirm, Close, Cancel, or Open."
+                )
             )
         if "voucher_ids" in vals:
             if not self.env.context.get("collection_sheet_unlinking") and any(
@@ -238,6 +240,30 @@ class CollectionSheet(models.Model):
     def action_close(self):
         if any(sheet.state != "proposal" for sheet in self):
             raise UserError(_("Only proposal sheets can be closed."))
+        for sheet in self:
+            receipts = sheet.allocation_ids.receipt_ids.filtered(
+                lambda rec: rec.state == "draft" and rec.value_ids
+            )
+            if not receipts:
+                continue
+            connector = sheet.company_id._collection_active_connector()
+            for receipt in receipts:
+                payload = connector.create_receipt(receipt)
+                external_id = (
+                    payload.get("external_receipt_id")
+                    if isinstance(payload, dict)
+                    else None
+                )
+                if not external_id:
+                    raise UserError(
+                        _("The collection connector did not return a receipt id.")
+                    )
+                receipt.with_context(collection_receipt_issuing=True).write(
+                    {
+                        "state": "issued",
+                        "external_receipt_id": str(external_id),
+                    }
+                )
         allocations = self.mapped("allocation_ids")
         if allocations:
             allocations.with_context(collection_allocation_audited_state=True).write(

@@ -12,3 +12,5 @@ access_collection_connector_customer_binding_system,collection.connector.custome
 access_collection_allocation_user,collection.allocation.user,model_collection_allocation,base.group_user,1,1,1,1
 access_collection_allocation_line_user,collection.allocation.line.user,model_collection_allocation_line,base.group_user,1,1,1,1
 access_collection_allocation_revision_user,collection.allocation.revision.user,model_collection_allocation_revision,base.group_user,1,0,1,1
+access_collection_receipt_user,collection.receipt.user,model_collection_receipt,base.group_user,1,1,1,1
+access_collection_receipt_value_user,collection.receipt.value.user,model_collection_receipt_value,base.group_user,1,1,1,1

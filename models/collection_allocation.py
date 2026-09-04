@@ -6,7 +6,9 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command
 from odoo.tools.translate import _
 
-_FROZEN_FIELDS = frozenset({"line_ids", "voucher_ids", "partner_id", "sheet_id"})
+_FROZEN_FIELDS = frozenset(
+    {"line_ids", "voucher_ids", "receipt_ids", "partner_id", "sheet_id"}
+)
 _DRAFT_SHEET_STATES = frozenset({"open", "proposal", "cancelled"})
 _CONFIRMED_SHEET_STATE = "closed"
 _FROZEN_SHEET_STATES = frozenset({"closed", "cancelled"})
@@ -79,6 +81,11 @@ class CollectionAllocation(models.Model):
         comodel_name="collection.allocation.line",
         inverse_name="allocation_id",
         string="Lines",
+    )
+    receipt_ids = fields.One2many(
+        comodel_name="collection.receipt",
+        inverse_name="allocation_id",
+        string="Receipts",
     )
     revision_ids = fields.One2many(
         comodel_name="collection.allocation.revision",

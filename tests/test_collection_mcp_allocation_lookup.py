@@ -25,7 +25,7 @@ IDENT = "20-11111111-1"
 UNBOUND_LISTABLE = "20-88888888-8"
 UNKNOWN_IDENT = "99-00000000-0"
 MULTI_OPEN_MSG = "This seller has more than one open collection sheet."
-_TOP_KEYS = {"allocation", "vouchers", "invoices"}
+_TOP_KEYS = {"allocation", "vouchers", "invoices", "receipts"}
 _ALLOC_KEYS = {
     "id",
     "name",
@@ -54,6 +54,16 @@ _INVOICE_KEYS = {
     "amount_applied",
     "document_kind",
 }
+_RECEIPT_KEYS = {
+    "document_kind",
+    "state",
+    "external_receipt_id",
+    "total_values",
+    "total_applied",
+    "amount_on_account",
+    "values",
+}
+_RECEIPT_VALUE_KEYS = {"document_id", "amount"}
 _LEAK_TOKENS = (
     "SELECT",
     "INSERT",
@@ -404,6 +414,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(invoice["state"], "overdue")
         self.assertEqual(invoice["amount_applied"], 100.0)
         self.assertEqual(invoice["document_kind"], "invoice")
+        self.assertEqual(result["receipts"], [])
 
     def test_get_invoices_include_stored_document_kind(self):
         """GET invoice rows MUST echo stored document_kind, including quotation."""
@@ -461,6 +472,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertNotIn("residual_reason", result["allocation"])
         self.assertEqual(len(result["vouchers"]), 1)
         self.assertEqual(result["invoices"], [])
+        self.assertEqual(result["receipts"], [])
 
     def test_found_open_sheet_state_is_draft(self):
         """Found open-sheet allocation MUST return state draft, never validated."""
@@ -536,6 +548,45 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertTrue(result["vouchers"])
         self.assertTrue(result["invoices"])
         self._assert_no_media_keys(result)
+
+    def test_found_payload_includes_receipts_list(self):
+        """Found payload MUST list receipts with values even while still draft."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(sheet, self.partner, 150.0)
+        allocation = self._create_allocation(
+            sheet,
+            self.partner,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=100.0, invoice_balance=100.0)],
+        )
+        receipt = self.env["collection.receipt"].create(
+            {
+                "allocation_id": allocation.id,
+                "document_kind": "invoice",
+            }
+        )
+        self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": voucher.id,
+                "amount": 150.0,
+            }
+        )
+        result = self._call(self._args())
+        self.assertEqual(set(result), _TOP_KEYS)
+        self.assertEqual(len(result["receipts"]), 1)
+        row = result["receipts"][0]
+        self.assertEqual(set(row), _RECEIPT_KEYS)
+        self.assertEqual(row["document_kind"], "invoice")
+        self.assertEqual(row["state"], "draft")
+        self.assertIsNone(row["external_receipt_id"])
+        self.assertEqual(row["total_values"], 150.0)
+        self.assertEqual(row["total_applied"], 100.0)
+        self.assertEqual(row["amount_on_account"], 50.0)
+        self.assertEqual(len(row["values"]), 1)
+        self.assertEqual(set(row["values"][0]), _RECEIPT_VALUE_KEYS)
+        self.assertEqual(row["values"][0]["document_id"], voucher.document_id)
+        self.assertEqual(row["values"][0]["amount"], 150.0)
 
     def test_tool_source_has_no_sudo_or_write_helpers(self):
         """tools/allocation_lookup.py MUST NOT sudo or create partners/sheets."""
