@@ -197,22 +197,25 @@
                                     </label>
                                 </div>
                                 <div class="slot">
-                                    <input
+                                    <select
                     id="collection_review_document_type"
-                    type="text"
-                    readonly="readonly"
-                    tabindex="-1"
-                    aria-label="OCR Tipo de documento"
-                    t-att-value="current.ocr_document_type"
-                  />
+                    aria-label="Tipo de documento"
+                    t-att-value="current.draft.document_type"
+                    t-on-change="(ev) => this.onFieldInput(ev, 'document_type')"
+                    t-on-input="(ev) => this.onFieldInput(ev, 'document_type')"
+                  >
+                                        <option value="bank_transfer">
+                                            Transferencia bancaria
+                                        </option>
+                                        <option value="check">Cheque</option>
+                                        <option value="cash_deposit">
+                                            Depósito en efectivo
+                                        </option>
+                                        <option value="unsupported">
+                                            No soportado
+                                        </option>
+                                    </select>
                                 </div>
-                                <p
-                  class="seller-warning"
-                  role="status"
-                  aria-live="polite"
-                  t-if="hasSellerChangedField(current.seller_changed_fields, 'document_type')"
-                  t-out="formatSellerChangedValue(current.seller_changed_fields, 'document_type')"
-                />
                             </div>
 
                             <div class="field">
@@ -224,19 +227,11 @@
                     id="collection_review_amount"
                     type="number"
                     step="0.01"
-                    readonly="readonly"
-                    tabindex="-1"
-                    aria-label="OCR Monto"
-                    t-att-value="current.ocr_amount"
+                    aria-label="Monto"
+                    t-att-value="current.draft.amount"
+                    t-on-input="(ev) => this.onFieldInput(ev, 'amount')"
                   />
                                 </div>
-                                <p
-                  class="seller-warning"
-                  role="status"
-                  aria-live="polite"
-                  t-if="hasSellerChangedField(current.seller_changed_fields, 'amount')"
-                  t-out="formatSellerChangedValue(current.seller_changed_fields, 'amount')"
-                />
                             </div>
 
                             <t t-if="isBankTransfer">
@@ -250,19 +245,11 @@
                                         <input
                       id="collection_review_from_account"
                       type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="OCR Cuenta origen"
-                      t-att-value="current.ocr_from_account"
+                      aria-label="Cuenta origen"
+                      t-att-value="current.draft.from_account"
+                      t-on-input="(ev) => this.onFieldInput(ev, 'from_account')"
                     />
                                     </div>
-                                    <p
-                    class="seller-warning"
-                    role="status"
-                    aria-live="polite"
-                    t-if="hasSellerChangedField(current.seller_changed_fields, 'from_account')"
-                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'from_account')"
-                  />
                                 </div>
                                 <div class="field">
                                     <div class="ftop">
@@ -274,19 +261,11 @@
                                         <input
                       id="collection_review_to_account"
                       type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="OCR Cuenta destino"
-                      t-att-value="current.ocr_to_account"
+                      aria-label="Cuenta destino"
+                      t-att-value="current.draft.to_account"
+                      t-on-input="(ev) => this.onFieldInput(ev, 'to_account')"
                     />
                                     </div>
-                                    <p
-                    class="seller-warning"
-                    role="status"
-                    aria-live="polite"
-                    t-if="hasSellerChangedField(current.seller_changed_fields, 'to_account')"
-                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'to_account')"
-                  />
                                 </div>
                                 <div class="row">
                                     <div class="field">
@@ -301,19 +280,11 @@
                                             <input
                         id="collection_review_voucher_number"
                         type="text"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="OCR Nro. comprobante"
-                        t-att-value="current.ocr_voucher_number"
+                        aria-label="Nro. comprobante"
+                        t-att-value="current.draft.voucher_number"
+                        t-on-input="(ev) => this.onFieldInput(ev, 'voucher_number')"
                       />
                                         </div>
-                                        <p
-                      class="seller-warning"
-                      role="status"
-                      aria-live="polite"
-                      t-if="hasSellerChangedField(current.seller_changed_fields, 'voucher_number')"
-                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'voucher_number')"
-                    />
                                     </div>
                                     <div class="field">
                                         <div class="ftop">
@@ -325,19 +296,12 @@
                                             <input
                         id="collection_review_voucher_date"
                         type="date"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="OCR Fecha"
-                        t-att-value="current.ocr_voucher_date"
+                        aria-label="Fecha"
+                        t-att-value="current.draft.voucher_date"
+                        t-on-input="(ev) => this.onFieldInput(ev, 'voucher_date')"
+                        t-on-change="(ev) => this.onFieldInput(ev, 'voucher_date')"
                       />
                                         </div>
-                                        <p
-                      class="seller-warning"
-                      role="status"
-                      aria-live="polite"
-                      t-if="hasSellerChangedField(current.seller_changed_fields, 'voucher_date')"
-                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'voucher_date')"
-                    />
                                     </div>
                                 </div>
                             </t>
@@ -353,19 +317,11 @@
                                         <input
                       id="collection_review_check_number"
                       type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="OCR Nro. cheque"
-                      t-att-value="current.ocr_check_number"
+                      aria-label="Nro. cheque"
+                      t-att-value="current.draft.check_number"
+                      t-on-input="(ev) => this.onFieldInput(ev, 'check_number')"
                     />
                                     </div>
-                                    <p
-                    class="seller-warning"
-                    role="status"
-                    aria-live="polite"
-                    t-if="hasSellerChangedField(current.seller_changed_fields, 'check_number')"
-                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_number')"
-                  />
                                 </div>
                                 <div class="field">
                                     <div class="ftop">
@@ -377,19 +333,11 @@
                                         <input
                       id="collection_review_check_bank"
                       type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="OCR Banco"
-                      t-att-value="current.ocr_check_bank"
+                      aria-label="Banco"
+                      t-att-value="current.draft.check_bank"
+                      t-on-input="(ev) => this.onFieldInput(ev, 'check_bank')"
                     />
                                     </div>
-                                    <p
-                    class="seller-warning"
-                    role="status"
-                    aria-live="polite"
-                    t-if="hasSellerChangedField(current.seller_changed_fields, 'check_bank')"
-                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_bank')"
-                  />
                                 </div>
                                 <div class="field">
                                     <div class="ftop">
@@ -398,22 +346,17 @@
                                         </label>
                                     </div>
                                     <div class="slot">
-                                        <input
+                                        <select
                       id="collection_review_check_type"
-                      type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="OCR Tipo de cheque"
-                      t-att-value="current.ocr_check_type"
-                    />
+                      aria-label="Tipo de cheque"
+                      t-att-value="current.draft.check_type"
+                      t-on-change="(ev) => this.onFieldInput(ev, 'check_type')"
+                      t-on-input="(ev) => this.onFieldInput(ev, 'check_type')"
+                    >
+                                            <option value="common">Común</option>
+                                            <option value="deferred">Diferido</option>
+                                        </select>
                                     </div>
-                                    <p
-                    class="seller-warning"
-                    role="status"
-                    aria-live="polite"
-                    t-if="hasSellerChangedField(current.seller_changed_fields, 'check_type')"
-                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_type')"
-                  />
                                 </div>
                                 <div class="row">
                                     <div class="field">
@@ -428,19 +371,12 @@
                                             <input
                         id="collection_review_check_issue_date"
                         type="date"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="OCR Fecha de emisión"
-                        t-att-value="current.ocr_check_issue_date"
+                        aria-label="Fecha de emisión"
+                        t-att-value="current.draft.check_issue_date"
+                        t-on-input="(ev) => this.onFieldInput(ev, 'check_issue_date')"
+                        t-on-change="(ev) => this.onFieldInput(ev, 'check_issue_date')"
                       />
                                         </div>
-                                        <p
-                      class="seller-warning"
-                      role="status"
-                      aria-live="polite"
-                      t-if="hasSellerChangedField(current.seller_changed_fields, 'check_issue_date')"
-                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_issue_date')"
-                    />
                                     </div>
                                     <div class="field">
                                         <div class="ftop">
@@ -454,19 +390,12 @@
                                             <input
                         id="collection_review_check_payment_date"
                         type="date"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="OCR Fecha de pago"
-                        t-att-value="current.ocr_check_payment_date"
+                        aria-label="Fecha de pago"
+                        t-att-value="current.draft.check_payment_date"
+                        t-on-input="(ev) => this.onFieldInput(ev, 'check_payment_date')"
+                        t-on-change="(ev) => this.onFieldInput(ev, 'check_payment_date')"
                       />
                                         </div>
-                                        <p
-                      class="seller-warning"
-                      role="status"
-                      aria-live="polite"
-                      t-if="hasSellerChangedField(current.seller_changed_fields, 'check_payment_date')"
-                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_payment_date')"
-                    />
                                     </div>
                                 </div>
                             </t>

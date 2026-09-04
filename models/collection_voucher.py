@@ -567,7 +567,9 @@ class CollectionVoucher(models.Model):
         self.ensure_one()
         self._ensure_review_sheet_member(sheet)
         self._lock_and_ensure_review_eligible()
-        del vals  # leftover client vals must not rewrite current fields
+        extra = self._editable_review_vals(vals)
+        if extra:
+            self.write(extra)
         self._write_review_decision()
         return True
 
@@ -683,6 +685,17 @@ class CollectionVoucher(models.Model):
             }
         )
         self._append_review_snapshot("approved")
+
+    @api.private
+    def _editable_review_vals(self, vals):
+        """Return current-field corrections allowed on Document Review approve."""
+        if not vals:
+            return {}
+        return {
+            name: vals[name]
+            for name in self._REVIEW_EDITABLE_FIELD_ORDER
+            if name in vals
+        }
 
     @api.private
     def _append_review_snapshot(self, decision):

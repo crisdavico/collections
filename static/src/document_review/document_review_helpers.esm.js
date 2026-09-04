@@ -4,6 +4,19 @@ import {_t} from "@web/core/l10n/translation";
 
 export const LINE_MODEL = "collection.voucher";
 export const BINARY_KEYS = new Set(["datas", "attachment"]);
+export const REVIEW_EDITABLE_FIELDS = [
+  "document_type",
+  "amount",
+  "from_account",
+  "to_account",
+  "voucher_number",
+  "voucher_date",
+  "check_number",
+  "check_bank",
+  "check_type",
+  "check_issue_date",
+  "check_payment_date",
+];
 
 export const DOCUMENT_TYPE_LABELS = {
   bank_transfer: "Transferencia bancaria",
@@ -34,6 +47,39 @@ export function sanitizeQueueItem(raw) {
     item[key] = value === false ? "" : value;
   }
   return item;
+}
+
+export function isEmptyReviewValue(name, value) {
+  if (value === false || value === null || value === undefined || value === "") {
+    return true;
+  }
+  if (name === "amount") {
+    const number = Number(value);
+    return Number.isNaN(number) || number === 0;
+  }
+  return false;
+}
+
+export function initDraftFromOcr(item) {
+  const source = item || {};
+  const draft = {};
+  for (const name of REVIEW_EDITABLE_FIELDS) {
+    const ocrValue = source[`ocr_${name}`];
+    draft[name] = isEmptyReviewValue(name, ocrValue) ? source[name] ?? "" : ocrValue;
+  }
+  return draft;
+}
+
+export function buildApproveVals(draft) {
+  const vals = {};
+  const source = draft || {};
+  for (const name of REVIEW_EDITABLE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(source, name)) {
+      continue;
+    }
+    vals[name] = source[name];
+  }
+  return vals;
 }
 
 export function hasSellerChangedField(changedFields, fieldName) {

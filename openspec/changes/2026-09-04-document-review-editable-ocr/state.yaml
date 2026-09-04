@@ -1,0 +1,17 @@
+# SDD change state
+change: document-review-editable-ocr
+artifact_store: openspec
+delivery_strategy: exception-ok
+chain_strategy: stacked-to-main
+phase: apply
+apply_slice: in-progress
+updated: 2026-09-04
+review_budget_risk: medium
+notes: |
+  User-authorized plan: one editable OCR-prefilled Document Review field;
+  Aprobar y seguir persists current, not OCR.
+artifacts:
+  - proposal.md
+  - specs/document-review/spec.md
+  - design.md
+  - tasks.md

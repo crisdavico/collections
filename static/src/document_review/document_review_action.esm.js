@@ -6,9 +6,9 @@ import {
   applyViewerPan,
   applyWheelZoom,
   attachmentViewerKind,
-  formatSellerChangedValue,
-  hasSellerChangedField,
+  buildApproveVals,
   identityViewerZoom,
+  initDraftFromOcr,
   initialViewerStatus,
   isViewerZoomIdentity,
   nextIndexAfterReload,
@@ -71,20 +71,10 @@ export class DocumentReviewAction extends Component {
 
   _layerHasDocumentType(documentType) {
     const current = this.current;
-    if (!current) {
+    if (!current || !current.draft) {
       return false;
     }
-    return [current.ocr_document_type, current.seller_document_type].includes(
-      documentType
-    );
-  }
-
-  hasSellerChangedField(changedFields, fieldName) {
-    return hasSellerChangedField(changedFields, fieldName);
-  }
-
-  formatSellerChangedValue(changedFields, fieldName) {
-    return formatSellerChangedValue(changedFields, fieldName);
+    return current.draft.document_type === documentType;
   }
 
   get viewerKind() {
@@ -154,7 +144,11 @@ export class DocumentReviewAction extends Component {
     }
     try {
       const queue = await this.orm.call(LINE_MODEL, "get_review_queue", [sheetId]);
-      this.state.items = (queue || []).map(sanitizeQueueItem);
+      this.state.items = (queue || []).map((raw) => {
+        const item = sanitizeQueueItem(raw);
+        item.draft = initDraftFromOcr(item);
+        return item;
+      });
       this.state.index = keepIndex
         ? nextIndexAfterReload(previousIndex, this.state.items.length)
         : 0;
@@ -316,6 +310,14 @@ export class DocumentReviewAction extends Component {
     this.state.viewerStatus = "error";
   }
 
+  onFieldInput(ev, fieldName) {
+    const current = this.current;
+    if (!current || !current.draft) {
+      return;
+    }
+    current.draft[fieldName] = ev.target.value;
+  }
+
   async approve() {
     const sheetId = this.reviewSheetId;
     await this.runDecision(
@@ -323,6 +325,7 @@ export class DocumentReviewAction extends Component {
         this.orm.call(LINE_MODEL, "action_review_approve", [
           [this.current.id],
           sheetId,
+          buildApproveVals(this.current.draft),
         ]),
       _t("Payment voucher approved.")
     );
