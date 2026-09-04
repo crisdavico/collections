@@ -11,6 +11,22 @@ from .collection_allocation import _FROZEN_SHEET_STATES
 
 _VOUCHER_BLOCK_ORDER = ("bank_transfer", "check", "cash_deposit")
 _DOCUMENT_KIND_ORDER = ("invoice", "quotation")
+_VOUCHER_BLOCK_LABELS = {
+    "bank_transfer": "Transferencia bancaria",
+    "check": "Cheque",
+    "cash_deposit": "Depósito en efectivo",
+    "unsupported": "Otros",
+}
+_SHEET_STATE_LABELS = {
+    "open": "Abierta",
+    "proposal": "Propuesta",
+    "closed": "Cerrada",
+    "cancelled": "Cancelada",
+}
+_CHECK_TYPE_LABELS = {
+    "common": "Común",
+    "deferred": "Diferido",
+}
 _RECON_INPUT_FIELDS = frozenset(
     {"cash_on_hand", "commission_withheld", "commission_percent"}
 )
@@ -81,13 +97,13 @@ class CollectionSheetReport(models.Model):
             allocation.total_vouchers or 0.0 for allocation in self.allocation_ids
         )
         mismatch = currency.compare_amounts(alloc_collected, collected_total) != 0
-        state_labels = dict(self._fields["state"]._description_selection(self.env))
         return {
             "company": self.company_id.name or "",
             "printed_on": fields.Date.context_today(self),
             "reference": self.name or "",
-            "state_label": state_labels.get(self.state) or self.state or "",
+            "state_label": _SHEET_STATE_LABELS.get(self.state) or self.state or "",
             "seller_name": self.seller_id.name or "",
+            "currency_name": currency.name or "",
             "date_from": self.date_from or False,
             "date_to": self.date_to or False,
             "customer_count": len(customers),
@@ -210,6 +226,7 @@ class CollectionSheetReport(models.Model):
                         "invoice_number": line.invoice_number or "",
                         "due_date": line.due_date or False,
                         "issue_date": line.issue_date or False,
+                        "invoice_balance": line.invoice_balance or 0.0,
                         "amount_applied": applied,
                         "commission": commission,
                     },
@@ -254,14 +271,7 @@ class CollectionSheetReport(models.Model):
                 (
                     self._collection_report_code_sort(partner_code, partner.name)
                     + (voucher_date or date.max, voucher.name or ""),
-                    {
-                        "code": partner_code,
-                        "name": partner.name or "",
-                        "number": voucher.name or "",
-                        "date": voucher_date if voucher.create_date else False,
-                        "amount": voucher.amount or 0.0,
-                        "state": voucher.state or "",
-                    },
+                    self._collection_report_voucher_row(voucher, partner_code),
                 )
             )
         remaining = sorted(code for code in grouped if code not in _VOUCHER_BLOCK_ORDER)
@@ -275,12 +285,44 @@ class CollectionSheetReport(models.Model):
             blocks.append(
                 {
                     "code": code,
-                    "label": labels.get(code) or code,
+                    "label": (
+                        _VOUCHER_BLOCK_LABELS.get(code) or labels.get(code) or code
+                    ),
                     "rows": rows,
                     "subtotal": sum(row["amount"] for row in rows),
                 }
             )
         return blocks
+
+    @api.private
+    def _collection_report_voucher_row(self, voucher, partner_code):
+        """Type-specific comprobante number and check details (never sequence name)."""
+        is_check = voucher.document_type == "check"
+        if is_check:
+            number = voucher.check_number or ""
+            display_date = voucher.check_issue_date or False
+        else:
+            number = voucher.voucher_number or ""
+            display_date = voucher.voucher_date or (
+                fields.Date.to_date(voucher.create_date)
+                if voucher.create_date
+                else False
+            )
+        return {
+            "code": partner_code,
+            "name": voucher.partner_id.name or "",
+            "number": number,
+            "date": display_date,
+            "amount": voucher.amount or 0.0,
+            "state": voucher.state or "",
+            "check_bank": (voucher.check_bank or "") if is_check else "",
+            "check_type": (
+                _CHECK_TYPE_LABELS.get(voucher.check_type) or "" if is_check else ""
+            ),
+            "check_payment_date": (
+                voucher.check_payment_date or False if is_check else False
+            ),
+        }
 
     @api.private
     def _collection_report_tendered(self):
@@ -318,9 +360,9 @@ class CollectionSheetReport(models.Model):
         compared = currency.compare_amounts(difference, 0.0)
         status = _RECON_STATUS[compared]
         messages = {
-            "balanced": _("Balanced"),
-            "in_favor": _("In favor of the seller"),
-            "outstanding": _("Outstanding"),
+            "balanced": _("Cuadrada"),
+            "in_favor": _("A favor del vendedor"),
+            "outstanding": _("Pendiente de rendir"),
         }
         return {
             "collected": collected,

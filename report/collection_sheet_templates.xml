@@ -28,6 +28,9 @@
                     }
                     .o_cs_sheet th { background: #dbe5f1; }
                     .o_cs_sheet .o_cs_sub { background: #ededed; font-weight: bold; }
+                    .o_cs_sheet .o_cs_header_info th,
+                    .o_cs_sheet .o_cs_header_info td { text-align: right; }
+                    .o_cs_sheet .o_cs_date { text-align: center; }
                     .o_cs_banner_balanced { background: #c6efce; padding: 8px; }
                     .o_cs_banner_in_favor { background: #fff2cc; padding: 8px; }
                     .o_cs_banner_outstanding { background: #ffc7ce; padding: 8px; }
@@ -38,45 +41,80 @@
                         Planilla de Cobranza
                         <span t-out="payload['reference']" />
                     </h2>
-                    <p>
-                        Vendedor:
-                        <span t-out="payload['seller_name']" />
-                        — Estado:
-                        <span t-out="payload['state_label']" />
-                    </p>
 
                     <h3>Resumen</h3>
-                    <table>
+                    <table class="o_cs_header_info">
+                        <tr>
+                            <th>Referencia</th>
+                            <td t-out="payload['reference']" />
+                            <th>Estado</th>
+                            <td t-out="payload['state_label']" />
+                        </tr>
+                        <tr>
+                            <th>Vendedor</th>
+                            <td t-out="payload['seller_name']" />
+                            <th>Impreso el</th>
+                            <td class="o_cs_date">
+                                <t
+                  t-if="payload['printed_on']"
+                  t-out="payload['printed_on'].strftime('%d/%m/%Y')"
+                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Desde</th>
+                            <td class="o_cs_date">
+                                <t
+                  t-if="payload['date_from']"
+                  t-out="payload['date_from'].strftime('%d/%m/%Y')"
+                />
+                            </td>
+                            <th>Hasta</th>
+                            <td class="o_cs_date">
+                                <t
+                  t-if="payload['date_to']"
+                  t-out="payload['date_to'].strftime('%d/%m/%Y')"
+                />
+                            </td>
+                        </tr>
                         <tr>
                             <th>Clientes</th>
                             <td t-out="payload['customer_count']" />
                             <th>Comprobantes</th>
                             <td t-out="payload['voucher_count']" />
+                        </tr>
+                        <tr>
                             <th>Comisión %</th>
                             <td t-out="payload['commission_percent']" />
+                            <th>Moneda</th>
+                            <td t-out="payload['currency_name']" />
                         </tr>
                         <tr>
                             <th>Total Cobrado</th>
                             <td>
                                 <span
-                                    t-out="payload['collected_total']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['collected_total']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
                             <th>Total Aplicado</th>
                             <td>
                                 <span
-                                    t-out="payload['applied_total']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['applied_total']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
+                        </tr>
+                        <tr>
                             <th>Remanente</th>
                             <td>
                                 <span
-                                    t-out="payload['customer_totals']['residual']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['customer_totals']['residual']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
+                            <th />
+                            <td />
                         </tr>
                     </table>
 
@@ -98,21 +136,21 @@
                                 <td t-out="row['name']" />
                                 <td>
                                     <span
-                                        t-out="row['collected']"
-                                        t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                    />
+                    t-out="row['collected']"
+                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                  />
                                 </td>
                                 <td>
                                     <span
-                                        t-out="row['applied']"
-                                        t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                    />
+                    t-out="row['applied']"
+                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                  />
                                 </td>
                                 <td>
                                     <span
-                                        t-out="row['residual']"
-                                        t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                    />
+                    t-out="row['residual']"
+                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                  />
                                 </td>
                                 <td t-out="row['residual_reason']" />
                             </tr>
@@ -129,6 +167,8 @@
                                     <th>Código</th>
                                     <th>Cliente</th>
                                     <th>Número</th>
+                                    <th>Vencimiento</th>
+                                    <th>Saldo</th>
                                     <th>Aplicado</th>
                                     <th>Comisión</th>
                                 </tr>
@@ -138,32 +178,44 @@
                                     <td t-out="row['code']" />
                                     <td t-out="row['name']" />
                                     <td t-out="row['invoice_number']" />
-                                    <td>
-                                        <span
-                                            t-out="row['amount_applied']"
-                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                        />
+                                    <td class="o_cs_date">
+                                        <t
+                      t-if="row['due_date']"
+                      t-out="row['due_date'].strftime('%d/%m/%Y')"
+                    />
                                     </td>
                                     <td>
                                         <span
-                                            t-out="row['commission']"
-                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                        />
+                      t-out="row['invoice_balance']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
+                                    </td>
+                                    <td>
+                                        <span
+                      t-out="row['amount_applied']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
+                                    </td>
+                                    <td>
+                                        <span
+                      t-out="row['commission']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
                                     </td>
                                 </tr>
                                 <tr class="o_cs_sub">
-                                    <td colspan="3">Subtotal</td>
+                                    <td colspan="5">Subtotal</td>
                                     <td>
                                         <span
-                                            t-out="block['subtotal_applied']"
-                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                        />
+                      t-out="block['subtotal_applied']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
                                     </td>
                                     <td>
                                         <span
-                                            t-out="block['subtotal_commission']"
-                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                        />
+                      t-out="block['subtotal_commission']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
                                     </td>
                                 </tr>
                             </tbody>
@@ -173,12 +225,16 @@
                     <h3>Comprobantes</h3>
                     <t t-foreach="payload['voucher_blocks']" t-as="block">
                         <h4 t-out="block['label']" />
-                        <table>
+                        <table t-if="block['code'] == 'check'">
                             <thead>
                                 <tr>
                                     <th>Código</th>
                                     <th>Cliente</th>
-                                    <th>Número</th>
+                                    <th>Fecha de Emisión</th>
+                                    <th>Nº Cheque</th>
+                                    <th>Banco</th>
+                                    <th>Tipo</th>
+                                    <th>Fecha de Pago</th>
                                     <th>Importe</th>
                                 </tr>
                             </thead>
@@ -186,21 +242,74 @@
                                 <tr t-foreach="block['rows']" t-as="row">
                                     <td t-out="row['code']" />
                                     <td t-out="row['name']" />
+                                    <td class="o_cs_date">
+                                        <t
+                      t-if="row['date']"
+                      t-out="row['date'].strftime('%d/%m/%Y')"
+                    />
+                                    </td>
                                     <td t-out="row['number']" />
+                                    <td t-out="row['check_bank']" />
+                                    <td t-out="row['check_type']" />
+                                    <td class="o_cs_date">
+                                        <t
+                      t-if="row['check_payment_date']"
+                      t-out="row['check_payment_date'].strftime('%d/%m/%Y')"
+                    />
+                                    </td>
                                     <td>
                                         <span
-                                            t-out="row['amount']"
-                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                        />
+                      t-out="row['amount']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
                                     </td>
                                 </tr>
                                 <tr class="o_cs_sub">
-                                    <td colspan="3">Subtotal</td>
+                                    <td colspan="7">Subtotal</td>
                                     <td>
                                         <span
-                                            t-out="block['subtotal']"
-                                            t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                        />
+                      t-out="block['subtotal']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <table t-else="">
+                            <thead>
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Cliente</th>
+                                    <th>Fecha</th>
+                                    <th>Nº Comprobante</th>
+                                    <th>Importe</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="block['rows']" t-as="row">
+                                    <td t-out="row['code']" />
+                                    <td t-out="row['name']" />
+                                    <td class="o_cs_date">
+                                        <t
+                      t-if="row['date']"
+                      t-out="row['date'].strftime('%d/%m/%Y')"
+                    />
+                                    </td>
+                                    <td t-out="row['number']" />
+                                    <td>
+                                        <span
+                      t-out="row['amount']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
+                                    </td>
+                                </tr>
+                                <tr class="o_cs_sub">
+                                    <td colspan="4">Subtotal</td>
+                                    <td>
+                                        <span
+                      t-out="block['subtotal']"
+                      t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                    />
                                     </td>
                                 </tr>
                             </tbody>
@@ -213,46 +322,46 @@
                             <th>Cobrado</th>
                             <td>
                                 <span
-                                    t-out="payload['recon']['collected']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['recon']['collected']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
                             <th>Retenido</th>
                             <td>
                                 <span
-                                    t-out="payload['recon']['withheld']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['recon']['withheld']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
                             <th>Neto a Rendir</th>
                             <td>
                                 <span
-                                    t-out="payload['recon']['net_due']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['recon']['net_due']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
                         </tr>
                         <tr>
                             <th>Rendido</th>
                             <td>
                                 <span
-                                    t-out="payload['recon']['tendered']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['recon']['tendered']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
                             <th>Diferencia</th>
                             <td>
                                 <span
-                                    t-out="payload['recon']['difference']"
-                                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
-                                />
+                  t-out="payload['recon']['difference']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
                             </td>
                             <td colspan="2" />
                         </tr>
                     </table>
                     <div
-                        t-attf-class="o_cs_banner o_cs_banner_#{payload['recon']['status']}"
-                    >
+            t-attf-class="o_cs_banner o_cs_banner_#{payload['recon']['status']}"
+          >
                         <strong t-out="payload['recon']['status_message']" />
                     </div>
                     <div t-if="payload['mismatch']" class="o_cs_mismatch">

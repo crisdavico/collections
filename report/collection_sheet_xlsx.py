@@ -60,8 +60,14 @@ def _a1(row, col):
 def _text(value):
     if value is False or value is None:
         return ""
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
+    if hasattr(value, "strftime"):
+        return value.strftime("%d/%m/%Y")
+    return value
+
+
+def _date_cell(value):
+    if value is False or value is None:
+        return ""
     return value
 
 
@@ -89,8 +95,8 @@ def _formats(workbook):
             bg_color=NAVY,
             valign="vcenter",
         ),
-        "label": fmt(bold=True, bg_color=GREY_FILL, **thin),
-        "value": fmt(**thin),
+        "label": fmt(bold=True, bg_color=GREY_FILL, align="right", **thin),
+        "value": fmt(align="right", **thin),
         "value_int": fmt(num_format=INT, align="right", **thin),
         "value_money": fmt(num_format=MONEY, align="right", **thin),
         "value_pct": fmt(
@@ -109,6 +115,7 @@ def _formats(workbook):
             text_wrap=True,
         ),
         "data": fmt(**thin),
+        "data_date": fmt(num_format="DD/MM/YYYY", align="center", **thin),
         "data_money": fmt(num_format=MONEY, align="right", **thin),
         "sub": fmt(bold=True, bg_color=SUB_FILL, align="right", **thin),
         "sub_money": fmt(
@@ -210,7 +217,7 @@ def _write_membrete(ws, fmt, payload):
     _merge(ws, 3, 0, 7, "", fmt["bar"])
     ws.set_row(2, 4)
     printed = _text(payload.get("printed_on"))
-    _merge(ws, 4, 0, 7, printed, fmt["muted"])
+    _merge(ws, 4, 0, 7, printed, fmt["muted_right"])
     ws.set_row(3, 14)
     ws.set_row(4, 8)
 
@@ -304,7 +311,7 @@ def _write_resumen(ws, fmt, payload, applied_ref, collected_ref, commission_refs
     _merge(ws, 12, 0, 1, "Remanente", fmt["label"])
     _merge_formula(ws, 12, 2, 3, "=C11-G11", fmt["value_money"], residual)
     _merge(ws, 12, 4, 5, "Moneda", fmt["label"])
-    _merge(ws, 12, 6, 7, "", fmt["value"])
+    _merge(ws, 12, 6, 7, payload.get("currency_name") or "", fmt["value"])
     percent = (payload.get("commission_percent") or 0.0) / 100.0
     _merge(ws, 13, 0, 1, "% Comisión Vendedor", fmt["label"])
     _merge(ws, 13, 2, 3, percent, fmt["value_pct"])
@@ -420,8 +427,14 @@ def _write_documents(ws, fmt, payload, start):
             _write(ws, data_row, 0, item.get("code") or "", fmt["data"])
             _write(ws, data_row, 1, item.get("name") or "", fmt["data"])
             _write(ws, data_row, 2, item.get("invoice_number") or "", fmt["data"])
-            _write(ws, data_row, 3, _text(item.get("due_date")), fmt["data"])
-            _write(ws, data_row, 4, "", fmt["data_money"])
+            _write(ws, data_row, 3, _date_cell(item.get("due_date")), fmt["data_date"])
+            _write(
+                ws,
+                data_row,
+                4,
+                item.get("invoice_balance") or 0.0,
+                fmt["data_money"],
+            )
             _write(
                 ws, data_row, 5, item.get("amount_applied") or 0.0, fmt["data_money"]
             )
@@ -506,7 +519,7 @@ def _write_vouchers(ws, fmt, payload, start):
             data_row = row + 2 + index
             _write(ws, data_row, 0, item.get("code") or "", fmt["data"])
             _write(ws, data_row, 1, item.get("name") or "", fmt["data"])
-            _write(ws, data_row, 2, _text(item.get("date")), fmt["data"])
+            _write(ws, data_row, 2, _date_cell(item.get("date")), fmt["data_date"])
             if columns.get("merge_number"):
                 _merge(
                     ws,
@@ -518,9 +531,15 @@ def _write_vouchers(ws, fmt, payload, start):
                 )
             else:
                 _write(ws, data_row, 3, item.get("number") or "", fmt["data"])
-                _write(ws, data_row, 4, "", fmt["data"])
-                _write(ws, data_row, 5, "", fmt["data"])
-                _write(ws, data_row, 6, "", fmt["data"])
+                _write(ws, data_row, 4, item.get("check_bank") or "", fmt["data"])
+                _write(ws, data_row, 5, item.get("check_type") or "", fmt["data"])
+                _write(
+                    ws,
+                    data_row,
+                    6,
+                    _date_cell(item.get("check_payment_date")),
+                    fmt["data_date"],
+                )
             _write(ws, data_row, 7, item.get("amount") or 0.0, fmt["data_money"])
         sub_row = row + 2 + len(rows)
         _merge(ws, sub_row, 0, 6, "Subtotal", fmt["sub"])

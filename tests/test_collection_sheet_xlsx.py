@@ -65,6 +65,20 @@ def _fill_rgb(cell):
     return str(rgb).upper()
 
 
+def _is_same_date(value, expected):
+    if value == expected:
+        return True
+    if getattr(value, "date", None) and callable(value.date):
+        try:
+            return value.date() == expected
+        except TypeError:
+            return False
+    year = getattr(value, "year", None)
+    month = getattr(value, "month", None)
+    day = getattr(value, "day", None)
+    return (year, month, day) == (expected.year, expected.month, expected.day)
+
+
 class TestCollectionSheetXlsx(TransactionCase):
     """RED: Planilla XLSX zip, freeze, cached SUM, act_url, ACL."""
 
@@ -498,9 +512,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         form = self._sheet_form_root()
         header = form.xpath("./header")
         self.assertTrue(header, "sheet form must have a header")
-        buttons = [
-            node for node in header[0].xpath("./*") if node.tag == "button"
-        ]
+        buttons = [node for node in header[0].xpath("./*") if node.tag == "button"]
         names = [node.get("name") for node in buttons]
         self.assertIn("action_open_document_review", names)
         self.assertNotIn("action_open_voucher_reassign", names)
@@ -579,3 +591,124 @@ class TestCollectionSheetXlsx(TransactionCase):
         action_code = _code_without_comments(ACTION_SOURCE)
         self.assertNotIn(".sudo(", action_code)
         self.assertNotIn("sudo()", action_code)
+
+    def _cell_with_value(self, worksheet, expected):
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if cell.value == expected:
+                    return cell
+        return None
+
+    def _cell_with_date(self, worksheet, expected):
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if expected and _is_same_date(cell.value, expected):
+                    return cell
+        return None
+
+    def test_xlsx_header_currency_and_invoice_balance(self):
+        """XLSX MUST print currency_name next to Moneda and invoice saldo."""
+        partner = dummy_customer_partner(self.env, customer="XLSX-SALDO")
+        sheet = self._create_sheet(force_new=True)
+        voucher = self._create_voucher(partner, sheet, amount=80.0)
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=80.0,
+                    invoice_balance=321.5,
+                    invoice_number="FAC-SALDO",
+                    due_date=date(2026, 6, 15),
+                )
+            ],
+        )
+        content, payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        moneda = self._cell_with_value(worksheet, "Moneda")
+        self.assertIsNotNone(moneda)
+        currency_cell = self._cell_with_value(worksheet, payload["currency_name"])
+        self.assertIsNotNone(currency_cell)
+        self.assertEqual(currency_cell.row, moneda.row)
+        saldo_header = self._cell_with_value(worksheet, "Saldo")
+        self.assertIsNotNone(saldo_header)
+        saldo = worksheet.cell(saldo_header.row + 1, saldo_header.column)
+        self.assertAlmostEqual(float(saldo.value), 321.5, places=2)
+
+    def test_xlsx_transfer_and_check_comprobante_fields(self):
+        """XLSX MUST print voucher_number / check details, never the COL name."""
+        partner = dummy_customer_partner(self.env, customer="XLSX-COMP")
+        sheet = self._create_sheet(force_new=True)
+        transfer = self._create_voucher(
+            partner,
+            sheet,
+            amount=10.0,
+            document_type="bank_transfer",
+            voucher_number="TRF-XLSX",
+        )
+        check = self._create_voucher(
+            partner,
+            sheet,
+            amount=20.0,
+            document_type="check",
+            check_number="CHK-XLSX",
+            check_bank="Banco Galicia",
+            check_type="common",
+            check_issue_date=date(2026, 3, 1),
+            check_payment_date=date(2026, 4, 15),
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=transfer | check,
+            lines=[self._line_vals(amount_applied=30.0, invoice_balance=30.0)],
+        )
+        content, _payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        self.assertIsNotNone(self._cell_with_value(worksheet, "TRF-XLSX"))
+        self.assertIsNone(self._cell_with_value(worksheet, transfer.name))
+        self.assertIsNotNone(self._cell_with_value(worksheet, "CHK-XLSX"))
+        self.assertIsNone(self._cell_with_value(worksheet, check.name))
+        self.assertIsNotNone(self._cell_with_value(worksheet, "Banco Galicia"))
+        self.assertIsNotNone(self._cell_with_value(worksheet, "Común"))
+        self.assertIsNotNone(self._cell_with_date(worksheet, date(2026, 4, 15)))
+
+    def test_xlsx_header_values_right_and_table_dates_centered(self):
+        """Header field values MUST be right-aligned; table dates centered."""
+        partner = dummy_customer_partner(self.env, customer="XLSX-ALIGN")
+        sheet = self._create_sheet(force_new=True)
+        voucher = self._create_voucher(
+            partner,
+            sheet,
+            amount=50.0,
+            document_type="bank_transfer",
+            voucher_number="TRF-ALIGN",
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    due_date=date(2026, 7, 20),
+                )
+            ],
+        )
+        content, payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        moneda_value = self._cell_with_value(worksheet, payload["currency_name"])
+        self.assertIsNotNone(moneda_value)
+        self.assertEqual(moneda_value.alignment.horizontal, "right")
+        seller = self._cell_with_value(worksheet, payload["seller_name"])
+        self.assertIsNotNone(seller)
+        self.assertEqual(seller.alignment.horizontal, "right")
+        due = self._cell_with_date(worksheet, date(2026, 7, 20))
+        self.assertIsNotNone(due)
+        self.assertEqual(due.alignment.horizontal, "center")
+        voucher_date = payload["voucher_blocks"][0]["rows"][0]["date"]
+        date_cell = self._cell_with_date(worksheet, voucher_date)
+        self.assertIsNotNone(date_cell)
+        self.assertEqual(date_cell.alignment.horizontal, "center")

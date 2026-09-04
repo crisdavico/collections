@@ -41,6 +41,7 @@ PAYLOAD_KEYS = (
     "mismatch",
     "sheet",
     "currency",
+    "currency_name",
 )
 _PRIMITIVES = (str, float, int, bool, date, type(None))
 _REPORT_SOURCE = (
@@ -50,6 +51,7 @@ _PRIVATE_HELPERS = (
     "_collection_report_customer_codes",
     "_collection_report_document_blocks",
     "_collection_report_voucher_blocks",
+    "_collection_report_voucher_row",
     "_collection_report_recon",
 )
 _RECON_FIELDS = ("commission_percent", "cash_on_hand", "commission_withheld")
@@ -544,7 +546,9 @@ class TestCollectionSheetReportData(TransactionCase):
         check_type = self.env["collection.document.type"].search(
             [("code", "=", "check")], limit=1
         )
-        self.assertEqual(payload["voucher_blocks"][0]["label"], check_type.name)
+        self.assertEqual(payload["voucher_blocks"][0]["label"], "Cheque")
+        self.assertEqual(payload["voucher_blocks"][1]["label"], "Otros")
+        self.assertEqual(check_type.name, "Check")
         self.assertEqual(
             payload["collected_total"],
             sum(block["subtotal"] for block in payload["voucher_blocks"]),
@@ -700,3 +704,97 @@ class TestCollectionSheetReportData(TransactionCase):
             )
         write_src = inspect.getsource(type(sheet).write)
         self.assertIn("super().write", write_src)
+
+    def test_payload_currency_name_and_invoice_balance(self):
+        """Header currency and Facturas saldo MUST come from payload primitives."""
+        partner = dummy_customer_partner(self.env, customer="RPT-SALDO")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=80.0)
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=80.0,
+                    invoice_balance=321.5,
+                    invoice_number="FAC-SALDO",
+                )
+            ],
+        )
+        payload = sheet._collection_report_data()
+        self.assertEqual(payload["currency_name"], sheet.currency_id.name)
+        self.assertTrue(payload["currency_name"])
+        row = payload["document_blocks"][0]["rows"][0]
+        self.assertEqual(row["invoice_balance"], 321.5)
+        self.assertEqual(row["amount_applied"], 80.0)
+
+    def test_payload_voucher_numbers_and_check_details(self):
+        """Transfers print voucher_number; checks print check fields or blanks."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="RPT-COMP")
+        transfer = self._create_voucher(
+            partner,
+            sheet,
+            amount=10.0,
+            document_type="bank_transfer",
+            voucher_number="TRF-123",
+        )
+        check = self._create_voucher(
+            partner,
+            sheet,
+            amount=20.0,
+            document_type="check",
+            check_number="CHK-456",
+            check_bank="Banco Nación",
+            check_type="deferred",
+            check_issue_date=date(2026, 3, 1),
+            check_payment_date=date(2026, 4, 15),
+        )
+        blank_check = self._create_voucher(
+            partner,
+            sheet,
+            amount=5.0,
+            document_type="check",
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=transfer | check | blank_check,
+            lines=[self._line_vals(amount_applied=35.0, invoice_balance=35.0)],
+        )
+        payload = sheet._collection_report_data()
+        by_code = {block["code"]: block["rows"] for block in payload["voucher_blocks"]}
+        transfer_row = by_code["bank_transfer"][0]
+        self.assertEqual(transfer_row["number"], "TRF-123")
+        self.assertNotEqual(transfer_row["number"], transfer.name)
+        check_rows = {row["number"]: row for row in by_code["check"]}
+        filled = check_rows["CHK-456"]
+        self.assertNotEqual(filled["number"], check.name)
+        self.assertEqual(filled["check_bank"], "Banco Nación")
+        self.assertEqual(filled["check_type"], "Diferido")
+        self.assertEqual(filled["date"], date(2026, 3, 1))
+        self.assertEqual(filled["check_payment_date"], date(2026, 4, 15))
+        blank = check_rows[""]
+        self.assertEqual(blank["number"], "")
+        self.assertNotEqual(blank_check.name, "")
+        self.assertEqual(blank["check_bank"], "")
+        self.assertEqual(blank["check_type"], "")
+        self.assertFalse(blank["date"])
+        self.assertFalse(blank["check_payment_date"])
+
+    def test_payload_spanish_argentina_labels(self):
+        """Report labels and recon copy MUST be Spanish Argentina, not English."""
+        sheet = self._create_sheet()
+        self._balanced(amount=40.0, sheet=sheet)
+        payload = sheet._collection_report_data()
+        self.assertEqual(payload["state_label"], "Abierta")
+        self.assertNotIn("Open", payload["state_label"])
+        labels = {block["code"]: block["label"] for block in payload["voucher_blocks"]}
+        self.assertEqual(labels["bank_transfer"], "Transferencia bancaria")
+        recon = payload["recon"]
+        self.assertEqual(recon["status"], "balanced")
+        self.assertEqual(recon["status_message"], "Cuadrada")
+        self.assertNotIn("Balanced", recon["status_message"])
+        self.assertNotIn("In favor", recon["status_message"])
+        self.assertNotIn("Outstanding", recon["status_message"])

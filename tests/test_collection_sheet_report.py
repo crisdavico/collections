@@ -52,9 +52,7 @@ class TestCollectionSheetReport(TransactionCase):
             )
             if existing:
                 return existing
-        return self.env["collection.sheet"].create(
-            {"seller_id": seller.id, **extra}
-        )
+        return self.env["collection.sheet"].create({"seller_id": seller.id, **extra})
 
     def _create_voucher(self, partner, sheet, amount=100.0, **extra):
         ensure_enabled_seller(self.env, sheet.seller_id, company=sheet.company_id)
@@ -360,6 +358,61 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn("Documentos Aplicados", document.arch)
         self.assertIn("Comprobantes", document.arch)
         self.assertIn("Conciliaci", document.arch)
+        self.assertIn("Moneda", document.arch)
+        self.assertIn("Saldo", document.arch)
+        self.assertIn("o_cs_header_info", document.arch)
+        self.assertIn("o_cs_date", document.arch)
+
+    def test_html_prints_currency_saldo_and_comprobante_fields(self):
+        """HTML MUST include Moneda, Facturas saldo, voucher/check numbers."""
+        partner = dummy_customer_partner(self.env, customer="PDF-COMP")
+        sheet = self._create_sheet(seller=self.seller, force_new=True)
+        transfer = self._create_voucher(
+            partner,
+            sheet,
+            amount=80.0,
+            document_type="bank_transfer",
+            voucher_number="TRF-PDF",
+        )
+        check = self._create_voucher(
+            partner,
+            sheet,
+            amount=20.0,
+            document_type="check",
+            check_number="CHK-PDF",
+            check_bank="Banco Nación",
+            check_type="deferred",
+            check_issue_date=date(2026, 3, 1),
+            check_payment_date=date(2026, 4, 15),
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=transfer | check,
+            lines=[
+                self._line_vals(
+                    amount_applied=100.0,
+                    invoice_balance=432.25,
+                    invoice_number="FAC-PDF",
+                    due_date=date(2026, 8, 9),
+                )
+            ],
+        )
+        payload = sheet._collection_report_data()
+        html = self._render_html(sheet)
+        self.assertIn(payload["currency_name"], html)
+        self.assertIn("432.25", html)
+        self.assertIn("TRF-PDF", html)
+        self.assertNotIn(transfer.name, html)
+        self.assertIn("CHK-PDF", html)
+        self.assertNotIn(check.name, html)
+        self.assertIn("Banco Nación", html)
+        self.assertIn("Diferido", html)
+        self.assertIn("09/08/2026", html)
+        self.assertIn("01/03/2026", html)
+        self.assertIn("15/04/2026", html)
+        self.assertIn("o_cs_header_info", html)
+        self.assertIn("o_cs_date", html)
 
     def test_company_b_access_error_on_data_and_render(self):
         """Company-B users MUST get AccessError on payload data() and HTML render."""
@@ -369,9 +422,7 @@ class TestCollectionSheetReport(TransactionCase):
         company_b = self._create_company("Report Hidden Co B")
         seller_b = create_internal_seller(self.env, "planilla_hidden_seller")
         seller_b.write({"name": "Hidden Seller B"})
-        sheet_b = self._create_sheet(
-            seller=seller_b, force_new=True, company=company_b
-        )
+        sheet_b = self._create_sheet(seller=seller_b, force_new=True, company=company_b)
         partner = dummy_customer_partner(self.env, customer="Hidden Cliente SA")
         voucher = self._create_voucher(partner, sheet_b, amount=100.0)
         self._create_allocation(

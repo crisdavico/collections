@@ -2,9 +2,8 @@
 
 ## Purpose
 
-Operators MUST print a Planilla de Cobranza from `collection.sheet` as PDF and
-XLSX with identical Total Cobrado, Total Aplicado, Remanente, Total Comisión,
-and Diferencia.
+Operators MUST print a Planilla de Cobranza from `collection.sheet` as PDF and XLSX with
+identical Total Cobrado, Total Aplicado, Remanente, Total Comisión, and Diferencia.
 
 ## Requirements
 
@@ -14,8 +13,8 @@ and Diferencia.
 and `commission_withheld` (Monetary). Percent MUST be constrained 0–100 (Odoo 19
 `models.Constraint`, MUST NOT `_sql_constraints`). Closed and cancelled sheets MUST
 refuse writes of those three fields (`UserError`, no persist). Open and proposal sheets
-MAY edit them. Open from Cancelled MUST NOT reset stored values.
-(Previously: Closed sheets refused writes; open sheets MAY edit; Reopen MUST NOT reset.)
+MAY edit them. Open from Cancelled MUST NOT reset stored values. (Previously: Closed
+sheets refused writes; open sheets MAY edit; Reopen MUST NOT reset.)
 
 #### Scenario: Percent range
 
@@ -40,13 +39,30 @@ MAY edit them. Open from Cancelled MUST NOT reset stored values.
 #### Scenario: Proposal recon remains editable
 
 - GIVEN a proposal sheet
-- WHEN `commission_percent`, `cash_on_hand`, or `commission_withheld` is written lawfully
+- WHEN `commission_percent`, `cash_on_hand`, or `commission_withheld` is written
+  lawfully
 - THEN the write MUST persist
 
 ### Requirement: Shared report payload
 
-`_collection_report_data()` MUST return one payload: primitives (`str` / `float` / `int` / `bool` / `date` / `list` / `dict`) plus `sheet` and `currency` for QWeb. Nested customer, document-row, and voucher-row dict values MUST be primitives (XLSX MUST NOT touch the ORM). MUST include `company`, `printed_on`, `reference`, `state_label`, `seller_name`, `date_from`, `date_to`, `customer_count`, `voucher_count`, `commission_percent`, `customers`, `customer_totals`, `document_blocks`, `applied_total`, `voucher_blocks`, `collected_total`, `tendered`, `recon`, `mismatch`. Print MUST include every `allocation_ids` and `voucher_ids` row (draft/confirmed; draft/validated_seller/validated_collections). Open-sheet prints MUST include drafts. Customer totals MUST equal allocation sums. PDF HTML and XLSX cached totals MUST match.
-(Previously: Print-includes voucher keys were pending/approved/rejected.)
+`_collection_report_data()` MUST return one payload: primitives (`str` / `float` / `int`
+/ `bool` / `date` / `list` / `dict`) plus `sheet` and `currency` for QWeb. Nested
+customer, document-row, and voucher-row dict values MUST be primitives (XLSX MUST NOT
+touch the ORM). MUST include `company`, `printed_on`, `reference`, `state_label`,
+`seller_name`, `currency_name`, `date_from`, `date_to`, `customer_count`,
+`voucher_count`, `commission_percent`, `customers`, `customer_totals`,
+`document_blocks`, `applied_total`, `voucher_blocks`, `collected_total`, `tendered`,
+`recon`, `mismatch`. Print MUST include every `allocation_ids` and `voucher_ids` row
+(draft/confirmed; draft/validated_seller/validated_collections). Open-sheet prints MUST
+include drafts. Customer totals MUST equal allocation sums. PDF HTML and XLSX cached
+totals MUST match. Report copy MUST be Spanish Argentina: sheet state labels,
+voucher-block titles (`Transferencia bancaria` / `Cheque` / `Depósito en efectivo` /
+`Otros`), recon banner, and check type (`Común` / `Diferido`). Document rows MUST
+include `invoice_balance`. Voucher `number` MUST be `voucher_number` for
+transfers/deposits and `check_number` (or blank) for checks — MUST NOT be the COL
+sequence name. Check rows MUST include `check_bank`, `check_type`, and
+`check_payment_date`. (Previously: Print-includes voucher keys were
+pending/approved/rejected.)
 
 #### Scenario: Primitive nested values
 
@@ -65,14 +81,12 @@ MAY edit them. Open from Cancelled MUST NOT reset stored values.
 ### Requirement: Customer codes and sort
 
 Customer `Código` MUST come from a batched search on
-`collection.connector.customer.binding` using raw
-`company_id.collection_connector_id`. MUST NOT call
-`_collection_active_connector()`. Unbound or no-connector companies MUST
-print a blank code. Sort key MUST be `(code == "", code, partner_name)` so
-coded customers group first and blanks last. Document rows MUST then sort by
-`(code_sort, due_date or date.max, invoice_number or "")`. Voucher rows MUST
-sort by `(code_sort, date, number)`. Both writers MUST iterate those lists
-and MUST NOT re-sort.
+`collection.connector.customer.binding` using raw `company_id.collection_connector_id`.
+MUST NOT call `_collection_active_connector()`. Unbound or no-connector companies MUST
+print a blank code. Sort key MUST be `(code == "", code, partner_name)` so coded
+customers group first and blanks last. Document rows MUST then sort by
+`(code_sort, due_date or date.max, invoice_number or "")`. Voucher rows MUST sort by
+`(code_sort, date, number)`. Both writers MUST iterate those lists and MUST NOT re-sort.
 
 #### Scenario: Binding code vs blank last
 
@@ -83,11 +97,11 @@ and MUST NOT re-sort.
 
 ### Requirement: Document blocks and commission
 
-Document blocks MUST split `allocation_ids.line_ids` by `document_kind`
-(`invoice` then `quotation`). Empty blocks MUST be dropped. Per-row
-commission MUST be `currency.round(applied * percent / 100.0)`. Block
-`subtotal_commission` MUST be the sum of those rounded rows (MUST NOT be
-`subtotal_applied × percent`). Percent 0 MUST yield zero commission.
+Document blocks MUST split `allocation_ids.line_ids` by `document_kind` (`invoice` then
+`quotation`). Empty blocks MUST be dropped. Per-row commission MUST be
+`currency.round(applied * percent / 100.0)`. Block `subtotal_commission` MUST be the sum
+of those rounded rows (MUST NOT be `subtotal_applied × percent`). Percent 0 MUST yield
+zero commission.
 
 #### Scenario: Kind split drops empty
 
@@ -112,13 +126,12 @@ commission MUST be `currency.round(applied * percent / 100.0)`. Block
 
 ### Requirement: Voucher blocks and tendered
 
-Voucher blocks MUST group `voucher_ids` by `document_type`. Labels MUST come
-from `collection.document.type` keyed by `code` (MUST NOT use company-dependent
-`_selection_document_type`). Order MUST be `bank_transfer`, `check`,
-`cash_deposit`, then remaining codes alphabetically (`unsupported` last as
-Otros, only when non-empty). Empty blocks MUST be dropped.
-`collected_total` MUST equal voucher-block subtotals. `tendered` MUST include
-`cash_on_hand` plus deposits, checks, and transfers.
+Voucher blocks MUST group `voucher_ids` by `document_type`. Labels MUST come from
+`collection.document.type` keyed by `code` (MUST NOT use company-dependent
+`_selection_document_type`). Order MUST be `bank_transfer`, `check`, `cash_deposit`,
+then remaining codes alphabetically (`unsupported` last as Otros, only when non-empty).
+Empty blocks MUST be dropped. `collected_total` MUST equal voucher-block subtotals.
+`tendered` MUST include `cash_on_hand` plus deposits, checks, and transfers.
 
 #### Scenario: Catalog order and empty drop
 
@@ -136,11 +149,10 @@ Otros, only when non-empty). Empty blocks MUST be dropped.
 
 ### Requirement: Reconciliation status and mismatch
 
-`recon` MUST set `collected`, `withheld`, `net_due`, `tendered`,
-`difference`, `status`, and `status_message`. Status MUST be
-`currency.compare_amounts(difference, 0.0)` → `balanced` / `in_favor` /
-`outstanding`. `mismatch` MUST be set when Σ allocation `total_vouchers` ≠ Σ
-printed voucher amounts (unallocated sheet vouchers).
+`recon` MUST set `collected`, `withheld`, `net_due`, `tendered`, `difference`, `status`,
+and `status_message`. Status MUST be `currency.compare_amounts(difference, 0.0)` →
+`balanced` / `in_favor` / `outstanding`. `mismatch` MUST be set when Σ allocation
+`total_vouchers` ≠ Σ printed voucher amounts (unallocated sheet vouchers).
 
 #### Scenario: Tri-state via compare_amounts
 
@@ -157,10 +169,9 @@ printed voucher amounts (unallocated sheet vouchers).
 
 ### Requirement: Unsaved sheet and mixed currency
 
-Both PDF and XLSX builders MUST call the existing saved-sheet guard. Unsaved
-(NewId / non-positive id) MUST raise `UserError` and MUST NOT emit output.
-Mixed allocation currencies MUST raise `UserError` (template is
-single-currency).
+Both PDF and XLSX builders MUST call the existing saved-sheet guard. Unsaved (NewId /
+non-positive id) MUST raise `UserError` and MUST NOT emit output. Mixed allocation
+currencies MUST raise `UserError` (template is single-currency).
 
 #### Scenario: Unsaved sheet refused
 
@@ -179,26 +190,26 @@ single-currency).
 ### Requirement: PDF Print menu and QWeb
 
 The system MUST bind `ir.actions.report` `qweb-pdf` on `collection.sheet`
-(`binding_type` report) so Print → Planilla de Cobranza appears on form and
-list. Paperformat MUST be A4 landscape. Templates MUST use `t-out` (MUST NOT
-`t-esc`) and MUST call `web.html_container` plus `web.external_layout` (PDF
-membrete is company letterhead, not workbook rows 1–4). HTML render (MUST NOT
-spawn wkhtmltopdf in tests) MUST contain the sheet reference, seller name,
-every partner name, applied document numbers, and the recon banner.
+(`binding_type` report) so Print → Planilla de Cobranza appears on form and list.
+Paperformat MUST be A4 landscape. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
+call `web.html_container` plus `web.external_layout` (PDF membrete is company
+letterhead, not workbook rows 1–4). HTML render (MUST NOT spawn wkhtmltopdf in tests)
+MUST contain the sheet reference, seller name, every partner name, applied document
+numbers, and the recon banner.
 
 #### Scenario: Print menu binding
 
 - GIVEN the report action XMLID
 - WHEN inspected
-- THEN `report_type` MUST be `qweb-pdf`, model `collection.sheet`, binding
-  report on that model, with the collection-sheet paperformat
+- THEN `report_type` MUST be `qweb-pdf`, model `collection.sheet`, binding report on
+  that model, with the collection-sheet paperformat
 
 #### Scenario: HTML contains names numbers banner
 
 - GIVEN a saved sheet with customers, documents, and a recon status
 - WHEN `_render_qweb_html` runs
-- THEN HTML MUST contain the reference, seller, partner names, document
-  numbers, and banner text
+- THEN HTML MUST contain the reference, seller, partner names, document numbers, and
+  banner text
 - AND the arch MUST reference `web.external_layout`
 
 ### Requirement: XLSX workbook and percent scale
@@ -207,19 +218,20 @@ XLSX MUST be built from the same payload. Bytes MUST start `PK` and the zip MUST
 `xl/workbook.xml`. Worksheet MUST freeze `A6`, landscape, paper size 9, fit-to-width 1.
 Aggregation cells MUST use formulas with cached SUM values (`data_only` MUST read
 non-None totals equal to the payload). Odoo `commission_percent` 0–100 MUST be written
-as `percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow `recon.status`.
-Header **Export XLSX** MUST be last in `<header>` before `state`. Notebook MUST be the
-three pages specified in collection-sheets (recon fields remain on the sheet form).
-`action_print_xlsx` MUST return `ir.actions.act_url` download; MUST NOT `sudo()`.
-(Previously: Notebook MUST remain exactly one page with recon in a second inner group.)
+as `percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow
+`recon.status`. Header **Export XLSX** MUST be last in `<header>` before `state`.
+Notebook MUST be the three pages specified in collection-sheets (recon fields remain on
+the sheet form). `action_print_xlsx` MUST return `ir.actions.act_url` download; MUST NOT
+`sudo()`. (Previously: Notebook MUST remain exactly one page with recon in a second
+inner group.)
 
 #### Scenario: Zip freeze and cached SUM
 
 - GIVEN a saved sheet payload
 - WHEN XLSX is rendered
 - THEN bytes MUST start `PK` and contain `xl/workbook.xml`
-- AND freeze MUST be `A6` and cached SUM cells MUST equal payload totals
-  (MUST NOT be `None`)
+- AND freeze MUST be `A6` and cached SUM cells MUST equal payload totals (MUST NOT be
+  `None`)
 
 #### Scenario: Percent scale 0–100 to 0.0%
 
@@ -236,9 +248,8 @@ three pages specified in collection-sheets (recon fields remain on the sheet for
 
 ### Requirement: Company ACL and no sudo
 
-Payload build, HTML render, and XLSX download MUST obey company `ir.rule`.
-Company-B users MUST receive `AccessError` on a company-A sheet. Report code
-MUST NOT `sudo()`.
+Payload build, HTML render, and XLSX download MUST obey company `ir.rule`. Company-B
+users MUST receive `AccessError` on a company-A sheet. Report code MUST NOT `sudo()`.
 
 #### Scenario: Company-B AccessError
 
