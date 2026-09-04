@@ -1345,6 +1345,76 @@ class TestCollectionUi(TransactionCase):
                 f"{field_name} must have a help tooltip",
             )
 
+    def test_allocation_form_customer_debt_add_debt_picker(self):
+        """Customer Debt MUST disable inline create and expose Add Debt."""
+        form_root = self._arch_root("collection.view_collection_allocation_form")
+        page = self._notebook_page(form_root, ALLOCATION_NOTEBOOK_CUSTOMER_DEBT)
+        buttons = page.xpath(
+            './button[@name="action_open_debt_picker" and @type="object"]'
+        )
+        self.assertEqual(len(buttons), 1, "Customer Debt must expose Add Debt once")
+        self.assertEqual(buttons[0].get("string"), "Add Debt")
+        invisible = buttons[0].get("invisible") or ""
+        self.assertIn("not id", invisible)
+        self.assertIn("closed", invisible)
+        self.assertIn("cancelled", invisible)
+        line_fields = page.xpath('./field[@name="line_ids"]')
+        self.assertEqual(len(line_fields), 1)
+        lists = line_fields[0].xpath("./list")
+        self.assertTrue(lists, "line_ids must embed a <list>")
+        self.assertTrue(
+            self._attr_is_false(lists[0].get("create")),
+            "Customer Debt list must disable arbitrary inline create",
+        )
+        readonly_identity = (
+            "document_kind",
+            "invoice_number",
+            "external_invoice_id",
+            "due_date",
+            "invoice_balance",
+        )
+        for field_name in readonly_identity:
+            nodes = [
+                node
+                for node in lists[0].xpath("./field")
+                if node.get("name") == field_name
+            ]
+            self.assertTrue(nodes, f"Customer Debt list must show {field_name}")
+            self._assert_readonly_field(nodes[0], field_name)
+        applied = [
+            node
+            for node in lists[0].xpath("./field")
+            if node.get("name") == "amount_applied"
+        ]
+        self.assertTrue(applied, "Customer Debt list must show amount_applied")
+        self.assertNotIn(
+            (applied[0].get("readonly") or "").lower(),
+            ("1", "true"),
+            "amount_applied must remain editable",
+        )
+        picker_form = self._arch_root(
+            "collection.view_collection_allocation_debt_picker_form"
+        )
+        selected = picker_form.xpath('//field[@name="selected_ids"]')
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0].get("widget"), "many2many")
+        options = self._parse_view_options(selected[0].get("options"))
+        self.assertTrue(
+            options.get("no_create"),
+            "picker selected_ids must set no_create",
+        )
+        self.assertTrue(
+            options.get("no_create_edit"),
+            "picker selected_ids must set no_create_edit",
+        )
+        candidate_list = self._arch_root(
+            "collection.view_collection_allocation_debt_candidate_list"
+        )
+        self.assertTrue(
+            self._attr_is_false(candidate_list.get("create")),
+            "candidate list must disable create",
+        )
+
     def test_allocation_form_stat_button_opens_vouchers(self):
         """Allocation form MUST copy the sheet Vouchers smart-button box."""
         form_root = self._arch_root("collection.view_collection_allocation_form")

@@ -147,16 +147,27 @@
                             </field>
                         </page>
                         <page string="Customer Debt">
+                            <button
+                name="action_open_debt_picker"
+                type="object"
+                string="Add Debt"
+                class="btn-primary"
+                invisible="not id or sheet_id.state in ('closed', 'cancelled')"
+              />
                             <field
                 name="line_ids"
                 readonly="sheet_id.state in ('closed', 'cancelled')"
               >
-                                <list>
-                                    <field name="document_kind" />
-                                    <field name="invoice_number" />
-                                    <field name="external_invoice_id" optional="hide" />
-                                    <field name="due_date" />
-                                    <field name="invoice_balance" />
+                                <list create="false">
+                                    <field name="document_kind" readonly="1" />
+                                    <field name="invoice_number" readonly="1" />
+                                    <field
+                    name="external_invoice_id"
+                    optional="hide"
+                    readonly="1"
+                  />
+                                    <field name="due_date" readonly="1" />
+                                    <field name="invoice_balance" readonly="1" />
                                     <field name="amount_applied" />
                                     <field name="currency_id" column_invisible="1" />
                                 </list>

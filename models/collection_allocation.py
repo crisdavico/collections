@@ -221,7 +221,11 @@ class CollectionAllocation(models.Model):
             "invoice_balance": invoice.get("balance") or 0.0,
             "invoice_state": invoice.get("state") or False,
             "amount_applied": 0.0,
-            "document_kind": "invoice",
+            "document_kind": (
+                invoice.get("document_kind")
+                if invoice.get("document_kind") in ("invoice", "quotation")
+                else "invoice"
+            ),
         }
 
     @api.onchange("partner_id", "sheet_id")
@@ -374,6 +378,74 @@ class CollectionAllocation(models.Model):
         self.ensure_one()
         if isinstance(self.id, bool) or not isinstance(self.id, int) or self.id <= 0:
             raise UserError(_("This action requires a saved collection allocation."))
+
+    def action_open_debt_picker(self):
+        self.ensure_one()
+        self._ensure_writable_debt_picker()
+        picker = self.env["collection.allocation.debt.picker"].create(
+            {"allocation_id": self.id}
+        )
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Add Debt"),
+            "res_model": "collection.allocation.debt.picker",
+            "res_id": picker.id,
+            "view_mode": "form",
+            "target": "new",
+        }
+
+    @api.private
+    def _missing_customer_debt_lines(self):
+        """Outstanding ERP invoices not already snapshotted on this allocation."""
+        self.ensure_one()
+        existing = {
+            line.external_invoice_id
+            for line in self.line_ids
+            if line.external_invoice_id
+        }
+        return [
+            vals
+            for vals in self._prepare_customer_debt_lines(
+                self.sheet_id, self.partner_id
+            )
+            if vals.get("external_invoice_id") not in existing
+        ]
+
+    @api.private
+    def _insert_selected_debt_lines(self, invoices):
+        """Append selected connector debts as zero-applied snapshots."""
+        self.ensure_one()
+        self._ensure_writable_debt_picker()
+        existing = {
+            line.external_invoice_id
+            for line in self.line_ids
+            if line.external_invoice_id
+        }
+        commands = []
+        for invoice in invoices or []:
+            vals = self._customer_debt_line_vals(invoice)
+            external_id = vals.get("external_invoice_id")
+            if not external_id or external_id in existing:
+                continue
+            commands.append(Command.create(vals))
+            existing.add(external_id)
+        if commands:
+            self.write({"line_ids": commands})
+
+    @api.private
+    def _ensure_writable_debt_picker(self):
+        self.ensure_one()
+        self._ensure_saved_allocation()
+        if not self._membership_is_frozen():
+            return
+        if self.state == "confirmed":
+            raise UserError(_("Confirmed allocations cannot change membership."))
+        raise UserError(
+            _(
+                "Closed or cancelled collection sheets cannot change "
+                "allocation membership."
+            )
+        )
 
     def action_open_vouchers(self):
         self.ensure_one()

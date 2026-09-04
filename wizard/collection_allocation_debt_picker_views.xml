@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_collection_allocation_debt_candidate_list" model="ir.ui.view">
+        <field name="name">collection.allocation.debt.candidate.list</field>
+        <field name="model">collection.allocation.debt.candidate</field>
+        <field name="arch" type="xml">
+            <list string="Outstanding Debts" create="false">
+                <field name="document_kind" />
+                <field name="invoice_number" />
+                <field name="external_invoice_id" optional="hide" />
+                <field name="due_date" />
+                <field name="invoice_balance" />
+                <field name="currency_id" column_invisible="1" />
+            </list>
+        </field>
+    </record>
+
+    <record id="view_collection_allocation_debt_candidate_search" model="ir.ui.view">
+        <field name="name">collection.allocation.debt.candidate.search</field>
+        <field name="model">collection.allocation.debt.candidate</field>
+        <field name="arch" type="xml">
+            <search string="Search Outstanding Debts">
+                <field name="invoice_number" />
+                <field name="external_invoice_id" />
+                <field name="document_kind" />
+            </search>
+        </field>
+    </record>
+
+    <record id="view_collection_allocation_debt_picker_form" model="ir.ui.view">
+        <field name="name">collection.allocation.debt.picker.form</field>
+        <field name="model">collection.allocation.debt.picker</field>
+        <field name="arch" type="xml">
+            <form string="Add Debt">
+                <group>
+                    <field name="allocation_id" invisible="1" />
+                    <field name="currency_id" invisible="1" />
+                    <field
+            name="selected_ids"
+            widget="many2many"
+            options="{'no_create': True, 'no_create_edit': True}"
+            domain="[('picker_id', '=', id)]"
+          >
+                        <list>
+                            <field name="document_kind" />
+                            <field name="invoice_number" />
+                            <field name="due_date" />
+                            <field name="invoice_balance" />
+                            <field name="currency_id" column_invisible="1" />
+                        </list>
+                    </field>
+                </group>
+                <footer>
+                    <button
+            name="action_add_debts"
+            string="Add"
+            type="object"
+            class="btn-primary"
+          />
+                    <button string="Cancel" class="btn-secondary" special="cancel" />
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -239,6 +239,23 @@ class TestCollectionAllocationAcl(TransactionCase):
         vals.update(extra)
         return vals
 
+    def test_debt_picker_acl_full_crud(self):
+        """Picker transients MUST be 1,1,1,1 for base.group_user."""
+        self._assert_acl("collection.allocation.debt.picker", (1, 1, 1, 1))
+        self._assert_acl("collection.allocation.debt.candidate", (1, 1, 1, 1))
+        allocation = self._create_allocation()
+        Picker = self.env["collection.allocation.debt.picker"].with_user(
+            self.internal_user
+        )
+        picker = Picker.create({"allocation_id": allocation.id})
+        self.assertTrue(picker.id)
+        self.assertEqual(picker.allocation_id, allocation)
+        PortalPicker = self.env["collection.allocation.debt.picker"].with_user(
+            self.portal_user
+        )
+        with self.assertRaises(AccessError):
+            PortalPicker.create({"allocation_id": allocation.id})
+
     def test_allocation_and_line_acl_full_crud(self):
         """allocation and line MUST be 1,1,1,1 for base.group_user."""
         self._assert_acl("collection.allocation", (1, 1, 1, 1))
