@@ -152,10 +152,10 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_32_0(self):
+    def test_manifest_version_is_1_33_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.32.0"', manifest.read_text(encoding="utf-8"))
+        self.assertIn('"version": "19.0.1.33.0"', manifest.read_text(encoding="utf-8"))
         for leftover in ("19.0.1.26.0", "19.0.1.27.0", "19.0.1.29.0", "19.0.1.30.0"):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
@@ -186,6 +186,74 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("residual_reason", text_132)
         self.assertIn("collection_allocation", text_132)
         self.assertIn("collection_allocation_revision", text_132)
+        migrate_133 = module_root / "migrations" / "19.0.1.33.0" / "post-migrate.py"
+        self.assertTrue(migrate_133.is_file(), "Need 19.0.1.33.0 reassign XMLID unlink")
+        text_133 = migrate_133.read_text(encoding="utf-8")
+        self.assertIn("view_collection_voucher_reassign_kanban", text_133)
+        self.assertIn("ir_ui_view", text_133)
+        self.assertIn("ir_model_data", text_133)
+        self.assertNotIn("UPDATE collection_sheet", text_133)
+        self.assertNotIn("THEN 'proposal'", text_133)
+        self.assertNotIn("THEN 'cancelled'", text_133)
+
+    def test_remaining_tests_drop_two_state_leftovers(self):
+        """Remaining tests MUST NOT expect Close/Reopen or a two-state statusbar."""
+        tests_dir = Path(__file__).resolve().parent
+        leftovers = []
+        for path in sorted(tests_dir.glob("test_*.py")):
+            if path.name == Path(__file__).name:
+                continue
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                stripped = line.strip()
+                if 'statusbar_visible"), "open,closed"' in stripped:
+                    leftovers.append(f"{path.name}:{lineno}: two-state statusbar")
+                if "Sheet state can only be changed via Close or Reopen" in stripped:
+                    leftovers.append(f"{path.name}:{lineno}: Close or Reopen error")
+                if "action_reopen()" in stripped and not any(
+                    token in stripped
+                    for token in ("hasattr", "assertNotIn", "assertFalse")
+                ):
+                    leftovers.append(f"{path.name}:{lineno}: {stripped}")
+        self.assertFalse(leftovers, leftovers)
+
+    def test_agents_md_four_state_workflow(self):
+        """AGENTS.md MUST document four-state sheets, three tabs, drop Reassign."""
+        agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Module metadata `19.0.1.33.0`", agents)
+        self.assertIn("`migrations/19.0.1.33.0/`", agents)
+        self.assertIn("`open`/`proposal`/`closed`/`cancelled`", agents)
+        self.assertIn("Confirm/Close/Cancel/Open", agents)
+        self.assertIn("Allocations, Vouchers, and Debt", agents)
+        self.assertIn("one-open still `open` only", " ".join(agents.split()))
+        self.assertNotIn("action_reopen", agents)
+        self.assertNotIn("**Reassign Customers**", agents)
+        self.assertNotIn("Keep reassign kanban", agents)
+        self.assertNotIn("Allocations-only", agents)
+        self.assertNotIn("Module metadata `19.0.1.32.0`", agents)
+        self.assertNotIn("`partner_id.group_expand`", agents)
+        self.assertIn(
+            '"Closed collection sheets cannot change membership. Reopen first."',
+            agents,
+        )
+        self.assertIn("`migrations/19.0.1.32.0/`", agents)
+
+    def test_readme_description_four_state_workflow(self):
+        """readme/DESCRIPTION.md MUST describe four-state sheets and three tabs."""
+        description = (
+            Path(__file__).resolve().parents[1] / "readme" / "DESCRIPTION.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("`open`", description)
+        self.assertIn("`proposal`", description)
+        self.assertIn("`closed`", description)
+        self.assertIn("`cancelled`", description)
+        self.assertIn("Allocations, Vouchers, and Debt", description)
+        self.assertNotIn("(`open`/`closed`)", description)
+        self.assertNotIn("Reassign Customers", description)
+        self.assertNotIn("Reopen", description)
 
     def test_allocation_sequence_in_specs_not_in_1_17_0_codes(self):
         specs_path = Path(__file__).resolve().parents[1] / "models" / "res_company.py"
@@ -433,7 +501,9 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         self.assertEqual(self._seq_number(voucher_a2.name, "COL"), n_a + 1)
         self.assertEqual(self._seq_number(voucher_b2.name, "COL"), 2)
-        self.env["collection.sheet"].search([("state", "=", "open")]).action_close()
+        self.env["collection.sheet"].search([("state", "=", "open")]).with_context(
+            collection_sheet_audited_state=True
+        ).write({"state": "closed"})
         seller = ensure_enabled_seller(self.env)
         sheet_a = self.env["collection.sheet"].create({"seller_id": seller.id})
         sheet_b = self.env["collection.sheet"].create(
@@ -441,7 +511,9 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         n_sheet_a = self._seq_number(sheet_a.name, "CS")
         self.assertEqual(self._seq_number(sheet_b.name, "CS"), 1)
-        sheet_a.action_close()
+        sheet_a.with_context(collection_sheet_audited_state=True).write(
+            {"state": "closed"}
+        )
         sheet_a2 = self.env["collection.sheet"].create({"seller_id": seller.id})
         self.assertEqual(self._seq_number(sheet_a2.name, "CS"), n_sheet_a + 1)
 

@@ -249,6 +249,13 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertEqual(paper.margin_right, 5)
         self.assertEqual(paper.dpi, 90)
 
+    def _mark_validated_collections(self, vouchers):
+        if vouchers:
+            vouchers.with_context(collection_audited_state=True).write(
+                {"state": "validated_collections"}
+            )
+        return vouchers
+
     def test_get_report_values_one_payload_per_doc(self):
         """`_get_report_values` MUST return one payload per sheet and set `o`."""
         sheet, _partner = self._populated_sheet()
@@ -273,6 +280,29 @@ class TestCollectionSheetReport(TransactionCase):
             [row["sheet"] for row in values_both["payloads"]],
             [sheet, sheet_b],
         )
+
+    def test_pdf_in_all_four_states(self):
+        """Bound PDF values MUST build for open, proposal, closed, and cancelled."""
+        sheet, _partner = self._populated_sheet()
+        render = self.env[RENDER_MODEL]
+        self._mark_validated_collections(sheet.voucher_ids)
+        reference = sheet.name
+        advances = (
+            ("open", lambda: None),
+            ("proposal", sheet.action_confirm),
+            ("closed", sheet.action_close),
+            ("cancelled", sheet.action_cancel),
+        )
+        for target, advance in advances:
+            with self.subTest(state=target):
+                advance()
+                self.assertEqual(sheet.state, target)
+                values = render._get_report_values(sheet.ids)
+                self.assertEqual(len(values["payloads"]), 1)
+                payload = values["payloads"][0]
+                self.assertEqual(payload["sheet"], sheet)
+                self.assertEqual(payload["reference"], reference)
+                self.assertEqual(payload["collected_total"], 100.0)
 
     def test_html_contains_reference_seller_partners_docs_banner(self):
         """HTML render MUST include reference, seller, partners, docs, banner."""

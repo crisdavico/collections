@@ -7,6 +7,14 @@ from odoo.fields import Command
 from odoo.tools import SQL
 from odoo.tools.translate import _
 
+_STATE_WRITE_ACTIONS = {
+    "proposal": "action_confirm",
+    "closed": "action_close",
+    "cancelled": "action_cancel",
+    "open": "action_open",
+}
+_VALIDATED_COLLECTIONS = "validated_collections"
+
 
 class CollectionSheet(models.Model):
     _name = "collection.sheet"
@@ -46,12 +54,19 @@ class CollectionSheet(models.Model):
         inverse_name="sheet_id",
         string="Allocations",
     )
+    debt_line_ids = fields.One2many(
+        comodel_name="collection.allocation.line",
+        inverse_name="sheet_id",
+        string="Debt",
+    )
     date_from = fields.Date(compute="_compute_dates", store=True)
     date_to = fields.Date(compute="_compute_dates", store=True)
     state = fields.Selection(
         selection=[
             ("open", "Open"),
+            ("proposal", "Proposal"),
             ("closed", "Closed"),
+            ("cancelled", "Cancelled"),
         ],
         default="open",
         required=True,
@@ -146,6 +161,8 @@ class CollectionSheet(models.Model):
                     vals["voucher_ids"]
                 )
             resulting_state = vals.get("state") or "open"
+            if resulting_state != "open":
+                raise UserError(_("Collection sheets can only be created in Open."))
             seller_id = vals.get("seller_id")
             if resulting_state == "open" and seller_id:
                 key = (company_id, seller_id)
@@ -168,14 +185,15 @@ class CollectionSheet(models.Model):
             rest = {key: value for key, value in vals.items() if key != "state"}
             if rest:
                 super().write(rest)
-            if target == "closed":
-                return self.action_close()
-            if target == "open":
-                return self.action_reopen()
-            raise UserError(_("Sheet state can only be changed via Close or Reopen."))
+            action_name = _STATE_WRITE_ACTIONS.get(target)
+            if action_name:
+                return getattr(self, action_name)()
+            raise UserError(
+                _("Sheet state can only be changed via Confirm, Close, Cancel, or Open.")
+            )
         if "voucher_ids" in vals:
             if not self.env.context.get("collection_sheet_unlinking") and any(
-                sheet.state == "closed" for sheet in self
+                sheet.state != "open" for sheet in self
             ):
                 raise UserError(
                     _(
@@ -194,15 +212,32 @@ class CollectionSheet(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_no_allocations(self):
-        if any(sheet.state == "closed" for sheet in self):
-            raise UserError(_("Closed collection sheets cannot be deleted."))
+        if any(sheet.state != "open" for sheet in self):
+            raise UserError(_("Only open collection sheets can be deleted."))
         drafts = self.mapped("allocation_ids")
         if drafts:
             drafts.unlink()
 
-    def action_close(self):
+    def action_confirm(self):
         if any(sheet.state != "open" for sheet in self):
-            raise UserError(_("Only open sheets can be closed."))
+            raise UserError(_("Only open sheets can be confirmed."))
+        for sheet in self:
+            if any(
+                voucher.state != _VALIDATED_COLLECTIONS for voucher in sheet.voucher_ids
+            ):
+                raise UserError(
+                    _(
+                        "Confirm requires every member voucher to be validated "
+                        "by collections."
+                    )
+                )
+        return self.with_context(collection_sheet_audited_state=True).write(
+            {"state": "proposal"}
+        )
+
+    def action_close(self):
+        if any(sheet.state != "proposal" for sheet in self):
+            raise UserError(_("Only proposal sheets can be closed."))
         allocations = self.mapped("allocation_ids")
         if allocations:
             allocations.with_context(collection_allocation_audited_state=True).write(
@@ -215,14 +250,29 @@ class CollectionSheet(models.Model):
             allocations._check_sheet_state_iff()
         return result
 
-    def action_reopen(self):
-        if any(sheet.state != "closed" for sheet in self):
-            raise UserError(_("Only closed sheets can be reopened."))
+    def action_cancel(self):
+        if any(sheet.state not in ("proposal", "closed") for sheet in self):
+            raise UserError(_("Only proposal or closed sheets can be cancelled."))
+        allocations = self.mapped("allocation_ids")
+        result = self.with_context(collection_sheet_audited_state=True).write(
+            {"state": "cancelled"}
+        )
+        if allocations:
+            allocations.with_context(collection_allocation_audited_state=True).write(
+                {"state": "draft"}
+            )
+            allocations._check_sheet_state_iff()
+        return result
+
+    def action_open(self):
+        if any(sheet.state != "cancelled" for sheet in self):
+            raise UserError(_("Only cancelled sheets can be opened."))
         seen_keys = set()
         for sheet in self:
             key = (sheet.company_id.id, sheet.seller_id.id)
             if key in seen_keys:
                 raise UserError(_("This seller already has an open collection sheet."))
+            self._lock_open_sheet_for_seller(sheet.seller_id, sheet.company_id)
             self._raise_if_seller_has_open_sheet(sheet.seller_id, sheet.company_id)
             seen_keys.add(key)
         allocations = self.mapped("allocation_ids")
@@ -230,9 +280,6 @@ class CollectionSheet(models.Model):
             {"state": "open"}
         )
         if allocations:
-            allocations.with_context(collection_allocation_audited_state=True).write(
-                {"state": "draft"}
-            )
             allocations._check_sheet_state_iff()
         return result
 
@@ -250,6 +297,10 @@ class CollectionSheet(models.Model):
         self.ensure_one()
         self.env["collection.voucher"]._ensure_document_review_enabled()
         self._ensure_saved_sheet()
+        if self.state != "open":
+            raise UserError(
+                _("Document Review is only available on open collection sheets.")
+            )
         action = self.env["ir.actions.actions"]._for_xml_id(
             "collection.action_collection_document_review"
         )
@@ -266,30 +317,6 @@ class CollectionSheet(models.Model):
             "view_mode": "list,kanban,form",
             "domain": [("sheet_id", "=", self.id)],
             "context": {
-                "default_sheet_id": self.id,
-                "default_seller_id": self.seller_id.id,
-            },
-        }
-
-    def action_open_voucher_reassign(self):
-        self.ensure_one()
-        self._ensure_saved_sheet()
-        if self.state != "open":
-            raise UserError(
-                _("Closed collection sheets cannot change membership. Reopen first.")
-            )
-        reassign_kanban = self.env.ref(
-            "collection.view_collection_voucher_reassign_kanban"
-        )
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("Reassign Customers"),
-            "res_model": "collection.voucher",
-            "views": [(reassign_kanban.id, "kanban"), (False, "form")],
-            "domain": [("sheet_id", "=", self.id)],
-            "context": {
-                "collection_reassign_sheet_id": self.id,
-                "group_by": "partner_id",
                 "default_sheet_id": self.id,
                 "default_seller_id": self.seller_id.id,
             },

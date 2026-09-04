@@ -153,7 +153,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(self._counts(), before)
         return ctx.exception
 
-    def _create_sheet(self, *, seller=None, company=None, state="open"):
+    def _create_sheet(self, *, seller=None, company=None):
         seller = seller or self.seller
         company = company or self.env.company
         ensure_enabled_seller(self.env, seller, company=company)
@@ -164,10 +164,25 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
                 {
                     "seller_id": seller.id,
                     "company_id": company.id,
-                    "state": state,
                 }
             )
         )
+
+    def _drive_sheet(self, sheet, target):
+        if sheet.voucher_ids:
+            sheet.voucher_ids.with_context(collection_audited_state=True).write(
+                {"state": "validated_collections"}
+            )
+        sheet.action_confirm()
+        if target == "proposal":
+            return sheet
+        if target == "closed":
+            sheet.action_close()
+            return sheet
+        if target == "cancelled":
+            sheet.action_cancel()
+            return sheet
+        raise AssertionError(target)
 
     def _next_document_id(self, prefix="LOOKUP-DOC"):
         self._doc_seq += 1
@@ -284,7 +299,36 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
 
     def test_closed_sheet_only_returns_null(self):
         """A closed sheet MUST NOT count as open; GET returns null."""
-        self._create_sheet(state="closed")
+        sheet = self._create_sheet()
+        self._drive_sheet(sheet, "closed")
+        self.assertEqual(sheet.state, "closed")
+        before = self._counts()
+        result = self._call(self._args())
+        self._assert_null(result)
+        self.assertEqual(self._counts(), before)
+
+    def test_proposal_sheet_does_not_occupy_mcp_open(self):
+        """A proposal sheet MUST NOT satisfy MCP open lookup."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(sheet, self.partner, 150.0)
+        self._create_allocation(
+            sheet,
+            self.partner,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=100.0, invoice_balance=100.0)],
+        )
+        self._drive_sheet(sheet, "proposal")
+        self.assertEqual(sheet.state, "proposal")
+        before = self._counts()
+        result = self._call(self._args())
+        self._assert_null(result)
+        self.assertEqual(self._counts(), before)
+
+    def test_cancelled_sheet_only_returns_null(self):
+        """A cancelled sheet MUST NOT count as open; GET returns null."""
+        sheet = self._create_sheet()
+        self._drive_sheet(sheet, "cancelled")
+        self.assertEqual(sheet.state, "cancelled")
         before = self._counts()
         result = self._call(self._args())
         self._assert_null(result)
@@ -441,10 +485,11 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
     def test_multi_open_raises_existing_user_error(self):
         """More than one open sheet MUST raise the existing multi-open UserError."""
         first = self._create_sheet()
-        leftover = self._create_sheet(state="closed")
-        leftover.with_context(collection_sheet_audited_state=True).write(
-            {"state": "open"}
+        first.with_context(collection_sheet_audited_state=True).write(
+            {"state": "closed"}
         )
+        leftover = self._create_sheet()
+        first.with_context(collection_sheet_audited_state=True).write({"state": "open"})
         self.assertEqual(first.state, "open")
         self.assertEqual(leftover.state, "open")
         err = self._assert_user_error_no_writes(lambda: self._call(self._args()))

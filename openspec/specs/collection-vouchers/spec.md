@@ -292,7 +292,15 @@ Each voucher MUST persist `document_type` `bank_transfer` | `check` | `cash_depo
 
 ### Requirement: Payment Vouchers UI
 
-MUST expose Collections → Payment Vouchers as the only create/edit surface (`view_mode` `list,form`; create and edit enabled). MUST `<delete>` stages kanban. MUST keep Reassign Customers kanban. Menu Payment Vouchers MUST stay `sequence=10`. Form MUST show non-clickable statusbar, **Validate by Seller** when `draft`, readonly `create_date`, type-specific payment fields, chatter/activity; MUST NOT show `received_date`, Approve/Reject, a Collections button, History, or payment-line tables. `partner_id` MUST have no bound-partner domain. Clearing `sheet_id` on an open member MUST unlink; closed-sheet membership writes MUST be rejected. MUST NOT expose sheet-form member list or Payment Lines.
+MUST expose Collections → Payment Vouchers as the only create/edit surface (`view_mode`
+`list,form`; create and edit enabled). MUST `<delete>` stages kanban. MUST NOT keep
+Reassign Customers kanban. Menu Payment Vouchers MUST stay `sequence=10`. Form MUST show
+non-clickable statusbar, **Validate by Seller** when `draft`, readonly `create_date`,
+type-specific payment fields, chatter/activity; MUST NOT show `received_date`,
+Approve/Reject, a Collections button, History, or payment-line tables. `partner_id` MUST
+have no bound-partner domain. Clearing `sheet_id` on an open member MUST unlink;
+non-open-sheet membership writes MUST be rejected. MUST NOT expose sheet-form member
+list or Payment Lines.
 
 | Surface | MUST |
 | --- | --- |
@@ -300,20 +308,25 @@ MUST expose Collections → Payment Vouchers as the only create/edit surface (`v
 | List hide | `partner_id`, `company_id`, `document_id` optional hide; `currency_id` column-invisible |
 | Search | one filter per state; one per `document_type`; Created On `date="create_date"`; keep name/customer/seller/sheet |
 
-(Previously: `kanban,list,form`; stages grouped by `state`; Approve/Reject when `pending`; list `partner_id` visible and `sheet_id` optional hide.)
+(Previously: MUST keep Reassign Customers kanban; closed-sheet membership writes
+rejected.)
 
 #### Scenario: Menu and form behaviors
 
 - GIVEN the module installed and a `draft` voucher
 - WHEN Payment Vouchers form opens
-- THEN list MUST show `name`, `create_date`, `sheet_id`, `seller_id`, `document_type`, `amount`, `state`
-- AND form MUST show non-clickable statusbar, Validate by Seller, readonly `create_date`, type-specific fields, chatter; MUST NOT show `received_date`, Approve/Reject, Collections, History, or payment-line tables
+- THEN list MUST show `name`, `create_date`, `sheet_id`, `seller_id`, `document_type`,
+  `amount`, `state`
+- AND form MUST show non-clickable statusbar, Validate by Seller, readonly
+  `create_date`, type-specific fields, chatter; MUST NOT show `received_date`,
+  Approve/Reject, Collections, History, or payment-line tables
 
 #### Scenario: Kanban grouped by state
 
 - GIVEN Payment Vouchers
 - WHEN views load
-- THEN stages kanban MUST NOT exist, `view_mode` MUST be `list,form`, and Reassign Customers kanban MUST remain
+- THEN stages kanban MUST NOT exist, `view_mode` MUST be `list,form`, and Reassign
+  Customers kanban MUST NOT remain
 
 #### Scenario: Payment Lines menu absent
 
@@ -331,7 +344,8 @@ MUST expose Collections → Payment Vouchers as the only create/edit surface (`v
 
 - GIVEN Payment Vouchers search
 - WHEN filters are inspected
-- THEN one filter per voucher state and per `document_type` MUST exist, and Created On MUST be a date filter on `create_date`
+- THEN one filter per voucher state and per `document_type` MUST exist, and Created On
+  MUST be a date filter on `create_date`
 
 #### Scenario: UI create_date visibility
 
@@ -341,7 +355,7 @@ MUST expose Collections → Payment Vouchers as the only create/edit surface (`v
 
 #### Scenario: Customer field has no domain
 
-- GIVEN Payment Vouchers list, search, form, or Reassign kanban
+- GIVEN Payment Vouchers list, search, or form
 - WHEN Customer is opened
 - THEN the field MUST be `partner_id` with no bound-connector domain
 
@@ -349,8 +363,8 @@ MUST expose Collections → Payment Vouchers as the only create/edit surface (`v
 
 - GIVEN an existing voucher with or without a sheet
 - WHEN list, form, or search is opened
-- THEN list MUST show visible `sheet_id`, form editable `sheet_id`, search field and group-by
-- AND Reassign kanban MUST NOT show `sheet_id` as a card field
+- THEN list MUST show visible `sheet_id`, form editable `sheet_id` when the sheet is
+  `open` or the voucher is unassigned, search field and group-by
 
 #### Scenario: Clear sheet_id unlinks open membership
 
@@ -360,7 +374,7 @@ MUST expose Collections → Payment Vouchers as the only create/edit surface (`v
 
 #### Scenario: Closed-sheet unlink denied
 
-- GIVEN a voucher assigned to a closed sheet
+- GIVEN a voucher assigned to a proposal, closed, or cancelled sheet
 - WHEN `sheet_id` is cleared or changed on the form
 - THEN the write MUST be rejected and membership MUST be unchanged
 
@@ -883,32 +897,33 @@ Each voucher MAY have `allocation_id`. Write of `allocation_id` MUST be refused 
 
 ### Requirement: Partner write follows allocation
 
-When `partner_id` changes, the system MUST compute `allocation_id` before persist and MUST write `partner_id` and `allocation_id` in the same vals (per record when outcomes differ). MUST NOT `sudo()`. While the sheet is `open`, any voucher state MAY change Customer. Same-value `partner_id` MUST NOT recompute allocation. `confirmed` current allocation MUST refuse the move with no field change. Draft source MUST NOT refuse because residual is 0 or because leftover-voucher residual would be `< 0`. MUST attach the unique draft same-sheet allocation for the new partner without leftover-voucher residual or `residual_reason` checks; otherwise MUST leave unallocated and MUST post chatter for that outcome.
-(Previously: Last scenario named `approved`/`rejected` vouchers; projected residual − voucher amount `< 0` refused.)
+When `partner_id` changes, the system MUST NOT auto-compute or auto-write
+`allocation_id`. An allocated voucher MUST be unassigned before Customer MAY change; a
+`partner_id` write while `allocation_id` is set MUST raise `UserError` with no persist.
+MUST NOT `sudo()`. Same-value `partner_id` MUST NOT recompute allocation. `confirmed`
+current allocation MUST refuse the move with no field change. While the sheet is `open`
+and the voucher is unassigned, any voucher state MAY change Customer.
+(Previously: Customer change auto-attached the unique draft same-sheet allocation or
+left the voucher unallocated with chatter.)
 
-#### Scenario: Same-write partner and allocation
+#### Scenario: Allocated customer change refused
 
-- GIVEN an open-sheet voucher on draft allocation A (partner P) and unique draft same-sheet allocation B (partner Q)
-- WHEN `partner_id` is written to Q
-- THEN `partner_id` MUST be Q and `allocation_id` MUST be B in one write
-
-#### Scenario: Fully applied source allowed
-
-- GIVEN an open-sheet voucher on a draft allocation whose residual is 0
+- GIVEN an open-sheet voucher with `allocation_id` set
 - WHEN `partner_id` is written to another customer
-- THEN the write MUST succeed and residual MUST NOT ± voucher amount
+- THEN MUST raise `UserError`
+- AND `partner_id` and `allocation_id` MUST be unchanged
 
-#### Scenario: Target attaches without leftover residual check
+#### Scenario: Unassign then customer change
 
-- GIVEN an open-sheet unallocated voucher and unique draft same-sheet allocation for Q
-- WHEN `partner_id` is written to Q
-- THEN `allocation_id` MUST become that allocation and MUST NOT require leftover-voucher residual or `residual_reason`
+- GIVEN an open-sheet voucher on a draft allocation
+- WHEN `allocation_id` is cleared then `partner_id` is written to another customer
+- THEN `partner_id` MUST persist and `allocation_id` MUST remain unset
 
-#### Scenario: Target left unallocated when no unique draft allocation
+#### Scenario: Same-value partner write
 
-- GIVEN an open-sheet voucher and no unique draft same-sheet allocation for Q
-- WHEN `partner_id` is written to Q
-- THEN `partner_id` MUST be Q, `allocation_id` unset, and chatter MUST record unallocated
+- GIVEN an open-sheet voucher on a draft allocation
+- WHEN `partner_id` is written to the same customer
+- THEN both fields MUST remain unchanged
 
 #### Scenario: Confirmed source refused
 
@@ -916,11 +931,18 @@ When `partner_id` changes, the system MUST compute `allocation_id` before persis
 - WHEN `partner_id` is written
 - THEN MUST refuse and both fields MUST be unchanged
 
-#### Scenario: Approved or rejected voucher may move
+#### Scenario: Unassigned voucher may change customer
 
-- GIVEN an open-sheet voucher in `draft`, `validated_seller`, or `validated_collections` with no blocking residual
+- GIVEN an open-sheet unallocated voucher in `draft`, `validated_seller`, or
+  `validated_collections`
 - WHEN `partner_id` is written to another customer
 - THEN the write MUST succeed and `state` MUST stay unchanged
+
+#### Scenario: Fully applied source no longer auto-moves
+
+- GIVEN an open-sheet voucher on a draft allocation whose residual is 0
+- WHEN `partner_id` is written to another customer without unassigning
+- THEN MUST raise `UserError` and both fields MUST be unchanged
 
 ### Requirement: Voucher partner-allocation constrain
 
@@ -934,37 +956,6 @@ raise `UserError` with no persist.
 - WHEN `allocation_id` is written without matching `partner_id` in the same vals
 - THEN the write MUST be refused
 - AND stored `partner_id` and `allocation_id` MUST be unchanged
-
-### Requirement: Context-gated partner group_expand
-
-`partner_id` MUST use a `group_expand` method (MUST NOT be boolean `True`). When
-context `collection_reassign_sheet_id` is missing, invalid, or unreadable, expand
-MUST return the identity groups. When that context names a readable sheet, expand
-MUST return that sheet's allocation customers union member-voucher customers
-(including empty allocation columns and stray voucher customers), ordered as
-`res.partner` default order.
-
-#### Scenario: Identity expand without context
-
-- GIVEN Payment Vouchers grouped by Customer and no readable
-  `collection_reassign_sheet_id`
-- WHEN group expand runs
-- THEN the returned groups MUST equal the identity groups
-- AND empty allocation-only customers MUST NOT be added
-
-#### Scenario: Empty allocation columns
-
-- GIVEN reassign context for a readable sheet that has an allocation with no
-  vouchers
-- WHEN group expand runs
-- THEN that allocation's customer MUST appear as a column
-
-#### Scenario: Stray extra columns
-
-- GIVEN reassign context for a readable sheet with a member voucher whose
-  customer has no allocation on that sheet
-- WHEN group expand runs
-- THEN that voucher's customer MUST appear as a column
 
 ### Requirement: Internal collection payment helpers
 
@@ -1003,3 +994,37 @@ Upgrade SQL MUST remap `collection.voucher.state` before ORM browse: `pending`�
 - WHEN this upgrade runs
 - THEN they MUST be `draft`, `validated_collections`, `draft`
 - AND ORM MUST NOT see leftover old keys
+
+### Requirement: Sheet-state voucher field guards
+
+Voucher membership (`sheet_id` add, remove, or reassign) and voucher business fields
+MUST be writable only while the sheet is `open` (or the voucher is unassigned). When the
+sheet is `proposal`, `closed`, or `cancelled`, those writes MUST raise `UserError` with
+no persist, including via form or RPC. Chatter MUST remain writable. Partner-allocation
+constrain MUST still apply.
+(Previously: Membership freeze was closed-only; business fields had no sheet-state
+guard.)
+
+#### Scenario: Open membership and business fields writable
+
+- GIVEN a voucher on an open sheet
+- WHEN `sheet_id` is cleared or a business field is written lawfully
+- THEN the write MUST persist
+
+#### Scenario: Proposal closed cancelled membership refused
+
+- GIVEN a voucher on a proposal, closed, or cancelled sheet
+- WHEN `sheet_id` is cleared or changed
+- THEN MUST raise `UserError` and membership MUST be unchanged
+
+#### Scenario: Proposal closed cancelled business fields refused
+
+- GIVEN a voucher on a proposal, closed, or cancelled sheet
+- WHEN a business field is written via form or RPC
+- THEN MUST raise `UserError` and stored values MUST be unchanged
+
+#### Scenario: Chatter remains writable when frozen
+
+- GIVEN a voucher on a proposal, closed, or cancelled sheet
+- WHEN an operator posts a chatter comment
+- THEN that comment MUST persist on the voucher thread

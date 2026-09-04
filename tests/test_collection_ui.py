@@ -35,6 +35,21 @@ NOTEBOOK_SELLER = "Seller Confirmed"
 NOTEBOOK_HISTORY = "History"
 SHEET_NOTEBOOK_VOUCHERS = "Vouchers"
 SHEET_NOTEBOOK_ALLOCATIONS = "Allocations"
+SHEET_NOTEBOOK_DEBT = "Debt"
+SHEET_ALLOCATION_COLUMNS = (
+    "name",
+    "partner_id",
+    "total_debt",
+    "total_vouchers",
+    "residual",
+)
+SHEET_ALLOCATION_COLUMN_STRINGS = {
+    "name": "Reference",
+    "partner_id": "Customer",
+    "total_debt": "Total Debt",
+    "total_vouchers": "Total Vouchers Applied",
+    "residual": "Residual",
+}
 ALLOCATION_NOTEBOOK_CUSTOMER_DEBT = "Customer Debt"
 ALLOCATION_TOTAL_FIELDS = (
     "total_vouchers",
@@ -118,56 +133,6 @@ class TestCollectionUi(TransactionCase):
                 continue
             names.append(node.get("name"))
         return names
-
-    def _reassign_sheet_expand_fixture(self):
-        """Open sheet with an empty allocation column and a stray voucher customer."""
-        seller = ensure_enabled_seller(self.env)
-        empty_partner = dummy_customer_partner(
-            self.env, customer="Z-Reassign-Empty-Alloc"
-        )
-        stray_partner = dummy_customer_partner(self.env, customer="A-Reassign-Stray")
-        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
-        voucher = self.env["collection.voucher"].create(
-            {
-                "partner_id": stray_partner.id,
-                "document_type": "cash_deposit",
-                "seller_id": seller.id,
-                "sheet_id": sheet.id,
-                "document_id": "REASSIGN-EXPAND-STRAY",
-            }
-        )
-        allocation = self.env["collection.allocation"].create(
-            {
-                "sheet_id": sheet.id,
-                "partner_id": empty_partner.id,
-            }
-        )
-        return sheet, empty_partner, stray_partner, voucher, allocation
-
-    def _partner_expand_groups(self, domain, **extra_context):
-        return (
-            self.env["collection.voucher"]
-            .with_context(read_group_expand=True, **extra_context)
-            .formatted_read_group(
-                domain=domain,
-                groupby=["partner_id"],
-                aggregates=["__count"],
-            )
-        )
-
-    def _partner_id_from_group_value(self, value):
-        if not value:
-            return False
-        if isinstance(value, tuple):
-            return value[0]
-        return value.id
-
-    def _partner_ids_from_groups(self, groups):
-        return [
-            self._partner_id_from_group_value(group["partner_id"])
-            for group in groups
-            if group["partner_id"]
-        ]
 
     def _assert_create_date_readonly(self, root, context):
         nodes = self._field_nodes(root, "create_date")
@@ -288,6 +253,9 @@ class TestCollectionUi(TransactionCase):
             return ast.literal_eval(text)
         except (ValueError, SyntaxError):
             return json.loads(text.replace("'", '"'))
+
+    def _attr_is_false(self, value):
+        return (value or "").lower() in ("0", "false")
 
     def test_menu_and_action_xmlids(self):
         """Collections → Payment Vouchers menu must wire the voucher act_window."""
@@ -469,60 +437,45 @@ class TestCollectionUi(TransactionCase):
         action = self.env.ref("collection.action_collection_voucher")
         self.assertEqual(action.view_mode, "list,form")
         self.assertNotIn("kanban", action.view_mode)
-        self.assertTrue(
+        self.assertFalse(
             self.env.ref(
                 "collection.view_collection_voucher_reassign_kanban",
                 raise_if_not_found=False,
             ),
-            "Reassign Customers kanban MUST remain",
+            "Reassign Customers kanban MUST NOT remain",
         )
 
-    def test_reassign_kanban_groups_by_customer_and_disables_create(self):
-        """Reassign kanban MUST group by Customer and disable create/group."""
-        reassign_root = self._arch_root(
-            "collection.view_collection_voucher_reassign_kanban"
-        )
-        self.assertEqual(reassign_root.tag, "kanban")
-        self.assertEqual(reassign_root.get("default_group_by"), "partner_id")
-        self.assertEqual(reassign_root.get("records_draggable"), "1")
-        self.assertEqual(reassign_root.get("create"), "0")
-        self.assertEqual(reassign_root.get("quick_create"), "0")
-        self.assertEqual(reassign_root.get("group_create"), "0")
-        self.assertEqual(reassign_root.get("group_delete"), "0")
-        self.assertEqual(reassign_root.get("group_edit"), "0")
-        self.assertEqual(reassign_root.get("groups_draggable"), "0")
-        self.assertEqual(reassign_root.get("class"), "o_kanban_mobile")
-        card = reassign_root.xpath('//templates/t[@t-name="card"]')
-        self.assertTrue(card, "reassign kanban must define a card template")
-        self.assertFalse(
-            reassign_root.xpath('//templates/t[@t-name="kanban-box"]'),
-            "reassign kanban must not use deprecated t-name=kanban-box",
-        )
-        partner_nodes = self._field_nodes(reassign_root, "partner_id")
-        self.assertTrue(partner_nodes, "reassign kanban must declare partner_id")
-        for node in partner_nodes:
-            readonly = (node.get("readonly") or "").lower()
-            self.assertNotIn(
-                readonly,
-                ("1", "true"),
-                "reassign kanban partner_id must not be readonly",
-            )
+    def test_reassign_kanban_xmlid_deleted(self):
+        """Reassign Customers kanban XMLID and leftover ir.ui.view MUST be gone."""
         self.assertFalse(
             self.env.ref(
-                "collection.view_collection_voucher_kanban",
+                "collection.view_collection_voucher_reassign_kanban",
                 raise_if_not_found=False,
             ),
-            "stages kanban must stay deleted while reassign kanban remains",
+            "reassign kanban xmlid must be deleted",
+        )
+        leftover = self.env["ir.ui.view"].search(
+            [
+                ("name", "=", "collection.voucher.reassign.kanban"),
+                ("model", "=", "collection.voucher"),
+            ]
+        )
+        self.assertFalse(
+            leftover,
+            "leftover reassign kanban ir.ui.view must be deleted",
+        )
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        self.assertFalse(
+            form_root.xpath('./header/button[@name="action_open_voucher_reassign"]'),
+            "sheet form header must not expose Reassign Customers",
         )
 
     def test_customer_field_is_partner_id_without_domain(self):
-        """List, search, form, and Reassign kanban use unbound partner_id."""
+        """Payment Vouchers list, search, and form use unbound partner_id."""
         expected_counts = {
             "collection.view_collection_voucher_list": 1,
             "collection.view_collection_voucher_search": 1,
-            "collection.view_collection_voucher_reassign_kanban": 2,
             "collection.view_collection_voucher_form": 1,
-            "collection.view_collection_sheet_form": 1,
         }
         for xmlid, count in expected_counts.items():
             root = self._arch_root(xmlid)
@@ -569,86 +522,22 @@ class TestCollectionUi(TransactionCase):
             "state must not group_expand after dropping stages kanban",
         )
 
-    def test_partner_group_expand_identity_without_readable_sheet(self):
-        """Expand without a readable reassign sheet MUST keep identity groups."""
+    def test_partner_group_expand_dropped(self):
+        """partner_id MUST NOT group_expand after dropping Reassign kanban."""
         Voucher = self.env["collection.voucher"]
-        self.assertEqual(
+        self.assertFalse(
             Voucher._fields["partner_id"].group_expand,
-            "_read_group_partner_ids",
-            "partner_id.group_expand must be a method name, not True",
+            "partner_id must not group_expand after dropping Reassign kanban",
         )
-        self.assertIsInstance(
+        self.assertFalse(
+            hasattr(Voucher, "_read_group_partner_ids"),
+            "_read_group_partner_ids MUST be removed with Reassign kanban",
+        )
+        self.assertNotEqual(
             Voucher._fields["partner_id"].group_expand,
-            str,
+            True,
             "Many2one group_expand MUST NOT be boolean True",
         )
-        sheet, empty_partner, stray_partner, _voucher, _alloc = (
-            self._reassign_sheet_expand_fixture()
-        )
-        domain = [("sheet_id", "=", sheet.id)]
-        identity_ids = self._partner_ids_from_groups(
-            self._partner_expand_groups(domain)
-        )
-        self.assertIn(stray_partner.id, identity_ids)
-        self.assertNotIn(
-            empty_partner.id,
-            identity_ids,
-            "empty allocation-only customers MUST NOT be added without context",
-        )
-        missing_id = sheet.id + 10_000_000
-        for raw in (True, False, "12", 0, -1, missing_id):
-            got = self._partner_ids_from_groups(
-                self._partner_expand_groups(domain, collection_reassign_sheet_id=raw)
-            )
-            self.assertEqual(
-                got,
-                identity_ids,
-                f"bad collection_reassign_sheet_id={raw!r} must keep identity",
-            )
-
-    def test_partner_group_expand_empty_allocation_columns(self):
-        """Readable reassign context MUST show empty allocation customer columns."""
-        sheet, empty_partner, _stray, _voucher, allocation = (
-            self._reassign_sheet_expand_fixture()
-        )
-        self.assertFalse(allocation.voucher_ids)
-        groups = self._partner_expand_groups(
-            [("sheet_id", "=", sheet.id)],
-            collection_reassign_sheet_id=sheet.id,
-        )
-        by_id = {
-            self._partner_id_from_group_value(group["partner_id"]): group
-            for group in groups
-            if group["partner_id"]
-        }
-        self.assertIn(empty_partner.id, by_id)
-        self.assertEqual(by_id[empty_partner.id]["__count"], 0)
-
-    def test_partner_group_expand_stray_voucher_customers(self):
-        """Readable reassign context MUST show stray voucher customers in order."""
-        sheet, empty_partner, stray_partner, voucher, _alloc = (
-            self._reassign_sheet_expand_fixture()
-        )
-        self.assertFalse(voucher.allocation_id)
-        groups = self._partner_expand_groups(
-            [("sheet_id", "=", sheet.id)],
-            collection_reassign_sheet_id=sheet.id,
-        )
-        ids = self._partner_ids_from_groups(groups)
-        self.assertIn(stray_partner.id, ids)
-        wanted = {empty_partner.id, stray_partner.id}
-        expected = self.env["res.partner"].search([("id", "in", list(wanted))]).ids
-        self.assertEqual(
-            [partner_id for partner_id in ids if partner_id in wanted],
-            expected,
-            "expanded partners must follow res.partner _order",
-        )
-        by_id = {
-            self._partner_id_from_group_value(group["partner_id"]): group
-            for group in groups
-            if group["partner_id"]
-        }
-        self.assertEqual(by_id[stray_partner.id]["__count"], 1)
 
     def test_form_statusbar_validate_seller_when_draft(self):
         """Form must show statusbar and Validate by Seller only when draft."""
@@ -1116,17 +1005,6 @@ class TestCollectionUi(TransactionCase):
         ]
         self.assertTrue(group_sheet, "search view must offer group_by sheet_id")
 
-        kanban_root = self._arch_root(
-            "collection.view_collection_voucher_reassign_kanban"
-        )
-        card = kanban_root.xpath('//templates/t[@t-name="card"]')
-        self.assertTrue(card, "reassign kanban must define a card template")
-        self.assertNotIn(
-            "sheet_id",
-            self._field_names(card[0]),
-            "Reassign kanban MUST NOT show sheet_id as a card field",
-        )
-
     def test_collection_sheets_menu_list_form_search(self):
         """Collections → Collection Sheets MUST wire list, form, and search."""
         root_menu = self.env.ref("collection.menu_collection_root")
@@ -1159,8 +1037,8 @@ class TestCollectionUi(TransactionCase):
             self.assertIn(field_name, search_fields, f"search must show {field_name}")
         self._assert_create_edit_enabled(list_root, "sheet list")
 
-    def test_collection_sheets_form_statusbar_close_reopen(self):
-        """Sheet form: required seller, dates, non-clickable statusbar, Close/Reopen."""
+    def test_collection_sheets_form_statusbar_four_states(self):
+        """Sheet form: four-state statusbar and header actions by state; no Reopen."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
         self.assertEqual(form_root.tag, "form")
         self._assert_create_edit_enabled(form_root, "sheet form")
@@ -1185,32 +1063,64 @@ class TestCollectionUi(TransactionCase):
             '//header/field[@name="state" and @widget="statusbar"]'
         )
         self.assertTrue(statusbar, "sheet form must include state statusbar in header")
-        self.assertEqual(statusbar[0].get("statusbar_visible"), "open,closed")
+        self.assertEqual(
+            statusbar[0].get("statusbar_visible"),
+            "open,proposal,closed,cancelled",
+        )
         options = statusbar[0].get("options") or ""
         self.assertIn("clickable", options)
         self.assertIn("False", options)
-        close = form_root.xpath(
-            '//header/button[@name="action_close" and @type="object"]'
-        )
-        reopen = form_root.xpath(
-            '//header/button[@name="action_reopen" and @type="object"]'
-        )
+
+        def _header_button(name):
+            return form_root.xpath(f'./header/button[@name="{name}" and @type="object"]')
+
+        confirm = _header_button("action_confirm")
+        close = _header_button("action_close")
+        cancel = _header_button("action_cancel")
+        open_btn = _header_button("action_open")
+        review = _header_button("action_open_document_review")
+        xlsx = _header_button("action_print_xlsx")
+        self.assertTrue(confirm, "form must include Confirm button")
         self.assertTrue(close, "form must include Close button")
-        self.assertTrue(reopen, "form must include Reopen button")
+        self.assertTrue(cancel, "form must include Cancel button")
+        self.assertTrue(open_btn, "form must include Open button")
+        self.assertTrue(review, "Document Review header button must remain")
+        self.assertTrue(xlsx, "Export XLSX must remain on the sheet form")
+        self.assertFalse(
+            _header_button("action_reopen"),
+            "Reopen MUST NOT appear on the sheet form",
+        )
         self.assertIn(
             "state != 'open'",
-            close[0].get("invisible", ""),
-            "Close must be invisible when not open",
+            confirm[0].get("invisible", ""),
+            "Confirm must be invisible when not open",
         )
         self.assertIn(
-            "state != 'closed'",
-            reopen[0].get("invisible", ""),
-            "Reopen must be invisible when not closed",
+            "not id",
+            confirm[0].get("invisible", ""),
+            "Confirm must be hidden on unsaved sheets",
         )
-        self.assertTrue(
-            form_root.xpath('./header/button[@name="action_open_document_review"]'),
-            "Document Review header button must remain on the sheet form",
+        self.assertIn(
+            "state != 'proposal'",
+            close[0].get("invisible", ""),
+            "Close must be invisible when not proposal",
         )
+        cancel_invisible = cancel[0].get("invisible", "")
+        self.assertIn("proposal", cancel_invisible)
+        self.assertIn("closed", cancel_invisible)
+        self.assertIn(
+            "state != 'cancelled'",
+            open_btn[0].get("invisible", ""),
+            "Open must be invisible when not cancelled",
+        )
+        review_invisible = review[0].get("invisible", "")
+        self.assertIn("state != 'open'", review_invisible)
+        self.assertIn("document_review_enabled", review_invisible)
+        header_buttons = [
+            node for node in form_root.xpath("./header/*") if node.tag == "button"
+        ]
+        self.assertEqual(header_buttons[-1].get("name"), "action_print_xlsx")
+        self.assertEqual(header_buttons[-1].getnext().get("name"), "state")
         self.assertNotIn(
             "received_date",
             etree.tostring(form_root, encoding="unicode"),
@@ -1304,7 +1214,29 @@ class TestCollectionUi(TransactionCase):
             partner.get("domain"),
             "allocation form partner_id must have no domain",
         )
-        self.assertEqual(partner.get("readonly"), "state == 'confirmed'")
+        partner_readonly = partner.get("readonly") or ""
+        self.assertIn(
+            "sheet_id.state",
+            partner_readonly,
+            "allocation form partner_id must freeze from sheet_id.state",
+        )
+        self.assertIn("closed", partner_readonly)
+        self.assertIn("cancelled", partner_readonly)
+        sheet = self._field_nodes(form_root, "sheet_id")[0]
+        sheet_readonly = sheet.get("readonly") or ""
+        self.assertIn("sheet_id.state", sheet_readonly)
+        self.assertIn("closed", sheet_readonly)
+        self.assertIn("cancelled", sheet_readonly)
+        line_fields = [
+            node
+            for node in self._field_nodes(form_root, "line_ids")
+            if node.getparent() is not None
+        ]
+        self.assertTrue(line_fields, "allocation form must expose line_ids")
+        line_readonly = line_fields[0].get("readonly") or ""
+        self.assertIn("sheet_id.state", line_readonly)
+        self.assertIn("closed", line_readonly)
+        self.assertIn("cancelled", line_readonly)
         statusbar = form_root.xpath(
             '//header/field[@name="state" and @widget="statusbar"]'
         )
@@ -1352,6 +1284,18 @@ class TestCollectionUi(TransactionCase):
         self.assertTrue(
             options.get("no_create_edit"),
             "voucher_ids must set no_create_edit",
+        )
+        voucher_readonly = voucher_field.get("readonly") or ""
+        self.assertIn(
+            "sheet_id.state",
+            voucher_readonly,
+            "allocation voucher M2M must freeze from sheet_id.state",
+        )
+        self.assertIn("open", voucher_readonly)
+        self.assertNotIn(
+            "confirmed",
+            voucher_readonly,
+            "allocation voucher M2M must be Open-only, not confirmed-state",
         )
         domain = voucher_field.get("domain") or ""
         self.assertIn("partner_id", domain)
@@ -1427,11 +1371,11 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(count_fields[0].get("widget"), "statinfo")
         self.assertEqual(count_fields[0].get("string"), "Vouchers")
 
-    def test_sheet_form_notebook_allocations_only(self):
-        """Sheet form MUST show Allocations only; Customer after name before state."""
+    def test_sheet_form_notebook_three_pages_allocations_columns(self):
+        """Sheet form MUST notebook Allocations, Vouchers, Debt with new columns."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
         notebooks = form_root.xpath("//notebook")
-        self.assertTrue(notebooks, "sheet form must wrap allocations in a notebook")
+        self.assertTrue(notebooks, "sheet form must wrap pages in a notebook")
         self.assertEqual(
             len(notebooks),
             1,
@@ -1440,59 +1384,159 @@ class TestCollectionUi(TransactionCase):
         page_strings = [page.get("string") for page in notebooks[0].xpath("./page")]
         self.assertEqual(
             page_strings,
-            [SHEET_NOTEBOOK_ALLOCATIONS],
-            "sheet form notebook must show Allocations only",
+            [
+                SHEET_NOTEBOOK_ALLOCATIONS,
+                SHEET_NOTEBOOK_VOUCHERS,
+                SHEET_NOTEBOOK_DEBT,
+            ],
+            "sheet form notebook must show Allocations, Vouchers, and Debt",
         )
-        self.assertNotIn(
-            SHEET_NOTEBOOK_VOUCHERS,
-            page_strings,
-            "sheet form must not include a Vouchers notebook page",
-        )
-        self.assertFalse(
-            form_root.xpath(f'//notebook/page[@string="{SHEET_NOTEBOOK_VOUCHERS}"]'),
-            "sheet form must not include a Vouchers notebook page",
-        )
+        for page_string in page_strings:
+            page = self._notebook_page(form_root, page_string)
+            self.assertFalse(
+                page.get("invisible"),
+                f"{page_string} notebook page must not be hidden",
+            )
 
         allocations_page = self._notebook_page(form_root, SHEET_NOTEBOOK_ALLOCATIONS)
-        self.assertFalse(
-            allocations_page.get("invisible"),
-            "Allocations notebook page must not be hidden",
-        )
         allocation_fields = allocations_page.xpath('.//field[@name="allocation_ids"]')
         self.assertTrue(
             allocation_fields,
             "Allocations notebook page must contain allocation_ids",
         )
-        allocation_lists = allocation_fields[0].xpath("./list")
+        allocation_field = allocation_fields[0]
+        allocation_readonly = allocation_field.get("readonly") or ""
+        self.assertIn("open", allocation_readonly)
+        self.assertIn("proposal", allocation_readonly)
+        allocation_lists = allocation_field.xpath("./list")
         self.assertTrue(allocation_lists, "allocation_ids must embed a <list>")
-        self.assertEqual(allocation_lists[0].tag, "list")
-        self.assertNotEqual(allocation_lists[0].tag, "tree")
-        list_names = self._field_names(allocation_lists[0], xpath="./field")
-        self.assertIn("name", list_names)
-        self.assertIn("partner_id", list_names)
-        self.assertIn("state", list_names)
-        self.assertEqual(
-            list_names.index("name") + 1,
-            list_names.index("partner_id"),
-            "allocations list must show Customer immediately after name",
-        )
-        self.assertEqual(
-            list_names.index("partner_id") + 1,
-            list_names.index("state"),
-            "allocations list must show Customer immediately before state",
-        )
-
+        list_node = allocation_lists[0]
+        self.assertEqual(list_node.tag, "list")
+        self.assertNotEqual(list_node.tag, "tree")
         self.assertFalse(
-            form_root.xpath('.//field[@name="voucher_ids"]'),
-            "sheet form must not expose voucher_ids",
+            self._attr_is_false(list_node.get("create")),
+            "allocations list must stay addable when the sheet is open or proposal",
         )
+        self.assertFalse(
+            self._attr_is_false(list_node.get("delete")),
+            "allocations list must stay deletable when the sheet is open or proposal",
+        )
+        visible = self._list_visible_field_names(list_node)
+        self.assertEqual(
+            visible,
+            list(SHEET_ALLOCATION_COLUMNS),
+            "allocations must show Reference, Customer, Total Debt, "
+            "Total Vouchers Applied, Residual",
+        )
+        self.assertNotIn("state", visible)
+        self.assertNotIn("total_applied", visible)
+        by_name = {
+            node.get("name"): node
+            for node in list_node.xpath("./field")
+            if node.get("name")
+        }
+        for field_name, expected_string in SHEET_ALLOCATION_COLUMN_STRINGS.items():
+            self.assertEqual(
+                by_name[field_name].get("string"),
+                expected_string,
+                f"{field_name} column must be labeled {expected_string!r}",
+            )
         form_names = self._field_names(form_root)
-        self.assertNotIn("voucher_ids", form_names)
         self.assertIn("allocation_ids", form_names)
+        self.assertIn("voucher_ids", form_names)
+        self.assertIn("debt_line_ids", form_names)
         self.assertFalse(
             form_root.xpath("//tree"),
             "sheet form must not use deprecated <tree>",
         )
+
+    def test_sheet_form_vouchers_tab_existing_only_in_open(self):
+        """Vouchers tab MUST list voucher_ids; no create/remove/delete; Open-only edit."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        vouchers_page = self._notebook_page(form_root, SHEET_NOTEBOOK_VOUCHERS)
+        voucher_fields = vouchers_page.xpath('.//field[@name="voucher_ids"]')
+        self.assertEqual(
+            len(voucher_fields),
+            1,
+            "Vouchers page must expose voucher_ids once",
+        )
+        voucher_field = voucher_fields[0]
+        self.assertTrue(
+            self._attr_is_false(voucher_field.get("create")),
+            "Vouchers tab must not create from the sheet",
+        )
+        self.assertTrue(
+            self._attr_is_false(voucher_field.get("delete")),
+            "Vouchers tab must not delete from the sheet",
+        )
+        lists = voucher_field.xpath("./list")
+        self.assertTrue(lists, "voucher_ids must embed a <list>")
+        self.assertEqual(lists[0].tag, "list")
+        self.assertTrue(
+            self._attr_is_false(lists[0].get("create")),
+            "Vouchers list must disable create",
+        )
+        self.assertTrue(
+            self._attr_is_false(lists[0].get("delete")),
+            "Vouchers list must disable delete",
+        )
+        readonly = voucher_field.get("readonly") or ""
+        self.assertIn("state", readonly)
+        self.assertIn("open", readonly)
+        self.assertIn("!=", readonly)
+
+    def test_sheet_form_debt_tab_amount_applied_only(self):
+        """Debt tab MUST list lines; only amount_applied editable in Open/Proposal."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        debt_page = self._notebook_page(form_root, SHEET_NOTEBOOK_DEBT)
+        debt_fields = debt_page.xpath('.//field[@name="debt_line_ids"]')
+        self.assertEqual(
+            len(debt_fields),
+            1,
+            "Debt page must expose debt_line_ids once",
+        )
+        debt_field = debt_fields[0]
+        self.assertTrue(
+            self._attr_is_false(debt_field.get("create")),
+            "Debt tab must disable create",
+        )
+        self.assertTrue(
+            self._attr_is_false(debt_field.get("delete")),
+            "Debt tab must disable delete",
+        )
+        lists = debt_field.xpath("./list")
+        self.assertTrue(lists, "debt_line_ids must embed a <list>")
+        list_node = lists[0]
+        self.assertEqual(list_node.tag, "list")
+        self.assertTrue(
+            self._attr_is_false(list_node.get("create")),
+            "Debt list must disable create",
+        )
+        self.assertTrue(
+            self._attr_is_false(list_node.get("delete")),
+            "Debt list must disable delete",
+        )
+        applied = [
+            node
+            for node in list_node.xpath("./field")
+            if node.get("name") == "amount_applied"
+        ]
+        self.assertTrue(applied, "Debt list must include amount_applied")
+        applied_readonly = applied[0].get("readonly") or ""
+        self.assertIn("open", applied_readonly)
+        self.assertIn("proposal", applied_readonly)
+        for node in list_node.xpath("./field"):
+            name = node.get("name")
+            if name == "amount_applied":
+                continue
+            if (node.get("column_invisible") or "").lower() in ("1", "true"):
+                continue
+            readonly = (node.get("readonly") or "").lower()
+            self.assertIn(
+                readonly,
+                ("1", "true"),
+                f"Debt column {name} must be readonly (got {node.get('readonly')!r})",
+            )
 
     def test_sheet_form_stat_button_opens_vouchers(self):
         """Sheet form MUST expose a counted Vouchers stat button hidden when unsaved."""
@@ -1538,7 +1582,7 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(button.get("type"), "object")
         self.assertEqual(
             button.get("invisible"),
-            "not id or not document_review_enabled",
+            "not id or not document_review_enabled or state != 'open'",
         )
         helpers = form_root.xpath('.//field[@name="document_review_enabled"]')
         self.assertTrue(
@@ -1567,7 +1611,7 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(len(buttons), 1)
         self.assertEqual(
             buttons[0].get("invisible"),
-            "not id or not document_review_enabled",
+            "not id or not document_review_enabled or state != 'open'",
         )
         self.env.company.write({"document_review_enabled": False})
         saved = self.env["collection.sheet"].create(
@@ -1579,32 +1623,23 @@ class TestCollectionUi(TransactionCase):
         self.assertFalse(bool(unsaved.id))
         self.assertTrue(unsaved.document_review_enabled)
 
-    def test_sheet_form_header_reassign_after_document_review_when_open(self):
-        """Reassign Customers MUST follow Document Review and hide unless saved open."""
+    def test_sheet_form_header_has_no_reassign(self):
+        """Sheet header MUST NOT expose Reassign Customers after dropping the kanban."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
         header_buttons = [
             node for node in form_root.xpath("./header/*") if node.tag == "button"
         ]
         header_names = [node.get("name") for node in header_buttons]
         self.assertIn("action_open_document_review", header_names)
-        self.assertIn("action_open_voucher_reassign", header_names)
-        self.assertEqual(
-            header_names.index("action_open_voucher_reassign"),
-            header_names.index("action_open_document_review") + 1,
-            "Reassign Customers must follow Document Review in the sheet header",
+        self.assertNotIn(
+            "action_open_voucher_reassign",
+            header_names,
+            "Reassign Customers MUST NOT remain on the sheet header",
         )
-        buttons = form_root.xpath(
-            './header/button[@name="action_open_voucher_reassign"]'
+        self.assertFalse(
+            form_root.xpath('./header/button[@string="Reassign Customers"]'),
+            "sheet form header must not label any button Reassign Customers",
         )
-        self.assertEqual(
-            len(buttons),
-            1,
-            "sheet form header must expose Reassign Customers once",
-        )
-        button = buttons[0]
-        self.assertEqual(button.get("type"), "object")
-        self.assertEqual(button.get("string"), "Reassign Customers")
-        self.assertEqual(button.get("invisible"), "not id or state != 'open'")
 
     # --- Document Review client action (sheet-scoped; no Collections menu) ---
 

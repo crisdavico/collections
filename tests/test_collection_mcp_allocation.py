@@ -157,6 +157,16 @@ class TestCollectionMcpAllocation(TransactionCase):
             .create({"seller_id": seller.id, "company_id": company.id})
         )
 
+    def _close_open_sheet(self, sheet=None):
+        sheet = sheet or self.sheet
+        if sheet.voucher_ids:
+            sheet.voucher_ids.with_context(collection_audited_state=True).write(
+                {"state": "validated_collections"}
+            )
+        sheet.action_confirm()
+        sheet.action_close()
+        return sheet
+
     def _next_document_id(self, prefix="ALLOC-DOC"):
         self._doc_seq += 1
         return f"{prefix}-{self._testMethodName}-{self._doc_seq}"
@@ -699,6 +709,28 @@ class TestCollectionMcpAllocation(TransactionCase):
         )
         self.assertEqual(str(err), SHEET_REQUIRED_MSG)
 
+    def test_create_new_open_while_proposal_exists(self):
+        """Proposal MUST NOT occupy MCP open; create MAY open a new sheet."""
+        proposal = self.sheet
+        self.assertEqual(proposal.state, "open")
+        proposal.action_confirm()
+        self.assertEqual(proposal.state, "proposal")
+        self.env.company.auto_create_sheet = True
+        payment = self._payment(100.0)
+        result = self._call(
+            self._payload([payment], [self._applied(INVOICE_OVERDUE, 100.0)])
+        )
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        self.assertTrue(allocation.exists())
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.sheet_id.state, "open")
+        self.assertNotEqual(allocation.sheet_id, proposal)
+        self.assertEqual(result["sheet_id"], allocation.sheet_id.id)
+        proposal.invalidate_recordset(["state"])
+        self.assertEqual(proposal.state, "proposal")
+
     def test_empty_invoices_on_account(self):
         """Empty invoices[] MUST expand to every outstanding ERP invoice at 0."""
         payment = self._payment(80.0)
@@ -1154,7 +1186,7 @@ class TestCollectionMcpAllocation(TransactionCase):
             ("draft", "validated_seller", "validated_collections")
         ):
             if index:
-                self.sheet.action_close()
+                self._close_open_sheet()
                 self.sheet = self._create_sheet(force_new=True)
             vouchers = self._create_vouchers([10.0], prefix=f"ALLOC-ST-{state}")
             if state == "validated_seller":
@@ -1195,7 +1227,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         closed_vouchers = self._create_vouchers(
             [100.0], sheet=self.sheet, prefix="ALLOC-CLOSED"
         )
-        self.sheet.action_close()
+        self._close_open_sheet()
         other_sheet = self._create_sheet(force_new=True)
         before_closed = self._counts()
         self._assert_user_error_no_writes(
@@ -1385,7 +1417,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         first_voucher = self.env["collection.voucher"].search(
             [("document_id", "=", payment["document_id"])]
         )
-        self.sheet.action_close()
+        self._close_open_sheet()
         self.assertEqual(allocation.state, "confirmed")
         before = self._counts()
         self._assert_user_error_no_writes(
@@ -1461,7 +1493,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(first_alloc.state, "draft")
         self.assertNotEqual(first_alloc.id, other_alloc.id)
 
-        self.sheet.action_close()
+        self._close_open_sheet()
         other_alloc.invalidate_recordset()
         first_alloc.invalidate_recordset()
         self.assertEqual(other_alloc.state, "confirmed")

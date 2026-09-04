@@ -30,7 +30,6 @@ class CollectionVoucher(models.Model):
         tracking=True,
         index=True,
         ondelete="restrict",
-        group_expand="_read_group_partner_ids",
     )
     seller_id = fields.Many2one(
         comodel_name="res.users",
@@ -239,24 +238,6 @@ class CollectionVoucher(models.Model):
         keep = allowed_codes | current_codes
         return [item for item in self._DOCUMENT_TYPE_SELECTION if item[0] in keep]
 
-    @api.model
-    def _read_group_partner_ids(self, groups, domain):
-        """Expand Customer columns for a readable reassign sheet only."""
-        sheet = self._readable_reassign_sheet()
-        if not sheet:
-            return groups
-        partners = sheet.allocation_ids.partner_id | sheet.voucher_ids.partner_id
-        return self.env["res.partner"].search([("id", "in", partners.ids)])
-
-    @api.model
-    @api.private
-    def _readable_reassign_sheet(self):
-        """Return the context sheet when it is a readable positive int id."""
-        raw = self.env.context.get("collection_reassign_sheet_id")
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            return self.env["collection.sheet"]
-        return self.env["collection.sheet"].search([("id", "=", raw)], limit=1)
-
     @api.private
     def _apply_open_sheet_auto_assign(self, vals_list):
         Sheet = self.env["collection.sheet"]
@@ -287,9 +268,8 @@ class CollectionVoucher(models.Model):
             raise UserError(
                 _("OCR and seller-confirmed fields cannot be modified after create.")
             )
-        vals, post_unallocated, split_result = self._prepare_partner_reassign_write(
-            vals
-        )
+        self._ensure_sheet_business_fields_unlocked(vals)
+        vals, split_result = self._prepare_partner_reassign_write(vals)
         if split_result is not None:
             return split_result
         if "sheet_id" in vals:
@@ -311,13 +291,10 @@ class CollectionVoucher(models.Model):
             )
             self._validate_main_attachment_id(new_id)
             vals = self._vals_with_review_reset_on_new_attachment(vals)
-        intercepted = self._intercept_state_write(vals, post_unallocated)
+        intercepted = self._intercept_state_write(vals)
         if intercepted is not None:
             return intercepted
-        result = super().write(vals)
-        if post_unallocated:
-            self._post_unallocated_reassign_notice()
-        return result
+        return super().write(vals)
 
     def action_validate_seller(self):
         if any(voucher.state != "draft" for voucher in self):
@@ -361,15 +338,14 @@ class CollectionVoucher(models.Model):
     @api.private
     def _prepare_partner_reassign_write(self, vals):
         if "partner_id" not in vals:
-            return vals, False, None
+            return vals, None
         self._ensure_partner_reassign_unlocked(vals.get("partner_id"))
         if len(self) > 1:
-            return vals, False, all(rec.write(vals) for rec in self)
-        vals, post_unallocated = self._vals_with_partner_allocation(vals)
-        return vals, post_unallocated, None
+            return vals, all(rec.write(vals) for rec in self)
+        return vals, None
 
     @api.private
-    def _intercept_state_write(self, vals, post_unallocated):
+    def _intercept_state_write(self, vals):
         if "state" not in vals or self.env.context.get("collection_audited_state"):
             return None
         target = vals["state"]
@@ -383,8 +359,6 @@ class CollectionVoucher(models.Model):
             rest = {key: value for key, value in vals.items() if key != "state"}
             if rest:
                 super().write(rest)
-                if post_unallocated:
-                    self._post_unallocated_reassign_notice()
             return self.action_validate_seller()
         if (
             target == "draft"
@@ -403,6 +377,10 @@ class CollectionVoucher(models.Model):
         )
 
     @api.private
+    def _sheet_is_frozen(self, sheet):
+        return bool(sheet) and sheet.state != "open"
+
+    @api.private
     def _ensure_sheet_membership_unlocked(self, new_sheet_id):
         if self.env.context.get("collection_sheet_unlinking"):
             return
@@ -411,42 +389,33 @@ class CollectionVoucher(models.Model):
             if new_sheet_id
             else self.env["collection.sheet"]
         )
-        if target and target.state == "closed":
+        if self._sheet_is_frozen(target):
             raise self._closed_membership_user_error()
         for voucher in self:
             current = voucher.sheet_id
-            if current and current.state == "closed" and current != target:
+            if self._sheet_is_frozen(current) and current != target:
                 raise self._closed_membership_user_error()
 
     @api.private
     def _ensure_partner_reassign_unlocked(self, new_partner):
         new_id = self._partner_id_from_value(new_partner)
         for voucher in self:
-            sheet = voucher.sheet_id
-            if not sheet or sheet.state != "closed":
+            if not self._sheet_is_frozen(voucher.sheet_id):
                 continue
             if (voucher.partner_id.id or False) != new_id:
                 raise self._closed_membership_user_error()
 
     @api.private
-    def _vals_with_partner_allocation(self, vals):
-        self.ensure_one()
-        new_partner_id = self._partner_id_from_value(vals.get("partner_id"))
-        if new_partner_id == (self.partner_id.id or False):
-            return vals, False
-        if "allocation_id" in vals:
-            target = self._allocation_from_value(vals.get("allocation_id"))
-            if (self.allocation_id.id or False) != (target.id or False):
-                self._ensure_source_allocation_detachable()
-            return vals, False
-        self._ensure_source_allocation_detachable()
-        target = self._target_allocation_for_partner(new_partner_id)
-        vals = dict(vals)
-        if target:
-            vals["allocation_id"] = target.id
-            return vals, False
-        vals["allocation_id"] = False
-        return vals, True
+    def _ensure_sheet_business_fields_unlocked(self, vals):
+        if not (self._REVIEW_EDITABLE_FIELDS & set(vals)):
+            return
+        if any(self._sheet_is_frozen(voucher.sheet_id) for voucher in self):
+            raise UserError(
+                _(
+                    "Voucher fields cannot be changed while the collection "
+                    "sheet is not open."
+                )
+            )
 
     @api.private
     def _ensure_source_allocation_detachable(self):
@@ -463,36 +432,12 @@ class CollectionVoucher(models.Model):
             )
 
     @api.private
-    def _target_allocation_for_partner(self, partner_id):
-        self.ensure_one()
-        Allocation = self.env["collection.allocation"]
-        if not partner_id or not self.sheet_id:
-            return Allocation
-        return Allocation.search(
-            [
-                ("sheet_id", "=", self.sheet_id.id),
-                ("partner_id", "=", partner_id),
-                ("state", "=", "draft"),
-            ],
-            limit=1,
-        )
-
-    @api.private
     def _partner_id_from_value(self, value):
         if not value:
             return False
         if isinstance(value, models.BaseModel):
             return value[:1].id or False
         return int(value)
-
-    @api.private
-    def _post_unallocated_reassign_notice(self):
-        for voucher in self:
-            voucher.message_post(
-                body=_("Voucher left unallocated after customer reassignment."),
-                message_type="comment",
-                subtype_xmlid="mail.mt_note",
-            )
 
     @api.constrains("partner_id", "allocation_id")
     def _check_voucher_allocation_partner(self):
@@ -651,6 +596,12 @@ class CollectionVoucher(models.Model):
         if not sheet.exists():
             raise UserError(
                 self.env._("A valid collection sheet is required for Document Review.")
+            )
+        if sheet.state != "open":
+            raise UserError(
+                self.env._(
+                    "Document Review is only available on open collection sheets."
+                )
             )
         return sheet
 

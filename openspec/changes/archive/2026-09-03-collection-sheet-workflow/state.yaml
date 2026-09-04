@@ -1,0 +1,36 @@
+# SDD change state — orchestrator-managed
+change: collection-sheet-workflow
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: grok-4.6
+phase: verify
+updated: 2026-09-03
+notes: |
+  Source plan: ~/.cursor/plans/collection-sheet-workflow_edec9c03.plan.md
+  User asked automatic pipeline through verify inclusive.
+  One grok 4.6 subagent per SDD phase; apply uses one grok 4.6 subagent per task phase.
+  Settled product decisions are in the source plan; do not reopen them.
+  Parallel in-flight change voucher-states-ui is in verify; do not edit its artifacts
+  or acquire its SDD lock. Manifest on origin/main is 19.0.1.32.0; plan target is
+  19.0.1.33.0 unless voucher-states-ui consumes that version first.
+  Nebula agent is out of scope unless Open-sheet MCP lookup/create semantics must
+  stay unchanged (read-only check).
+  Verify 2026-09-03: fail (1/682). Docs scanner vs AGENTS.md wrap of
+  "one-open still `open` only". Spec 24/24 req, 99/99 scenarios. Not archived.
+  Maintainer asked to fix and re-verify. Scanner now collapses whitespace.
+  Remediated failed evidence sha256:98f9a3f8038adf0b03ffd778c259183f7ba3517f29e1fc479706ac4674785fe1.
+  Re-verify 2026-09-03: pass_with_warnings. 682/682. Spec 24/24, 99/99. Not archived.
+updated: 2026-09-03
+notes: |
+  Source plan: ~/.cursor/plans/collection-sheet-workflow_edec9c03.plan.md
+  User asked automatic pipeline through verify inclusive.
+  One grok 4.6 subagent per SDD phase; apply uses one grok 4.6 subagent per task phase.
+  Settled product decisions are in the source plan; do not reopen them.
+  Parallel in-flight change voucher-states-ui is in verify; do not edit its artifacts
+  or acquire its SDD lock. Manifest on origin/main is 19.0.1.32.0; plan target is
+  19.0.1.33.0 unless voucher-states-ui consumes that version first.
+  Nebula agent is out of scope unless Open-sheet MCP lookup/create semantics must
+  stay unchanged (read-only check).

@@ -7,6 +7,8 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
+from .collection_allocation import _FROZEN_SHEET_STATES
+
 _VOUCHER_BLOCK_ORDER = ("bank_transfer", "check", "cash_deposit")
 _DOCUMENT_KIND_ORDER = ("invoice", "quotation")
 _RECON_INPUT_FIELDS = frozenset(
@@ -50,7 +52,7 @@ class CollectionSheetReport(models.Model):
 
     def write(self, vals):
         frozen = _RECON_INPUT_FIELDS & set(vals)
-        if frozen and any(sheet.state == "closed" for sheet in self):
+        if frozen and any(sheet.state in _FROZEN_SHEET_STATES for sheet in self):
             raise UserError(
                 _("Closed collection sheets cannot change the reconciliation inputs.")
             )

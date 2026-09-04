@@ -85,6 +85,12 @@ class TestCollectionVoucher(TransactionCase):
         )
         return allocation
 
+    def _mark_validated_collections(self, vouchers):
+        vouchers.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        return vouchers
+
     def _line_vals(self, amount_applied=100.0, invoice_balance=100.0, **extra):
         vals = {
             "external_invoice_id": extra.pop("external_invoice_id", "INV-1"),
@@ -788,7 +794,7 @@ class TestCollectionVoucher(TransactionCase):
         voucher.invalidate_recordset()
         self.assertFalse(voucher.message_main_attachment_id)
 
-    # --- Partner write follows allocation ---
+    # --- Partner write does not auto-follow allocation ---
 
     def test_allocation_id_write_on_draft_or_unset(self):
         """Write of allocation_id MUST succeed when current and target are draft
@@ -847,8 +853,8 @@ class TestCollectionVoucher(TransactionCase):
             outsider.write({"allocation_id": allocation.id})
         self.assertFalse(outsider.allocation_id)
 
-    def test_partner_write_same_vals_attaches_draft_allocation(self):
-        """Open-sheet voucher on A (P) attaches unique draft B (Q) in one write."""
+    def test_allocated_partner_write_refused(self):
+        """Allocated voucher MUST refuse partner_id write until unassigned."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-Q")
         sheet = self._create_sheet()
@@ -870,7 +876,7 @@ class TestCollectionVoucher(TransactionCase):
                 )
             ],
         )
-        allocation_b = self._create_allocation(
+        self._create_allocation(
             sheet,
             partner_q,
             lines=[
@@ -881,15 +887,13 @@ class TestCollectionVoucher(TransactionCase):
                 )
             ],
         )
-        voucher.write({"partner_id": partner_q.id})
-        self.assertEqual(voucher.partner_id, partner_q)
-        self.assertEqual(voucher.allocation_id, allocation_b)
-        self.assertNotEqual(voucher.allocation_id, allocation_a)
-        self.assertIn(voucher, allocation_b.voucher_ids)
-        self.assertNotIn(voucher, allocation_a.voucher_ids)
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_p)
+        self.assertEqual(voucher.allocation_id, allocation_a)
 
-    def test_partner_write_fully_applied_source_succeeds(self):
-        """Draft source with residual 0 MUST allow partner_id write."""
+    def test_allocated_partner_write_refused_when_residual_zero(self):
+        """Triangulation: fully applied source still refuses partner_id write."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-FULL-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-FULL-Q")
         sheet = self._create_sheet()
@@ -913,14 +917,14 @@ class TestCollectionVoucher(TransactionCase):
             ],
         )
         self.assertEqual(allocation.residual, 0.0)
-        voucher.write({"partner_id": partner_q.id})
-        self.assertEqual(voucher.partner_id, partner_q)
-        self.assertFalse(voucher.allocation_id)
-        self.assertEqual(allocation.residual, 0.0)
-        self.assertNotIn(voucher, allocation.voucher_ids)
+        with self.assertRaises(UserError):
+            voucher.write({"partner_id": partner_q.id})
+        self.assertEqual(voucher.partner_id, partner_p)
+        self.assertEqual(voucher.allocation_id, allocation)
+        self.assertIn(voucher, allocation.voucher_ids)
 
-    def test_partner_write_leftover_less_than_amount_succeeds(self):
-        """Draft source residual below voucher amount MUST allow partner write."""
+    def test_unassign_then_partner_write(self):
+        """Clearing allocation_id first MUST allow a later Customer change."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-LEFT-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-LEFT-Q")
         sheet = self._create_sheet()
@@ -936,15 +940,18 @@ class TestCollectionVoucher(TransactionCase):
             vouchers=voucher,
             lines=[self._line_vals(amount_applied=60.0, invoice_balance=100.0)],
         )
-        self.assertEqual(allocation.residual, 40.0)
+        self._create_allocation(
+            sheet, partner_q, residual_reason="on_account"
+        )
+        voucher.write({"allocation_id": False})
+        self.assertFalse(voucher.allocation_id)
         voucher.write({"partner_id": partner_q.id})
         self.assertEqual(voucher.partner_id, partner_q)
         self.assertFalse(voucher.allocation_id)
-        self.assertEqual(allocation.residual, 40.0)
         self.assertNotIn(voucher, allocation.voucher_ids)
 
-    def test_partner_write_attaches_when_target_residual_holds(self):
-        """Unallocated voucher attaches unique draft same-sheet allocation for Q."""
+    def test_unassigned_partner_write_does_not_auto_follow(self):
+        """Unallocated voucher MUST NOT auto-attach a draft allocation for Q."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-ATT-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-ATT-Q")
         sheet = self._create_sheet()
@@ -960,12 +967,12 @@ class TestCollectionVoucher(TransactionCase):
         )
         voucher.write({"partner_id": partner_q.id})
         self.assertEqual(voucher.partner_id, partner_q)
-        self.assertEqual(voucher.allocation_id, allocation_q)
+        self.assertFalse(voucher.allocation_id)
+        self.assertNotIn(voucher, allocation_q.voucher_ids)
 
-    def test_partner_write_left_unallocated_posts_chatter(self):
-        """No unique draft same-sheet allocation for Q leaves voucher unallocated."""
+    def test_same_value_partner_write_does_not_recompute(self):
+        """Same-value partner_id MUST leave allocation_id unchanged."""
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-UNALLOC-P")
-        partner_q = dummy_customer_partner(self.env, customer="REASSIGN-UNALLOC-Q")
         sheet = self._create_sheet()
         voucher = self._create_voucher(
             partner_id=partner_p.id,
@@ -973,14 +980,12 @@ class TestCollectionVoucher(TransactionCase):
             amount=40.0,
             document_id="REASSIGN-UNALLOC",
         )
-        voucher.write({"partner_id": partner_q.id})
-        self.assertEqual(voucher.partner_id, partner_q)
-        self.assertFalse(voucher.allocation_id)
-        bodies = voucher.message_ids.mapped("body")
-        self.assertTrue(
-            any("unallocated" in (body or "").lower() for body in bodies),
-            f"chatter must record unallocated outcome, got {bodies!r}",
+        allocation = self._create_allocation(
+            sheet, partner_p, vouchers=voucher, residual_reason="on_account"
         )
+        voucher.write({"partner_id": partner_p.id})
+        self.assertEqual(voucher.partner_id, partner_p)
+        self.assertEqual(voucher.allocation_id, allocation)
 
     def test_partner_write_confirmed_source_refused(self):
         """Confirmed source allocation MUST refuse partner_id write; fields stay."""
@@ -1054,6 +1059,168 @@ class TestCollectionVoucher(TransactionCase):
             voucher.write({"allocation_id": allocation_b.id})
         self.assertEqual(voucher.partner_id, partner_p)
         self.assertEqual(voucher.allocation_id, original_allocation)
+
+    def test_open_membership_and_business_fields_writable(self):
+        """Open-sheet voucher MUST persist sheet_id clear and business-field writes."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id,
+            amount=25.0,
+            document_id="OPEN-FIELDS",
+            from_account="OPEN-FROM",
+        )
+        voucher.write({"amount": 30.0, "from_account": "OPEN-FROM-2"})
+        self.assertAlmostEqual(voucher.amount, 30.0, places=2)
+        self.assertEqual(voucher.from_account, "OPEN-FROM-2")
+        voucher.write({"sheet_id": False})
+        self.assertFalse(voucher.sheet_id)
+        self.assertTrue(sheet.exists())
+
+    def test_proposal_membership_sheet_id_refused(self):
+        """Proposal membership writes via voucher.sheet_id MUST raise UserError."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id, amount=10.0, document_id="FRZ-PROP-SHEET"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        with self.assertRaises(UserError) as error:
+            voucher.write({"sheet_id": False})
+        self.assertEqual(
+            str(error.exception),
+            "Closed collection sheets cannot change membership. Reopen first.",
+        )
+        self.assertEqual(voucher.sheet_id, sheet)
+
+    def test_cancelled_membership_sheet_id_refused(self):
+        """Triangulation: cancelled sheet_id membership writes MUST also freeze."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id, amount=10.0, document_id="FRZ-CAN-SHEET"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        with self.assertRaises(UserError):
+            voucher.write({"sheet_id": False})
+        self.assertEqual(voucher.sheet_id, sheet)
+
+    def test_proposal_partner_id_reuses_membership_error(self):
+        """Proposal partner_id writes MUST reuse the membership UserError."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id, amount=10.0, document_id="FRZ-PROP-PARTNER"
+        )
+        other = dummy_customer_partner(self.env, customer="FRZ-PROP-OTHER")
+        original = voucher.partner_id
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        with self.assertRaises(UserError) as error:
+            voucher.write({"partner_id": other.id})
+        self.assertEqual(
+            str(error.exception),
+            "Closed collection sheets cannot change membership. Reopen first.",
+        )
+        self.assertEqual(voucher.partner_id, original)
+
+    def test_proposal_business_fields_refused(self):
+        """Proposal sheets MUST refuse voucher business-field writes."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_id="FRZ-PROP-BIZ",
+            from_account="KEEP-FROM",
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        with self.assertRaises(UserError):
+            voucher.write({"amount": 99.0})
+        voucher.invalidate_recordset()
+        self.assertAlmostEqual(voucher.amount, 40.0, places=2)
+        self.assertEqual(voucher.from_account, "KEEP-FROM")
+
+    def test_cancelled_business_fields_refused(self):
+        """Triangulation: cancelled sheets MUST refuse a different business field."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_id="FRZ-CAN-BIZ",
+            from_account="KEEP-FROM-CAN",
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        sheet.action_cancel()
+        with self.assertRaises(UserError):
+            voucher.write({"from_account": "HACKED"})
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.from_account, "KEEP-FROM-CAN")
+        self.assertAlmostEqual(voucher.amount, 40.0, places=2)
+
+    def test_closed_business_fields_refused(self):
+        """Closed sheets MUST refuse voucher business-field writes."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id, amount=15.0, document_id="FRZ-CLOSED-BIZ"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        sheet.action_close()
+        with self.assertRaises(UserError):
+            voucher.write({"amount": 1.0})
+        voucher.invalidate_recordset()
+        self.assertAlmostEqual(voucher.amount, 15.0, places=2)
+
+    def test_allocation_id_writable_on_proposal(self):
+        """allocation_id MUST stay writable while the sheet is proposal."""
+        partner = dummy_customer_partner(self.env, customer="PROP-ALLOC")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            partner_id=partner.id,
+            sheet_id=sheet.id,
+            amount=20.0,
+            document_id="PROP-ALLOC-V",
+        )
+        allocation = self._create_allocation(
+            sheet, partner, residual_reason="on_account"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
+        voucher.write({"allocation_id": allocation.id})
+        self.assertEqual(voucher.allocation_id, allocation)
+        voucher.write({"allocation_id": False})
+        self.assertFalse(voucher.allocation_id)
+
+    def test_chatter_remains_writable_when_sheet_frozen(self):
+        """Chatter MUST persist on a voucher whose sheet is proposal or closed."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id, amount=10.0, document_id="FRZ-CHATTER"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_confirm()
+        proposal_note = voucher.message_post(
+            body="Operator note on proposal voucher",
+            message_type="comment",
+            subtype_xmlid="mail.mt_comment",
+        )
+        self.assertTrue(proposal_note.id)
+        self.assertIn(proposal_note, voucher.message_ids)
+        self.assertIn("Operator note on proposal voucher", proposal_note.body)
+        sheet.action_close()
+        closed_note = voucher.message_post(
+            body="Operator note on closed voucher",
+            message_type="comment",
+            subtype_xmlid="mail.mt_comment",
+        )
+        self.assertTrue(closed_note.id)
+        self.assertIn(closed_note, voucher.message_ids)
+        self.assertIn("Operator note on closed voucher", closed_note.body)
 
 
 def _load_collection_migrate(filename):

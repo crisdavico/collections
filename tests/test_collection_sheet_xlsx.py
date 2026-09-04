@@ -9,7 +9,7 @@ from pathlib import Path
 from lxml import etree
 from openpyxl import load_workbook
 
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
@@ -440,6 +440,39 @@ class TestCollectionSheetXlsx(TransactionCase):
         raw = attachment.raw or b""
         self.assertTrue(raw.startswith(b"PK"), raw[:8])
 
+    def test_xlsx_in_all_four_states(self):
+        """Export XLSX MUST download in every sheet state without a state UserError."""
+        sheet, _partner = self._populated_sheet()
+        if sheet.voucher_ids:
+            sheet.voucher_ids.with_context(collection_audited_state=True).write(
+                {"state": "validated_collections"}
+            )
+        advances = (
+            ("open", lambda: None),
+            ("proposal", sheet.action_confirm),
+            ("closed", sheet.action_close),
+            ("cancelled", sheet.action_cancel),
+        )
+        for target, advance in advances:
+            with self.subTest(state=target):
+                advance()
+                self.assertEqual(sheet.state, target)
+                action = sheet.action_print_xlsx()
+                self.assertEqual(action["type"], "ir.actions.act_url")
+                self.assertTrue(action["url"].endswith("?download=true"))
+                attachment_id = int(action["url"].split("/")[3].split("?")[0])
+                raw = self.env["ir.attachment"].browse(attachment_id).raw or b""
+                self.assertTrue(raw.startswith(b"PK"), raw[:8])
+
+    def test_unsaved_xlsx_refused(self):
+        """Unsaved sheets MUST raise UserError and MUST NOT emit an XLSX download."""
+        sheet = self.env["collection.sheet"].new(
+            {"seller_id": self.seller.id, "company_id": self.env.company.id}
+        )
+        with self.assertRaises(UserError) as error:
+            sheet.action_print_xlsx()
+        self.assertIn("saved", str(error.exception).lower())
+
     def test_action_print_xlsx_second_call_replaces_attachment(self):
         """A second Export MUST replace the same-name attachment, not duplicate."""
         sheet, _partner = self._populated_sheet()
@@ -465,14 +498,13 @@ class TestCollectionSheetXlsx(TransactionCase):
         form = self._sheet_form_root()
         header = form.xpath("./header")
         self.assertTrue(header, "sheet form must have a header")
-        buttons = header[0].xpath("./button")
+        buttons = [
+            node for node in header[0].xpath("./*") if node.tag == "button"
+        ]
         names = [node.get("name") for node in buttons]
         self.assertIn("action_open_document_review", names)
-        self.assertIn("action_open_voucher_reassign", names)
-        self.assertEqual(
-            names.index("action_open_voucher_reassign"),
-            names.index("action_open_document_review") + 1,
-        )
+        self.assertNotIn("action_open_voucher_reassign", names)
+        self.assertNotIn("action_reopen", names)
         self.assertEqual(names[-1], "action_print_xlsx")
         xlsx = buttons[-1]
         self.assertEqual(xlsx.get("type"), "object")
@@ -482,14 +514,16 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertEqual(following.tag, "field")
         self.assertEqual(following.get("name"), "state")
 
-    def test_sheet_form_one_notebook_page_recon_second_group(self):
-        """Notebook MUST stay one page; recon fields go in a second inner group."""
+    def test_sheet_form_three_notebook_pages_recon_second_group(self):
+        """Notebook MUST have three pages; recon fields stay in a second inner group."""
         form = self._sheet_form_root()
         notebooks = form.xpath(".//notebook")
         self.assertEqual(len(notebooks), 1)
         pages = notebooks[0].xpath("./page")
-        self.assertEqual(len(pages), 1)
-        self.assertEqual(pages[0].get("string"), "Allocations")
+        self.assertEqual(
+            [page.get("string") for page in pages],
+            ["Allocations", "Vouchers", "Debt"],
+        )
         groups = form.xpath("./sheet/group")
         self.assertTrue(groups, "sheet body must have an outer group")
         inner = groups[0].xpath("./group")

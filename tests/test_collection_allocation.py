@@ -138,6 +138,15 @@ class TestCollectionAllocation(TransactionCase):
         )
         return allocation
 
+    def _mark_validated(self, *vouchers):
+        records = vouchers[0]
+        for voucher in vouchers[1:]:
+            records |= voucher
+        records.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        return records
+
     def _bind_erp_customer(self, partner, seller, identification=ERP_CUSTOMER_IDENT):
         install_test_connector_type(self)
         connector = install_bound_test_connector(self, seller)
@@ -184,7 +193,10 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(other_alloc.id)
         self.assertEqual(other_alloc.partner_id, other_partner)
 
-        sheet.action_close()
+        (other_voucher | _voucher).with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        sheet.action_confirm()
         sheet_b = self._create_sheet(force_new=True)
         voucher_b = self._create_voucher(partner, sheet_b, amount=25.0)
         alloc_b = self._create_allocation(
@@ -477,7 +489,9 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(sheet.state, "open")
         with self.assertRaises(ValidationError):
             allocation._check_sheet_state_iff()
-        sheet.action_close()
+        sheet.with_context(collection_sheet_audited_state=True).write(
+            {"state": "closed"}
+        )
         allocation._check_sheet_state_iff()
         self.assertEqual(allocation.state, "confirmed")
         self.assertEqual(sheet.state, "closed")
@@ -487,6 +501,93 @@ class TestCollectionAllocation(TransactionCase):
         allocation, _voucher, sheet, _partner = self._balanced_allocation()
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(sheet.state, "open")
+        allocation._check_sheet_state_iff()
+
+    def test_iff_draft_on_proposal_passes(self):
+        """draft MUST hold iff the sheet is open, proposal, or cancelled."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_iff_draft_on_cancelled_passes(self):
+        """Triangulation: draft on cancelled MUST satisfy the iff constraint."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        sheet.action_confirm()
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_close_from_proposal_confirms_then_closes(self):
+        """Close MUST confirm every allocation then close the sheet."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        sheet.action_confirm()
+        self.assertEqual(allocation.state, "draft")
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        allocation._check_sheet_state_iff()
+
+    def test_cancel_from_proposal_drafts_allocations(self):
+        """Cancel MUST return every allocation to draft (no-op if already draft)."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        sheet.action_confirm()
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_cancel_from_closed_drafts_allocations(self):
+        """Triangulation: Cancel from closed MUST draft confirmed allocations."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        sheet.action_confirm()
+        sheet.action_close()
+        self.assertEqual(allocation.state, "confirmed")
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_open_from_cancelled_leaves_draft(self):
+        """Open from cancelled MUST leave allocations draft."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        sheet.action_confirm()
+        sheet.action_cancel()
+        sheet.action_open()
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_confirm_does_not_confirm_allocations(self):
+        """Confirm MUST NOT change allocation state."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        self.assertEqual(allocation.state, "draft")
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
         allocation._check_sheet_state_iff()
 
     def test_allocation_id_write_on_draft_or_unset(self):
@@ -653,19 +754,20 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(rev_company.precompute)
 
     def test_fully_applied_source_detach_via_partner_write_succeeds(self):
-        """Fully applied draft allocation MUST allow a voucher partner move."""
+        """Allocated partner write MUST refuse even when residual is 0."""
         allocation, voucher, _sheet, partner = self._balanced_allocation()
         other = self._partner("ALLOC-DETACH-Q")
         self.assertEqual(allocation.residual, 0.0)
-        voucher.write({"partner_id": other.id})
-        self.assertEqual(voucher.partner_id, other)
-        self.assertFalse(voucher.allocation_id)
+        with self.assertRaises(UserError) as err:
+            voucher.write({"partner_id": other.id})
+        self.assertIn("must match the allocation customer", str(err.exception))
+        self.assertEqual(voucher.partner_id, partner)
+        self.assertEqual(voucher.allocation_id, allocation)
         self.assertEqual(allocation.residual, 0.0)
-        self.assertNotIn(voucher, allocation.voucher_ids)
-        self.assertNotEqual(partner, other)
+        self.assertIn(voucher, allocation.voucher_ids)
 
     def test_leftover_less_than_amount_detach_succeeds(self):
-        """Draft residual below the voucher amount MUST allow detach."""
+        """Allocated partner write MUST refuse when residual is below the voucher."""
         partner = self._partner("ALLOC-PROJ-P")
         sheet = self._create_sheet()
         voucher = self._create_voucher(partner, sheet, amount=100.0)
@@ -679,11 +781,13 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(allocation.residual, 40.0)
         residual_before = allocation.residual
         other = self._partner("ALLOC-PROJ-Q")
-        voucher.write({"partner_id": other.id})
+        with self.assertRaises(UserError) as err:
+            voucher.write({"partner_id": other.id})
+        self.assertIn("must match the allocation customer", str(err.exception))
         self.assertEqual(allocation.residual, residual_before)
-        self.assertFalse(voucher.allocation_id)
-        self.assertEqual(voucher.partner_id, other)
-        self.assertNotIn(voucher, allocation.voucher_ids)
+        self.assertEqual(voucher.allocation_id, allocation)
+        self.assertEqual(voucher.partner_id, partner)
+        self.assertIn(voucher, allocation.voucher_ids)
 
     def test_voucher_partner_write_mismatch_without_matching_allocation_refused(self):
         """Partner Q with the source allocation still in vals MUST refuse."""
@@ -987,3 +1091,147 @@ class TestCollectionAllocation(TransactionCase):
         self.assertFalse(isinstance(unsaved.id, int))
         with self.assertRaises(UserError):
             unsaved.action_open_vouchers()
+
+    def test_line_related_stored_sheet_id_and_partner_id(self):
+        """Allocation lines MUST store related sheet_id and readonly partner_id."""
+        allocation, _voucher, sheet, partner = self._balanced_allocation()
+        line = allocation.line_ids
+        self.assertEqual(len(line), 1)
+        self.assertEqual(line.sheet_id, sheet)
+        self.assertEqual(line.partner_id, partner)
+        sheet_field = line._fields["sheet_id"]
+        partner_field = line._fields["partner_id"]
+        self.assertTrue(sheet_field.store)
+        self.assertTrue(partner_field.store)
+        self.assertEqual(sheet_field.related, "allocation_id.sheet_id")
+        self.assertEqual(partner_field.related, "allocation_id.partner_id")
+        self.assertTrue(partner_field.readonly)
+        self.assertIn(line, sheet.debt_line_ids)
+
+    def test_line_relateds_follow_second_partner(self):
+        """Triangulation: a second allocation's lines MUST keep that partner/sheet."""
+        _first, _voucher, sheet, _partner = self._balanced_allocation(amount=50.0)
+        other_partner = self._partner("ALLOC-LINE-REL-B")
+        other_voucher = self._create_voucher(other_partner, sheet, amount=25.0)
+        other = self._create_allocation(
+            sheet,
+            other_partner,
+            vouchers=other_voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=25.0,
+                    invoice_balance=25.0,
+                    external_invoice_id="INV-LINE-REL-B",
+                )
+            ],
+        )
+        line = other.line_ids.filtered(
+            lambda row: row.external_invoice_id == "INV-LINE-REL-B"
+        )
+        self.assertEqual(len(line), 1)
+        self.assertEqual(line.sheet_id, sheet)
+        self.assertEqual(line.partner_id, other_partner)
+        self.assertIn(line, sheet.debt_line_ids)
+        self.assertEqual(
+            set(sheet.debt_line_ids.partner_id.ids),
+            set(sheet.allocation_ids.partner_id.ids),
+        )
+
+    def test_cancelled_draft_line_write_refused(self):
+        """Cancelled draft lines MUST refuse amount_applied writes."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        sheet.action_confirm()
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(allocation.state, "draft")
+        line = allocation.line_ids
+        original = line.amount_applied
+        with self.assertRaises(UserError):
+            line.write({"amount_applied": original + 1.0})
+        self.assertEqual(line.amount_applied, original)
+        with self.assertRaises(UserError):
+            allocation.write(
+                {
+                    "line_ids": [
+                        Command.update(line.id, {"amount_applied": original + 1.0})
+                    ]
+                }
+            )
+        self.assertEqual(line.amount_applied, original)
+
+    def test_closed_allocation_writes_refused(self):
+        """Closed sheets MUST refuse line, voucher, partner, and sheet writes."""
+        allocation, voucher, sheet, partner = self._balanced_allocation()
+        outsider = self._create_voucher(
+            partner, sheet, amount=10.0, document_id="ALLOC-CLOSED-OUT"
+        )
+        self._mark_validated(voucher, outsider)
+        sheet.action_confirm()
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        line = allocation.line_ids
+        original = line.amount_applied
+        with self.assertRaises(UserError):
+            line.write({"amount_applied": original + 1.0})
+        self.assertEqual(line.amount_applied, original)
+        with self.assertRaises(UserError):
+            allocation.write({"voucher_ids": [Command.link(outsider.id)]})
+        with self.assertRaises(UserError):
+            allocation.write({"partner_id": self._partner("ALLOC-CLOSED-P").id})
+        other_seller = create_internal_seller(self.env, "alloc_closed_other")
+        other_sheet = self._create_sheet(seller_id=other_seller.id, force_new=True)
+        with self.assertRaises(UserError):
+            allocation.write({"sheet_id": other_sheet.id})
+        self.assertEqual(allocation.voucher_ids, voucher)
+        self.assertEqual(allocation.partner_id, partner)
+        self.assertEqual(allocation.sheet_id, sheet)
+        self.assertEqual(line.amount_applied, original)
+
+    def test_proposal_draft_line_and_voucher_writes_persist(self):
+        """Triangulation: proposal draft allocations MUST remain writable."""
+        allocation, voucher, sheet, partner = self._balanced_allocation(amount=80.0)
+        extra = self._create_voucher(
+            partner, sheet, amount=20.0, document_id="ALLOC-PROP-EXTRA"
+        )
+        self._mark_validated(voucher, extra)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
+        line = allocation.line_ids
+        line.write({"amount_applied": 40.0})
+        self.assertEqual(line.amount_applied, 40.0)
+        allocation.write({"voucher_ids": [Command.link(extra.id)]})
+        self.assertIn(extra, allocation.voucher_ids)
+        self.assertIn(voucher, allocation.voucher_ids)
+
+    def test_cancelled_line_unlink_refused(self):
+        """Debt lines on a cancelled sheet MUST refuse unlink."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        sheet.action_confirm()
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        line = allocation.line_ids
+        line_id = line.id
+        with self.assertRaises(UserError):
+            line.unlink()
+        leftover = self.env["collection.allocation.line"].browse(line_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.allocation_id, allocation)
+
+    def test_closed_line_unlink_refused(self):
+        """Triangulation: debt lines on a closed sheet MUST refuse unlink."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        sheet.action_confirm()
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        line = allocation.line_ids
+        line_id = line.id
+        with self.assertRaises(UserError):
+            line.unlink()
+        leftover = self.env["collection.allocation.line"].browse(line_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.allocation_id, allocation)

@@ -15,6 +15,14 @@
     model="ir.ui.view"
     search="[('name', '=', 'collection.voucher.kanban'), ('model', '=', 'collection.voucher')]"
   />
+    <delete
+    model="ir.ui.view"
+    search="[('name', '=', 'collection.voucher.reassign.kanban'), ('model', '=', 'collection.voucher')]"
+  />
+    <delete
+    model="ir.model.data"
+    search="[('module', '=', 'collection'), ('name', '=', 'view_collection_voucher_reassign_kanban')]"
+  />
 
     <!-- List -->
     <record id="view_collection_voucher_list" model="ir.ui.view">
@@ -121,36 +129,6 @@
           />
                 </group>
             </search>
-        </field>
-    </record>
-
-    <record id="view_collection_voucher_reassign_kanban" model="ir.ui.view">
-        <field name="name">collection.voucher.reassign.kanban</field>
-        <field name="model">collection.voucher</field>
-        <field name="arch" type="xml">
-            <kanban
-        string="Reassign Customers"
-        default_group_by="partner_id"
-        records_draggable="1"
-        create="0"
-        quick_create="0"
-        group_create="0"
-        group_delete="0"
-        group_edit="0"
-        groups_draggable="0"
-        class="o_kanban_mobile"
-      >
-                <field name="name" />
-                <field name="partner_id" />
-                <templates>
-                    <t t-name="card">
-                        <div class="d-flex align-items-baseline mb-2">
-                            <field name="name" class="fw-bolder fs-5" />
-                        </div>
-                        <field name="partner_id" />
-                    </t>
-                </templates>
-            </kanban>
         </field>
     </record>
 
@@ -439,30 +417,37 @@
             <form string="Collection Sheet">
                 <header>
                     <button
+            name="action_confirm"
+            string="Confirm"
+            type="object"
+            class="oe_highlight"
+            invisible="not id or state != 'open'"
+          />
+                    <button
             name="action_close"
             string="Close"
             type="object"
             class="oe_highlight"
-            invisible="state != 'open'"
+            invisible="state != 'proposal'"
           />
                     <button
-            name="action_reopen"
-            string="Reopen"
+            name="action_cancel"
+            string="Cancel"
             type="object"
-            invisible="state != 'closed'"
+            invisible="state not in ('proposal', 'closed')"
+          />
+                    <button
+            name="action_open"
+            string="Open"
+            type="object"
+            invisible="state != 'cancelled'"
           />
                     <button
             name="action_open_document_review"
             string="Document Review"
             type="object"
             class="oe_highlight"
-            invisible="not id or not document_review_enabled"
-          />
-                    <button
-            name="action_open_voucher_reassign"
-            string="Reassign Customers"
-            type="object"
-            invisible="not id or state != 'open'"
+            invisible="not id or not document_review_enabled or state != 'open'"
           />
                     <button
             name="action_print_xlsx"
@@ -472,7 +457,7 @@
                     <field
             name="state"
             widget="statusbar"
-            statusbar_visible="open,closed"
+            statusbar_visible="open,proposal,closed,cancelled"
             options="{'clickable': False}"
           />
                 </header>
@@ -520,14 +505,56 @@
                     </group>
                     <notebook>
                         <page string="Allocations">
-                            <field name="allocation_ids">
+                            <field
+                name="allocation_ids"
+                readonly="state not in ('open', 'proposal')"
+              >
+                                <list>
+                                    <field name="name" string="Reference" />
+                                    <field name="partner_id" string="Customer" />
+                                    <field name="total_debt" string="Total Debt" />
+                                    <field
+                    name="total_vouchers"
+                    string="Total Vouchers Applied"
+                  />
+                                    <field name="residual" string="Residual" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Vouchers">
+                            <field
+                name="voucher_ids"
+                create="false"
+                delete="false"
+                readonly="state != 'open'"
+              >
                                 <list create="false" delete="false">
                                     <field name="name" />
                                     <field name="partner_id" />
                                     <field name="state" />
-                                    <field name="total_vouchers" />
-                                    <field name="total_applied" />
-                                    <field name="residual" />
+                                    <field name="document_type" />
+                                    <field name="amount" />
+                                    <field name="currency_id" column_invisible="1" />
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Debt">
+                            <field
+                name="debt_line_ids"
+                create="false"
+                delete="false"
+              >
+                                <list create="false" delete="false" editable="bottom">
+                                    <field name="partner_id" readonly="1" />
+                                    <field name="document_kind" readonly="1" />
+                                    <field name="invoice_number" readonly="1" />
+                                    <field name="due_date" readonly="1" />
+                                    <field name="invoice_balance" readonly="1" />
+                                    <field
+                    name="amount_applied"
+                    readonly="parent.state not in ('open', 'proposal')"
+                  />
                                     <field name="currency_id" column_invisible="1" />
                                 </list>
                             </field>

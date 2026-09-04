@@ -7,6 +7,9 @@ from odoo.fields import Command
 from odoo.tools.translate import _
 
 _FROZEN_FIELDS = frozenset({"line_ids", "voucher_ids", "partner_id", "sheet_id"})
+_DRAFT_SHEET_STATES = frozenset({"open", "proposal", "cancelled"})
+_CONFIRMED_SHEET_STATE = "closed"
+_FROZEN_SHEET_STATES = frozenset({"closed", "cancelled"})
 
 
 class CollectionAllocation(models.Model):
@@ -249,10 +252,15 @@ class CollectionAllocation(models.Model):
     def write(self, vals):
         if not self:
             return True
-        if _FROZEN_FIELDS & set(vals) and any(
-            allocation.state == "confirmed" for allocation in self
-        ):
-            raise UserError(_("Confirmed allocations cannot change membership."))
+        if _FROZEN_FIELDS & set(vals) and self._membership_is_frozen():
+            if any(allocation.state == "confirmed" for allocation in self):
+                raise UserError(_("Confirmed allocations cannot change membership."))
+            raise UserError(
+                _(
+                    "Closed or cancelled collection sheets cannot change "
+                    "allocation membership."
+                )
+            )
         if "voucher_ids" in vals:
             vals = dict(vals)
             vals["voucher_ids"] = self._sanitize_voucher_commands(vals["voucher_ids"])
@@ -260,9 +268,17 @@ class CollectionAllocation(models.Model):
             "collection_allocation_audited_state"
         ):
             raise UserError(
-                _("Allocation state can only be changed via Close or Reopen.")
+                _("Allocation state can only be changed via Close, Cancel, or Open.")
             )
         return super().write(vals)
+
+    @api.private
+    def _membership_is_frozen(self):
+        return any(
+            allocation.state == "confirmed"
+            or allocation.sheet_id.state in _FROZEN_SHEET_STATES
+            for allocation in self
+        )
 
     def unlink(self):
         if not self:
@@ -326,11 +342,17 @@ class CollectionAllocation(models.Model):
             sheet = allocation.sheet_id
             if not sheet:
                 continue
-            if allocation.state == "draft" and sheet.state != "open":
+            if allocation.state == "draft" and sheet.state not in _DRAFT_SHEET_STATES:
                 raise ValidationError(
-                    _("Draft allocations must belong to an open collection sheet.")
+                    _(
+                        "Draft allocations must belong to an open, proposal, or "
+                        "cancelled collection sheet."
+                    )
                 )
-            if allocation.state == "confirmed" and sheet.state != "closed":
+            if (
+                allocation.state == "confirmed"
+                and sheet.state != _CONFIRMED_SHEET_STATE
+            ):
                 raise ValidationError(
                     _("Confirmed allocations must belong to a closed collection sheet.")
                 )

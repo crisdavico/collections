@@ -69,7 +69,9 @@ class TestCollectionDocumentReview(TransactionCase):
             [("seller_id", "=", seller_id), ("state", "=", "open")]
         )
         if opens:
-            opens.action_close()
+            opens.with_context(collection_sheet_audited_state=True).write(
+                {"state": "closed"}
+            )
 
     def _create_attached_voucher(self, **extra):
         extra.setdefault("attachment_filename", "proof.png")
@@ -259,23 +261,22 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual([item["id"] for item in queue_b], [voucher_b.id])
 
     def test_queue_empty_for_sheet_with_no_eligible_members(self):
-        """Empty or ineligible-only sheet must return [] and ignore other sheets."""
-        self._close_open_sheets()
-        empty_sheet = self._create_sheet()
-        empty_sheet.action_close()
-        ineligible_sheet = self._create_sheet()
+        """Empty or ineligible-only OPEN sheet must return [] and ignore other sheets."""
+        empty_sheet = self.review_sheet
+        other = create_internal_seller(self.env, f"review_inelig_{self._testMethodName}")
+        ineligible_sheet = self._create_sheet(seller_id=other.id)
         unattached = self.env["collection.voucher"].create(
             self._voucher_vals(
                 customer_identification="CUST-SHEET-NONE",
                 document_id="DOC-SHEET-NONE",
-                seller_id=self._seller().id,
+                seller_id=other.id,
                 sheet_id=ineligible_sheet.id,
             )
         )
         approved = self._create_attached_voucher(
             customer_identification="CUST-SHEET-APPR",
             document_id="DOC-SHEET-APPR",
-            seller_id=self._seller().id,
+            seller_id=other.id,
             sheet_id=ineligible_sheet.id,
         )
         approved.with_context(collection_audited_state=True).write(
@@ -284,18 +285,20 @@ class TestCollectionDocumentReview(TransactionCase):
         draft_attached = self._create_attached_voucher(
             customer_identification="CUST-SHEET-DRAFT",
             document_id="DOC-SHEET-DRAFT",
-            seller_id=self._seller().id,
+            seller_id=other.id,
             sheet_id=ineligible_sheet.id,
         )
-        ineligible_sheet.action_close()
-        other_sheet = self._create_sheet()
+        third = create_internal_seller(self.env, f"review_third_{self._testMethodName}")
+        other_sheet = self._create_sheet(seller_id=third.id)
         other_eligible = self._create_review_eligible_voucher(
             customer_identification="CUST-SHEET-OTHER",
             document_id="DOC-SHEET-OTHER",
-            seller_id=self._seller().id,
+            seller_id=third.id,
             sheet_id=other_sheet.id,
         )
         Voucher = self.env["collection.voucher"]
+        self.assertEqual(empty_sheet.state, "open")
+        self.assertEqual(ineligible_sheet.state, "open")
         self.assertEqual(Voucher.get_review_queue(empty_sheet.id), [])
         ineligible_queue = Voucher.get_review_queue(ineligible_sheet.id)
         self.assertEqual(ineligible_queue, [])
@@ -345,7 +348,35 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.attachment_rotation, 0)
         self.assertAlmostEqual(voucher.amount, 100.0, places=2)
 
-    def test_cross_sheet_mutations_are_refused(self):
+    def test_review_rpcs_refuse_non_open_sheet(self):
+        """Proposal, closed, or cancelled identifiers MUST refuse, not empty-queue."""
+        Voucher = self.env["collection.voucher"]
+        sheet = self.review_sheet
+        voucher = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-NONOPEN",
+            document_id="DOC-REV-NONOPEN",
+            sheet_id=sheet.id,
+        )
+        for state in ("proposal", "closed", "cancelled"):
+            with self.subTest(state=state):
+                sheet.with_context(collection_sheet_audited_state=True).write(
+                    {"state": state}
+                )
+                with self.assertRaises(UserError):
+                    Voucher.get_review_queue(sheet.id)
+                with self.assertRaises(UserError):
+                    voucher.action_review_approve(sheet.id, {"amount": 1.0})
+                with self.assertRaises(UserError):
+                    voucher.action_review_set_rotation(sheet.id, 90)
+                self.assertEqual(voucher.state, "validated_seller")
+                self.assertEqual(voucher.attachment_rotation, 0)
+
+    def test_review_rpcs_still_succeed_on_open_sheet(self):
+        """Triangulation: an open sheet identifier MUST still load the queue."""
+        Voucher = self.env["collection.voucher"]
+        self.assertEqual(self.review_sheet.state, "open")
+        self.assertEqual(Voucher.get_review_queue(self.review_sheet.id), [])
+
         """Approve and rotation of a sheet B voucher with sheet A must fail."""
         other = self._other_internal_seller()
         self._close_open_sheets()

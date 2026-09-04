@@ -88,8 +88,14 @@
                     <group>
                         <group>
                             <field name="company_id" invisible="1" />
-                            <field name="sheet_id" readonly="state == 'confirmed'" />
-                            <field name="partner_id" readonly="state == 'confirmed'" />
+                            <field
+                name="sheet_id"
+                readonly="sheet_id.state in ('closed', 'cancelled')"
+              />
+                            <field
+                name="partner_id"
+                readonly="sheet_id.state in ('closed', 'cancelled')"
+              />
                             <field name="seller_id" />
                         </group>
                         <group>
@@ -128,7 +134,7 @@
                 widget="many2many"
                 options="{'no_create': True, 'no_create_edit': True}"
                 domain="[('partner_id', '=', partner_id), ('sheet_id', '=', sheet_id), '|', ('allocation_id', '=', False), ('allocation_id', '=', id)]"
-                readonly="state == 'confirmed'"
+                readonly="sheet_id.state != 'open'"
               >
                                 <list>
                                     <field name="name" />
@@ -141,7 +147,10 @@
                             </field>
                         </page>
                         <page string="Customer Debt">
-                            <field name="line_ids" readonly="state == 'confirmed'">
+                            <field
+                name="line_ids"
+                readonly="sheet_id.state in ('closed', 'cancelled')"
+              >
                                 <list>
                                     <field name="document_kind" />
                                     <field name="invoice_number" />
