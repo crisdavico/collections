@@ -196,52 +196,32 @@
                                         Tipo de documento
                                     </label>
                                 </div>
-                                <div
-                  class="slot"
-                  style="display:flex;gap:8px;align-items:stretch;"
-                >
+                                <div class="slot">
                                     <input
+                    id="collection_review_document_type"
                     type="text"
                     readonly="readonly"
                     tabindex="-1"
                     aria-label="OCR Tipo de documento"
                     t-att-value="current.ocr_document_type"
                   />
-                                    <input
-                    type="text"
-                    readonly="readonly"
-                    tabindex="-1"
-                    aria-label="Vendedor Tipo de documento"
-                    t-att-value="current.seller_document_type"
-                  />
-                                    <select
-                    id="collection_review_document_type"
-                    t-att-value="current.document_type"
-                    t-on-change="(ev) => this.onFieldInput('document_type', ev)"
-                  >
-                                        <option value="bank_transfer">
-                                            Transferencia bancaria
-                                        </option>
-                                        <option value="check">Cheque</option>
-                                        <option value="cash_deposit">
-                                            Depósito en efectivo
-                                        </option>
-                                        <option value="unsupported">
-                                            No soportado
-                                        </option>
-                                    </select>
                                 </div>
+                                <p
+                  class="seller-warning"
+                  role="status"
+                  aria-live="polite"
+                  t-if="hasSellerChangedField(current.seller_changed_fields, 'document_type')"
+                  t-out="formatSellerChangedValue(current.seller_changed_fields, 'document_type')"
+                />
                             </div>
 
                             <div class="field">
                                 <div class="ftop">
                                     <label for="collection_review_amount">Monto</label>
                                 </div>
-                                <div
-                  class="slot"
-                  style="display:flex;gap:8px;align-items:stretch;"
-                >
+                                <div class="slot">
                                     <input
+                    id="collection_review_amount"
                     type="number"
                     step="0.01"
                     readonly="readonly"
@@ -249,22 +229,14 @@
                     aria-label="OCR Monto"
                     t-att-value="current.ocr_amount"
                   />
-                                    <input
-                    type="number"
-                    step="0.01"
-                    readonly="readonly"
-                    tabindex="-1"
-                    aria-label="Vendedor Monto"
-                    t-att-value="current.seller_amount"
-                  />
-                                    <input
-                    id="collection_review_amount"
-                    type="number"
-                    step="0.01"
-                    t-att-value="current.amount"
-                    t-on-input="(ev) => this.onFieldInput('amount', ev)"
-                  />
                                 </div>
+                                <p
+                  class="seller-warning"
+                  role="status"
+                  aria-live="polite"
+                  t-if="hasSellerChangedField(current.seller_changed_fields, 'amount')"
+                  t-out="formatSellerChangedValue(current.seller_changed_fields, 'amount')"
+                />
                             </div>
 
                             <t t-if="isBankTransfer">
@@ -274,31 +246,23 @@
                                             Cuenta origen
                                         </label>
                                     </div>
-                                    <div
-                    class="slot"
-                    style="display:flex;gap:8px;align-items:stretch;"
-                  >
+                                    <div class="slot">
                                         <input
+                      id="collection_review_from_account"
                       type="text"
                       readonly="readonly"
                       tabindex="-1"
                       aria-label="OCR Cuenta origen"
                       t-att-value="current.ocr_from_account"
                     />
-                                        <input
-                      type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="Vendedor Cuenta origen"
-                      t-att-value="current.seller_from_account"
-                    />
-                                        <input
-                      id="collection_review_from_account"
-                      type="text"
-                      t-att-value="current.from_account"
-                      t-on-input="(ev) => this.onFieldInput('from_account', ev)"
-                    />
                                     </div>
+                                    <p
+                    class="seller-warning"
+                    role="status"
+                    aria-live="polite"
+                    t-if="hasSellerChangedField(current.seller_changed_fields, 'from_account')"
+                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'from_account')"
+                  />
                                 </div>
                                 <div class="field">
                                     <div class="ftop">
@@ -306,31 +270,23 @@
                                             Cuenta destino
                                         </label>
                                     </div>
-                                    <div
-                    class="slot"
-                    style="display:flex;gap:8px;align-items:stretch;"
-                  >
+                                    <div class="slot">
                                         <input
+                      id="collection_review_to_account"
                       type="text"
                       readonly="readonly"
                       tabindex="-1"
                       aria-label="OCR Cuenta destino"
                       t-att-value="current.ocr_to_account"
                     />
-                                        <input
-                      type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="Vendedor Cuenta destino"
-                      t-att-value="current.seller_to_account"
-                    />
-                                        <input
-                      id="collection_review_to_account"
-                      type="text"
-                      t-att-value="current.to_account"
-                      t-on-input="(ev) => this.onFieldInput('to_account', ev)"
-                    />
                                     </div>
+                                    <p
+                    class="seller-warning"
+                    role="status"
+                    aria-live="polite"
+                    t-if="hasSellerChangedField(current.seller_changed_fields, 'to_account')"
+                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'to_account')"
+                  />
                                 </div>
                                 <div class="row">
                                     <div class="field">
@@ -341,31 +297,23 @@
                                                 Nro. comprobante
                                             </label>
                                         </div>
-                                        <div
-                      class="slot"
-                      style="display:flex;gap:8px;align-items:stretch;"
-                    >
+                                        <div class="slot">
                                             <input
+                        id="collection_review_voucher_number"
                         type="text"
                         readonly="readonly"
                         tabindex="-1"
                         aria-label="OCR Nro. comprobante"
                         t-att-value="current.ocr_voucher_number"
                       />
-                                            <input
-                        type="text"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="Vendedor Nro. comprobante"
-                        t-att-value="current.seller_voucher_number"
-                      />
-                                            <input
-                        id="collection_review_voucher_number"
-                        type="text"
-                        t-att-value="current.voucher_number"
-                        t-on-input="(ev) => this.onFieldInput('voucher_number', ev)"
-                      />
                                         </div>
+                                        <p
+                      class="seller-warning"
+                      role="status"
+                      aria-live="polite"
+                      t-if="hasSellerChangedField(current.seller_changed_fields, 'voucher_number')"
+                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'voucher_number')"
+                    />
                                     </div>
                                     <div class="field">
                                         <div class="ftop">
@@ -373,31 +321,23 @@
                                                 Fecha
                                             </label>
                                         </div>
-                                        <div
-                      class="slot"
-                      style="display:flex;gap:8px;align-items:stretch;"
-                    >
+                                        <div class="slot">
                                             <input
+                        id="collection_review_voucher_date"
                         type="date"
                         readonly="readonly"
                         tabindex="-1"
                         aria-label="OCR Fecha"
                         t-att-value="current.ocr_voucher_date"
                       />
-                                            <input
-                        type="date"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="Vendedor Fecha"
-                        t-att-value="current.seller_voucher_date"
-                      />
-                                            <input
-                        id="collection_review_voucher_date"
-                        type="date"
-                        t-att-value="current.voucher_date"
-                        t-on-input="(ev) => this.onFieldInput('voucher_date', ev)"
-                      />
                                         </div>
+                                        <p
+                      class="seller-warning"
+                      role="status"
+                      aria-live="polite"
+                      t-if="hasSellerChangedField(current.seller_changed_fields, 'voucher_date')"
+                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'voucher_date')"
+                    />
                                     </div>
                                 </div>
                             </t>
@@ -409,31 +349,23 @@
                                             Nro. cheque
                                         </label>
                                     </div>
-                                    <div
-                    class="slot"
-                    style="display:flex;gap:8px;align-items:stretch;"
-                  >
+                                    <div class="slot">
                                         <input
+                      id="collection_review_check_number"
                       type="text"
                       readonly="readonly"
                       tabindex="-1"
                       aria-label="OCR Nro. cheque"
                       t-att-value="current.ocr_check_number"
                     />
-                                        <input
-                      type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="Vendedor Nro. cheque"
-                      t-att-value="current.seller_check_number"
-                    />
-                                        <input
-                      id="collection_review_check_number"
-                      type="text"
-                      t-att-value="current.check_number"
-                      t-on-input="(ev) => this.onFieldInput('check_number', ev)"
-                    />
                                     </div>
+                                    <p
+                    class="seller-warning"
+                    role="status"
+                    aria-live="polite"
+                    t-if="hasSellerChangedField(current.seller_changed_fields, 'check_number')"
+                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_number')"
+                  />
                                 </div>
                                 <div class="field">
                                     <div class="ftop">
@@ -441,31 +373,23 @@
                                             Banco
                                         </label>
                                     </div>
-                                    <div
-                    class="slot"
-                    style="display:flex;gap:8px;align-items:stretch;"
-                  >
+                                    <div class="slot">
                                         <input
+                      id="collection_review_check_bank"
                       type="text"
                       readonly="readonly"
                       tabindex="-1"
                       aria-label="OCR Banco"
                       t-att-value="current.ocr_check_bank"
                     />
-                                        <input
-                      type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="Vendedor Banco"
-                      t-att-value="current.seller_check_bank"
-                    />
-                                        <input
-                      id="collection_review_check_bank"
-                      type="text"
-                      t-att-value="current.check_bank"
-                      t-on-input="(ev) => this.onFieldInput('check_bank', ev)"
-                    />
                                     </div>
+                                    <p
+                    class="seller-warning"
+                    role="status"
+                    aria-live="polite"
+                    t-if="hasSellerChangedField(current.seller_changed_fields, 'check_bank')"
+                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_bank')"
+                  />
                                 </div>
                                 <div class="field">
                                     <div class="ftop">
@@ -473,34 +397,23 @@
                                             Tipo de cheque
                                         </label>
                                     </div>
-                                    <div
-                    class="slot"
-                    style="display:flex;gap:8px;align-items:stretch;"
-                  >
+                                    <div class="slot">
                                         <input
+                      id="collection_review_check_type"
                       type="text"
                       readonly="readonly"
                       tabindex="-1"
                       aria-label="OCR Tipo de cheque"
                       t-att-value="current.ocr_check_type"
                     />
-                                        <input
-                      type="text"
-                      readonly="readonly"
-                      tabindex="-1"
-                      aria-label="Vendedor Tipo de cheque"
-                      t-att-value="current.seller_check_type"
-                    />
-                                        <select
-                      id="collection_review_check_type"
-                      t-att-value="current.check_type"
-                      t-on-change="(ev) => this.onFieldInput('check_type', ev)"
-                    >
-                                            <option value="" />
-                                            <option value="common">Común</option>
-                                            <option value="deferred">Diferido</option>
-                                        </select>
                                     </div>
+                                    <p
+                    class="seller-warning"
+                    role="status"
+                    aria-live="polite"
+                    t-if="hasSellerChangedField(current.seller_changed_fields, 'check_type')"
+                    t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_type')"
+                  />
                                 </div>
                                 <div class="row">
                                     <div class="field">
@@ -511,31 +424,23 @@
                                                 Fecha de emisión
                                             </label>
                                         </div>
-                                        <div
-                      class="slot"
-                      style="display:flex;gap:8px;align-items:stretch;"
-                    >
+                                        <div class="slot">
                                             <input
+                        id="collection_review_check_issue_date"
                         type="date"
                         readonly="readonly"
                         tabindex="-1"
                         aria-label="OCR Fecha de emisión"
                         t-att-value="current.ocr_check_issue_date"
                       />
-                                            <input
-                        type="date"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="Vendedor Fecha de emisión"
-                        t-att-value="current.seller_check_issue_date"
-                      />
-                                            <input
-                        id="collection_review_check_issue_date"
-                        type="date"
-                        t-att-value="current.check_issue_date"
-                        t-on-input="(ev) => this.onFieldInput('check_issue_date', ev)"
-                      />
                                         </div>
+                                        <p
+                      class="seller-warning"
+                      role="status"
+                      aria-live="polite"
+                      t-if="hasSellerChangedField(current.seller_changed_fields, 'check_issue_date')"
+                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_issue_date')"
+                    />
                                     </div>
                                     <div class="field">
                                         <div class="ftop">
@@ -545,31 +450,23 @@
                                                 Fecha de pago
                                             </label>
                                         </div>
-                                        <div
-                      class="slot"
-                      style="display:flex;gap:8px;align-items:stretch;"
-                    >
+                                        <div class="slot">
                                             <input
+                        id="collection_review_check_payment_date"
                         type="date"
                         readonly="readonly"
                         tabindex="-1"
                         aria-label="OCR Fecha de pago"
                         t-att-value="current.ocr_check_payment_date"
                       />
-                                            <input
-                        type="date"
-                        readonly="readonly"
-                        tabindex="-1"
-                        aria-label="Vendedor Fecha de pago"
-                        t-att-value="current.seller_check_payment_date"
-                      />
-                                            <input
-                        id="collection_review_check_payment_date"
-                        type="date"
-                        t-att-value="current.check_payment_date"
-                        t-on-input="(ev) => this.onFieldInput('check_payment_date', ev)"
-                      />
                                         </div>
+                                        <p
+                      class="seller-warning"
+                      role="status"
+                      aria-live="polite"
+                      t-if="hasSellerChangedField(current.seller_changed_fields, 'check_payment_date')"
+                      t-out="formatSellerChangedValue(current.seller_changed_fields, 'check_payment_date')"
+                    />
                                     </div>
                                 </div>
                             </t>

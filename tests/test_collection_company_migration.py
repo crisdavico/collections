@@ -152,11 +152,18 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_34_0(self):
+    def test_manifest_version_is_1_36_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.34.0"', manifest.read_text(encoding="utf-8"))
-        for leftover in ("19.0.1.26.0", "19.0.1.27.0", "19.0.1.29.0", "19.0.1.30.0"):
+        self.assertIn('"version": "19.0.1.36.0"', manifest.read_text(encoding="utf-8"))
+        for leftover in (
+            "19.0.1.26.0",
+            "19.0.1.27.0",
+            "19.0.1.29.0",
+            "19.0.1.30.0",
+            "19.0.1.35.0",
+            "19.0.1.36.0",
+        ):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
                 f"No migrations/{leftover}/ folder",
@@ -284,7 +291,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.34.0`", agents)
+        self.assertIn("Module metadata `19.0.1.36.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`open`/`proposal`/`closed`/`cancelled`", agents)
         self.assertIn("Confirm/Close/Cancel/Open", agents)
@@ -294,7 +301,8 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertNotIn("**Reassign Customers**", agents)
         self.assertNotIn("Keep reassign kanban", agents)
         self.assertNotIn("Allocations-only", agents)
-        self.assertNotIn("Module metadata `19.0.1.32.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.34.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.35.0`", agents)
         self.assertNotIn("`partner_id.group_expand`", agents)
         self.assertIn(
             '"Closed collection sheets cannot change membership. Reopen first."',

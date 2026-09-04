@@ -418,6 +418,13 @@
       inset -2px -2px 6px rgba(255, 255, 255, 0.55);
   }
 
+  .seller-warning {
+    margin: 8px 0 0;
+    min-height: 1.2em;
+    color: var(--rose);
+    font-size: 13px;
+  }
+
   input[type="text"],
   input[type="number"],
   input[type="date"],

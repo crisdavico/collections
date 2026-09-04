@@ -6,6 +6,7 @@ from base64 import b64decode
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools.float_utils import float_compare
 from odoo.tools.mimetypes import guess_mimetype
 from odoo.tools.translate import _
 
@@ -168,21 +169,20 @@ class CollectionVoucher(models.Model):
         copy=False,
     )
 
-    _REVIEW_EDITABLE_FIELDS = frozenset(
-        {
-            "document_type",
-            "amount",
-            "from_account",
-            "to_account",
-            "voucher_number",
-            "voucher_date",
-            "check_number",
-            "check_bank",
-            "check_type",
-            "check_issue_date",
-            "check_payment_date",
-        }
+    _REVIEW_EDITABLE_FIELD_ORDER = (
+        "document_type",
+        "amount",
+        "from_account",
+        "to_account",
+        "voucher_number",
+        "voucher_date",
+        "check_number",
+        "check_bank",
+        "check_type",
+        "check_issue_date",
+        "check_payment_date",
     )
+    _REVIEW_EDITABLE_FIELDS = frozenset(_REVIEW_EDITABLE_FIELD_ORDER)
     _ALLOWED_ROTATIONS = frozenset({0, 90, 180, 270})
     _DOCUMENT_TYPE_SELECTION = (
         ("bank_transfer", "Bank Transfer"),
@@ -567,7 +567,8 @@ class CollectionVoucher(models.Model):
         self.ensure_one()
         self._ensure_review_sheet_member(sheet)
         self._lock_and_ensure_review_eligible()
-        self._write_review_decision(self._editable_review_vals(vals))
+        del vals  # leftover client vals must not rewrite current fields
+        self._write_review_decision()
         return True
 
     def action_review_set_rotation(self, sheet_id=None, degrees=None):
@@ -673,25 +674,14 @@ class CollectionVoucher(models.Model):
         return rotation
 
     @api.private
-    def _editable_review_vals(self, vals):
-        if not vals:
-            return {}
-        return {
-            key: value
-            for key, value in vals.items()
-            if key in self._REVIEW_EDITABLE_FIELDS
-        }
-
-    @api.private
-    def _write_review_decision(self, extra_vals=None):
-        vals = {
-            "state": "validated_collections",
-            "reviewed_by": self.env.user.id,
-            "reviewed_at": fields.Datetime.now(),
-        }
-        if extra_vals:
-            vals.update(extra_vals)
-        self.with_context(collection_audited_state=True).write(vals)
+    def _write_review_decision(self):
+        self.with_context(collection_audited_state=True).write(
+            {
+                "state": "validated_collections",
+                "reviewed_by": self.env.user.id,
+                "reviewed_at": fields.Datetime.now(),
+            }
+        )
         self._append_review_snapshot("approved")
 
     @api.private
@@ -784,4 +774,51 @@ class CollectionVoucher(models.Model):
         for prefix in ("ocr", "seller"):
             for name in self._REVIEW_EDITABLE_FIELDS:
                 payload[f"{prefix}_{name}"] = self[f"{prefix}_{name}"]
+        payload["seller_changed_fields"] = self._review_seller_changed_fields()
         return payload
+
+    @api.private
+    def _review_field_is_empty(self, name, value):
+        """Return whether a typed review field value is empty."""
+        if value is False or value is None:
+            return True
+        if name == "amount":
+            return float_compare(value, 0.0, precision_digits=2) == 0
+        return value == ""
+
+    @api.private
+    def _review_fields_equal(self, name, left, right):
+        """Return whether two typed review field values compare equal."""
+        if name == "amount":
+            return float_compare(left, right, precision_digits=2) == 0
+        if self._fields[name].type == "date":
+            return fields.Date.to_date(left) == fields.Date.to_date(right)
+        return left == right
+
+    @api.private
+    def _review_seller_raw_value(self, name, value):
+        """Return the seller value to expose in seller_changed_fields."""
+        if self._review_field_is_empty(name, value):
+            return 0.0 if name == "amount" else False
+        return value
+
+    @api.private
+    def _review_seller_changed_fields(self):
+        """Return OCR-vs-seller diffs keyed in ``_REVIEW_EDITABLE_FIELD_ORDER``."""
+        self.ensure_one()
+        changed = {}
+        for name in self._REVIEW_EDITABLE_FIELD_ORDER:
+            ocr_value = self[f"ocr_{name}"]
+            seller_value = self[f"seller_{name}"]
+            ocr_empty = self._review_field_is_empty(name, ocr_value)
+            seller_empty = self._review_field_is_empty(name, seller_value)
+            if ocr_empty and seller_empty:
+                continue
+            if (
+                not ocr_empty
+                and not seller_empty
+                and self._review_fields_equal(name, ocr_value, seller_value)
+            ):
+                continue
+            changed[name] = self._review_seller_raw_value(name, seller_value)
+        return changed

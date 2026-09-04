@@ -1,0 +1,23 @@
+# SDD change state — orchestrator-managed
+change: document-review-ocr-only
+artifact_store: openspec
+delivery_strategy: exception-ok
+chain_strategy: stacked-to-main
+phase: verify
+apply_slice: complete
+updated: 2026-09-04
+review_budget_risk: high
+notes: |
+  User invoked /sdd-new and authorized apply-through-verify despite
+  High 400-line forecast (size:exception). Apply used one grok 4.6
+  subagent per task phase. Isolated from parallel receipts edits.
+  Manifest bumped to 19.0.1.36.0. Verify PASS WITH WARNINGS.
+  Archive not run (user asked through verify inclusive).
+artifacts:
+  - exploration.md
+  - proposal.md
+  - specs/document-review/spec.md
+  - design.md
+  - tasks.md
+  - apply-progress.md
+  - verify-report.md

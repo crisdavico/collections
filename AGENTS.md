@@ -77,7 +77,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 | Path                                              | Role                                                                                                                                    |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `__manifest__.py`                                 | Module metadata `19.0.1.34.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                 |
+| `__manifest__.py`                                 | Module metadata `19.0.1.36.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                 |
 | `models/res_company.py`                           | Collection Settings fields + `_assert_new_work`; Import sync; seq copy; type seed                                                       |
 | `models/res_config_settings.py`                   | Related writable Collection Settings + Import action                                                                                    |
 | `models/collection_connector.py`                  | Company-scoped connector + `_dispatch` allowlist (`list_customers`, `get_customer_debt`, `create_receipt`)                              |
@@ -148,7 +148,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `with_company(record.company_id).next_by_code(...)`. XMLIDs bind to
   `base.main_company` (`seq_collection_allocation`). `res.company.create` copies all
   three sequences (`number_next=1` on copies) and unions all four types; new companies
-  start with empty enabled sellers. Manifest `19.0.1.34.0`; migrate folders
+  start with empty enabled sellers. Manifest `19.0.1.36.0`; migrate folders
   `migrations/19.0.1.17.0/` (COL/CS stamp/repair), `migrations/19.0.1.25.0/` (`CA/`
   copy), `migrations/19.0.1.28.0/` (allocation state remap; no `CA/`),
   `migrations/19.0.1.31.0/` (voucher state SQL remap; no snapshot `decision` rewrite),
@@ -156,8 +156,10 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `migrations/19.0.1.33.0/` (unlink reassign XMLID; no sheet-state remap), and
   `migrations/19.0.1.34.0/` (additive; no receipt backfill). Do **not** add
   `collection.allocation` to `COLLECTION_SEQUENCE_CODES` in 1.17.0. Do **not** add
-  `migrations/19.0.1.26.0/`, `migrations/19.0.1.27.0/`, `migrations/19.0.1.29.0/`, or
-  `migrations/19.0.1.30.0/`. Do **not** add a second 1.31 migrate folder later.
+  `migrations/19.0.1.26.0/`, `migrations/19.0.1.27.0/`, `migrations/19.0.1.29.0/`,
+  `migrations/19.0.1.30.0/`, `migrations/19.0.1.35.0/`, or `migrations/19.0.1.36.0/`
+  (Document Review OCR-only has no stored fields). Do **not** add a second 1.31 migrate
+  folder later.
 - **No `received_date`:** registration time is ORM `create_date` only; strip forged
   `create_date` / `write_date` on create; views must not expose `received_date`.
 - **States:** voucher `draft` → `validated_seller` → `validated_collections`. No Reject
@@ -349,7 +351,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 - **Provenance / review history:** `ocr_*`/`seller_*` copies of
   `_REVIEW_EDITABLE_FIELDS` (`copy=False`). `write()` rejects those keys; `create()` may
   stamp. Snapshots append only from `_write_review_decision` (Document Review Approve
-  including empty vals). No Reject; form `action_validate_seller` does not snapshot.
+  including empty vals). Approve ignores client `vals` and does not rewrite current. No
+  Reject; form `action_validate_seller` does not snapshot.
   Snapshot `decision` stays `approved`/`rejected` (historical `rejected` rows MAY
   remain; those keys are not voucher states). Snapshot ACL: read+gated create
   (`collection_review_snapshot`); write/unlink denied; no `sudo()` / no extra groups;
@@ -369,7 +372,9 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   dropped. Allocation form has no Validate/Reject; freeze fields `readonly` from
   `sheet_id.state`; statusbar `draft,confirmed`; search filters draft+confirmed. Sheet
   statusbar `open,proposal,closed,cancelled` with Confirm/Close/Cancel/Open by state;
-  Document Review Open-only. `reviewed_by` / `reviewed_at` stay on the model and leave
+  Document Review Open-only. Document Review OWL is OCR-only (readonly `ocr_*`) with
+  inline seller-change warnings; Approve does not rewrite current. `reviewed_by` /
+  `reviewed_at` stay on the model and leave
   the form. Print → Planilla de Cobranza is bound `qweb-pdf` (`web.external_layout`,
   `t-out`). Header **Export XLSX** is last object button before `state`
   (`action_print_xlsx` → `/web/content/{id}?download=true`). Recon fields sit in a
@@ -399,9 +404,9 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_allocation_acl.py`           | Allocation/line `1,1,1,1`; revision `1,0,1,1`; company `ir.rule`; no sudo                                                                                                    |
 | `tests/test_collection_mail.py`                     | Chatter / tracking on vouchers and sheets                                                                                                                                    |
 | `tests/test_collection_ui.py`                       | View arch; Collection Settings; seller domains; Payment Vouchers menu 10; no stages kanban; allocations menu 30; receipts menu 40; Receipts page; form does not issue        |
-| `tests/test_collection_document_review.py`          | Queue `validated_seller`+proof; Approve → `validated_collections`; no Reject; snapshots `decision` approved/rejected                                                         |
+| `tests/test_collection_document_review.py`          | Queue `validated_seller`+proof; OCR-only OWL + seller warnings; Approve does not rewrite current; no Reject; snapshots `decision` approved/rejected                         |
 | `tests/test_collection_company_settings.py`         | Catalog, empty sellers, defaults, Collection Settings fields                                                                                                                 |
-| `tests/test_collection_company_migration.py`        | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; `19.0.1.28.0` remap; `19.0.1.31.0` voucher remap; manifest `19.0.1.34.0`; keep 1.31–1.33; no 1.26–1.30 migrate |
+| `tests/test_collection_company_migration.py`        | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; `19.0.1.28.0` remap; `19.0.1.31.0` voucher remap; manifest `19.0.1.36.0`; keep 1.31–1.34; no 1.26–1.30 / 1.35 / 1.36 migrate |
 | `tests/test_collection_allocation_document_kind.py` | Line `document_kind` default/selection/parent-arch `<list>`; MCP omit → `invoice`; get returns kind                                                                          |
 | `tests/test_collection_sheet_report_data.py`        | Recon fields, payload primitives, freeze Closed+Cancelled, Proposal editable, four-state PDF payload, mismatch, mixed currency, no sudo                                      |
 | `tests/test_collection_sheet_report.py`             | Bound `qweb-pdf` + A4 landscape; HTML names/banner/`t-out`; company-B AccessError                                                                                            |

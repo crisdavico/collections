@@ -275,7 +275,7 @@ class TestCollectionAcl(TransactionCase):
         self.assertIn(voucher.id, queued_ids)
         voucher.action_review_approve(sheet_id, {"amount": 150.0})
         self.assertEqual(voucher.state, "validated_collections")
-        self.assertEqual(voucher.amount, 150.0)
+        self.assertEqual(voucher.amount, 100.0)
         self.assertEqual(voucher.reviewed_by, self.internal_user)
         self.assertTrue(voucher.reviewed_at)
 

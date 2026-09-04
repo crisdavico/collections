@@ -5,20 +5,25 @@ import {_t} from "@web/core/l10n/translation";
 export const LINE_MODEL = "collection.voucher";
 export const BINARY_KEYS = new Set(["datas", "attachment"]);
 
-export const BANK_TRANSFER_FIELDS = [
-  "from_account",
-  "to_account",
-  "voucher_number",
+export const DOCUMENT_TYPE_LABELS = {
+  bank_transfer: "Transferencia bancaria",
+  check: "Cheque",
+  cash_deposit: "Depósito en efectivo",
+  unsupported: "No soportado",
+};
+export const CHECK_TYPE_LABELS = {
+  common: "Común",
+  deferred: "Diferido",
+};
+export const SELLER_CHANGED_SELECTION_LABELS = {
+  document_type: DOCUMENT_TYPE_LABELS,
+  check_type: CHECK_TYPE_LABELS,
+};
+export const SELLER_CHANGED_DATE_FIELDS = new Set([
   "voucher_date",
-];
-export const CHECK_FIELDS = [
-  "check_number",
-  "check_bank",
-  "check_type",
   "check_issue_date",
   "check_payment_date",
-];
-export const SHARED_EDITABLE_FIELDS = ["document_type", "amount"];
+]);
 
 export function sanitizeQueueItem(raw) {
   const item = {};
@@ -31,36 +36,53 @@ export function sanitizeQueueItem(raw) {
   return item;
 }
 
-export function editableKeysForType(documentType) {
-  if (documentType === "bank_transfer") {
-    return SHARED_EDITABLE_FIELDS.concat(BANK_TRANSFER_FIELDS);
-  }
-  if (documentType === "check") {
-    return SHARED_EDITABLE_FIELDS.concat(CHECK_FIELDS);
-  }
-  return SHARED_EDITABLE_FIELDS.slice();
+export function hasSellerChangedField(changedFields, fieldName) {
+  return Boolean(
+    changedFields && Object.prototype.hasOwnProperty.call(changedFields, fieldName)
+  );
 }
 
-export function ormValue(value) {
-  if (value === "" || value === false) {
-    return false;
+export function sellerChangedFieldValue(changedFields, fieldName) {
+  if (!hasSellerChangedField(changedFields, fieldName)) {
+    return undefined;
   }
-  return value;
+  return changedFields[fieldName];
 }
 
-export function isProvenanceKey(key) {
-  return Boolean(key) && (key.startsWith("ocr_") || key.startsWith("seller_"));
+function isBlankSellerChangedValue(value) {
+  return value === false || value === null || value === undefined || value === "";
 }
 
-export function buildApproveVals(item) {
-  const vals = {};
-  for (const key of editableKeysForType(item.document_type)) {
-    if (isProvenanceKey(key)) {
-      continue;
-    }
-    vals[key] = key === "amount" ? Number(item.amount) || 0 : ormValue(item[key]);
+function formatIsoDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
   }
-  return vals;
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return text.slice(0, 10);
+  }
+  return text;
+}
+
+export function formatSellerChangedValue(changedFields, fieldName) {
+  if (!hasSellerChangedField(changedFields, fieldName)) {
+    return "";
+  }
+  const value = changedFields[fieldName];
+  if (isBlankSellerChangedValue(value)) {
+    return "";
+  }
+  if (fieldName === "amount") {
+    return Number(value).toFixed(2);
+  }
+  if (SELLER_CHANGED_DATE_FIELDS.has(fieldName)) {
+    return formatIsoDate(value);
+  }
+  const labels = SELLER_CHANGED_SELECTION_LABELS[fieldName];
+  if (labels && Object.prototype.hasOwnProperty.call(labels, value)) {
+    return labels[value];
+  }
+  return String(value);
 }
 
 export function nextIndexAfterReload(previousIndex, length) {
