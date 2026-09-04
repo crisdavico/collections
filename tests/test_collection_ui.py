@@ -2060,9 +2060,18 @@ class TestCollectionUi(TransactionCase):
         ]
         self.assertTrue(state_nodes, "receipt form must expose state as a field")
         self._assert_readonly_field(state_nodes[0], "state")
-        ext_nodes = self._field_nodes(form_root, "external_receipt_id")
-        self.assertTrue(ext_nodes, "receipt form must expose external_receipt_id")
-        self._assert_readonly_field(ext_nodes[0], "external_receipt_id")
+        self.assertFalse(
+            self._field_nodes(form_root, "external_receipt_id"),
+            "receipt form must not expose external_receipt_id",
+        )
+        self.assertFalse(
+            self._field_nodes(list_root, "external_receipt_id"),
+            "receipt list must not expose external_receipt_id",
+        )
+        self.assertFalse(
+            self._field_nodes(search_root, "external_receipt_id"),
+            "receipt search must not expose external_receipt_id",
+        )
         self.assertFalse(
             form_root.xpath("//header/button"),
             "receipt form must not expose an issuance button",
@@ -2106,7 +2115,6 @@ class TestCollectionUi(TransactionCase):
         for field_name in (
             "document_kind",
             "state",
-            "external_receipt_id",
             "total_values",
             "total_applied",
             "amount_on_account",
@@ -2114,6 +2122,11 @@ class TestCollectionUi(TransactionCase):
             self.assertIn(
                 field_name, list_names, f"Receipts list must show {field_name}"
             )
+        self.assertNotIn(
+            "external_receipt_id",
+            list_names,
+            "Receipts list must not show external_receipt_id",
+        )
         self.assertFalse(
             page.xpath(".//tree"),
             "Receipts page must use <list>, not <tree>",

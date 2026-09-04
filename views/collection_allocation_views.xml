@@ -178,7 +178,6 @@
                                 <list create="false" delete="false" edit="false">
                                     <field name="document_kind" />
                                     <field name="state" />
-                                    <field name="external_receipt_id" />
                                     <field name="total_values" />
                                     <field name="total_applied" />
                                     <field name="amount_on_account" />

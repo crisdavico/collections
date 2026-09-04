@@ -204,11 +204,14 @@ migrate folders MUST NOT be added.
 ### Requirement: Read-mostly views
 
 Receipt UI MUST be read-mostly. Issuance (`external_receipt_id`, `issued`) MUST be owned
-by the ERP hand-off, not by operator form edit. List tags MUST be `<list>` (MUST NOT
-`<tree>`).
+by the ERP hand-off, not by operator form edit. Collection Receipts list, search, and
+form MUST NOT expose `external_receipt_id`. The allocation form Receipts list MUST NOT
+expose `external_receipt_id`. List tags MUST be `<list>` (MUST NOT `<tree>`).
 
 #### Scenario: Form does not issue
 
 - GIVEN a draft receipt on a draft allocation
 - WHEN an operator opens the receipt or allocation form
 - THEN they MUST NOT stamp `issued` or set `external_receipt_id` as a normal form edit
+- AND Collection Receipts views and the allocation Receipts list MUST NOT show
+  `external_receipt_id`

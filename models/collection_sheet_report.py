@@ -111,6 +111,7 @@ class CollectionSheetReport(models.Model):
             "commission_percent": self.commission_percent or 0.0,
             "customers": customers,
             "customer_totals": {
+                "debt": sum(row["debt"] for row in customers),
                 "collected": sum(row["collected"] for row in customers),
                 "applied": sum(row["applied"] for row in customers),
                 "residual": sum(row["residual"] for row in customers),
@@ -191,6 +192,7 @@ class CollectionSheetReport(models.Model):
                     {
                         "code": code,
                         "name": partner.name or "",
+                        "debt": allocation.total_debt or 0.0,
                         "collected": allocation.total_vouchers or 0.0,
                         "applied": allocation.total_applied or 0.0,
                         "residual": allocation.residual or 0.0,

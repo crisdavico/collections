@@ -341,12 +341,14 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertEqual(payload["seller_name"], sheet.seller_id.name)
         self.assertEqual(payload["customer_count"], 1)
         self.assertEqual(payload["voucher_count"], 1)
+        self.assertEqual(payload["customers"][0]["debt"], allocation.total_debt)
         self.assertEqual(
             payload["customers"][0]["collected"], allocation.total_vouchers
         )
         self.assertEqual(payload["customers"][0]["applied"], allocation.total_applied)
         self.assertEqual(payload["customers"][0]["residual"], allocation.residual)
         self.assertEqual(payload["customers"][0]["residual_reason"], "")
+        self.assertEqual(payload["customer_totals"]["debt"], allocation.total_debt)
         self.assertEqual(
             payload["customer_totals"]["collected"], allocation.total_vouchers
         )
@@ -728,6 +730,11 @@ class TestCollectionSheetReportData(TransactionCase):
         row = payload["document_blocks"][0]["rows"][0]
         self.assertEqual(row["invoice_balance"], 321.5)
         self.assertEqual(row["amount_applied"], 80.0)
+        self.assertEqual(payload["customers"][0]["debt"], 321.5)
+        self.assertEqual(payload["customers"][0]["collected"], 80.0)
+        self.assertEqual(payload["customers"][0]["applied"], 80.0)
+        self.assertEqual(payload["customers"][0]["residual"], 241.5)
+        self.assertEqual(payload["customer_totals"]["debt"], 321.5)
 
     def test_payload_voucher_numbers_and_check_details(self):
         """Transfers print voucher_number; checks print check fields or blanks."""

@@ -58,11 +58,13 @@ include drafts. Customer totals MUST equal allocation sums. PDF HTML and XLSX ca
 totals MUST match. Report copy MUST be Spanish Argentina: sheet state labels,
 voucher-block titles (`Transferencia bancaria` / `Cheque` / `Depósito en efectivo` /
 `Otros`), recon banner, and check type (`Común` / `Diferido`). Document rows MUST
-include `invoice_balance`. Voucher `number` MUST be `voucher_number` for
-transfers/deposits and `check_number` (or blank) for checks — MUST NOT be the COL
-sequence name. Check rows MUST include `check_bank`, `check_type`, and
-`check_payment_date`. (Previously: Print-includes voucher keys were
-pending/approved/rejected.)
+include `invoice_balance`. Customer rows MUST include `debt` (`allocation.total_debt`,
+printed as Saldo Total before Cobrado). `customer_totals` MUST include `debt`. Voucher
+`number` MUST be `voucher_number` for transfers/deposits and `check_number` (or blank)
+for checks — MUST NOT be the COL sequence name. Check rows MUST include `check_bank`,
+`check_type`, and `check_payment_date`. (Previously: Print-includes voucher keys were
+pending/approved/rejected. Clientes omitted Saldo Total so Remanente looked like Cobrado
+− Aplicado.)
 
 #### Scenario: Primitive nested values
 
@@ -191,11 +193,14 @@ currencies MUST raise `UserError` (template is single-currency).
 
 The system MUST bind `ir.actions.report` `qweb-pdf` on `collection.sheet`
 (`binding_type` report) so Print → Planilla de Cobranza appears on form and list.
-Paperformat MUST be A4 landscape. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
+Paperformat MUST be A4 landscape with compact header room (`margin_top` 20mm,
+`header_spacing` 12mm, `margin_bottom` 12mm) so the company letterhead does not leave a
+large blank band above Resumen. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
 call `web.html_container` plus `web.external_layout` (PDF membrete is company
-letterhead, not workbook rows 1–4). HTML render (MUST NOT spawn wkhtmltopdf in tests)
-MUST contain the sheet reference, seller name, every partner name, applied document
-numbers, and the recon banner.
+letterhead, not workbook rows 1–4). Body MUST NOT repeat the Planilla title already set
+on `layout_document_title`. HTML render (MUST NOT spawn wkhtmltopdf in tests) MUST
+contain the sheet reference, seller name, every partner name, applied document numbers,
+and the recon banner.
 
 #### Scenario: Print menu binding
 
@@ -203,6 +208,9 @@ numbers, and the recon banner.
 - WHEN inspected
 - THEN `report_type` MUST be `qweb-pdf`, model `collection.sheet`, binding report on
   that model, with the collection-sheet paperformat
+- AND paperformat `margin_top` MUST be 20, `header_spacing` 12, `margin_bottom` 12
+- AND the document arch MUST set `layout_document_title` and MUST NOT contain a body
+  `<h2>`
 
 #### Scenario: HTML contains names numbers banner
 
@@ -217,13 +225,17 @@ numbers, and the recon banner.
 XLSX MUST be built from the same payload. Bytes MUST start `PK` and the zip MUST contain
 `xl/workbook.xml`. Worksheet MUST freeze `A6`, landscape, paper size 9, fit-to-width 1.
 Aggregation cells MUST use formulas with cached SUM values (`data_only` MUST read
-non-None totals equal to the payload). Odoo `commission_percent` 0–100 MUST be written
-as `percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow
-`recon.status`. Header **Export XLSX** MUST be last in `<header>` before `state`.
-Notebook MUST be the three pages specified in collection-sheets (recon fields remain on
-the sheet form). `action_print_xlsx` MUST return `ir.actions.act_url` download; MUST NOT
-`sudo()`. (Previously: Notebook MUST remain exactly one page with recon in a second
-inner group.)
+non-None totals equal to the payload). Clientes **Saldo Total** and **Aplicado** MUST be
+`SUMIF` of Facturas/Presupuestos Saldo/Aplicado by customer name, **Cobrado** MUST be
+`SUMIF` of comprobante Importe, and **Remanente** MUST be `Saldo Total − Aplicado`
+(cached payload values). Resumen Remanente MUST reference the Clientes remanente total
+(MUST NOT `=C11-G11`). Odoo `commission_percent` 0–100 MUST be written as
+`percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow `recon.status`.
+Header **Export XLSX** MUST be last in `<header>` before `state`. Notebook MUST be the
+three pages specified in collection-sheets (recon fields remain on the sheet form).
+`action_print_xlsx` MUST return `ir.actions.act_url` download; MUST NOT `sudo()`.
+(Previously: Clientes amounts were literals; Resumen remanente was `=C11-G11` cobrado −
+aplicado.)
 
 #### Scenario: Zip freeze and cached SUM
 
@@ -232,6 +244,8 @@ inner group.)
 - THEN bytes MUST start `PK` and contain `xl/workbook.xml`
 - AND freeze MUST be `A6` and cached SUM cells MUST equal payload totals (MUST NOT be
   `None`)
+- AND Clientes Saldo Total / Cobrado / Aplicado MUST be SUMIF formulas by customer name
+- AND Clientes Remanente MUST be Saldo Total minus Aplicado
 
 #### Scenario: Percent scale 0–100 to 0.0%
 

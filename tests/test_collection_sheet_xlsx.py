@@ -377,6 +377,7 @@ class TestCollectionSheetXlsx(TransactionCase):
 
         _assert_cached(payload["collected_total"], "collected_total")
         _assert_cached(payload["applied_total"], "applied_total")
+        _assert_cached(payload["customer_totals"]["debt"], "customer debt")
         _assert_cached(payload["customer_totals"]["collected"], "customer collected")
         _assert_cached(payload["recon"]["difference"], "recon difference")
         _assert_cached(payload["tendered"]["total"], "tendered total")
@@ -635,6 +636,46 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIsNotNone(saldo_header)
         saldo = worksheet.cell(saldo_header.row + 1, saldo_header.column)
         self.assertAlmostEqual(float(saldo.value), 321.5, places=2)
+        debt_header = self._cell_with_value(worksheet, "Saldo Total")
+        self.assertIsNotNone(debt_header)
+        cobrado_header = self._cell_with_value(worksheet, "Cobrado")
+        self.assertIsNotNone(cobrado_header)
+        self.assertEqual(debt_header.row, cobrado_header.row)
+        self.assertEqual(debt_header.column, cobrado_header.column - 1)
+        debt = worksheet.cell(debt_header.row + 1, debt_header.column)
+        cobrado = worksheet.cell(debt_header.row + 1, debt_header.column + 1)
+        aplicado = worksheet.cell(debt_header.row + 1, debt_header.column + 2)
+        remanente = worksheet.cell(debt_header.row + 1, debt_header.column + 3)
+        self.assertIn("SUMIF", str(debt.value).upper())
+        self.assertIn("SUMIF", str(cobrado.value).upper())
+        self.assertIn("SUMIF", str(aplicado.value).upper())
+        self.assertRegex(str(remanente.value).replace("$", ""), r"^=C\d+-E\d+$")
+        invoice_number = self._cell_with_value(worksheet, "FAC-SALDO")
+        self.assertIsNotNone(invoice_number)
+        self.assertIn(str(invoice_number.row), str(debt.value))
+        self.assertIn("$E$", str(debt.value).upper())
+        self.assertIn("$H$", str(cobrado.value).upper())
+        self.assertIn("$F$", str(aplicado.value).upper())
+        cached = self._load(content, data_only=True).active
+        self.assertAlmostEqual(
+            float(cached.cell(debt.row, debt.column).value), 321.5, places=2
+        )
+        self.assertAlmostEqual(
+            float(cached.cell(cobrado.row, cobrado.column).value), 80.0, places=2
+        )
+        self.assertAlmostEqual(
+            float(cached.cell(aplicado.row, aplicado.column).value), 80.0, places=2
+        )
+        self.assertAlmostEqual(
+            float(cached.cell(remanente.row, remanente.column).value), 241.5, places=2
+        )
+        resumen_rem = self._cell_with_value(worksheet, "Remanente")
+        self.assertIsNotNone(resumen_rem)
+        resumen_formula = str(
+            worksheet.cell(resumen_rem.row, resumen_rem.column + 2).value or ""
+        )
+        self.assertNotIn("C11-G11", resumen_formula.replace("$", ""))
+        self.assertIn("=", resumen_formula)
 
     def test_xlsx_transfer_and_check_comprobante_fields(self):
         """XLSX MUST print voucher_number / check details, never the COL name."""

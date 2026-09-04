@@ -374,18 +374,19 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   non-clickable statusbar and **Validate by Seller** when `draft`; no Reject, no
   Collections button, no History tab (`review_snapshot_ids` unbound). Allocations menu
   is sequence 30 under `menu_collection_root` (after sheets at 20). Collection Receipts
-  menu is sequence 40. Receipt views are read-mostly: `state` and `external_receipt_id`
-  are form-readonly (ERP Close issues; the form does not). Allocation form notebooks
-  Vouchers, Customer Debt, Receipts, and Revisions. Customer Debt has **Add Debt**
-  (saved writable only) and `create="false"` on the embedded list; identity/balance
-  columns are readonly. Sheet form notebook is Allocations, Vouchers, and Debt
-  (`allocation_ids`, `voucher_ids`, `debt_line_ids`); membership is via voucher
-  `sheet_id`. Reassign header, kanban XMLID, and partner `group_expand` are dropped.
-  Allocation form has no Validate/Reject; freeze fields `readonly` from
-  `sheet_id.state`; statusbar `draft,confirmed`; search filters draft+confirmed. Sheet
-  statusbar `open,proposal,closed,cancelled` with Confirm/Close/Cancel/Open by state;
-  Document Review Open-only. Document Review OWL shows one editable control per field
-  prefilled from OCR (current fallback); Approve rewrites current only. `reviewed_by` /
+  menu is sequence 40. Receipt views are read-mostly: `state` is form-readonly (ERP
+  Close issues; the form does not). Collection Receipts and the allocation Receipts list
+  MUST NOT show `external_receipt_id`. Allocation form notebooks Vouchers, Customer
+  Debt, Receipts, and Revisions. Customer Debt has **Add Debt** (saved writable only)
+  and `create="false"` on the embedded list; identity/balance columns are readonly.
+  Sheet form notebook is Allocations, Vouchers, and Debt (`allocation_ids`,
+  `voucher_ids`, `debt_line_ids`); membership is via voucher `sheet_id`. Reassign
+  header, kanban XMLID, and partner `group_expand` are dropped. Allocation form has no
+  Validate/Reject; freeze fields `readonly` from `sheet_id.state`; statusbar
+  `draft,confirmed`; search filters draft+confirmed. Sheet statusbar
+  `open,proposal,closed,cancelled` with Confirm/Close/Cancel/Open by state; Document
+  Review Open-only. Document Review OWL shows one editable control per field prefilled
+  from OCR (current fallback); Approve rewrites current only. `reviewed_by` /
   `reviewed_at` stay on the model and leave the form. Print → Planilla de Cobranza is
   bound `qweb-pdf` (`web.external_layout`, `t-out`). Header **Export XLSX** is last
   object button before `state` (`action_print_xlsx` →

@@ -207,6 +207,60 @@ def _sum_or_zero(ws, row, col, first, last, fmt, cached):
     )
 
 
+def _section_span(start, n_rows):
+    """Return (first, last, footer, next_row) for title + header + n data + footer."""
+    first = start + 2 if n_rows else None
+    last = start + 1 + n_rows if n_rows else None
+    footer = start + 2 + n_rows
+    return first, last, footer, footer + 2
+
+
+def _data_ranges(start, counts):
+    """Return data ranges and the total row for stacked section blocks."""
+    cursor = start
+    ranges = []
+    for n_rows in counts:
+        first, last, _footer, cursor = _section_span(cursor, n_rows)
+        if first is not None:
+            ranges.append((first, last))
+    return ranges, cursor
+
+
+def _abs_range(first, last, col):
+    letter = chr(65 + col)
+    return f"${letter}${first}:${letter}${last}"
+
+
+def _sumif_formula(criteria_row, ranges, sum_col):
+    """SUMIF each data range by the customer name on ``criteria_row`` (column B)."""
+    if not ranges:
+        return "=0"
+    criteria = _a1(criteria_row, 1)
+    parts = [
+        (
+            f"SUMIF({_abs_range(first, last, 1)},"
+            f"{criteria},{_abs_range(first, last, sum_col)})"
+        )
+        for first, last in ranges
+    ]
+    return "=" + "+".join(parts)
+
+
+def _customer_detail_ranges(payload, customer_start):
+    """Document/voucher data ranges that sit below the Clientes section."""
+    n_customers = len(payload.get("customers") or [])
+    _, _, _, after_customers = _section_span(customer_start, n_customers)
+    document_counts = [
+        len(block.get("rows") or []) for block in payload.get("document_blocks") or ()
+    ]
+    document_ranges, document_total = _data_ranges(after_customers, document_counts)
+    voucher_counts = [
+        len(block.get("rows") or []) for block in payload.get("voucher_blocks") or ()
+    ]
+    voucher_ranges, _ = _data_ranges(document_total + 2, voucher_counts)
+    return document_ranges, voucher_ranges
+
+
 def _write_membrete(ws, fmt, payload):
     _merge(ws, 1, 0, 4, payload.get("company") or "", fmt["title"])
     _merge(ws, 1, 5, 7, "Planilla de Cobranza", fmt["subtitle"])
@@ -245,7 +299,9 @@ def _write_headers(ws, fmt, row, cells):
     ws.set_row(row - 1, 26)
 
 
-def _write_resumen(ws, fmt, payload, applied_ref, collected_ref, commission_refs):
+def _write_resumen(
+    ws, fmt, payload, applied_ref, collected_ref, commission_refs, residual_ref
+):
     _write_section(ws, fmt, 6, "Resumen")
     _write_field_row(
         ws,
@@ -309,7 +365,10 @@ def _write_resumen(ws, fmt, payload, applied_ref, collected_ref, commission_refs
     else:
         _merge(ws, 11, 6, 7, applied, fmt["value_money"])
     _merge(ws, 12, 0, 1, "Remanente", fmt["label"])
-    _merge_formula(ws, 12, 2, 3, "=C11-G11", fmt["value_money"], residual)
+    if residual_ref:
+        _merge_formula(ws, 12, 2, 3, f"={residual_ref}", fmt["value_money"], residual)
+    else:
+        _merge_formula(ws, 12, 2, 3, "=C11-G11", fmt["value_money"], residual)
     _merge(ws, 12, 4, 5, "Moneda", fmt["label"])
     _merge(ws, 12, 6, 7, payload.get("currency_name") or "", fmt["value"])
     percent = (payload.get("commission_percent") or 0.0) / 100.0
@@ -334,6 +393,8 @@ def _write_resumen(ws, fmt, payload, applied_ref, collected_ref, commission_refs
 def _write_customers(ws, fmt, payload, start):
     rows = payload.get("customers") or []
     totals = payload.get("customer_totals") or {}
+    document_ranges, voucher_ranges = _customer_detail_ranges(payload, start)
+    first, last, total_row, next_row = _section_span(start, len(rows))
     _write_section(ws, fmt, start, "Clientes")
     _write_headers(
         ws,
@@ -342,30 +403,57 @@ def _write_customers(ws, fmt, payload, start):
         (
             ("Código", 0, 0),
             ("Cliente", 1, 1),
-            ("Cobrado", 2, 2),
-            ("Aplicado", 3, 3),
-            ("Remanente", 4, 4),
-            ("Motivo del Remanente", 5, 7),
+            ("Saldo Total", 2, 2),
+            ("Cobrado", 3, 3),
+            ("Aplicado", 4, 4),
+            ("Remanente", 5, 5),
+            ("Motivo del Remanente", 6, 7),
         ),
     )
-    first = start + 2 if rows else None
-    last = start + 1 + len(rows) if rows else None
     for index, item in enumerate(rows):
-        row = start + 2 + index
+        row = first + index
         _write(ws, row, 0, item.get("code") or "", fmt["data"])
         _write(ws, row, 1, item.get("name") or "", fmt["data"])
-        _write(ws, row, 2, item.get("collected") or 0.0, fmt["data_money"])
-        _write(ws, row, 3, item.get("applied") or 0.0, fmt["data_money"])
-        _write(ws, row, 4, item.get("residual") or 0.0, fmt["data_money"])
-        _merge(
+        _formula(
+            ws,
+            row,
+            2,
+            _sumif_formula(row, document_ranges, 4),
+            fmt["data_money"],
+            item.get("debt") or 0.0,
+        )
+        _formula(
+            ws,
+            row,
+            3,
+            _sumif_formula(row, voucher_ranges, 7),
+            fmt["data_money"],
+            item.get("collected") or 0.0,
+        )
+        _formula(
+            ws,
+            row,
+            4,
+            _sumif_formula(row, document_ranges, 5),
+            fmt["data_money"],
+            item.get("applied") or 0.0,
+        )
+        _formula(
             ws,
             row,
             5,
+            f"={_a1(row, 2)}-{_a1(row, 4)}",
+            fmt["data_money"],
+            item.get("residual") or 0.0,
+        )
+        _merge(
+            ws,
+            row,
+            6,
             7,
             item.get("residual_reason") or "",
             fmt["data"],
         )
-    total_row = start + 2 + len(rows)
     _merge(ws, total_row, 0, 1, "Total", fmt["total"])
     _sum_or_zero(
         ws,
@@ -374,7 +462,7 @@ def _write_customers(ws, fmt, payload, start):
         first,
         last,
         fmt["total_money"],
-        totals.get("collected") or 0.0,
+        totals.get("debt") or 0.0,
     )
     _sum_or_zero(
         ws,
@@ -383,7 +471,7 @@ def _write_customers(ws, fmt, payload, start):
         first,
         last,
         fmt["total_money"],
-        totals.get("applied") or 0.0,
+        totals.get("collected") or 0.0,
     )
     _sum_or_zero(
         ws,
@@ -392,24 +480,35 @@ def _write_customers(ws, fmt, payload, start):
         first,
         last,
         fmt["total_money"],
+        totals.get("applied") or 0.0,
+    )
+    _sum_or_zero(
+        ws,
+        total_row,
+        5,
+        first,
+        last,
+        fmt["total_money"],
         totals.get("residual") or 0.0,
     )
-    _merge(ws, total_row, 5, 7, "", fmt["total"])
-    return total_row + 2, _a1(total_row, 2), _a1(total_row, 3), _a1(total_row, 4)
+    _merge(ws, total_row, 6, 7, "", fmt["total"])
+    return next_row, _a1(total_row, 3), _a1(total_row, 4), _a1(total_row, 5)
 
 
 def _write_documents(ws, fmt, payload, start):
     applied_refs = []
     commission_refs = []
-    row = start
+    cursor = start
     for block in payload.get("document_blocks") or ():
         title = _KIND_TITLES.get(block.get("kind"), block.get("kind") or "")
         rows = block.get("rows") or []
-        _write_section(ws, fmt, row, title)
+        block_start = cursor
+        first, last, sub_row, cursor = _section_span(block_start, len(rows))
+        _write_section(ws, fmt, block_start, title)
         _write_headers(
             ws,
             fmt,
-            row + 1,
+            block_start + 1,
             (
                 ("Código", 0, 0),
                 ("Cliente", 1, 1),
@@ -420,10 +519,8 @@ def _write_documents(ws, fmt, payload, start):
                 ("Comisión", 6, 7),
             ),
         )
-        first = row + 2 if rows else None
-        last = row + 1 + len(rows) if rows else None
         for index, item in enumerate(rows):
-            data_row = row + 2 + index
+            data_row = first + index
             _write(ws, data_row, 0, item.get("code") or "", fmt["data"])
             _write(ws, data_row, 1, item.get("name") or "", fmt["data"])
             _write(ws, data_row, 2, item.get("invoice_number") or "", fmt["data"])
@@ -446,7 +543,6 @@ def _write_documents(ws, fmt, payload, start):
                 item.get("commission") or 0.0,
                 fmt["data_money"],
             )
-        sub_row = row + 2 + len(rows)
         _merge(ws, sub_row, 0, 4, "Subtotal", fmt["sub"])
         _sum_or_zero(
             ws,
@@ -471,8 +567,7 @@ def _write_documents(ws, fmt, payload, start):
             )
         applied_refs.append(_a1(sub_row, 5))
         commission_refs.append(_a1(sub_row, 6))
-        row = sub_row + 2
-    total_row = row
+    total_row = cursor
     applied = payload.get("applied_total") or 0.0
     commission = sum(
         block.get("subtotal_commission") or 0.0
@@ -505,18 +600,18 @@ def _write_documents(ws, fmt, payload, start):
 def _write_vouchers(ws, fmt, payload, start):
     subtotals = {}
     refs = []
-    row = start
+    cursor = start
     for block in payload.get("voucher_blocks") or ():
         code = block.get("code") or ""
         label = block.get("label") or code
         rows = block.get("rows") or []
         columns = _VOUCHER_BLOCK_COLUMNS.get(code, _DEFAULT_VOUCHER_COLUMNS)
-        _write_section(ws, fmt, row, f"Comprobantes — {label}")
-        _write_headers(ws, fmt, row + 1, columns["headers"])
-        first = row + 2 if rows else None
-        last = row + 1 + len(rows) if rows else None
+        block_start = cursor
+        first, last, sub_row, cursor = _section_span(block_start, len(rows))
+        _write_section(ws, fmt, block_start, f"Comprobantes — {label}")
+        _write_headers(ws, fmt, block_start + 1, columns["headers"])
         for index, item in enumerate(rows):
-            data_row = row + 2 + index
+            data_row = first + index
             _write(ws, data_row, 0, item.get("code") or "", fmt["data"])
             _write(ws, data_row, 1, item.get("name") or "", fmt["data"])
             _write(ws, data_row, 2, _date_cell(item.get("date")), fmt["data_date"])
@@ -541,7 +636,6 @@ def _write_vouchers(ws, fmt, payload, start):
                     fmt["data_date"],
                 )
             _write(ws, data_row, 7, item.get("amount") or 0.0, fmt["data_money"])
-        sub_row = row + 2 + len(rows)
         _merge(ws, sub_row, 0, 6, "Subtotal", fmt["sub"])
         _sum_or_zero(
             ws,
@@ -555,8 +649,7 @@ def _write_vouchers(ws, fmt, payload, start):
         cell = _a1(sub_row, 7)
         subtotals[code] = cell
         refs.append(cell)
-        row = sub_row + 2
-    total_row = row
+    total_row = cursor
     collected = payload.get("collected_total") or 0.0
     _merge(ws, total_row, 0, 6, "Total Cobrado", fmt["total"])
     if refs:
@@ -708,10 +801,10 @@ def _build_xlsx(payload):
             ws.set_column(index, index, width)
         fmt = _formats(workbook)
         _write_membrete(ws, fmt, payload)
-        # Document/voucher sections are written first so resumen can cache
-        # forward-looking totals; row numbers match the template cursor.
+        # Clientes SUMIF formulas forward-ref Facturas/Comprobantes rows;
+        # Resumen is written last so it can cache those totals.
         customer_start = 15
-        next_row, _c_ref, _a_ref, _r_ref = _write_customers(
+        next_row, _c_ref, _a_ref, residual_ref = _write_customers(
             ws, fmt, payload, customer_start
         )
         next_row, applied_ref, commission_refs = _write_documents(
@@ -721,7 +814,15 @@ def _build_xlsx(payload):
             ws, fmt, payload, next_row
         )
         last_row = _write_recon(ws, workbook, fmt, payload, next_row, voucher_subtotals)
-        _write_resumen(ws, fmt, payload, applied_ref, collected_ref, commission_refs)
+        _write_resumen(
+            ws,
+            fmt,
+            payload,
+            applied_ref,
+            collected_ref,
+            commission_refs,
+            residual_ref,
+        )
         ws.freeze_panes(5, 0)
         ws.set_landscape()
         ws.set_paper(9)

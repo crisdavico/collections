@@ -17,31 +17,35 @@
             </t>
             <div class="page">
                 <style>
-                    .o_cs_sheet { font-size: 11px; color: #1f4e79; }
+                    .o_cs_sheet { font-size: 10px; color: #1f4e79; margin: 0; }
                     .o_cs_sheet h3 {
                         background: #1f4e79; color: #fff;
-                        padding: 4px 8px; font-size: 13px; margin-top: 12px;
+                        padding: 2px 6px; font-size: 11px;
+                        margin: 6px 0 2px;
+                    }
+                    .o_cs_sheet h3:first-child { margin-top: 0; }
+                    .o_cs_sheet h4 {
+                        font-size: 10px; margin: 4px 0 1px; font-weight: bold;
                     }
                     .o_cs_sheet table { width: 100%; border-collapse: collapse; }
                     .o_cs_sheet th, .o_cs_sheet td {
-                        border: 1px solid #8ea9db; padding: 3px 6px;
+                        border: 1px solid #8ea9db; padding: 1px 4px;
                     }
                     .o_cs_sheet th { background: #dbe5f1; }
                     .o_cs_sheet .o_cs_sub { background: #ededed; font-weight: bold; }
-                    .o_cs_sheet .o_cs_header_info th,
-                    .o_cs_sheet .o_cs_header_info td { text-align: right; }
+                    .o_cs_sheet .o_cs_header_info { table-layout: fixed; }
+                    .o_cs_sheet .o_cs_header_info th {
+                        width: 16%; text-align: right; white-space: nowrap;
+                    }
+                    .o_cs_sheet .o_cs_header_info td { width: 34%; text-align: right; }
+                    .o_cs_sheet .o_cs_header_info .o_cs_date { text-align: right; }
                     .o_cs_sheet .o_cs_date { text-align: center; }
-                    .o_cs_banner_balanced { background: #c6efce; padding: 8px; }
-                    .o_cs_banner_in_favor { background: #fff2cc; padding: 8px; }
-                    .o_cs_banner_outstanding { background: #ffc7ce; padding: 8px; }
-                    .o_cs_mismatch { background: #fff2cc; padding: 6px; margin-top: 8px; }
+                    .o_cs_banner_balanced { background: #c6efce; padding: 4px 6px; }
+                    .o_cs_banner_in_favor { background: #fff2cc; padding: 4px 6px; }
+                    .o_cs_banner_outstanding { background: #ffc7ce; padding: 4px 6px; }
+                    .o_cs_mismatch { background: #fff2cc; padding: 4px 6px; margin-top: 4px; }
                 </style>
                 <div class="o_cs_sheet">
-                    <h2>
-                        Planilla de Cobranza
-                        <span t-out="payload['reference']" />
-                    </h2>
-
                     <h3>Resumen</h3>
                     <table class="o_cs_header_info">
                         <tr>
@@ -113,8 +117,13 @@
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
-                            <th />
-                            <td />
+                            <th>Total Comisión</th>
+                            <td>
+                                <span
+                  t-out="sum(block['subtotal_commission'] for block in payload['document_blocks'])"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
                         </tr>
                     </table>
 
@@ -124,6 +133,7 @@
                             <tr>
                                 <th>Código</th>
                                 <th>Cliente</th>
+                                <th>Saldo Total</th>
                                 <th>Cobrado</th>
                                 <th>Aplicado</th>
                                 <th>Remanente</th>
@@ -134,6 +144,12 @@
                             <tr t-foreach="payload['customers']" t-as="row">
                                 <td t-out="row['code']" />
                                 <td t-out="row['name']" />
+                                <td>
+                                    <span
+                    t-out="row['debt']"
+                    t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                  />
+                                </td>
                                 <td>
                                     <span
                     t-out="row['collected']"
