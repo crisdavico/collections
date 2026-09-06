@@ -10,10 +10,20 @@ _DOCUMENT_TYPE_SELECTION = [
     ("check", "Check"),
     ("cash_deposit", "Cash Deposit"),
     ("unsupported", "Unsupported"),
+    ("echeck", "Echeck"),
+    ("cash", "Cash"),
+    ("retention_certificate", "Retention Certificate"),
 ]
 _CHECK_TYPE_SELECTION = [
     ("common", "Common"),
     ("deferred", "Deferred"),
+]
+_RETENTION_KIND_SELECTION = [
+    ("iva", "IVA"),
+    ("ganancias", "Ganancias"),
+    ("iibb", "IIBB"),
+    ("suss", "SUSS"),
+    ("other", "Other"),
 ]
 
 
@@ -64,6 +74,7 @@ class CollectionVoucherReviewSnapshot(models.Model):
     check_issue_date = fields.Date()
     check_payment_date = fields.Date()
     check_type = fields.Selection(selection=_CHECK_TYPE_SELECTION)
+    retention_kind = fields.Selection(selection=_RETENTION_KIND_SELECTION)
 
     _voucher_revision_uniq = models.Constraint(
         "UNIQUE(voucher_id, revision)",

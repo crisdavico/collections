@@ -30,7 +30,7 @@ from .test_collection_payment import (
 
 
 class TestCollectionReceiptSplit(TransactionCase):
-    """MCP splits, FIFO compat grouping, over-split, and amend rebuild."""
+    """MCP receipts-only values, over-split, uniqueness, and amend rebuild."""
 
     @classmethod
     def setUpClass(cls):
@@ -116,52 +116,67 @@ class TestCollectionReceiptSplit(TransactionCase):
         text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
         return json.loads(text)
 
-    def _payload(self, payments, invoices, **extra):
+    def _payment(self, amount, document_id=None, **extra):
+        document_type = extra.pop("document_type", "bank_transfer")
+        payment = {
+            "document_id": document_id or self._next_document_id(),
+            "seller_confirmed": {
+                "document_type": document_type,
+                "amount": amount,
+            },
+        }
+        payment.update(extra)
+        return payment
+
+    def _application(self, invoice, amount_applied):
+        return {
+            "external_document_id": invoice["external_invoice_id"],
+            "number": invoice.get("number"),
+            "balance_seen": invoice["balance"],
+            "amount_applied": amount_applied,
+        }
+
+    def _payload(self, payments, receipts, **extra):
         arguments = {
             "seller_id": extra.pop("seller_id", self.seller.id),
             "customer_identification": extra.pop("customer_identification", IDENT),
             "request_id": extra.pop("request_id", f"req-{self._testMethodName}"),
             "payments": payments,
-            "invoices": invoices,
+            "receipts": receipts,
         }
         arguments.update(extra)
         return arguments
 
-    def _payment(self, amount, document_id=None, **extra):
-        payment = {
-            "document_id": document_id or self._next_document_id(),
-            "document_type": extra.pop("document_type", "bank_transfer"),
-            "amount": amount,
-        }
-        payment.update(extra)
-        return payment
-
-    def _applied(self, invoice, amount_applied):
-        row = dict(invoice)
-        row["amount_applied"] = amount_applied
-        return row
-
-    def test_splits_optional_in_create_schema(self):
-        """splits MUST be optional on create_collection_allocation."""
+    def test_receipts_required_in_create_schema(self):
+        """receipts MUST be required on create_collection_allocation."""
         properties = _CREATE_COLLECTION_ALLOCATION_SCHEMA["properties"]
-        self.assertIn("splits", properties)
-        self.assertNotIn("splits", _CREATE_COLLECTION_ALLOCATION_SCHEMA["required"])
-        self.assertEqual(properties["splits"]["type"], "array")
-        item = properties["splits"]["items"]
-        self.assertEqual(
-            set(item["required"]), {"document_id", "document_kind", "amount"}
-        )
+        self.assertIn("receipts", properties)
+        self.assertIn("receipts", _CREATE_COLLECTION_ALLOCATION_SCHEMA["required"])
+        self.assertNotIn("splits", properties)
+        self.assertNotIn("invoices", properties)
+        self.assertEqual(properties["receipts"]["type"], "array")
+        self.assertGreaterEqual(properties["receipts"].get("minItems", 0), 1)
+        item = properties["receipts"]["items"]
+        self.assertEqual(set(item["required"]), {"document_kind", "values"})
         self.assertEqual(
             item["properties"]["document_kind"].get("enum"), ["invoice", "quotation"]
         )
 
-    def test_omitted_splits_compat_one_invoice_receipt(self):
-        """Non-empty invoices and no splits MUST persist exactly one invoice receipt."""
+    def test_explicit_invoice_receipt_values_persist(self):
+        """Invoice receipt values MUST persist on the matching receipt."""
         payment = self._payment(100.0)
         result = self._mcp_call(
             self._payload(
                 [payment],
-                [self._applied(INVOICE_OVERDUE, 70.0)],
+                [
+                    {
+                        "document_kind": "invoice",
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 100.0}
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 70.0)],
+                    }
+                ],
             )
         )
         allocation = self.env["collection.allocation"].browse(
@@ -171,34 +186,53 @@ class TestCollectionReceiptSplit(TransactionCase):
         self.assertEqual(len(receipts), 1)
         self.assertEqual(receipts.document_kind, "invoice")
         self.assertEqual(len(receipts.value_ids), 1)
-        self.assertEqual(receipts.value_ids.amount, 70.0)
+        self.assertEqual(receipts.value_ids.amount, 100.0)
         voucher = self.env["collection.voucher"].search(
             [("document_id", "=", payment["document_id"])]
         )
         self.assertEqual(receipts.value_ids.voucher_id, voucher)
         self.assertEqual(voucher.amount, 100.0)
 
-    def test_empty_invoices_no_splits_zero_receipts(self):
-        """Empty invoices[] and no splits MUST persist zero receipts."""
+    def test_empty_applications_still_persist_receipt_values(self):
+        """Empty applications MUST still persist the funded invoice receipt."""
         payment = self._payment(80.0)
         result = self._mcp_call(
-            self._payload([payment], [], residual_reason="on_account")
+            self._payload(
+                [payment],
+                [
+                    {
+                        "document_kind": "invoice",
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 80.0}
+                        ],
+                        "applications": [],
+                    }
+                ],
+            )
         )
         allocation = self.env["collection.allocation"].browse(
             result["allocation"]["id"]
         )
-        self.assertFalse(allocation.receipt_ids)
+        self.assertEqual(len(allocation.receipt_ids), 1)
+        self.assertEqual(allocation.receipt_ids.value_ids.amount, 80.0)
+        self.assertEqual(allocation.total_applied, 0.0)
 
-    def test_fifo_second_voucher_partial_value(self):
-        """FIFO MUST consume submit order: 60 then 40 of 50, leaving 10 unsplit."""
+    def test_two_payments_explicit_values(self):
+        """Each payment's value MUST land on the receipt as submitted."""
         first = self._payment(60.0)
         second = self._payment(50.0)
         result = self._mcp_call(
             self._payload(
                 [first, second],
                 [
-                    self._applied(INVOICE_OVERDUE, 100.0),
-                    self._applied(INVOICE_OPEN, 0.0),
+                    {
+                        "document_kind": "invoice",
+                        "values": [
+                            {"document_id": first["document_id"], "amount": 60.0},
+                            {"document_id": second["document_id"], "amount": 50.0},
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 100.0)],
+                    }
                 ],
             )
         )
@@ -212,7 +246,7 @@ class TestCollectionReceiptSplit(TransactionCase):
             value.voucher_id.document_id: value.amount for value in receipt.value_ids
         }
         self.assertEqual(values[first["document_id"]], 60.0)
-        self.assertEqual(values[second["document_id"]], 40.0)
+        self.assertEqual(values[second["document_id"]], 50.0)
         self.assertEqual(len(receipt.value_ids), 2)
 
     def test_split_one_voucher_two_kinds(self):
@@ -221,17 +255,20 @@ class TestCollectionReceiptSplit(TransactionCase):
         result = self._mcp_call(
             self._payload(
                 [payment],
-                [self._applied(INVOICE_OVERDUE, 40.0)],
-                splits=[
+                [
                     {
-                        "document_id": payment["document_id"],
                         "document_kind": "invoice",
-                        "amount": 40.0,
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 40.0}
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 40.0)],
                     },
                     {
-                        "document_id": payment["document_id"],
                         "document_kind": "quotation",
-                        "amount": 60.0,
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 60.0}
+                        ],
+                        "applications": [],
                     },
                 ],
             )
@@ -254,68 +291,86 @@ class TestCollectionReceiptSplit(TransactionCase):
         self.assertEqual(quotation.value_ids.voucher_id, voucher)
 
     def test_over_split_refused_no_allocation(self):
-        """Splits summing above the payment amount MUST raise with no persist."""
+        """Receipt values summing above the payment MUST raise with no persist."""
         before = self.env["collection.allocation"].search_count([])
         payment = self._payment(50.0)
         with self.assertRaises(UserError) as ctx:
             self._mcp_call(
                 self._payload(
                     [payment],
-                    [self._applied(INVOICE_OVERDUE, 50.0)],
-                    splits=[
+                    [
                         {
-                            "document_id": payment["document_id"],
                             "document_kind": "invoice",
-                            "amount": 30.0,
+                            "values": [
+                                {
+                                    "document_id": payment["document_id"],
+                                    "amount": 30.0,
+                                }
+                            ],
+                            "applications": [self._application(INVOICE_OVERDUE, 30.0)],
                         },
                         {
-                            "document_id": payment["document_id"],
                             "document_kind": "quotation",
-                            "amount": 21.0,
+                            "values": [
+                                {
+                                    "document_id": payment["document_id"],
+                                    "amount": 21.0,
+                                }
+                            ],
+                            "applications": [],
                         },
                     ],
                 )
             )
         message = str(ctx.exception).lower()
         self.assertNotIn("unexpected keyword", message)
-        self.assertIn("split", message)
         self.assertEqual(self.env["collection.allocation"].search_count([]), before)
 
     def test_duplicate_split_kind_refused(self):
-        """Duplicate (document_id, document_kind) splits MUST raise."""
+        """Duplicate document_id on the same receipt values MUST raise."""
         before = self.env["collection.allocation"].search_count([])
         payment = self._payment(100.0)
         with self.assertRaises(UserError) as ctx:
             self._mcp_call(
                 self._payload(
                     [payment],
-                    [self._applied(INVOICE_OVERDUE, 80.0)],
-                    splits=[
+                    [
                         {
-                            "document_id": payment["document_id"],
                             "document_kind": "invoice",
-                            "amount": 40.0,
-                        },
-                        {
-                            "document_id": payment["document_id"],
-                            "document_kind": "invoice",
-                            "amount": 40.0,
-                        },
+                            "values": [
+                                {
+                                    "document_id": payment["document_id"],
+                                    "amount": 40.0,
+                                },
+                                {
+                                    "document_id": payment["document_id"],
+                                    "amount": 60.0,
+                                },
+                            ],
+                            "applications": [self._application(INVOICE_OVERDUE, 80.0)],
+                        }
                     ],
                 )
             )
         message = str(ctx.exception).lower()
         self.assertNotIn("unexpected keyword", message)
-        self.assertIn("split", message)
         self.assertEqual(self.env["collection.allocation"].search_count([]), before)
 
-    def test_amend_splits_rebuild_adds_quotation_keeps_one_invoice(self):
-        """Amend from compat to splits MUST add a quotation receipt uniquely."""
+    def test_amend_rebuilds_adds_quotation_keeps_one_invoice(self):
+        """Amend MUST rebuild receipts to match the new explicit values."""
         payment = self._payment(100.0)
         first = self._mcp_call(
             self._payload(
                 [payment],
-                [self._applied(INVOICE_OVERDUE, 40.0)],
+                [
+                    {
+                        "document_kind": "invoice",
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 100.0}
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 40.0)],
+                    }
+                ],
                 request_id=f"req-{self._testMethodName}-1",
             )
         )
@@ -328,34 +383,34 @@ class TestCollectionReceiptSplit(TransactionCase):
         )
         old_receipt_ids = first_allocation.receipt_ids.ids
         self.assertEqual(len(old_receipt_ids), 1)
-        combined = first_voucher | extra
+        combined_payments = [
+            {
+                "document_id": voucher.document_id,
+                "seller_confirmed": {
+                    "document_type": voucher.document_type,
+                    "amount": voucher.amount,
+                },
+            }
+            for voucher in (first_voucher | extra)
+        ]
         second = self._mcp_call(
             self._payload(
+                combined_payments,
                 [
                     {
-                        "document_id": voucher.document_id,
-                        "document_type": voucher.document_type,
-                        "amount": voucher.amount,
-                    }
-                    for voucher in combined
-                ],
-                [
-                    self._applied(INVOICE_OVERDUE, 40.0),
-                    {**self._applied(INVOICE_OPEN, 50.0), "document_kind": "quotation"},
+                        "document_kind": "invoice",
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 100.0}
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 40.0)],
+                    },
+                    {
+                        "document_kind": "quotation",
+                        "values": [{"document_id": extra.document_id, "amount": 50.0}],
+                        "applications": [self._application(INVOICE_OPEN, 50.0)],
+                    },
                 ],
                 request_id=f"req-{self._testMethodName}-2",
-                splits=[
-                    {
-                        "document_id": payment["document_id"],
-                        "document_kind": "invoice",
-                        "amount": 40.0,
-                    },
-                    {
-                        "document_id": extra.document_id,
-                        "document_kind": "quotation",
-                        "amount": 50.0,
-                    },
-                ],
             )
         )
         self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])
@@ -379,13 +434,21 @@ class TestCollectionReceiptSplit(TransactionCase):
             self.env["collection.receipt"].browse(old_receipt_ids).exists()
         )
 
-    def test_amend_without_splits_keeps_compat_one_invoice_receipt(self):
-        """Amend voucher superset without splits MUST keep one invoice receipt."""
+    def test_amend_rebuilds_receipt_values(self):
+        """Amend voucher superset MUST rebuild receipt values from the new payload."""
         payment = self._payment(100.0)
         first = self._mcp_call(
             self._payload(
                 [payment],
-                [self._applied(INVOICE_OVERDUE, 70.0)],
+                [
+                    {
+                        "document_kind": "invoice",
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 100.0}
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 70.0)],
+                    }
+                ],
                 request_id=f"req-{self._testMethodName}-1",
             )
         )
@@ -398,19 +461,30 @@ class TestCollectionReceiptSplit(TransactionCase):
         )
         old_receipt_ids = first_allocation.receipt_ids.ids
         self.assertEqual(len(old_receipt_ids), 1)
-        self.assertEqual(first_allocation.receipt_ids.document_kind, "invoice")
         combined = first_voucher | extra
+        combined_payments = [
+            {
+                "document_id": voucher.document_id,
+                "seller_confirmed": {
+                    "document_type": voucher.document_type,
+                    "amount": voucher.amount,
+                },
+            }
+            for voucher in combined
+        ]
         second = self._mcp_call(
             self._payload(
+                combined_payments,
                 [
                     {
-                        "document_id": voucher.document_id,
-                        "document_type": voucher.document_type,
-                        "amount": voucher.amount,
+                        "document_kind": "invoice",
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 100.0},
+                            {"document_id": extra.document_id, "amount": 50.0},
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 70.0)],
                     }
-                    for voucher in combined
                 ],
-                [self._applied(INVOICE_OVERDUE, 70.0)],
                 request_id=f"req-{self._testMethodName}-2",
             )
         )
@@ -421,40 +495,48 @@ class TestCollectionReceiptSplit(TransactionCase):
         receipts = allocation.receipt_ids
         self.assertEqual(len(receipts), 1)
         self.assertEqual(receipts.document_kind, "invoice")
-        self.assertEqual(len(receipts.value_ids), 1)
-        self.assertEqual(receipts.value_ids.voucher_id, first_voucher)
-        self.assertEqual(receipts.value_ids.amount, 70.0)
-        extra_values = self.env["collection.receipt.value"].search(
-            [("voucher_id", "=", extra.id)]
-        )
-        self.assertFalse(extra_values)
+        self.assertEqual(len(receipts.value_ids), 2)
         self.assertFalse(
             self.env["collection.receipt"].browse(old_receipt_ids).exists()
         )
 
-    def test_splits_prevent_hash_replay(self):
-        """Adding splits to otherwise identical content MUST not replay."""
+    def test_receipts_prevent_hash_replay(self):
+        """Changing receipt values MUST not replay as unchanged content."""
         payment = self._payment(100.0)
-        invoices = [self._applied(INVOICE_OVERDUE, 40.0)]
+        first_receipts = [
+            {
+                "document_kind": "invoice",
+                "values": [{"document_id": payment["document_id"], "amount": 100.0}],
+                "applications": [self._application(INVOICE_OVERDUE, 40.0)],
+            }
+        ]
         first = self._mcp_call(
             self._payload(
                 [payment],
-                invoices,
+                first_receipts,
                 request_id=f"req-{self._testMethodName}-1",
             )
         )
         second = self._mcp_call(
             self._payload(
                 [payment],
-                invoices,
-                request_id=f"req-{self._testMethodName}-2",
-                splits=[
+                [
                     {
-                        "document_id": payment["document_id"],
                         "document_kind": "invoice",
-                        "amount": 40.0,
-                    }
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 40.0}
+                        ],
+                        "applications": [self._application(INVOICE_OVERDUE, 40.0)],
+                    },
+                    {
+                        "document_kind": "quotation",
+                        "values": [
+                            {"document_id": payment["document_id"], "amount": 60.0}
+                        ],
+                        "applications": [],
+                    },
                 ],
+                request_id=f"req-{self._testMethodName}-2",
             )
         )
         self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])

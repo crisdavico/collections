@@ -193,9 +193,10 @@ currencies MUST raise `UserError` (template is single-currency).
 
 The system MUST bind `ir.actions.report` `qweb-pdf` on `collection.sheet`
 (`binding_type` report) so Print → Planilla de Cobranza appears on form and list.
-Paperformat MUST be A4 landscape with compact header room (`margin_top` 20mm,
-`header_spacing` 12mm, `margin_bottom` 12mm) so the company letterhead does not leave a
-large blank band above Resumen. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
+Paperformat MUST be A4 portrait with compact header room (`margin_top` 20mm,
+`header_spacing` 5mm, `margin_bottom` 8mm, `margin_left`/`margin_right` 6mm) so the
+company letterhead does not leave a large blank band above Resumen and the tables span
+the usable width. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
 call `web.html_container` plus `web.external_layout` (PDF membrete is company
 letterhead, not workbook rows 1–4). Body MUST NOT repeat the Planilla title already set
 on `layout_document_title`. HTML render (MUST NOT spawn wkhtmltopdf in tests) MUST
@@ -208,7 +209,8 @@ and the recon banner.
 - WHEN inspected
 - THEN `report_type` MUST be `qweb-pdf`, model `collection.sheet`, binding report on
   that model, with the collection-sheet paperformat
-- AND paperformat `margin_top` MUST be 20, `header_spacing` 12, `margin_bottom` 12
+- AND paperformat orientation MUST be `Portrait`, `margin_top` 20,
+  `header_spacing` 5, `margin_bottom` 8, `margin_left`/`margin_right` 6
 - AND the document arch MUST set `layout_document_title` and MUST NOT contain a body
   `<h2>`
 

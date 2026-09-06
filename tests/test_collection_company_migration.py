@@ -11,6 +11,11 @@ from odoo.tests import TransactionCase
 from .test_collection_payment import dummy_customer_partner, ensure_enabled_seller
 
 ALL_TYPE_CODES = frozenset({"bank_transfer", "check", "cash_deposit", "unsupported"})
+SEVEN_TYPE_CODES = ALL_TYPE_CODES | {
+    "echeck",
+    "cash",
+    "retention_certificate",
+}
 MIGRATE_PATH = (
     Path(__file__).resolve().parents[1]
     / "migrations"
@@ -152,10 +157,10 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_38_0(self):
+    def test_manifest_version_is_1_40_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.38.0"', manifest.read_text(encoding="utf-8"))
+        self.assertIn('"version": "19.0.1.40.0"', manifest.read_text(encoding="utf-8"))
         for leftover in (
             "19.0.1.26.0",
             "19.0.1.27.0",
@@ -165,11 +170,17 @@ class TestCollectionCompanyMigration(TransactionCase):
             "19.0.1.36.0",
             "19.0.1.37.0",
             "19.0.1.38.0",
+            "19.0.1.39.0",
         ):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
                 f"No migrations/{leftover}/ folder",
             )
+        migrate_140 = module_root / "migrations" / "19.0.1.40.0" / "post-migrate.py"
+        self.assertTrue(migrate_140.is_file(), "Need 19.0.1.40.0 allow-list union")
+        text_140 = migrate_140.read_text(encoding="utf-8")
+        self.assertIn("_collection_enable_all_document_types", text_140)
+        self.assertNotIn("_collection_seed_allowed_document_types", text_140)
         migrate_128 = module_root / "migrations" / "19.0.1.28.0" / "post-migrate.py"
         self.assertTrue(migrate_128.is_file(), "Need 19.0.1.28.0 allocation remap")
         text_128 = migrate_128.read_text(encoding="utf-8")
@@ -293,7 +304,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.38.0`", agents)
+        self.assertIn("Module metadata `19.0.1.40.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`open`/`proposal`/`closed`/`cancelled`", agents)
         self.assertIn("Confirm/Close/Cancel/Open", agents)
@@ -307,6 +318,8 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertNotIn("Module metadata `19.0.1.35.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.36.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.37.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.38.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.39.0`", agents)
         self.assertNotIn("`partner_id.group_expand`", agents)
         self.assertIn(
             '"Closed collection sheets cannot change membership. Reopen first."',
@@ -505,13 +518,43 @@ class TestCollectionCompanyMigration(TransactionCase):
         self._run_migrate()
         self.assertEqual(
             set(company_b.allowed_document_type_ids.mapped("code")),
-            ALL_TYPE_CODES,
+            SEVEN_TYPE_CODES,
         )
         self.assertIn(extra, self.env.company.allowed_document_type_ids)
         self.assertEqual(
             set(self.env.company.allowed_document_type_ids.mapped("code")),
-            ALL_TYPE_CODES | {"wire_mig"},
+            SEVEN_TYPE_CODES | {"wire_mig"},
         )
+
+    def test_upgrade_140_unions_three_types_keeps_extras(self):
+        """1.40.0 MUST union echeck/cash/retention_certificate and keep extras."""
+        migrate_path = (
+            Path(__file__).resolve().parents[1]
+            / "migrations"
+            / "19.0.1.40.0"
+            / "post-migrate.py"
+        )
+        self.assertTrue(migrate_path.is_file(), "Need 19.0.1.40.0 allow-list union")
+        text = migrate_path.read_text(encoding="utf-8")
+        self.assertIn("_collection_enable_all_document_types", text)
+        self.assertNotIn("_collection_seed_allowed_document_types", text)
+        extra = self.env["collection.document.type"].create(
+            {"code": "wire_140", "name": "Wire 140"}
+        )
+        four_ids = [
+            self.env.ref(f"collection.document_type_{code}").id
+            for code in ("bank_transfer", "check", "cash_deposit", "unsupported")
+        ]
+        company_b = self._create_company("Union Types Co B")
+        company_b.write({"allowed_document_type_ids": [(6, 0, four_ids + [extra.id])]})
+        spec = spec_from_file_location("collection_140_post_migrate", migrate_path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.migrate(self.env.cr, "19.0.1.39.0")
+        self.env.invalidate_all()
+        codes = set(company_b.allowed_document_type_ids.mapped("code"))
+        self.assertEqual(codes, SEVEN_TYPE_CODES | {"wire_140"})
+        self.assertIn(extra, company_b.allowed_document_type_ids)
 
     def test_migrate_binds_null_sequences_to_main_and_copies_others(self):
         main = self.env.ref("base.main_company")
@@ -627,7 +670,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertFalse(company.enabled_seller_ids)
         self.assertEqual(
             set(company.allowed_document_type_ids.mapped("code")),
-            ALL_TYPE_CODES,
+            SEVEN_TYPE_CODES,
         )
         for code, prefix in (
             ("collection.voucher", "COL"),

@@ -16,5 +16,17 @@
         <field name="code">unsupported</field>
         <field name="name">Unsupported</field>
     </record>
+    <record id="document_type_echeck" model="collection.document.type">
+        <field name="code">echeck</field>
+        <field name="name">Echeck</field>
+    </record>
+    <record id="document_type_cash" model="collection.document.type">
+        <field name="code">cash</field>
+        <field name="name">Cash</field>
+    </record>
+    <record id="document_type_retention_certificate" model="collection.document.type">
+        <field name="code">retention_certificate</field>
+        <field name="name">Retention Certificate</field>
+    </record>
     <function model="res.company" name="_collection_seed_allowed_document_types" />
 </odoo>

@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import math
+import re
 from base64 import b64decode
+from datetime import date, datetime
 from typing import Any
 
 from psycopg2.errors import UniqueViolation
@@ -11,6 +14,59 @@ from psycopg2.errors import UniqueViolation
 from odoo import _, api, models
 from odoo.exceptions import UserError
 from odoo.tools.mimetypes import guess_mimetype
+
+# One contract map drives flattened JSON Schema (MuK-safe) and runtime parse.
+# MuK ``to_strict_schema`` strips ``anyOf`` / ``additionalProperties``; amounts
+# are advertised as ``number`` (nullable on nests) and parsed as number|string.
+_DOCUMENT_TYPES = (
+    "bank_transfer",
+    "check",
+    "echeck",
+    "cash_deposit",
+    "retention_certificate",
+    "cash",
+    "unsupported",
+)
+_CHECK_TYPES = ("common", "deferred")
+_RETENTION_KINDS = ("iva", "ganancias", "iibb", "suss", "other")
+_OMIT_VALUES = (None, False, "")
+_ISO_DATE = re.compile(r"\A\d{4}-\d{2}-\d{2}\Z")
+_DATE_FIELDS = frozenset({"voucher_date", "check_issue_date", "check_payment_date"})
+_CHECK_DATE_TYPES = frozenset({"check", "echeck"})
+
+_TYPE_OWNED_FIELDS: dict[str, frozenset[str]] = {
+    "bank_transfer": frozenset(
+        {"amount", "from_account", "to_account", "voucher_number", "voucher_date"}
+    ),
+    "check": frozenset(
+        {
+            "amount",
+            "check_number",
+            "check_bank",
+            "check_issue_date",
+            "check_payment_date",
+            "check_type",
+        }
+    ),
+    "echeck": frozenset(
+        {
+            "amount",
+            "check_number",
+            "check_bank",
+            "check_issue_date",
+            "check_payment_date",
+            "check_type",
+        }
+    ),
+    "cash_deposit": frozenset(
+        {"amount", "to_account", "voucher_number", "voucher_date"}
+    ),
+    "retention_certificate": frozenset(
+        {"amount", "voucher_number", "voucher_date", "retention_kind"}
+    ),
+    "cash": frozenset({"amount", "voucher_date"}),
+    "unsupported": frozenset(),
+}
 
 _PAYMENT_OPTIONAL_FIELDS = (
     "amount",
@@ -23,10 +79,155 @@ _PAYMENT_OPTIONAL_FIELDS = (
     "check_issue_date",
     "check_payment_date",
     "check_type",
+    "retention_kind",
 )
+_PAYMENT_KEYS = frozenset({"document_id", "attachment", "raw_ocr", "seller_confirmed"})
+_ATTACHMENT_KEYS = frozenset({"name", "mimetype", "datas"})
+_PROVENANCE_KEYS = frozenset(("document_type",) + _PAYMENT_OPTIONAL_FIELDS)
 
-_DOCUMENT_TYPES = ("bank_transfer", "check", "cash_deposit", "unsupported")
-_CHECK_TYPES = ("common", "deferred")
+_COLLECTION_AMOUNT_SCHEMA = {
+    "type": "number",
+    "description": "Amount as a JSON number or decimal string.",
+}
+_COLLECTION_NULLABLE_AMOUNT_SCHEMA = {
+    "type": "number",
+    "nullable": True,
+    "description": "Payment amount as a JSON number or decimal string.",
+}
+
+_NEST_FIELD_SCHEMA = {
+    "amount": _COLLECTION_NULLABLE_AMOUNT_SCHEMA,
+    "from_account": {
+        "type": "string",
+        "nullable": True,
+        "description": "Source account.",
+    },
+    "to_account": {
+        "type": "string",
+        "nullable": True,
+        "description": "Destination account.",
+    },
+    "voucher_number": {
+        "type": "string",
+        "nullable": True,
+        "description": "Bank voucher number.",
+    },
+    "voucher_date": {
+        "type": "string",
+        "nullable": True,
+        "description": "Bank voucher date (ISO).",
+    },
+    "check_number": {
+        "type": "string",
+        "nullable": True,
+        "description": "Check number.",
+    },
+    "check_bank": {
+        "type": "string",
+        "nullable": True,
+        "description": "Check bank name.",
+    },
+    "check_issue_date": {
+        "type": "string",
+        "nullable": True,
+        "description": "Check issue date (ISO).",
+    },
+    "check_payment_date": {
+        "type": "string",
+        "nullable": True,
+        "description": "Check payment date (ISO).",
+    },
+    "check_type": {
+        "type": "string",
+        "nullable": True,
+        "enum": list(_CHECK_TYPES),
+        "description": "Check type.",
+    },
+    "retention_kind": {
+        "type": "string",
+        "nullable": True,
+        "enum": list(_RETENTION_KINDS),
+        "description": "Retention certificate kind.",
+    },
+}
+
+
+def _collection_reject_unknown_keys(
+    raw: dict[str, Any], allowed: frozenset[str], label: str
+) -> None:
+    """Raise UserError when ``raw`` has keys outside ``allowed`` (extra=forbid)."""
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise UserError(
+            _(
+                "%(label)s has unsupported keys: %(keys)s.",
+                label=label,
+                keys=", ".join(unknown),
+            )
+        )
+
+
+def _collection_normalize_amount(value: Any) -> float:
+    """Parse a JSON number or decimal string; reject bool, non-finite, and junk."""
+    if isinstance(value, bool) or value in _OMIT_VALUES:
+        raise ValueError("invalid amount")
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            raise ValueError("invalid amount")
+    elif not isinstance(value, int | float):
+        raise ValueError("invalid amount")
+    try:
+        amount = float(value)
+    except (TypeError, ValueError) as err:
+        raise ValueError("invalid amount") from err
+    if not math.isfinite(amount):
+        raise ValueError("invalid amount")
+    return amount
+
+
+def _collection_normalize_iso_date(value: Any) -> str:
+    """Return ``YYYY-MM-DD``; accept ISO strings or ``date``/``datetime``."""
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str) and _ISO_DATE.fullmatch(value):
+        date.fromisoformat(value)
+        return value
+    raise ValueError("invalid date")
+
+
+def _collection_normalize_mimetype(value: str) -> str:
+    """Casefold, strip parameters, and alias ``image/jpg`` to ``image/jpeg``."""
+    base = value.split(";", 1)[0].strip().casefold()
+    if base == "image/jpg":
+        return "image/jpeg"
+    return base
+
+
+def _provenance_nest_schema() -> dict[str, Any]:
+    """Flattened seven-type nest schema from ``_TYPE_OWNED_FIELDS``."""
+    properties: dict[str, Any] = {
+        "document_type": {
+            "type": "string",
+            "enum": list(_DOCUMENT_TYPES),
+            "description": "Payment document type.",
+        },
+    }
+    for field_name in _PAYMENT_OPTIONAL_FIELDS:
+        properties[field_name] = dict(_NEST_FIELD_SCHEMA[field_name])
+    return {
+        "type": "object",
+        "description": (
+            "Typed payment review fields. seller_confirmed is required; raw_ocr is "
+            "optional. Must include document_type. Must not include document_id, "
+            "attachment, or base64."
+        ),
+        "properties": properties,
+        "required": ["document_type"],
+    }
+
 
 _ATTACHMENT_NEST_SCHEMA = {
     "type": "object",
@@ -51,142 +252,21 @@ _ATTACHMENT_NEST_SCHEMA = {
     "required": ["name", "mimetype", "datas"],
 }
 
-_PROVENANCE_NEST_SCHEMA = {
-    "type": "object",
-    "description": (
-        "Typed payment review fields. Required together with the sibling nest. "
-        "Must include document_type. Must not include document_id, attachment, "
-        "or base64."
-    ),
-    "properties": {
-        "document_type": {
-            "type": "string",
-            "enum": list(_DOCUMENT_TYPES),
-            "description": "Payment document type.",
-        },
-        "amount": {
-            "type": "number",
-            "nullable": True,
-            "description": "Payment amount.",
-        },
-        "from_account": {
-            "type": "string",
-            "nullable": True,
-            "description": "Source account.",
-        },
-        "to_account": {
-            "type": "string",
-            "nullable": True,
-            "description": "Destination account.",
-        },
-        "voucher_number": {
-            "type": "string",
-            "nullable": True,
-            "description": "Bank voucher number.",
-        },
-        "voucher_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Bank voucher date (ISO).",
-        },
-        "check_number": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check number.",
-        },
-        "check_bank": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check bank name.",
-        },
-        "check_issue_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check issue date (ISO).",
-        },
-        "check_payment_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check payment date (ISO).",
-        },
-        "check_type": {
-            "type": "string",
-            "nullable": True,
-            "enum": list(_CHECK_TYPES),
-            "description": "Check type.",
-        },
-    },
-    "required": ["document_type"],
-}
+_PROVENANCE_NEST_SCHEMA = _provenance_nest_schema()
 
 _PAYMENT_SCHEMA = {
     "type": "object",
     "properties": {
         "document_id": {
             "type": "string",
+            "minLength": 1,
             "description": "Unique payment document identifier.",
-        },
-        "document_type": {
-            "type": "string",
-            "enum": list(_DOCUMENT_TYPES),
-            "description": "Payment document type.",
-        },
-        "amount": {
-            "type": "number",
-            "nullable": True,
-            "description": "Payment amount.",
-        },
-        "from_account": {
-            "type": "string",
-            "nullable": True,
-            "description": "Source account.",
-        },
-        "to_account": {
-            "type": "string",
-            "nullable": True,
-            "description": "Destination account.",
-        },
-        "voucher_number": {
-            "type": "string",
-            "nullable": True,
-            "description": "Bank voucher number.",
-        },
-        "voucher_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Bank voucher date (ISO).",
-        },
-        "check_number": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check number.",
-        },
-        "check_bank": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check bank name.",
-        },
-        "check_issue_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check issue date (ISO).",
-        },
-        "check_payment_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Check payment date (ISO).",
-        },
-        "check_type": {
-            "type": "string",
-            "nullable": True,
-            "enum": list(_CHECK_TYPES),
-            "description": "Check type.",
         },
         "attachment": _ATTACHMENT_NEST_SCHEMA,
         "raw_ocr": _PROVENANCE_NEST_SCHEMA,
         "seller_confirmed": _PROVENANCE_NEST_SCHEMA,
     },
-    "required": ["document_id", "document_type"],
+    "required": ["document_id", "seller_confirmed"],
 }
 
 
@@ -199,17 +279,23 @@ class CollectionMcpMixin(models.AbstractModel):
     def _collection_parse_payment_vals(
         self, payments: list[dict[str, Any]], identification: str
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        """Validate payment dicts and replicate top-level identification."""
+        """Validate payments; voucher fields come from required seller_confirmed."""
         if not isinstance(identification, str) or not identification.strip():
             raise UserError(_("customer_identification is required."))
         identification = identification.strip()
         payment_vals_list: list[dict[str, Any]] = []
         identifications: list[str] = []
+        currency = self.env.company.currency_id
         for index, raw in enumerate(payments):
             if not isinstance(raw, dict):
                 raise UserError(
                     _("Payment at index %(index)s must be an object.", index=index)
                 )
+            _collection_reject_unknown_keys(
+                raw,
+                _PAYMENT_KEYS,
+                _("Payment at index %(index)s", index=index),
+            )
             document_id = raw.get("document_id")
             if not isinstance(document_id, str) or not document_id.strip():
                 raise UserError(
@@ -219,30 +305,50 @@ class CollectionMcpMixin(models.AbstractModel):
                         index=index,
                     )
                 )
-            document_type = raw.get("document_type")
-            if document_type not in _DOCUMENT_TYPES:
+            seller = raw.get("seller_confirmed")
+            if seller in (None, False, ""):
                 raise UserError(
                     _(
-                        "Invalid document_type for payment index %(index)s.",
+                        "Each payment requires seller_confirmed (index %(index)s).",
                         index=index,
                     )
                 )
-            check_type = raw.get("check_type")
-            if check_type not in (None, False, "") and check_type not in _CHECK_TYPES:
+            parsed = self._collection_parse_provenance_nest(
+                seller, index, "seller_confirmed"
+            )
+            document_type = parsed["document_type"]
+            if document_type == "unsupported":
                 raise UserError(
                     _(
-                        "Invalid check_type for payment index %(index)s.",
+                        "Unsupported payments cannot be allocated (index %(index)s).",
+                        index=index,
+                    )
+                )
+            amount = parsed.get("amount")
+            try:
+                amount_value = _collection_normalize_amount(amount)
+            except ValueError as err:
+                raise UserError(
+                    _(
+                        "seller_confirmed amount must be greater than zero "
+                        "(index %(index)s).",
+                        index=index,
+                    )
+                ) from err
+            if currency.compare_amounts(amount_value, 0.0) <= 0:
+                raise UserError(
+                    _(
+                        "seller_confirmed amount must be greater than zero "
+                        "(index %(index)s).",
                         index=index,
                     )
                 )
             identifications.append(identification)
             vals: dict[str, Any] = {
                 "document_id": document_id.strip(),
-                "document_type": document_type,
+                **parsed,
+                "amount": amount_value,
             }
-            for field_name in _PAYMENT_OPTIONAL_FIELDS:
-                if field_name in raw and raw[field_name] not in (None, ""):
-                    vals[field_name] = raw[field_name]
             payment_vals_list.append(vals)
         return payment_vals_list, identifications
 
@@ -268,7 +374,7 @@ class CollectionMcpMixin(models.AbstractModel):
         payments: list[dict[str, Any]],
         payment_vals_list: list[dict[str, Any]],
     ) -> list[dict[str, Any] | None]:
-        """Validate optional provenance nests on the all-new create path only."""
+        """Stamp seller_* always; stamp ocr_* only when raw_ocr is present."""
         stamps: list[dict[str, Any] | None] = []
         for index, (raw, current_vals) in enumerate(
             zip(payments, payment_vals_list, strict=True)
@@ -286,23 +392,22 @@ class CollectionMcpMixin(models.AbstractModel):
         current_vals: dict[str, Any],
         index: int,
     ) -> dict[str, Any] | None:
-        """Return ocr_*/seller_* stamps, None when both nests are omitted."""
+        """Return ocr_*/seller_* stamps; seller_confirmed required, raw_ocr optional."""
         payload = raw if isinstance(raw, dict) else {}
         raw_ocr = payload.get("raw_ocr")
         seller = payload.get("seller_confirmed")
         raw_present = raw_ocr not in (None, False, "")
         seller_present = seller not in (None, False, "")
-        if not raw_present and not seller_present:
-            return None
-        if raw_present != seller_present:
-            raise UserError(
-                _(
-                    "Payment at index %(index)s requires both raw_ocr and "
-                    "seller_confirmed together.",
-                    index=index,
+        if not seller_present:
+            if raw_present:
+                raise UserError(
+                    _(
+                        "Payment at index %(index)s requires seller_confirmed "
+                        "when raw_ocr is present.",
+                        index=index,
+                    )
                 )
-            )
-        parsed_raw = self._collection_parse_provenance_nest(raw_ocr, index, "raw_ocr")
+            return None
         parsed_seller = self._collection_parse_provenance_nest(
             seller, index, "seller_confirmed"
         )
@@ -320,10 +425,14 @@ class CollectionMcpMixin(models.AbstractModel):
                 )
             )
         stamp: dict[str, Any] = {}
-        for name, value in parsed_raw.items():
-            stamp[f"ocr_{name}"] = value
         for name, value in parsed_seller.items():
             stamp[f"seller_{name}"] = value
+        if raw_present:
+            parsed_raw = self._collection_parse_provenance_nest(
+                raw_ocr, index, "raw_ocr"
+            )
+            for name, value in parsed_raw.items():
+                stamp[f"ocr_{name}"] = value
         return stamp
 
     @api.model
@@ -340,18 +449,15 @@ class CollectionMcpMixin(models.AbstractModel):
                     index=index,
                 )
             )
-        allowed = self.env["collection.voucher"]._REVIEW_EDITABLE_FIELDS
-        unknown = set(nest) - allowed
-        if unknown:
-            raise UserError(
-                _(
-                    "Payment %(nest_name)s at index %(index)s has unsupported "
-                    "keys: %(keys)s.",
-                    nest_name=nest_name,
-                    index=index,
-                    keys=", ".join(sorted(unknown)),
-                )
-            )
+        _collection_reject_unknown_keys(
+            nest,
+            _PROVENANCE_KEYS,
+            _(
+                "Payment %(nest_name)s at index %(index)s",
+                nest_name=nest_name,
+                index=index,
+            ),
+        )
         document_type = nest.get("document_type")
         if document_type not in _DOCUMENT_TYPES:
             raise UserError(
@@ -361,8 +467,24 @@ class CollectionMcpMixin(models.AbstractModel):
                     index=index,
                 )
             )
+        owned = _TYPE_OWNED_FIELDS[document_type]
+        foreign = sorted(
+            key
+            for key, value in nest.items()
+            if key != "document_type" and value not in _OMIT_VALUES and key not in owned
+        )
+        if foreign:
+            raise UserError(
+                _(
+                    "Payment %(nest_name)s at index %(index)s has type-foreign "
+                    "keys: %(keys)s.",
+                    nest_name=nest_name,
+                    index=index,
+                    keys=", ".join(foreign),
+                )
+            )
         check_type = nest.get("check_type")
-        if check_type not in (None, False, "") and check_type not in _CHECK_TYPES:
+        if check_type not in _OMIT_VALUES and check_type not in _CHECK_TYPES:
             raise UserError(
                 _(
                     "Invalid check_type in %(nest_name)s for payment index %(index)s.",
@@ -370,10 +492,66 @@ class CollectionMcpMixin(models.AbstractModel):
                     index=index,
                 )
             )
+        retention_kind = nest.get("retention_kind")
+        if (
+            retention_kind not in _OMIT_VALUES
+            and retention_kind not in _RETENTION_KINDS
+        ):
+            raise UserError(
+                _(
+                    "Invalid retention_kind in %(nest_name)s for payment "
+                    "index %(index)s.",
+                    nest_name=nest_name,
+                    index=index,
+                )
+            )
         vals: dict[str, Any] = {"document_type": document_type}
         for field_name in _PAYMENT_OPTIONAL_FIELDS:
-            if field_name in nest and nest[field_name] not in (None, ""):
-                vals[field_name] = nest[field_name]
+            if field_name not in owned or field_name not in nest:
+                continue
+            value = nest[field_name]
+            if value in _OMIT_VALUES:
+                continue
+            if field_name == "amount":
+                try:
+                    vals["amount"] = _collection_normalize_amount(value)
+                except ValueError as err:
+                    raise UserError(
+                        _(
+                            "Invalid amount in %(nest_name)s for payment "
+                            "index %(index)s.",
+                            nest_name=nest_name,
+                            index=index,
+                        )
+                    ) from err
+                continue
+            if field_name in _DATE_FIELDS:
+                try:
+                    vals[field_name] = _collection_normalize_iso_date(value)
+                except ValueError as err:
+                    raise UserError(
+                        _(
+                            "Invalid %(field_name)s in %(nest_name)s for payment "
+                            "index %(index)s.",
+                            field_name=field_name,
+                            nest_name=nest_name,
+                            index=index,
+                        )
+                    ) from err
+                continue
+            vals[field_name] = value
+        if document_type in _CHECK_DATE_TYPES:
+            issue = vals.get("check_issue_date")
+            payment = vals.get("check_payment_date")
+            if issue and payment and payment < issue:
+                raise UserError(
+                    _(
+                        "check_payment_date must be on or after check_issue_date "
+                        "in %(nest_name)s for payment index %(index)s.",
+                        nest_name=nest_name,
+                        index=index,
+                    )
+                )
         return vals
 
     @api.model
@@ -388,6 +566,11 @@ class CollectionMcpMixin(models.AbstractModel):
                     index=index,
                 )
             )
+        _collection_reject_unknown_keys(
+            nest,
+            _ATTACHMENT_KEYS,
+            _("Payment attachment at index %(index)s", index=index),
+        )
         name = nest.get("name")
         mimetype = nest.get("mimetype")
         datas = nest.get("datas")
@@ -421,8 +604,9 @@ class CollectionMcpMixin(models.AbstractModel):
 
         raw = datas.encode() if isinstance(datas, str) else datas
         detected = guess_mimetype(b64decode(raw, validate=True)) or ""
-        declared = mimetype.strip()
-        if declared != detected:
+        declared = _collection_normalize_mimetype(mimetype)
+        detected_normalized = _collection_normalize_mimetype(detected)
+        if declared != detected_normalized:
             raise UserError(
                 _(
                     "Payment attachment mimetype at index %(index)s "

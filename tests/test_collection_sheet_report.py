@@ -227,8 +227,8 @@ class TestCollectionSheetReport(TransactionCase):
             }
         )
 
-    def test_report_action_is_qweb_pdf_bound_a4_landscape(self):
-        """Print menu XMLID MUST be qweb-pdf on collection.sheet with A4 landscape."""
+    def test_report_action_is_qweb_pdf_bound_a4_portrait(self):
+        """Print menu XMLID MUST be qweb-pdf on collection.sheet with A4 portrait."""
         action = self.env.ref(REPORT_XMLID)
         self.assertEqual(action.report_type, "qweb-pdf")
         self.assertEqual(action.model, "collection.sheet")
@@ -240,12 +240,12 @@ class TestCollectionSheetReport(TransactionCase):
         paper = action.paperformat_id
         self.assertEqual(paper, self.env.ref("collection.paperformat_collection_sheet"))
         self.assertEqual(paper.format, "A4")
-        self.assertEqual(paper.orientation, "Landscape")
+        self.assertEqual(paper.orientation, "Portrait")
         self.assertEqual(paper.margin_top, 20)
-        self.assertEqual(paper.header_spacing, 12)
-        self.assertEqual(paper.margin_bottom, 12)
-        self.assertEqual(paper.margin_left, 5)
-        self.assertEqual(paper.margin_right, 5)
+        self.assertEqual(paper.header_spacing, 5)
+        self.assertEqual(paper.margin_bottom, 8)
+        self.assertEqual(paper.margin_left, 6)
+        self.assertEqual(paper.margin_right, 6)
         self.assertEqual(paper.dpi, 90)
 
     def _mark_validated_collections(self, vouchers):

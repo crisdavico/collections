@@ -20,6 +20,88 @@ from .test_collection_payment import (
 )
 
 TOOL_NAME = "create_collection_allocation"
+_PAYMENT_NEST_FIELDS = (
+    "document_type",
+    "amount",
+    "from_account",
+    "to_account",
+    "voucher_number",
+    "voucher_date",
+    "check_number",
+    "check_bank",
+    "check_issue_date",
+    "check_payment_date",
+    "check_type",
+    "retention_kind",
+)
+
+
+def _nest_seller_confirmed(payment):
+    """Move top-level voucher fields into seller_confirmed when missing."""
+    if not isinstance(payment, dict):
+        return payment
+    item = dict(payment)
+    item.pop("customer_identification", None)
+    seller = item.get("seller_confirmed")
+    if seller not in (None, False, ""):
+        for field_name in _PAYMENT_NEST_FIELDS:
+            item.pop(field_name, None)
+        return item
+    nest = {}
+    for field_name in _PAYMENT_NEST_FIELDS:
+        if field_name in item:
+            nest[field_name] = item.pop(field_name)
+    if nest:
+        item["seller_confirmed"] = nest
+    return item
+
+
+def _on_account_receipts(payments):
+    """One invoice receipt funded by every payment, applications empty."""
+    values = []
+    for payment in payments:
+        if not isinstance(payment, dict):
+            continue
+        seller = payment.get("seller_confirmed") or {}
+        document_id = payment.get("document_id")
+        amount = seller.get("amount")
+        if document_id and amount not in (None, False, ""):
+            values.append({"document_id": document_id, "amount": amount})
+    if not values:
+        return []
+    return [
+        {
+            "document_kind": "invoice",
+            "values": values,
+            "applications": [],
+        }
+    ]
+
+
+def _prepare_allocation_arguments(arguments, default_seller_id, request_id):
+    """Normalize fused-write payloads to the receipts-only MCP contract."""
+    arguments = dict(arguments)
+    arguments.setdefault("seller_id", default_seller_id)
+    payments = list(arguments.get("payments") or [])
+    ident = arguments.get("customer_identification")
+    if not ident:
+        for payment in payments:
+            if isinstance(payment, dict) and payment.get("customer_identification"):
+                ident = payment["customer_identification"]
+                break
+    if ident:
+        arguments["customer_identification"] = ident
+    cleaned = [_nest_seller_confirmed(payment) for payment in payments]
+    arguments["payments"] = cleaned
+    arguments.setdefault("request_id", request_id)
+    arguments.pop("invoices", None)
+    arguments.pop("residual_reason", None)
+    arguments.pop("splits", None)
+    arguments.pop("total_debt", None)
+    if not arguments.get("receipts"):
+        arguments["receipts"] = _on_account_receipts(cleaned)
+    return arguments, ident
+
 
 # Minimal valid payloads (base64) for MCP attachment triangulation.
 PNG_B64 = (
@@ -27,6 +109,11 @@ PNG_B64 = (
     "DJ/pLvAAAAAElFTkSuQmCC"
 )
 PDF_B64 = "JVBERi0xLjEKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK"
+JPEG_B64 = (
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHR"
+    "ofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyMjwuMzQy/8AACwgAAQABAQERAP/E"
+    "AB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//aAAgAAQABAAA/AHvz/9k="
+)
 TXT_B64 = "aGVsbG8gd29ybGQ="
 INVALID_B64 = "!!!not-base64!!!"
 
@@ -46,29 +133,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         install_bound_test_connector(self, self.internal_user)
 
     def _call(self, arguments, user=None):
-        arguments = dict(arguments)
-        arguments.setdefault("seller_id", self.internal_user.id)
-        payments = list(arguments.get("payments") or [])
-        ident = arguments.get("customer_identification")
-        if not ident:
-            for payment in payments:
-                if isinstance(payment, dict) and payment.get("customer_identification"):
-                    ident = payment["customer_identification"]
-                    break
-        if ident:
-            arguments["customer_identification"] = ident
-        cleaned = []
-        for payment in payments:
-            if not isinstance(payment, dict):
-                cleaned.append(payment)
-                continue
-            item = dict(payment)
-            item.pop("customer_identification", None)
-            cleaned.append(item)
-        arguments["payments"] = cleaned
-        arguments.setdefault("request_id", f"req-{self._testMethodName}")
-        arguments.setdefault("invoices", [])
-        arguments.setdefault("residual_reason", "on_account")
+        arguments, ident = _prepare_allocation_arguments(
+            arguments, self.internal_user.id, f"req-{self._testMethodName}"
+        )
         echo_args = dict(arguments)
         if ident:
             echoed = []
@@ -731,6 +798,96 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertEqual(self._chatter_attachment_count(), before_atts)
         self.assertFalse(self._field_attachments(voucher))
 
+    def test_image_jpg_aliases_to_jpeg(self):
+        """Declared ``image/jpg`` MUST alias to detected ``image/jpeg``."""
+        before = self.env["collection.voucher"].search_count([])
+        result = self._call(
+            {
+                "payments": [
+                    {
+                        "customer_identification": "MCP-ATT-JPG",
+                        "document_id": "MCP-DOC-ATT-JPG",
+                        "document_type": "bank_transfer",
+                        "amount": 12.0,
+                        "attachment": self._nest("proof.jpg", "image/jpg", JPEG_B64),
+                    }
+                ],
+            }
+        )
+        voucher = self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
+        self.assertTrue(voucher.exists())
+        self.assertEqual(voucher.message_main_attachment_id.name, "proof.jpg")
+        self.assertTrue(voucher.message_main_attachment_id)
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before + 1)
+
+    def test_cash_omit_and_null_attachment_raw_ocr(self):
+        """Cash MUST persist when attachment and raw_ocr are omitted or JSON null."""
+        omit_result = self._call(
+            {
+                "request_id": "req-cash-omit",
+                "payments": [
+                    {
+                        "customer_identification": "MCP-CASH-OMIT",
+                        "document_id": "MCP-DOC-CASH-OMIT",
+                        "seller_confirmed": {
+                            "document_type": "cash",
+                            "amount": "150000",
+                            "voucher_date": "2026-09-01",
+                        },
+                    }
+                ],
+            }
+        )
+        omit = self.env["collection.voucher"].browse(omit_result["vouchers"][0]["id"])
+        self.assertEqual(omit.document_type, "cash")
+        self.assertFalse(omit.message_main_attachment_id)
+        self.assertFalse(omit.ocr_document_type)
+        null_result = self._call(
+            {
+                "request_id": "req-cash-null",
+                "payments": [
+                    {
+                        "customer_identification": "MCP-CASH-NULL",
+                        "document_id": "MCP-DOC-CASH-NULL",
+                        "attachment": None,
+                        "raw_ocr": None,
+                        "seller_confirmed": {
+                            "document_type": "cash",
+                            "amount": "150000",
+                            "voucher_date": None,
+                        },
+                    }
+                ],
+            }
+        )
+        null_voucher = self.env["collection.voucher"].browse(
+            null_result["vouchers"][0]["id"]
+        )
+        self.assertEqual(null_voucher.document_type, "cash")
+        self.assertFalse(null_voucher.message_main_attachment_id)
+        self.assertFalse(null_voucher.ocr_amount)
+
+    def test_type_foreign_nest_fields_rejected(self):
+        """Type-foreign nest keys MUST raise UserError with no writes."""
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._call(
+                {
+                    "payments": [
+                        {
+                            "customer_identification": "MCP-ATT-FOREIGN",
+                            "document_id": "MCP-DOC-ATT-FOREIGN",
+                            "seller_confirmed": {
+                                "document_type": "bank_transfer",
+                                "amount": 12.0,
+                                "check_number": "CHK-FOREIGN",
+                            },
+                        }
+                    ],
+                }
+            )
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
 
 class TestCollectionMcpProvenance(TransactionCase):
     """RED/GREEN: nested raw_ocr + seller_confirmed on all-new MCP create."""
@@ -747,29 +904,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         install_bound_test_connector(self, self.internal_user)
 
     def _call(self, arguments, user=None):
-        arguments = dict(arguments)
-        arguments.setdefault("seller_id", self.internal_user.id)
-        payments = list(arguments.get("payments") or [])
-        ident = arguments.get("customer_identification")
-        if not ident:
-            for payment in payments:
-                if isinstance(payment, dict) and payment.get("customer_identification"):
-                    ident = payment["customer_identification"]
-                    break
-        if ident:
-            arguments["customer_identification"] = ident
-        cleaned = []
-        for payment in payments:
-            if not isinstance(payment, dict):
-                cleaned.append(payment)
-                continue
-            item = dict(payment)
-            item.pop("customer_identification", None)
-            cleaned.append(item)
-        arguments["payments"] = cleaned
-        arguments.setdefault("request_id", f"req-{self._testMethodName}")
-        arguments.setdefault("invoices", [])
-        arguments.setdefault("residual_reason", "on_account")
+        arguments, ident = _prepare_allocation_arguments(
+            arguments, self.internal_user.id, f"req-{self._testMethodName}"
+        )
         echo_args = dict(arguments)
         if ident:
             echoed = []
@@ -869,6 +1006,10 @@ class TestCollectionMcpProvenance(TransactionCase):
             payment_schema.get("required", []),
         )
         self.assertIn("attachment", properties)
+        self.assertEqual(
+            set(payment_schema.get("required", [])),
+            {"document_id", "seller_confirmed"},
+        )
         for nest_key in ("raw_ocr", "seller_confirmed"):
             nest_props = properties[nest_key].get("properties", {})
             self.assertIn("document_type", nest_props)
@@ -883,7 +1024,7 @@ class TestCollectionMcpProvenance(TransactionCase):
                 self.assertNotIn(forbidden, nest_props)
 
     def test_omitted_nests_leave_null_provenance(self):
-        """Both nests omitted MUST leave empty provenance on all-new create."""
+        """seller_confirmed-only MUST stamp seller_* and leave ocr_* empty."""
         result = self._call(
             {
                 "payments": [
@@ -900,7 +1041,21 @@ class TestCollectionMcpProvenance(TransactionCase):
         voucher = self._voucher(result)
         self.assertAlmostEqual(voucher.amount, 40.0, places=2)
         self.assertEqual(voucher.from_account, "FROM-OMIT")
-        self._assert_empty_provenance(voucher)
+        self._assert_layer_matches(
+            voucher,
+            "seller",
+            {
+                "document_type": "bank_transfer",
+                "amount": 40.0,
+                "from_account": "FROM-OMIT",
+            },
+        )
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_value = voucher[f"ocr_{name}"]
+            if name == "amount":
+                self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
+            else:
+                self.assertFalse(ocr_value, f"ocr_{name}")
         self.assertEqual(self._snapshot_count(voucher), 0)
 
     def test_orm_create_without_nests_leaves_null_provenance(self):
@@ -943,7 +1098,17 @@ class TestCollectionMcpProvenance(TransactionCase):
         )
         voucher = self._voucher(result)
         self.assertTrue(voucher.message_main_attachment_id)
-        self._assert_empty_provenance(voucher)
+        self._assert_layer_matches(
+            voucher,
+            "seller",
+            {"document_type": "bank_transfer", "amount": 5.0},
+        )
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_value = voucher[f"ocr_{name}"]
+            if name == "amount":
+                self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
+            else:
+                self.assertFalse(ocr_value, f"ocr_{name}")
         self._assert_no_base64_in_provenance(voucher)
 
     def test_unchanged_seller_stamps_all_three_layers_equal(self):
@@ -1044,7 +1209,7 @@ class TestCollectionMcpProvenance(TransactionCase):
         self.assertNotIn("seller_seller_id", voucher._fields)
 
     def test_one_sided_nests_reject_with_no_writes(self):
-        """Only one of raw_ocr/seller_confirmed MUST fail the batch before write."""
+        """raw_ocr without seller_confirmed MUST fail the batch before write."""
         before = self.env["collection.voucher"].search_count([])
         with self.assertRaises(UserError) as err:
             self._call(
@@ -1053,8 +1218,6 @@ class TestCollectionMcpProvenance(TransactionCase):
                         {
                             "customer_identification": "MCP-PROV-ONE",
                             "document_id": "MCP-DOC-PROV-ONE",
-                            "document_type": "bank_transfer",
-                            "amount": 10.0,
                             "raw_ocr": {
                                 "document_type": "bank_transfer",
                                 "amount": 10.0,
@@ -1105,15 +1268,9 @@ class TestCollectionMcpProvenance(TransactionCase):
                 "MCP-DOC-PROV-MISMATCH",
                 {
                     "document_id": "MCP-DOC-PROV-MISMATCH",
-                    "document_type": "bank_transfer",
-                    "amount": 3.0,
-                    "raw_ocr": {
-                        "document_type": "bank_transfer",
-                        "amount": 3.0,
-                    },
                     "seller_confirmed": {
-                        "document_type": "bank_transfer",
-                        "amount": 99.0,
+                        "document_type": "unsupported",
+                        "amount": 3.0,
                     },
                 },
             ),
@@ -1207,9 +1364,7 @@ class TestCollectionMcpProvenance(TransactionCase):
                         {
                             "customer_identification": "MCP-PROV-BATCH",
                             "document_id": "MCP-DOC-PROV-BATCH-BAD",
-                            "document_type": "cash_deposit",
-                            "amount": 9.0,
-                            "seller_confirmed": {
+                            "raw_ocr": {
                                 "document_type": "cash_deposit",
                                 "amount": 9.0,
                             },
@@ -1235,7 +1390,7 @@ class TestCollectionMcpProvenance(TransactionCase):
         mixin_cls = type(self.env["muk_mcp.mixin"])
         parse_vals_src = inspect.getsource(mixin_cls._collection_parse_payment_vals)
         self.assertNotIn("raw_ocr", parse_vals_src)
-        self.assertNotIn("seller_confirmed", parse_vals_src)
+        self.assertIn("seller_confirmed", parse_vals_src)
         self.assertTrue(
             hasattr(mixin_cls, "_collection_parse_payment_provenance"),
             "provenance MUST be parsed by a dedicated create-path helper",
@@ -1382,7 +1537,21 @@ class TestCollectionMcpProvenance(TransactionCase):
         )
         self.assertEqual(second["vouchers"], first["vouchers"])
         voucher.invalidate_recordset()
-        self._assert_empty_provenance(voucher)
+        self._assert_layer_matches(
+            voucher,
+            "seller",
+            {
+                "document_type": "check",
+                "amount": 6.0,
+                "check_type": "common",
+            },
+        )
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_value = voucher[f"ocr_{name}"]
+            if name == "amount":
+                self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
+            else:
+                self.assertFalse(ocr_value, f"ocr_{name}")
 
     def test_unique_violation_replay_ignores_nests_no_backfill(self):
         """UniqueViolation exact-set replay MUST ignore nests and not backfill."""
@@ -1399,7 +1568,17 @@ class TestCollectionMcpProvenance(TransactionCase):
             }
         )
         voucher = self._voucher(first)
-        self._assert_empty_provenance(voucher)
+        self._assert_layer_matches(
+            voucher,
+            "seller",
+            {"document_type": "bank_transfer", "amount": 13.0},
+        )
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_value = voucher[f"ocr_{name}"]
+            if name == "amount":
+                self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
+            else:
+                self.assertFalse(ocr_value, f"ocr_{name}")
         doc_ids = ["MCP-DOC-PROV-UV"]
         search_patch, calls = self._patch_voucher_search_miss_once(doc_ids)
         with mute_logger("odoo.sql_db"), search_patch:
@@ -1427,5 +1606,137 @@ class TestCollectionMcpProvenance(TransactionCase):
         self.assertGreaterEqual(calls["n"], 2)
         self.assertEqual(second["vouchers"], first["vouchers"])
         voucher.invalidate_recordset()
-        self._assert_empty_provenance(voucher)
+        self._assert_layer_matches(
+            voucher,
+            "seller",
+            {"document_type": "bank_transfer", "amount": 13.0},
+        )
+        for name in voucher._REVIEW_EDITABLE_FIELDS:
+            ocr_value = voucher[f"ocr_{name}"]
+            if name == "amount":
+                self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
+            else:
+                self.assertFalse(ocr_value, f"ocr_{name}")
         self.assertEqual(self._snapshot_count(voucher), 0)
+
+    def test_json_null_optional_nest_fields_are_omit(self):
+        """Dump-style JSON null on unused typed nest fields MUST omit, not fail."""
+        nest = {
+            "document_type": "bank_transfer",
+            "amount": "150000",
+            "from_account": None,
+            "to_account": None,
+            "voucher_number": None,
+            "voucher_date": "2026-09-01",
+        }
+        result = self._call(
+            {
+                "payments": [
+                    {
+                        "customer_identification": "MCP-PROV-NULL-DUMP",
+                        "document_id": "MCP-DOC-PROV-NULL-DUMP",
+                        "attachment": None,
+                        "raw_ocr": None,
+                        "seller_confirmed": dict(nest),
+                    }
+                ],
+            }
+        )
+        voucher = self._voucher(result)
+        self.assertEqual(voucher.document_type, "bank_transfer")
+        self.assertAlmostEqual(voucher.amount, 150000, places=2)
+        self.assertEqual(str(voucher.voucher_date), "2026-09-01")
+        self.assertFalse(voucher.from_account)
+        self.assertFalse(voucher.to_account)
+        self.assertFalse(voucher.ocr_document_type)
+
+    def test_extra_keys_on_nests_rejected(self):
+        """Unknown keys on seller_confirmed, raw_ocr, and attachment MUST raise."""
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._call(
+                {
+                    "payments": [
+                        {
+                            "customer_identification": "MCP-PROV-EXTRA-SC",
+                            "document_id": "MCP-DOC-PROV-EXTRA-SC",
+                            "seller_confirmed": {
+                                "document_type": "bank_transfer",
+                                "amount": 12.0,
+                                "unexpected_nest_key": 1,
+                            },
+                        }
+                    ],
+                }
+            )
+        with self.assertRaises(UserError):
+            self._call(
+                {
+                    "payments": [
+                        {
+                            "customer_identification": "MCP-PROV-EXTRA-RAW",
+                            "document_id": "MCP-DOC-PROV-EXTRA-RAW",
+                            "raw_ocr": {
+                                "document_type": "bank_transfer",
+                                "amount": 12.0,
+                                "unexpected_ocr_key": 1,
+                            },
+                            "seller_confirmed": {
+                                "document_type": "bank_transfer",
+                                "amount": 12.0,
+                            },
+                        }
+                    ],
+                }
+            )
+        with self.assertRaises(UserError):
+            self._call(
+                {
+                    "payments": [
+                        {
+                            "customer_identification": "MCP-PROV-EXTRA-ATT",
+                            "document_id": "MCP-DOC-PROV-EXTRA-ATT",
+                            "attachment": {
+                                "name": "proof.png",
+                                "mimetype": "image/png",
+                                "datas": PNG_B64,
+                                "unexpected_att_key": 1,
+                            },
+                            "seller_confirmed": {
+                                "document_type": "bank_transfer",
+                                "amount": 12.0,
+                            },
+                        }
+                    ],
+                }
+            )
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+    def test_retention_kind_stamps_current_seller_and_ocr_layers(self):
+        """retention_kind MUST stamp current, seller_*, ocr_* when raw_ocr is set."""
+
+        nest = {
+            "document_type": "retention_certificate",
+            "amount": "150000",
+            "voucher_number": "RET-KIND",
+            "voucher_date": "2026-09-01",
+            "retention_kind": "iva",
+        }
+        result = self._call(
+            {
+                "payments": [
+                    {
+                        "customer_identification": "MCP-PROV-RET",
+                        "document_id": "MCP-DOC-PROV-RET",
+                        "raw_ocr": dict(nest),
+                        "seller_confirmed": dict(nest),
+                    }
+                ],
+            }
+        )
+        voucher = self._voucher(result)
+        self.assertEqual(voucher.document_type, "retention_certificate")
+        self.assertEqual(voucher.retention_kind, "iva")
+        self.assertEqual(voucher.seller_retention_kind, "iva")
+        self.assertEqual(voucher.ocr_retention_kind, "iva")
+        self.assertAlmostEqual(voucher.amount, 150000, places=2)

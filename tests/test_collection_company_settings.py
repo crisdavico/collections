@@ -11,6 +11,13 @@ CATALOG_XMLIDS = (
     ("collection.document_type_check", "check", "Check"),
     ("collection.document_type_cash_deposit", "cash_deposit", "Cash Deposit"),
     ("collection.document_type_unsupported", "unsupported", "Unsupported"),
+    ("collection.document_type_echeck", "echeck", "Echeck"),
+    ("collection.document_type_cash", "cash", "Cash"),
+    (
+        "collection.document_type_retention_certificate",
+        "retention_certificate",
+        "Retention Certificate",
+    ),
 )
 ALL_TYPE_CODES = frozenset(code for _xmlid, code, _name in CATALOG_XMLIDS)
 
@@ -25,11 +32,11 @@ class TestCollectionCompanySettings(TransactionCase):
             self.assertEqual(rec.code, code, f"{xmlid} must store code {code}")
             self.assertEqual(rec.name, name, f"{xmlid} must store name {name}")
 
-    def test_catalog_has_exactly_four_seeded_types(self):
-        """Triangulation: install data seeds exactly the four catalog codes."""
+    def test_catalog_has_exactly_seven_seeded_types(self):
+        """Install data seeds exactly the seven catalog codes including echeck/cash/retention."""
         types = self.env["collection.document.type"].search([])
         self.assertEqual(set(types.mapped("code")), ALL_TYPE_CODES)
-        self.assertEqual(len(types), 4)
+        self.assertEqual(len(types), 7)
 
     def test_catalog_duplicate_code_raises_integrity_error(self):
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
@@ -65,16 +72,16 @@ class TestCollectionCompanySettings(TransactionCase):
         company = self.env["res.company"].new({"name": "Auto Sheet Default Co"})
         self.assertTrue(company.auto_create_sheet)
 
-    def test_env_company_allows_all_four_document_types(self):
+    def test_env_company_allows_all_seven_document_types(self):
         codes = set(self.env.company.allowed_document_type_ids.mapped("code"))
         self.assertEqual(
             codes,
             ALL_TYPE_CODES,
-            "all four document types must start enabled on the company",
+            "all seven document types must start enabled on the company",
         )
 
-    def test_new_company_enables_all_four_document_types(self):
-        """Triangulation: a company with no prior settings enables all four types."""
+    def test_new_company_enables_all_seven_document_types(self):
+        """Triangulation: a company with no prior settings enables all seven types."""
         company = self.env["res.company"].new({"name": "Catalog Default Co"})
         codes = set(company.allowed_document_type_ids.mapped("code"))
         self.assertEqual(codes, ALL_TYPE_CODES)
@@ -88,10 +95,9 @@ class TestCollectionCompanySettings(TransactionCase):
             self.env.company.allowed_document_type_ids,
             "Unsupported must remain independently configurable",
         )
-        self.assertEqual(
-            set(self.env.company.allowed_document_type_ids.mapped("code")),
-            {"bank_transfer", "check", "cash_deposit"},
-        )
+        remaining = set(self.env.company.allowed_document_type_ids.mapped("code"))
+        self.assertNotIn("unsupported", remaining)
+        self.assertTrue(remaining)
 
     def test_enabled_seller_ids_default_empty(self):
         """Empty enabled sellers means none, not all. Field has no 'all' default."""

@@ -658,7 +658,7 @@ class TestCollectionReceipt(TransactionCase):
             self.assertNotIn("sudo()", code)
 
     def test_compat_fifo_one_invoice_receipt_unsplit_remainder(self):
-        """No splits + applied 70 on voucher 100 MUST persist one invoice value 70."""
+        """Explicit receipt value 70 on a 100 voucher MUST persist that amount."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation(
             amount=100.0,
             lines=[
@@ -673,8 +673,21 @@ class TestCollectionReceipt(TransactionCase):
         mixin._collection_allocation_rebuild_receipts(
             allocation,
             voucher,
-            [{"external_invoice_id": "INV-FIFO", "amount_applied": 70.0}],
-            [],
+            [
+                {
+                    "document_kind": "invoice",
+                    "values": [
+                        {"document_id": voucher.document_id, "amount": 70.0},
+                    ],
+                    "applications": [
+                        {
+                            "external_document_id": "INV-FIFO",
+                            "amount_applied": 70.0,
+                            "balance_seen": 70.0,
+                        }
+                    ],
+                }
+            ],
         )
         receipts = allocation.receipt_ids
         self.assertEqual(len(receipts), 1)
@@ -685,10 +698,10 @@ class TestCollectionReceipt(TransactionCase):
         self.assertEqual(receipts.total_values, 70.0)
 
     def test_empty_invoices_rebuild_creates_zero_receipts(self):
-        """Empty invoices and no splits MUST leave the allocation with zero receipts."""
+        """Empty receipt rows MUST leave the allocation with zero receipts."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         mixin = self.env["muk_mcp.mixin"]
-        mixin._collection_allocation_rebuild_receipts(allocation, voucher, [], [])
+        mixin._collection_allocation_rebuild_receipts(allocation, voucher, [])
         self.assertFalse(allocation.receipt_ids)
 
     def test_close_issues_draft_receipts(self):

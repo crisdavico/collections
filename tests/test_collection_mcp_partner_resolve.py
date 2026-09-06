@@ -14,6 +14,7 @@ from .common_connector import (
     install_bound_test_connector,
     mcp_env_with_listable_customers,
 )
+from .test_collection_mcp_tool import _nest_seller_confirmed, _on_account_receipts
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -63,19 +64,16 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         return json.loads(text)
 
     def _payload(self, customer, payments, **extra):
-        cleaned = []
-        for payment in payments:
-            item = dict(payment)
-            item.pop("customer_identification", None)
-            cleaned.append(item)
+        cleaned = [_nest_seller_confirmed(payment) for payment in payments]
         payload = {
             "payments": cleaned,
             "seller_id": self.internal_user.id,
             "customer_identification": customer,
             "request_id": extra.pop("request_id", f"req-{self._testMethodName}"),
-            "invoices": extra.pop("invoices", []),
-            "residual_reason": extra.pop("residual_reason", "on_account"),
+            "receipts": extra.pop("receipts", _on_account_receipts(cleaned)),
         }
+        extra.pop("invoices", None)
+        extra.pop("residual_reason", None)
         payload.update(extra)
         return payload
 

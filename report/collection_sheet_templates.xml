@@ -17,33 +17,81 @@
             </t>
             <div class="page">
                 <style>
-                    .o_cs_sheet { font-size: 10px; color: #1f4e79; margin: 0; }
+                    .article { padding-top: 0 !important; margin-top: 0 !important; }
+                    .article &gt; .oe_structure { display: none; }
+                    .article &gt; h2 {
+                        font-size: 15px; font-weight: bold; margin: 0 0 5px;
+                        color: #1f4e79; line-height: 1.2;
+                    }
+                    .o_cs_sheet { font-size: 12px; color: #1f4e79; margin: 0; }
                     .o_cs_sheet h3 {
                         background: #1f4e79; color: #fff;
-                        padding: 2px 6px; font-size: 11px;
-                        margin: 6px 0 2px;
+                        padding: 5px 7px; font-size: 14px;
+                        margin: 13px 0 4px; line-height: 1.25;
                     }
                     .o_cs_sheet h3:first-child { margin-top: 0; }
                     .o_cs_sheet h4 {
-                        font-size: 10px; margin: 4px 0 1px; font-weight: bold;
+                        font-size: 12px; margin: 9px 0 4px; font-weight: bold;
+                        line-height: 1.2;
                     }
-                    .o_cs_sheet table { width: 100%; border-collapse: collapse; }
+                    .o_cs_sheet table {
+                        width: 100%; border-collapse: collapse;
+                        table-layout: fixed; margin: 0;
+                    }
+                    .o_cs_sheet thead { display: table-header-group; }
+                    .o_cs_sheet tr { page-break-inside: avoid; }
                     .o_cs_sheet th, .o_cs_sheet td {
-                        border: 1px solid #8ea9db; padding: 1px 4px;
+                        border: 1px solid #8ea9db; padding: 8px 6px;
+                        line-height: 1.35; vertical-align: top;
+                        overflow-wrap: break-word; word-wrap: break-word;
                     }
-                    .o_cs_sheet th { background: #dbe5f1; }
+                    /* Atomic values must never be split across two lines; their
+                       columns are sized to fit. Free text (names, motivo) wraps. */
+                    .o_cs_sheet th,
+                    .o_cs_sheet .o_cs_num,
+                    .o_cs_sheet .o_cs_date,
+                    .o_cs_sheet tbody td:first-child { white-space: nowrap; }
+                    .o_cs_sheet th { background: #dbe5f1; text-align: left; }
                     .o_cs_sheet .o_cs_sub { background: #ededed; font-weight: bold; }
-                    .o_cs_sheet .o_cs_header_info { table-layout: fixed; }
-                    .o_cs_sheet .o_cs_header_info th {
-                        width: 16%; text-align: right; white-space: nowrap;
-                    }
-                    .o_cs_sheet .o_cs_header_info td { width: 34%; text-align: right; }
-                    .o_cs_sheet .o_cs_header_info .o_cs_date { text-align: right; }
+                    .o_cs_sheet .o_cs_num, .o_cs_sheet .o_cs_sub td { text-align: right; }
+                    .o_cs_sheet .o_cs_sub td:first-child { text-align: right; }
                     .o_cs_sheet .o_cs_date { text-align: center; }
-                    .o_cs_banner_balanced { background: #c6efce; padding: 4px 6px; }
-                    .o_cs_banner_in_favor { background: #fff2cc; padding: 4px 6px; }
-                    .o_cs_banner_outstanding { background: #ffc7ce; padding: 4px 6px; }
-                    .o_cs_mismatch { background: #fff2cc; padding: 4px 6px; margin-top: 4px; }
+                    .o_cs_sheet .o_cs_header_info th {
+                        width: 15%; text-align: right;
+                    }
+                    .o_cs_sheet .o_cs_header_info td {
+                        width: 18.33%; text-align: left;
+                    }
+                    .o_cs_sheet .o_cs_header_info .o_cs_date { text-align: left; }
+                    .o_cs_customers th:nth-child(1), .o_cs_customers td:nth-child(1) { width: 7%; }
+                    .o_cs_customers th:nth-child(2), .o_cs_customers td:nth-child(2) { width: 21%; }
+                    .o_cs_customers th:nth-child(n+3), .o_cs_customers td:nth-child(n+3) { width: 15%; }
+                    .o_cs_customers th:nth-child(7), .o_cs_customers td:nth-child(7) { width: 12%; }
+                    .o_cs_docs th:nth-child(1), .o_cs_docs td:nth-child(1) { width: 7%; }
+                    .o_cs_docs th:nth-child(2), .o_cs_docs td:nth-child(2) { width: 20%; }
+                    .o_cs_docs th:nth-child(3), .o_cs_docs td:nth-child(3) { width: 16%; }
+                    .o_cs_docs th:nth-child(4), .o_cs_docs td:nth-child(4) { width: 11%; }
+                    .o_cs_docs th:nth-child(n+5), .o_cs_docs td:nth-child(n+5) { width: 15.33%; }
+                    .o_cs_checks th:nth-child(1), .o_cs_checks td:nth-child(1) { width: 6%; }
+                    .o_cs_checks th:nth-child(2), .o_cs_checks td:nth-child(2) { width: 17%; }
+                    .o_cs_checks th:nth-child(3), .o_cs_checks td:nth-child(3) { width: 11%; }
+                    .o_cs_checks th:nth-child(4), .o_cs_checks td:nth-child(4) { width: 12%; }
+                    .o_cs_checks th:nth-child(5), .o_cs_checks td:nth-child(5) { width: 13%; }
+                    .o_cs_checks th:nth-child(6), .o_cs_checks td:nth-child(6) { width: 10%; }
+                    .o_cs_checks th:nth-child(7), .o_cs_checks td:nth-child(7) { width: 11%; }
+                    .o_cs_checks th:nth-child(8), .o_cs_checks td:nth-child(8) { width: 20%; }
+                    .o_cs_vouchers th:nth-child(1), .o_cs_vouchers td:nth-child(1) { width: 7%; }
+                    .o_cs_vouchers th:nth-child(2), .o_cs_vouchers td:nth-child(2) { width: 35%; }
+                    .o_cs_vouchers th:nth-child(3), .o_cs_vouchers td:nth-child(3) { width: 12%; }
+                    .o_cs_vouchers th:nth-child(4), .o_cs_vouchers td:nth-child(4) { width: 16%; }
+                    .o_cs_vouchers th:nth-child(5), .o_cs_vouchers td:nth-child(5) { width: 30%; }
+                    .o_cs_sheet .o_cs_recon th { width: 15%; text-align: right; }
+                    .o_cs_sheet .o_cs_recon td { width: 18.33%; text-align: left; }
+                    .o_cs_sheet .o_cs_blank { border: none; background: none; }
+                    .o_cs_banner_balanced { background: #c6efce; padding: 7px 7px; margin-top: 6px; }
+                    .o_cs_banner_in_favor { background: #fff2cc; padding: 7px 7px; margin-top: 6px; }
+                    .o_cs_banner_outstanding { background: #ffc7ce; padding: 7px 7px; margin-top: 6px; }
+                    .o_cs_mismatch { background: #fff2cc; padding: 7px 7px; margin-top: 6px; }
                 </style>
                 <div class="o_cs_sheet">
                     <h3>Resumen</h3>
@@ -53,10 +101,10 @@
                             <td t-out="payload['reference']" />
                             <th>Estado</th>
                             <td t-out="payload['state_label']" />
-                        </tr>
-                        <tr>
                             <th>Vendedor</th>
                             <td t-out="payload['seller_name']" />
+                        </tr>
+                        <tr>
                             <th>Impreso el</th>
                             <td class="o_cs_date">
                                 <t
@@ -64,8 +112,6 @@
                   t-out="payload['printed_on'].strftime('%d/%m/%Y')"
                 />
                             </td>
-                        </tr>
-                        <tr>
                             <th>Desde</th>
                             <td class="o_cs_date">
                                 <t
@@ -86,23 +132,21 @@
                             <td t-out="payload['customer_count']" />
                             <th>Comprobantes</th>
                             <td t-out="payload['voucher_count']" />
-                        </tr>
-                        <tr>
-                            <th>Comisión %</th>
-                            <td t-out="payload['commission_percent']" />
                             <th>Moneda</th>
                             <td t-out="payload['currency_name']" />
                         </tr>
                         <tr>
+                            <th>Comisión %</th>
+                            <td t-out="payload['commission_percent']" />
                             <th>Total Cobrado</th>
-                            <td>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['collected_total']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
                             <th>Total Aplicado</th>
-                            <td>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['applied_total']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -110,33 +154,35 @@
                             </td>
                         </tr>
                         <tr>
-                            <th>Remanente</th>
-                            <td>
+                            <th class="o_cs_num">Remanente</th>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['customer_totals']['residual']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
                             <th>Total Comisión</th>
-                            <td>
+                            <td class="o_cs_num">
                                 <span
                   t-out="sum(block['subtotal_commission'] for block in payload['document_blocks'])"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
+                            <th class="o_cs_blank" />
+                            <td class="o_cs_blank" />
                         </tr>
                     </table>
 
                     <h3>Clientes</h3>
-                    <table>
+                    <table class="o_cs_customers">
                         <thead>
                             <tr>
                                 <th>Código</th>
                                 <th>Cliente</th>
-                                <th>Saldo Total</th>
-                                <th>Cobrado</th>
-                                <th>Aplicado</th>
-                                <th>Remanente</th>
+                                <th class="o_cs_num">Saldo Total</th>
+                                <th class="o_cs_num">Cobrado</th>
+                                <th class="o_cs_num">Aplicado</th>
+                                <th class="o_cs_num">Remanente</th>
                                 <th>Motivo</th>
                             </tr>
                         </thead>
@@ -144,25 +190,25 @@
                             <tr t-foreach="payload['customers']" t-as="row">
                                 <td t-out="row['code']" />
                                 <td t-out="row['name']" />
-                                <td>
+                                <td class="o_cs_num">
                                     <span
                     t-out="row['debt']"
                     t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                   />
                                 </td>
-                                <td>
+                                <td class="o_cs_num">
                                     <span
                     t-out="row['collected']"
                     t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                   />
                                 </td>
-                                <td>
+                                <td class="o_cs_num">
                                     <span
                     t-out="row['applied']"
                     t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                   />
                                 </td>
-                                <td>
+                                <td class="o_cs_num">
                                     <span
                     t-out="row['residual']"
                     t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -177,16 +223,16 @@
                     <t t-foreach="payload['document_blocks']" t-as="block">
                         <h4 t-if="block['kind'] == 'invoice'">Facturas</h4>
                         <h4 t-else="">Presupuestos</h4>
-                        <table>
+                        <table class="o_cs_docs">
                             <thead>
                                 <tr>
                                     <th>Código</th>
                                     <th>Cliente</th>
                                     <th>Número</th>
-                                    <th>Vencimiento</th>
-                                    <th>Saldo</th>
-                                    <th>Aplicado</th>
-                                    <th>Comisión</th>
+                                    <th>Vto.</th>
+                                    <th class="o_cs_num">Saldo</th>
+                                    <th class="o_cs_num">Aplicado</th>
+                                    <th class="o_cs_num">Comisión</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -200,19 +246,19 @@
                       t-out="row['due_date'].strftime('%d/%m/%Y')"
                     />
                                     </td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="row['invoice_balance']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                     />
                                     </td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="row['amount_applied']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                     />
                                     </td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="row['commission']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -221,13 +267,13 @@
                                 </tr>
                                 <tr class="o_cs_sub">
                                     <td colspan="5">Subtotal</td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="block['subtotal_applied']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                     />
                                     </td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="block['subtotal_commission']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -241,17 +287,17 @@
                     <h3>Comprobantes</h3>
                     <t t-foreach="payload['voucher_blocks']" t-as="block">
                         <h4 t-out="block['label']" />
-                        <table t-if="block['code'] == 'check'">
+                        <table class="o_cs_checks" t-if="block['code'] == 'check'">
                             <thead>
                                 <tr>
                                     <th>Código</th>
                                     <th>Cliente</th>
-                                    <th>Fecha de Emisión</th>
+                                    <th>Emisión</th>
                                     <th>Nº Cheque</th>
                                     <th>Banco</th>
                                     <th>Tipo</th>
-                                    <th>Fecha de Pago</th>
-                                    <th>Importe</th>
+                                    <th>Pago</th>
+                                    <th class="o_cs_num">Importe</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -273,7 +319,7 @@
                       t-out="row['check_payment_date'].strftime('%d/%m/%Y')"
                     />
                                     </td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="row['amount']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -282,7 +328,7 @@
                                 </tr>
                                 <tr class="o_cs_sub">
                                     <td colspan="7">Subtotal</td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="block['subtotal']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -291,14 +337,14 @@
                                 </tr>
                             </tbody>
                         </table>
-                        <table t-else="">
+                        <table class="o_cs_vouchers" t-else="">
                             <thead>
                                 <tr>
                                     <th>Código</th>
                                     <th>Cliente</th>
                                     <th>Fecha</th>
-                                    <th>Nº Comprobante</th>
-                                    <th>Importe</th>
+                                    <th>Nº Compr.</th>
+                                    <th class="o_cs_num">Importe</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -312,7 +358,7 @@
                     />
                                     </td>
                                     <td t-out="row['number']" />
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="row['amount']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -321,7 +367,7 @@
                                 </tr>
                                 <tr class="o_cs_sub">
                                     <td colspan="4">Subtotal</td>
-                                    <td>
+                                    <td class="o_cs_num">
                                         <span
                       t-out="block['subtotal']"
                       t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -333,24 +379,24 @@
                     </t>
 
                     <h3>Conciliación</h3>
-                    <table>
+                    <table class="o_cs_recon">
                         <tr>
-                            <th>Cobrado</th>
-                            <td>
+                            <th class="o_cs_num">Cobrado</th>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['recon']['collected']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
                             <th>Retenido</th>
-                            <td>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['recon']['withheld']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
                             <th>Neto a Rendir</th>
-                            <td>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['recon']['net_due']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
@@ -359,20 +405,20 @@
                         </tr>
                         <tr>
                             <th>Rendido</th>
-                            <td>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['recon']['tendered']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
                             <th>Diferencia</th>
-                            <td>
+                            <td class="o_cs_num">
                                 <span
                   t-out="payload['recon']['difference']"
                   t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
                 />
                             </td>
-                            <td colspan="2" />
+                            <td class="o_cs_blank" colspan="2" />
                         </tr>
                     </table>
                     <div

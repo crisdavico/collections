@@ -11,7 +11,7 @@ from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
-from odoo.addons.collection.tools.collection_allocation import _INVOICE_ITEM_SCHEMA
+from odoo.addons.collection.tools.collection_allocation import _RECEIPT_ITEM_SCHEMA
 
 from .common_connector import (
     install_bound_test_connector,
@@ -21,6 +21,7 @@ from .common_connector import (
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_mcp_allocation import INVOICE_OVERDUE, TOOL_NAME
 from .test_collection_mcp_allocation_lookup import TOOL_NAME as GET_TOOL_NAME
+from .test_collection_mcp_tool import _nest_seller_confirmed
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -129,8 +130,42 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         vals.update(extra)
         return self.env["collection.allocation"].create(vals)
 
+    def _mcp_payment(self, document_id, amount=100.0):
+        return _nest_seller_confirmed(
+            {
+                "document_id": document_id,
+                "document_type": "bank_transfer",
+                "amount": amount,
+            }
+        )
+
+    def _mcp_receipt(self, payments, document_kind="invoice", amount_applied=100.0):
+        return {
+            "document_kind": document_kind,
+            "values": [
+                {
+                    "document_id": payment["document_id"],
+                    "amount": payment["seller_confirmed"]["amount"],
+                }
+                for payment in payments
+            ],
+            "applications": [
+                {
+                    "external_document_id": INVOICE_OVERDUE["external_invoice_id"],
+                    "number": INVOICE_OVERDUE.get("number"),
+                    "balance_seen": INVOICE_OVERDUE["balance"],
+                    "amount_applied": amount_applied,
+                }
+            ],
+        }
+
     def _mcp_call(self, arguments, user=None):
         uid = user or self.internal_user
+        arguments = dict(arguments)
+        arguments["payments"] = [
+            _nest_seller_confirmed(payment)
+            for payment in arguments.get("payments") or []
+        ]
         echo_args = dict(arguments)
         ident = arguments.get("customer_identification")
         if ident:
@@ -262,44 +297,34 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         for row in invoices:
             self.assertIn("document_kind", row)
 
-    def test_mcp_create_omits_kind_defaults_invoice(self):
-        """MCP create MAY omit document_kind and MUST persist the invoice default."""
-        self.assertIn("document_kind", _INVOICE_ITEM_SCHEMA["properties"])
-        self.assertNotIn("document_kind", _INVOICE_ITEM_SCHEMA.get("required", []))
-        kind_schema = _INVOICE_ITEM_SCHEMA["properties"]["document_kind"]
+    def test_mcp_create_invoice_receipt_persists_invoice_kind(self):
+        """MCP create invoice receipt MUST persist invoice document_kind."""
+        self.assertIn("document_kind", _RECEIPT_ITEM_SCHEMA["properties"])
+        self.assertIn("document_kind", _RECEIPT_ITEM_SCHEMA.get("required", []))
+        kind_schema = _RECEIPT_ITEM_SCHEMA["properties"]["document_kind"]
         self.assertEqual(kind_schema.get("enum"), ["invoice", "quotation"])
         by_name = {
             entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
         }
         schema = by_name[TOOL_NAME]["inputSchema"]
-        invoice_props = schema["properties"]["invoices"]["items"]["properties"]
-        self.assertIn("document_kind", invoice_props)
-        self.assertNotIn(
+        receipt_props = schema["properties"]["receipts"]["items"]["properties"]
+        self.assertIn("document_kind", receipt_props)
+        self.assertIn(
             "document_kind",
-            schema["properties"]["invoices"]["items"].get("required", []),
+            schema["properties"]["receipts"]["items"].get("required", []),
         )
+        self.assertNotIn("invoices", schema["properties"])
         self.assertNotIn("document_kind", schema["properties"])
 
         document_id = self._next_document_id()
+        payments = [self._mcp_payment(document_id)]
         arguments = {
             "seller_id": self.seller.id,
             "customer_identification": IDENT,
             "request_id": f"req-{self._testMethodName}",
-            "payments": [
-                {
-                    "document_id": document_id,
-                    "document_type": "bank_transfer",
-                    "amount": 100.0,
-                }
-            ],
-            "invoices": [
-                {
-                    **INVOICE_OVERDUE,
-                    "amount_applied": 100.0,
-                }
-            ],
+            "payments": payments,
+            "receipts": [self._mcp_receipt(payments)],
         }
-        self.assertNotIn("document_kind", json.dumps(arguments))
         result = self._mcp_call(arguments)
         self.assertNotIn("document_kind", json.dumps(result))
         allocation = self.env["collection.allocation"].browse(
@@ -307,34 +332,29 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         )
         self.assertTrue(allocation.exists())
         self.assertGreater(len(allocation.line_ids), 0)
-        self.assertEqual(set(allocation.line_ids.mapped("document_kind")), {"invoice"})
+        overdue = allocation.line_ids.filtered(
+            lambda line: line.external_invoice_id
+            == INVOICE_OVERDUE["external_invoice_id"]
+        )
+        self.assertEqual(overdue.document_kind, "invoice")
         found = self._mcp_get()
         self.assertTrue(found["invoices"])
-        self.assertEqual(
-            {row["document_kind"] for row in found["invoices"]}, {"invoice"}
-        )
+        kinds = {
+            row["external_invoice_id"]: row["document_kind"]
+            for row in found["invoices"]
+        }
+        self.assertEqual(kinds[INVOICE_OVERDUE["external_invoice_id"]], "invoice")
 
     def test_mcp_create_may_send_quotation_kind(self):
-        """MCP create invoices[] MAY send document_kind quotation and persist it."""
+        """MCP create receipts[] MAY send document_kind quotation and persist it."""
         document_id = self._next_document_id()
+        payments = [self._mcp_payment(document_id)]
         arguments = {
             "seller_id": self.seller.id,
             "customer_identification": IDENT,
             "request_id": f"req-{self._testMethodName}",
-            "payments": [
-                {
-                    "document_id": document_id,
-                    "document_type": "bank_transfer",
-                    "amount": 100.0,
-                }
-            ],
-            "invoices": [
-                {
-                    **INVOICE_OVERDUE,
-                    "amount_applied": 100.0,
-                    "document_kind": "quotation",
-                }
-            ],
+            "payments": payments,
+            "receipts": [self._mcp_receipt(payments, document_kind="quotation")],
         }
         result = self._mcp_call(arguments)
         allocation = self.env["collection.allocation"].browse(
@@ -354,26 +374,17 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         self.assertEqual(kinds[INVOICE_OVERDUE["external_invoice_id"]], "quotation")
 
     def test_mcp_amend_omits_kind_keeps_stored_quotation(self):
-        """Amend that omits kind for an existing invoice MUST keep stored quotation."""
+        """Amend that does not re-apply an invoice MUST keep stored quotation."""
         first_doc = self._next_document_id()
+        first_payments = [self._mcp_payment(first_doc)]
         first = self._mcp_call(
             {
                 "seller_id": self.seller.id,
                 "customer_identification": IDENT,
                 "request_id": f"req-{self._testMethodName}-1",
-                "payments": [
-                    {
-                        "document_id": first_doc,
-                        "document_type": "bank_transfer",
-                        "amount": 100.0,
-                    }
-                ],
-                "invoices": [
-                    {
-                        **INVOICE_OVERDUE,
-                        "amount_applied": 100.0,
-                        "document_kind": "quotation",
-                    }
+                "payments": first_payments,
+                "receipts": [
+                    self._mcp_receipt(first_payments, document_kind="quotation")
                 ],
             }
         )
@@ -388,23 +399,31 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
             [("document_id", "=", first_doc)]
         )
         combined = first_voucher | extra
+        payments = [
+            {
+                "document_id": voucher.document_id,
+                "document_type": voucher.document_type,
+                "amount": voucher.amount,
+            }
+            for voucher in combined
+        ]
         second = self._mcp_call(
             {
                 "seller_id": self.seller.id,
                 "customer_identification": IDENT,
                 "request_id": f"req-{self._testMethodName}-2",
-                "payments": [
+                "payments": payments,
+                "receipts": [
                     {
-                        "document_id": voucher.document_id,
-                        "document_type": voucher.document_type,
-                        "amount": voucher.amount,
-                    }
-                    for voucher in combined
-                ],
-                "invoices": [
-                    {
-                        **INVOICE_OVERDUE,
-                        "amount_applied": 100.0,
+                        "document_kind": "invoice",
+                        "values": [
+                            {
+                                "document_id": payment["document_id"],
+                                "amount": payment["amount"],
+                            }
+                            for payment in payments
+                        ],
+                        "applications": [],
                     }
                 ],
             }
@@ -419,26 +438,16 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         self.assertEqual(overdue.document_kind, "quotation")
 
     def test_mcp_amend_payload_kind_wins(self):
-        """Amend payload document_kind MUST replace the stored kind."""
+        """Amend receipt document_kind MUST replace the stored kind."""
         first_doc = self._next_document_id()
+        first_payments = [self._mcp_payment(first_doc)]
         first = self._mcp_call(
             {
                 "seller_id": self.seller.id,
                 "customer_identification": IDENT,
                 "request_id": f"req-{self._testMethodName}-1",
-                "payments": [
-                    {
-                        "document_id": first_doc,
-                        "document_type": "bank_transfer",
-                        "amount": 100.0,
-                    }
-                ],
-                "invoices": [
-                    {
-                        **INVOICE_OVERDUE,
-                        "amount_applied": 100.0,
-                    }
-                ],
+                "payments": first_payments,
+                "receipts": [self._mcp_receipt(first_payments)],
             }
         )
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
@@ -452,24 +461,40 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
             [("document_id", "=", first_doc)]
         )
         combined = first_voucher | extra
+        payments = [
+            {
+                "document_id": voucher.document_id,
+                "document_type": voucher.document_type,
+                "amount": voucher.amount,
+            }
+            for voucher in combined
+        ]
         self._mcp_call(
             {
                 "seller_id": self.seller.id,
                 "customer_identification": IDENT,
                 "request_id": f"req-{self._testMethodName}-2",
-                "payments": [
+                "payments": payments,
+                "receipts": [
                     {
-                        "document_id": voucher.document_id,
-                        "document_type": voucher.document_type,
-                        "amount": voucher.amount,
-                    }
-                    for voucher in combined
-                ],
-                "invoices": [
-                    {
-                        **INVOICE_OVERDUE,
-                        "amount_applied": 100.0,
                         "document_kind": "quotation",
+                        "values": [
+                            {
+                                "document_id": payment["document_id"],
+                                "amount": payment["amount"],
+                            }
+                            for payment in payments
+                        ],
+                        "applications": [
+                            {
+                                "external_document_id": INVOICE_OVERDUE[
+                                    "external_invoice_id"
+                                ],
+                                "number": INVOICE_OVERDUE.get("number"),
+                                "balance_seen": INVOICE_OVERDUE["balance"],
+                                "amount_applied": 100.0,
+                            }
+                        ],
                     }
                 ],
             }
@@ -485,21 +510,16 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
     def test_mcp_create_invalid_kind_refused(self):
         """document_kind other than invoice/quotation MUST raise with no persist."""
         before = self.env["collection.allocation"].search_count([])
+        document_id = self._next_document_id()
+        payments = [self._mcp_payment(document_id)]
         arguments = {
             "seller_id": self.seller.id,
             "customer_identification": IDENT,
             "request_id": f"req-{self._testMethodName}",
-            "payments": [
+            "payments": payments,
+            "receipts": [
                 {
-                    "document_id": self._next_document_id(),
-                    "document_type": "bank_transfer",
-                    "amount": 100.0,
-                }
-            ],
-            "invoices": [
-                {
-                    **INVOICE_OVERDUE,
-                    "amount_applied": 100.0,
+                    **self._mcp_receipt(payments),
                     "document_kind": "cash",
                 }
             ],

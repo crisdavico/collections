@@ -14,66 +14,22 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tools import SQL
 
-from odoo.addons.collection.tools.collection_voucher import _PAYMENT_SCHEMA
+from odoo.addons.collection.tools.collection_voucher import (
+    _COLLECTION_AMOUNT_SCHEMA,
+    _PAYMENT_SCHEMA,
+    _collection_normalize_amount,
+    _collection_reject_unknown_keys,
+)
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
-_RESIDUAL_REASONS = ("on_account", "advance", "pending_invoice", "rounding")
-
-_INVOICE_ITEM_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "external_invoice_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "External ERP invoice id.",
-        },
-        "number": {
-            "type": "string",
-            "nullable": True,
-            "description": "Invoice number snapshot.",
-        },
-        "issue_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Invoice issue date snapshot.",
-        },
-        "due_date": {
-            "type": "string",
-            "nullable": True,
-            "description": "Invoice due date snapshot.",
-        },
-        "amount": {
-            "type": "number",
-            "nullable": True,
-            "description": "Invoice amount snapshot.",
-        },
-        "balance": {
-            "type": "number",
-            "nullable": True,
-            "description": "Invoice balance snapshot.",
-        },
-        "state": {
-            "type": "string",
-            "nullable": True,
-            "description": "Invoice state snapshot.",
-        },
-        "amount_applied": {
-            "type": "number",
-            "minimum": 0,
-            "description": "Amount applied to this invoice (zero allowed).",
-        },
-        "document_kind": {
-            "type": "string",
-            "enum": ["invoice", "quotation"],
-            "description": "Invoice or quotation; omitted defaults to invoice.",
-        },
-    },
-    "required": ["external_invoice_id", "amount_applied"],
-}
-
 _DOCUMENT_KINDS = ("invoice", "quotation")
+_RECEIPT_KEYS = frozenset({"document_kind", "values", "applications"})
+_RECEIPT_VALUE_KEYS = frozenset({"document_id", "amount"})
+_RECEIPT_APPLICATION_KEYS = frozenset(
+    {"external_document_id", "number", "balance_seen", "amount_applied"}
+)
 
-_SPLIT_ITEM_SCHEMA = {
+_RECEIPT_VALUE_SCHEMA = {
     "type": "object",
     "properties": {
         "document_id": {
@@ -81,17 +37,51 @@ _SPLIT_ITEM_SCHEMA = {
             "minLength": 1,
             "description": "Payment document_id from payments[] in this call.",
         },
+        "amount": dict(_COLLECTION_AMOUNT_SCHEMA),
+    },
+    "required": ["document_id", "amount"],
+}
+
+_RECEIPT_APPLICATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "external_document_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "External ERP invoice or quotation id.",
+        },
+        "number": {
+            "type": "string",
+            "nullable": True,
+            "description": "Document number snapshot.",
+        },
+        "balance_seen": dict(_COLLECTION_AMOUNT_SCHEMA),
+        "amount_applied": dict(_COLLECTION_AMOUNT_SCHEMA),
+    },
+    "required": ["external_document_id", "balance_seen", "amount_applied"],
+}
+
+_RECEIPT_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
         "document_kind": {
             "type": "string",
             "enum": list(_DOCUMENT_KINDS),
-            "description": "Receipt kind this split amount belongs to.",
+            "description": "Invoice or quotation receipt.",
         },
-        "amount": {
-            "type": "number",
-            "description": "Split amount greater than zero.",
+        "values": {
+            "type": "array",
+            "minItems": 1,
+            "items": _RECEIPT_VALUE_SCHEMA,
+            "description": "Payment amounts that fund this receipt.",
+        },
+        "applications": {
+            "type": "array",
+            "items": _RECEIPT_APPLICATION_SCHEMA,
+            "description": "ERP documents this receipt pays; empty means on account.",
         },
     },
-    "required": ["document_id", "document_kind", "amount"],
+    "required": ["document_kind", "values"],
 }
 
 _CREATE_COLLECTION_ALLOCATION_SCHEMA = {
@@ -117,26 +107,11 @@ _CREATE_COLLECTION_ALLOCATION_SCHEMA = {
             "items": _PAYMENT_SCHEMA,
             "description": "Inline payments to persist then allocate.",
         },
-        "invoices": {
+        "receipts": {
             "type": "array",
-            "items": _INVOICE_ITEM_SCHEMA,
-            "description": "Invoice applications; empty means all on account.",
-        },
-        "total_debt": {
-            "type": "number",
-            "nullable": True,
-            "description": "Informational caller total; ignored in favor of fresh ERP.",
-        },
-        "residual_reason": {
-            "type": "string",
-            "nullable": True,
-            "enum": list(_RESIDUAL_REASONS),
-            "description": "Optional; enum is validated then ignored.",
-        },
-        "splits": {
-            "type": "array",
-            "items": _SPLIT_ITEM_SCHEMA,
-            "description": "Optional voucher splits across receipt kinds.",
+            "minItems": 1,
+            "items": _RECEIPT_ITEM_SCHEMA,
+            "description": "Receipts with values and optional applications.",
         },
     },
     "required": [
@@ -144,7 +119,7 @@ _CREATE_COLLECTION_ALLOCATION_SCHEMA = {
         "customer_identification",
         "request_id",
         "payments",
-        "invoices",
+        "receipts",
     ],
 }
 
@@ -173,42 +148,47 @@ class CollectionAllocationMixin(models.AbstractModel):
         customer_identification: str,
         request_id: str,
         payments: list[dict[str, Any]],
-        invoices: list[dict[str, Any]],
-        total_debt: float | None = None,
-        residual_reason: str | None = None,
-        splits: list[dict[str, Any]] | None = None,
+        receipts: list[dict[str, Any]],
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Validate, persist inline payments, revalidate ERP, then allocate.
 
         :raise AccessError: when the caller is not an internal user.
         :raise UserError: when input, seller, records, or revalidation fail.
         """
-        del total_debt  # Caller total is informational; persist fresh ERP snapshot.
+        if kwargs:
+            _collection_reject_unknown_keys(
+                kwargs,
+                frozenset(),
+                _("create_collection_allocation"),
+            )
         if not self.env.user.has_group("base.group_user"):
             raise AccessError(_("Only internal users can create allocations."))
-        (
-            document_ids,
-            invoice_rows,
-            request_key,
-            identification,
-            reason,
-            payment_vals_list,
-            split_rows,
-        ) = self._collection_parse_allocation_form(
-            payments,
-            invoices,
-            request_id,
-            customer_identification,
-            residual_reason,
-            splits,
+        document_ids, request_key, identification = (
+            self._collection_parse_allocation_identity(
+                payments,
+                request_id,
+                customer_identification,
+            )
         )
-        del reason  # Enum-validated then ignored; never persisted or hashed.
         seller = self._collection_require_internal_seller(seller_id)
         replayed = self._collection_allocation_classify_request(
             request_key, document_ids
         )
         if replayed is not None:
             return replayed
+        (
+            _document_ids,
+            receipt_rows,
+            _request_key,
+            _identification,
+            payment_vals_list,
+        ) = self._collection_parse_allocation_form(
+            payments,
+            receipts,
+            request_id,
+            customer_identification,
+        )
         self.env.company._assert_new_work(seller.id)
         if not self.env.company.auto_create_sheet:
             raise UserError(
@@ -220,10 +200,9 @@ class CollectionAllocationMixin(models.AbstractModel):
                 identification,
                 request_key,
                 document_ids,
-                invoice_rows,
+                receipt_rows,
                 payments,
                 payment_vals_list,
-                split_rows,
             )
         except UniqueViolation:
             self.env.invalidate_all()
@@ -236,21 +215,55 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
+    def _collection_parse_allocation_identity(
+        self,
+        payments: Any,
+        request_id: Any,
+        customer_identification: Any,
+    ) -> tuple[list[str], str, str]:
+        """Parse identity fields needed for request_id replay (nests ignored)."""
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise UserError(_("request_id is required."))
+        if (
+            not isinstance(customer_identification, str)
+            or not customer_identification.strip()
+        ):
+            raise UserError(_("customer_identification is required."))
+        if not isinstance(payments, list) or not payments:
+            raise UserError(_("payments must be a non-empty list."))
+        document_ids: list[str] = []
+        for index, raw in enumerate(payments):
+            if not isinstance(raw, dict):
+                raise UserError(
+                    _("Payment at index %(index)s must be an object.", index=index)
+                )
+            document_id = raw.get("document_id")
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise UserError(
+                    _(
+                        "Each payment requires a non-empty document_id "
+                        "(index %(index)s).",
+                        index=index,
+                    )
+                )
+            document_ids.append(document_id.strip())
+        if len(document_ids) != len(set(document_ids)):
+            raise UserError(_("Duplicate document_id in the same call is not allowed."))
+        return document_ids, request_id.strip(), customer_identification.strip()
+
+    @api.model
+    @api.private
     def _collection_parse_allocation_form(
         self,
         payments: Any,
-        invoices: Any,
+        receipts: Any,
         request_id: Any,
         customer_identification: Any,
-        residual_reason: Any,
-        splits: Any = None,
     ) -> tuple[
         list[str],
         list[dict[str, Any]],
         str,
         str,
-        str | bool,
-        list[dict[str, Any]],
         list[dict[str, Any]],
     ]:
         """Validate MCP form fields in Python (do not trust schema minItems)."""
@@ -270,176 +283,316 @@ class CollectionAllocationMixin(models.AbstractModel):
         document_ids = [vals["document_id"] for vals in payment_vals_list]
         if len(document_ids) != len(set(document_ids)):
             raise UserError(_("Duplicate document_id in the same call is not allowed."))
-        if not isinstance(invoices, list):
-            raise UserError(_("invoices must be a list."))
-        invoice_rows = self._collection_parse_allocation_invoices(invoices)
-        if residual_reason in (None, False, ""):
-            reason: str | bool = False
-        elif residual_reason not in _RESIDUAL_REASONS:
-            raise UserError(_("Invalid residual_reason."))
-        else:
-            reason = residual_reason
-        split_rows = self._collection_parse_allocation_splits(splits, payment_vals_list)
+        receipt_rows = self._collection_parse_allocation_receipts(
+            receipts, payment_vals_list
+        )
         return (
             document_ids,
-            invoice_rows,
+            receipt_rows,
             request_id.strip(),
             identification,
-            reason,
             payment_vals_list,
-            split_rows,
         )
 
     @api.model
     @api.private
-    def _collection_parse_allocation_invoices(
-        self, invoices: Any
+    def _collection_parse_allocation_receipts(
+        self, receipts: Any, payment_vals_list: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Validate invoice application rows."""
-        if not isinstance(invoices, list):
-            raise UserError(_("invoices must be a list."))
-        invoice_rows: list[dict[str, Any]] = []
-        seen_invoices: set[str] = set()
-        for index, raw in enumerate(invoices):
-            if not isinstance(raw, dict):
-                raise UserError(
-                    _("Invoice at index %(index)s must be an object.", index=index)
-                )
-            external_id = raw.get("external_invoice_id")
-            if not isinstance(external_id, str) or not external_id.strip():
-                raise UserError(
-                    _(
-                        "Each invoice requires a non-empty external_invoice_id "
-                        "(index %(index)s).",
-                        index=index,
-                    )
-                )
-            external_id = external_id.strip()
-            if external_id in seen_invoices:
-                raise UserError(
-                    _("Duplicate external_invoice_id in the same call is not allowed.")
-                )
-            seen_invoices.add(external_id)
-            applied = raw.get("amount_applied")
-            try:
-                applied_amount = float(applied)
-            except (TypeError, ValueError) as err:
-                raise UserError(
-                    _(
-                        "Invoice amount_applied must be greater than or equal to zero "
-                        "(index %(index)s).",
-                        index=index,
-                    )
-                ) from err
-            if applied_amount < 0:
-                raise UserError(
-                    _(
-                        "Invoice amount_applied must be greater than or equal to zero "
-                        "(index %(index)s).",
-                        index=index,
-                    )
-                )
-            item = {
-                "external_invoice_id": external_id,
-                "amount_applied": applied_amount,
-            }
-            raw_kind = raw.get("document_kind")
-            if "document_kind" in raw and raw_kind not in (None, False, ""):
-                if raw_kind not in _DOCUMENT_KINDS:
-                    raise UserError(
-                        _(
-                            "Invoice document_kind must be invoice or quotation "
-                            "(index %(index)s).",
-                            index=index,
-                        )
-                    )
-                item["document_kind"] = raw_kind
-            invoice_rows.append(item)
-        return invoice_rows
-
-    @api.model
-    @api.private
-    def _collection_parse_allocation_splits(
-        self, splits: Any, payment_vals_list: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Validate optional splits; empty/omitted means FIFO compat grouping."""
-        if splits in (None, False):
-            return []
-        if not isinstance(splits, list):
-            raise UserError(_("splits must be a list."))
+        """Validate receipts-only MCP input; reject before any writes."""
+        if not isinstance(receipts, list) or not receipts:
+            raise UserError(_("receipts must be a non-empty list."))
+        currency = self.env.company.currency_id
         amounts_by_doc = {
             vals["document_id"]: float(vals["amount"]) for vals in payment_vals_list
         }
-        split_rows: list[dict[str, Any]] = []
-        seen: set[tuple[str, str]] = set()
-        sums: dict[str, float] = {}
-        currency = self.env.company.currency_id
-        for index, raw in enumerate(splits):
+        receipt_rows: list[dict[str, Any]] = []
+        seen_kinds: set[str] = set()
+        value_sums: dict[str, float] = {}
+        seen_ext_global: set[str] = set()
+        seen_payment_kind: set[tuple[str, str]] = set()
+        for index, raw in enumerate(receipts):
             if not isinstance(raw, dict):
                 raise UserError(
-                    _("Split at index %(index)s must be an object.", index=index)
+                    _("Receipt at index %(index)s must be an object.", index=index)
                 )
+            _collection_reject_unknown_keys(
+                raw,
+                _RECEIPT_KEYS,
+                _("Receipt at index %(index)s", index=index),
+            )
+            kind = raw.get("document_kind")
+            if kind not in _DOCUMENT_KINDS:
+                raise UserError(
+                    _(
+                        "Receipt document_kind must be invoice or quotation "
+                        "(index %(index)s).",
+                        index=index,
+                    )
+                )
+            if kind in seen_kinds:
+                raise UserError(
+                    _(
+                        "Duplicate receipt document_kind in the same call "
+                        "is not allowed."
+                    )
+                )
+            seen_kinds.add(kind)
+            values_raw = raw.get("values")
+            if not isinstance(values_raw, list) or not values_raw:
+                raise UserError(
+                    _(
+                        "Each receipt requires a non-empty values list "
+                        "(index %(index)s).",
+                        index=index,
+                    )
+                )
+            values, funded_total = self._collection_parse_receipt_values(
+                values_raw,
+                amounts_by_doc,
+                seen_payment_kind,
+                kind,
+                currency,
+            )
+            for value in values:
+                document_id = value["document_id"]
+                value_sums[document_id] = (
+                    value_sums.get(document_id, 0.0) + value["amount"]
+                )
+            applications_raw = raw.get("applications")
+            if applications_raw in (None, False):
+                applications_raw = []
+            if not isinstance(applications_raw, list):
+                raise UserError(
+                    _(
+                        "Receipt applications must be a list (index %(index)s).",
+                        index=index,
+                    )
+                )
+            applications, applied_total = self._collection_parse_receipt_applications(
+                applications_raw, seen_ext_global, currency
+            )
+            if currency.compare_amounts(applied_total, funded_total) > 0:
+                raise UserError(
+                    _(
+                        "Receipt applications cannot exceed funded values "
+                        "(index %(index)s).",
+                        index=index,
+                    )
+                )
+            receipt_rows.append(
+                {
+                    "document_kind": kind,
+                    "values": values,
+                    "applications": applications,
+                }
+            )
+        for document_id, expected in amounts_by_doc.items():
+            actual = value_sums.get(document_id, 0.0)
+            if currency.compare_amounts(actual, expected) != 0:
+                raise UserError(
+                    _(
+                        "Receipt values must equal each payment's seller_confirmed "
+                        "amount."
+                    )
+                )
+        return receipt_rows
+
+    @api.model
+    @api.private
+    def _collection_parse_receipt_values(
+        self,
+        values_raw: list[Any],
+        amounts_by_doc: dict[str, float],
+        seen_payment_kind: set[tuple[str, str]],
+        kind: str,
+        currency,
+    ) -> tuple[list[dict[str, Any]], float]:
+        """Validate one receipt's values; amounts must be > 0."""
+        values: list[dict[str, Any]] = []
+        seen_docs: set[str] = set()
+        funded_total = 0.0
+        for value_index, raw in enumerate(values_raw):
+            if not isinstance(raw, dict):
+                raise UserError(
+                    _(
+                        "Receipt value at index %(index)s must be an object.",
+                        index=value_index,
+                    )
+                )
+            _collection_reject_unknown_keys(
+                raw,
+                _RECEIPT_VALUE_KEYS,
+                _("Receipt value at index %(index)s", index=value_index),
+            )
             document_id = raw.get("document_id")
             if not isinstance(document_id, str) or not document_id.strip():
                 raise UserError(
                     _(
-                        "Each split requires a non-empty document_id "
+                        "Each receipt value requires a non-empty document_id "
                         "(index %(index)s).",
-                        index=index,
+                        index=value_index,
                     )
                 )
             document_id = document_id.strip()
             if document_id not in amounts_by_doc:
                 raise UserError(
                     _(
-                        "Split document_id must match a payment in the same call "
-                        "(index %(index)s).",
-                        index=index,
+                        "Receipt value document_id must match a payment in the "
+                        "same call (index %(index)s).",
+                        index=value_index,
                     )
                 )
-            kind = raw.get("document_kind")
-            if kind not in _DOCUMENT_KINDS:
+            if document_id in seen_docs:
                 raise UserError(
                     _(
-                        "Split document_kind must be invoice or quotation "
-                        "(index %(index)s).",
-                        index=index,
+                        "Duplicate document_id in the same receipt values is not "
+                        "allowed."
                     )
                 )
-            key = (document_id, kind)
-            if key in seen:
+            seen_docs.add(document_id)
+            payment_kind = (document_id, kind)
+            if payment_kind in seen_payment_kind:
                 raise UserError(
                     _("Duplicate split for the same payment and document kind.")
                 )
-            seen.add(key)
+            seen_payment_kind.add(payment_kind)
             try:
-                amount = float(raw.get("amount"))
-            except (TypeError, ValueError) as err:
+                amount = _collection_normalize_amount(raw.get("amount"))
+            except ValueError as err:
                 raise UserError(
                     _(
-                        "Split amount must be greater than zero (index %(index)s).",
-                        index=index,
+                        "Receipt value amount must be greater than zero "
+                        "(index %(index)s).",
+                        index=value_index,
                     )
                 ) from err
             if currency.compare_amounts(amount, 0.0) <= 0:
                 raise UserError(
                     _(
-                        "Split amount must be greater than zero (index %(index)s).",
-                        index=index,
+                        "Receipt value amount must be greater than zero "
+                        "(index %(index)s).",
+                        index=value_index,
                     )
                 )
-            split_rows.append(
-                {
-                    "document_id": document_id,
-                    "document_kind": kind,
-                    "amount": amount,
-                }
+            values.append({"document_id": document_id, "amount": amount})
+            funded_total += amount
+        return values, funded_total
+
+    @api.model
+    @api.private
+    def _collection_parse_receipt_applications(
+        self,
+        applications_raw: list[Any],
+        seen_ext_global: set[str],
+        currency,
+    ) -> tuple[list[dict[str, Any]], float]:
+        """Validate applications; empty list means on account."""
+        applications: list[dict[str, Any]] = []
+        seen_ext: set[str] = set()
+        applied_total = 0.0
+        for app_index, raw in enumerate(applications_raw):
+            if not isinstance(raw, dict):
+                raise UserError(
+                    _(
+                        "Receipt application at index %(index)s must be an object.",
+                        index=app_index,
+                    )
+                )
+            _collection_reject_unknown_keys(
+                raw,
+                _RECEIPT_APPLICATION_KEYS,
+                _("Receipt application at index %(index)s", index=app_index),
             )
-            sums[document_id] = sums.get(document_id, 0.0) + amount
-        for document_id, total in sums.items():
-            if currency.compare_amounts(total, amounts_by_doc[document_id]) > 0:
-                raise UserError(_("Split amounts cannot exceed the payment amount."))
-        return split_rows
+            external_id = raw.get("external_document_id")
+            if not isinstance(external_id, str) or not external_id.strip():
+                raise UserError(
+                    _(
+                        "Each application requires a non-empty "
+                        "external_document_id (index %(index)s).",
+                        index=app_index,
+                    )
+                )
+            external_id = external_id.strip()
+            if external_id in seen_ext:
+                raise UserError(
+                    _(
+                        "Duplicate external_document_id in the same receipt "
+                        "applications is not allowed."
+                    )
+                )
+            seen_ext.add(external_id)
+            if external_id in seen_ext_global:
+                raise UserError(
+                    _("Duplicate external_document_id across receipts is not allowed.")
+                )
+            seen_ext_global.add(external_id)
+            try:
+                balance_seen = _collection_normalize_amount(raw.get("balance_seen"))
+                amount_applied = _collection_normalize_amount(raw.get("amount_applied"))
+            except ValueError as err:
+                raise UserError(
+                    _(
+                        "Application balance_seen and amount_applied must be "
+                        "greater than zero (index %(index)s).",
+                        index=app_index,
+                    )
+                ) from err
+            if currency.compare_amounts(balance_seen, 0.0) <= 0:
+                raise UserError(
+                    _(
+                        "Application balance_seen must be greater than zero "
+                        "(index %(index)s).",
+                        index=app_index,
+                    )
+                )
+            if currency.compare_amounts(amount_applied, 0.0) <= 0:
+                raise UserError(
+                    _(
+                        "Application amount_applied must be greater than zero "
+                        "(index %(index)s).",
+                        index=app_index,
+                    )
+                )
+            if currency.compare_amounts(amount_applied, balance_seen) > 0:
+                raise UserError(
+                    _(
+                        "Application amount_applied cannot exceed balance_seen "
+                        "(index %(index)s).",
+                        index=app_index,
+                    )
+                )
+            item: dict[str, Any] = {
+                "external_document_id": external_id,
+                "balance_seen": balance_seen,
+                "amount_applied": amount_applied,
+            }
+            number = raw.get("number")
+            if isinstance(number, str) and number.strip():
+                item["number"] = number.strip()
+            applications.append(item)
+            applied_total += amount_applied
+        return applications, applied_total
+
+    @api.model
+    @api.private
+    def _collection_flatten_receipt_applications(
+        self, receipt_rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Flatten receipt applications into allocation line snapshots."""
+        invoice_rows: list[dict[str, Any]] = []
+        for receipt in receipt_rows:
+            kind = receipt["document_kind"]
+            for application in receipt["applications"]:
+                invoice_rows.append(
+                    {
+                        "external_invoice_id": application["external_document_id"],
+                        "amount_applied": application["amount_applied"],
+                        "document_kind": kind,
+                        "balance_seen": application["balance_seen"],
+                    }
+                )
+        return invoice_rows
 
     @api.model
     @api.private
@@ -495,42 +648,39 @@ class CollectionAllocationMixin(models.AbstractModel):
     @api.model
     @api.private
     def _collection_allocation_content_hash(
-        self, vouchers, invoice_rows, split_rows=None
+        self, vouchers, receipt_rows: list[dict[str, Any]]
     ) -> str:
-        """SHA-256 of vouchers/invoices; extras only when payload has them."""
+        """SHA-256 of vouchers plus receipt values, applications, and kinds."""
+        receipts_payload = []
+        for row in sorted(receipt_rows, key=lambda item: str(item["document_kind"])):
+            receipts_payload.append(
+                {
+                    "document_kind": str(row["document_kind"]),
+                    "values": sorted(
+                        [
+                            [
+                                str(value["document_id"]),
+                                f"{float(value['amount']):.6f}",
+                            ]
+                            for value in row["values"]
+                        ]
+                    ),
+                    "applications": sorted(
+                        [
+                            [
+                                str(application["external_document_id"]),
+                                f"{float(application['amount_applied']):.6f}",
+                                f"{float(application['balance_seen']):.6f}",
+                            ]
+                            for application in row["applications"]
+                        ]
+                    ),
+                }
+            )
         payload = {
             "vouchers": sorted(vouchers.ids),
-            "invoices": sorted(
-                [
-                    [
-                        str(row["external_invoice_id"]),
-                        f"{float(row['amount_applied']):.6f}",
-                    ]
-                    for row in invoice_rows
-                ]
-            ),
+            "receipts": receipts_payload,
         }
-        invoice_kinds = sorted(
-            [
-                [str(row["external_invoice_id"]), row["document_kind"]]
-                for row in invoice_rows
-                if "document_kind" in row
-            ]
-        )
-        if invoice_kinds:
-            payload["invoice_kinds"] = invoice_kinds
-        split_items = sorted(
-            [
-                [
-                    str(row["document_id"]),
-                    str(row["document_kind"]),
-                    f"{float(row['amount']):.6f}",
-                ]
-                for row in (split_rows or [])
-            ]
-        )
-        if split_items:
-            payload["splits"] = split_items
         encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         return hashlib.sha256(encoded.encode()).hexdigest()
 
@@ -635,6 +785,11 @@ class CollectionAllocationMixin(models.AbstractModel):
             for row in invoice_rows
             if "document_kind" in row
         }
+        balance_seen_by_id = {
+            row["external_invoice_id"]: row["balance_seen"]
+            for row in invoice_rows
+            if "balance_seen" in row
+        }
         stored_kinds = {}
         if destination:
             stored_kinds = {
@@ -649,6 +804,12 @@ class CollectionAllocationMixin(models.AbstractModel):
                 and external_id not in fresh_invoices
             ):
                 raise UserError(_("An invoice is no longer outstanding."))
+            if external_id in balance_seen_by_id and external_id in fresh_invoices:
+                fresh_balance = fresh_invoices[external_id].get("balance") or 0.0
+                if currency.compare_amounts(
+                    balance_seen_by_id[external_id], fresh_balance
+                ):
+                    raise UserError(_("An invoice balance has changed."))
         line_vals: list[dict[str, Any]] = []
         for external_id, fresh in fresh_invoices.items():
             applied = applied_by_id.get(external_id, 0.0)
@@ -717,10 +878,9 @@ class CollectionAllocationMixin(models.AbstractModel):
         identification: str,
         request_id: str,
         document_ids: list[str],
-        invoice_rows: list[dict[str, Any]],
+        receipt_rows: list[dict[str, Any]],
         payments: list[dict[str, Any]],
         payment_vals_list: list[dict[str, Any]],
-        split_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Create or reuse vouchers, revalidate ERP, then persist allocation."""
         existing_docs = self._collection_vouchers_by_document_ids(document_ids)
@@ -776,7 +936,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                         )
                     )
             content_hash = self._collection_allocation_content_hash(
-                vouchers, invoice_rows, split_rows
+                vouchers, receipt_rows
             )
             if existing:
                 last = existing.revision_ids.sorted("revision")[-1:]
@@ -786,6 +946,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                     )
 
             currency = self.env.company.currency_id
+            invoice_rows = self._collection_flatten_receipt_applications(receipt_rows)
             line_vals = self._collection_allocation_revalidate(
                 connector, seller, identification, invoice_rows, existing, currency
             )
@@ -810,7 +971,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                 allocation, request_id, content_hash
             )
             self._collection_allocation_rebuild_receipts(
-                allocation, vouchers, invoice_rows, split_rows or []
+                allocation, vouchers, receipt_rows
             )
         return self._collection_allocation_payload(allocation, revision, document_ids)
 
@@ -835,54 +996,30 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_compat_fifo_values(self, vouchers, invoice_rows):
-        """Assign applied invoice sum onto vouchers in submit order."""
-        currency = self.env.company.currency_id
-        remaining = sum(float(row["amount_applied"]) for row in invoice_rows)
-        values: list[tuple[Any, float]] = []
-        for voucher in vouchers:
-            if currency.compare_amounts(remaining, 0.0) <= 0:
-                break
-            take = min(float(voucher.amount or 0.0), remaining)
-            if currency.compare_amounts(take, 0.0) > 0:
-                values.append((voucher, take))
-                remaining -= take
-        return values
-
-    @api.model
-    @api.private
     def _collection_allocation_rebuild_receipts(
         self,
         allocation,
         vouchers,
-        invoice_rows: list[dict[str, Any]],
-        split_rows: list[dict[str, Any]],
+        receipt_rows: list[dict[str, Any]],
     ) -> None:
-        """Rebuild draft receipts/values from splits or FIFO compat grouping."""
+        """Rebuild draft receipts and values from explicit receipt values."""
         allocation.write({"receipt_ids": [Command.clear()]})
-        groups: dict[str, list[tuple[Any, float]]] = {}
-        if split_rows:
-            by_doc = {voucher.document_id: voucher for voucher in vouchers}
-            for row in split_rows:
-                voucher = by_doc.get(row["document_id"])
-                if voucher is None:
-                    continue
-                groups.setdefault(row["document_kind"], []).append(
-                    (voucher, float(row["amount"]))
-                )
-        elif any(float(row.get("amount_applied") or 0.0) > 0.0 for row in invoice_rows):
-            fifo_values = self._collection_compat_fifo_values(vouchers, invoice_rows)
-            if fifo_values:
-                groups["invoice"] = fifo_values
+        by_doc = {voucher.document_id: voucher for voucher in vouchers}
         Receipt = self.env["collection.receipt"]
         Value = self.env["collection.receipt.value"]
-        for kind, pairs in groups.items():
+        for row in receipt_rows:
+            pairs = []
+            for value in row["values"]:
+                voucher = by_doc.get(value["document_id"])
+                if voucher is None:
+                    continue
+                pairs.append((voucher, float(value["amount"])))
             if not pairs:
                 continue
             receipt = Receipt.create(
                 {
                     "allocation_id": allocation.id,
-                    "document_kind": kind,
+                    "document_kind": row["document_kind"],
                 }
             )
             Value.create(

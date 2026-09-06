@@ -79,24 +79,24 @@ derived application amounts), and `amount_on_account` = `total_values − total_
 - THEN `amount_on_account` MUST be 0
 - AND persist MUST succeed
 
-### Requirement: Compat create grouping
+### Requirement: Explicit receipts persist
 
-When MCP create has non-empty `invoices[]` and no splits, persist MUST create exactly
-one `invoice` receipt. Unsplit voucher remainder MUST belong to no receipt. Empty
-`invoices[]` MUST create zero receipts.
+When MCP create includes `receipts[]`, persist MUST write those values onto the matching
+kind headers. Empty `applications[]` MUST still persist the receipt (on account).
+Rebuild MUST use explicit values (MUST NOT FIFO-compat from invoices).
 
-#### Scenario: Non-empty invoices no splits
+#### Scenario: Explicit invoice receipt values
 
-- GIVEN create with invoices applying amounts and no splits
+- GIVEN create with an invoice receipt whose values equal the payment amount
 - WHEN persist succeeds
 - THEN exactly one invoice receipt MUST exist
-- AND unsplit leftover voucher amount MUST have no value row
+- AND value amounts MUST match the payload
 
-#### Scenario: Empty invoices
+#### Scenario: Empty applications on account
 
-- GIVEN create with `invoices: []` and no splits
+- GIVEN create with one invoice receipt, full values, and `applications: []`
 - WHEN persist succeeds
-- THEN the allocation MUST have zero receipts
+- THEN the allocation MUST still have that invoice receipt
 
 ### Requirement: Freeze and issued immutability
 

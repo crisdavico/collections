@@ -1,0 +1,19 @@
+change: align-allocation-contracts
+phase: tasks
+artifact_store: openspec
+delivery_strategy: auto-chain
+subagent_model: cursor-grok-4.6-high
+artifacts:
+  explore: true
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+tasks_progress:
+  completed: []
+  pending: ["1.1-4.4"]
+applyState: blocked
+blockedReasons:
+  - blocked(edit_authority_missing): /home/crisd/projects/nebula/nebula-agent
+nextRecommended: resolve-blockers
+last_updated: "2026-09-06T12:10:00-03:00"

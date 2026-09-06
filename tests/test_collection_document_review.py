@@ -177,6 +177,7 @@ class TestCollectionDocumentReview(TransactionCase):
             else:
                 self.assertFalse(payload[ocr_key], ocr_key)
                 self.assertFalse(payload[seller_key], seller_key)
+            self.assertIn(name, payload, name)
             current = payload[name]
             if name == "amount" or current:
                 self.assertNotEqual(

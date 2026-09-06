@@ -18,6 +18,9 @@ COLLECTION_TYPE_CODES = (
     "check",
     "cash_deposit",
     "unsupported",
+    "echeck",
+    "cash",
+    "retention_certificate",
 )
 
 
@@ -355,7 +358,7 @@ class ResCompany(models.Model):
 
     @api.private
     def _collection_enable_all_document_types(self):
-        """Union all four catalog types onto each company; keep extras."""
+        """Union all seven catalog types onto each company; keep extras."""
         types = self._collection_catalog_types()
         if not types or not self:
             return True

@@ -17,6 +17,23 @@ class CollectionVoucher(models.Model):
     _inherit = ["mail.thread.main.attachment", "mail.activity.mixin"]
     _order = "id desc"
 
+    _DOCUMENT_TYPE_SELECTION = (
+        ("bank_transfer", "Bank Transfer"),
+        ("check", "Check"),
+        ("cash_deposit", "Cash Deposit"),
+        ("unsupported", "Unsupported"),
+        ("echeck", "Echeck"),
+        ("cash", "Cash"),
+        ("retention_certificate", "Retention Certificate"),
+    )
+    _RETENTION_KIND_SELECTION = (
+        ("iva", "IVA"),
+        ("ganancias", "Ganancias"),
+        ("iibb", "IIBB"),
+        ("suss", "SUSS"),
+        ("other", "Other"),
+    )
+
     name = fields.Char(
         string="Reference",
         required=True,
@@ -97,6 +114,7 @@ class CollectionVoucher(models.Model):
             ("deferred", "Deferred"),
         ],
     )
+    retention_kind = fields.Selection(selection=_RETENTION_KIND_SELECTION)
     attachment_rotation = fields.Integer(default=0, copy=False)
     reviewed_by = fields.Many2one(
         comodel_name="res.users",
@@ -111,12 +129,7 @@ class CollectionVoucher(models.Model):
         readonly=True,
     )
     ocr_document_type = fields.Selection(
-        selection=[
-            ("bank_transfer", "Bank Transfer"),
-            ("check", "Check"),
-            ("cash_deposit", "Cash Deposit"),
-            ("unsupported", "Unsupported"),
-        ],
+        selection=_DOCUMENT_TYPE_SELECTION,
         string="Document Type",
         copy=False,
     )
@@ -139,13 +152,13 @@ class CollectionVoucher(models.Model):
         string="Check Type",
         copy=False,
     )
+    ocr_retention_kind = fields.Selection(
+        selection=_RETENTION_KIND_SELECTION,
+        string="Retention Kind",
+        copy=False,
+    )
     seller_document_type = fields.Selection(
-        selection=[
-            ("bank_transfer", "Bank Transfer"),
-            ("check", "Check"),
-            ("cash_deposit", "Cash Deposit"),
-            ("unsupported", "Unsupported"),
-        ],
+        selection=_DOCUMENT_TYPE_SELECTION,
         string="Document Type",
         copy=False,
     )
@@ -168,6 +181,11 @@ class CollectionVoucher(models.Model):
         string="Check Type",
         copy=False,
     )
+    seller_retention_kind = fields.Selection(
+        selection=_RETENTION_KIND_SELECTION,
+        string="Retention Kind",
+        copy=False,
+    )
 
     _REVIEW_EDITABLE_FIELD_ORDER = (
         "document_type",
@@ -181,15 +199,10 @@ class CollectionVoucher(models.Model):
         "check_type",
         "check_issue_date",
         "check_payment_date",
+        "retention_kind",
     )
     _REVIEW_EDITABLE_FIELDS = frozenset(_REVIEW_EDITABLE_FIELD_ORDER)
     _ALLOWED_ROTATIONS = frozenset({0, 90, 180, 270})
-    _DOCUMENT_TYPE_SELECTION = (
-        ("bank_transfer", "Bank Transfer"),
-        ("check", "Check"),
-        ("cash_deposit", "Cash Deposit"),
-        ("unsupported", "Unsupported"),
-    )
 
     _document_id_uniq = models.Constraint(
         "UNIQUE(document_id)",
@@ -766,17 +779,6 @@ class CollectionVoucher(models.Model):
             "voucher_id": self.id,
             "voucher_name": self.name,
             "document_id": self.document_id,
-            "document_type": self.document_type,
-            "amount": self.amount,
-            "from_account": self.from_account,
-            "to_account": self.to_account,
-            "voucher_number": self.voucher_number,
-            "voucher_date": self.voucher_date,
-            "check_number": self.check_number,
-            "check_bank": self.check_bank,
-            "check_type": self.check_type,
-            "check_issue_date": self.check_issue_date,
-            "check_payment_date": self.check_payment_date,
             "position": position,
             "total": total,
             "attachment_filename": attachment.name,
@@ -784,6 +786,8 @@ class CollectionVoucher(models.Model):
             "attachment_url": self._attachment_content_url(),
             "attachment_rotation": self.attachment_rotation,
         }
+        for name in self._REVIEW_EDITABLE_FIELD_ORDER:
+            payload[name] = self[name]
         for prefix in ("ocr", "seller"):
             for name in self._REVIEW_EDITABLE_FIELDS:
                 payload[f"{prefix}_{name}"] = self[f"{prefix}_{name}"]

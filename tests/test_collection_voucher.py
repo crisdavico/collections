@@ -357,6 +357,86 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(check.check_type, "common")
         self.assertEqual(check.check_number, "CHK-COMMON")
 
+    def test_document_type_selection_includes_seven_codes(self):
+        """Voucher Selection MUST include echeck, cash, and retention_certificate."""
+        keys = {
+            key
+            for key, _label in self.env["collection.voucher"]._DOCUMENT_TYPE_SELECTION
+        }
+        self.assertEqual(
+            keys,
+            {
+                "bank_transfer",
+                "check",
+                "cash_deposit",
+                "unsupported",
+                "echeck",
+                "cash",
+                "retention_certificate",
+            },
+        )
+        self.assertIn("retention_kind", self.env["collection.voucher"]._fields)
+        kinds = {
+            key
+            for key, _label in self.env["collection.voucher"]
+            ._fields["retention_kind"]
+            .selection
+        }
+        self.assertEqual(kinds, {"iva", "ganancias", "iibb", "suss", "other"})
+        self.assertIn(
+            "retention_kind",
+            self.env["collection.voucher"]._REVIEW_EDITABLE_FIELD_ORDER,
+        )
+
+    def test_persist_echeck_cash_and_retention_certificate(self):
+        """ORM MUST persist echeck, cash, and retention_certificate plus retention_kind."""
+        echeck = self._create_voucher(
+            customer_identification="CUST-ECH",
+            document_type="echeck",
+            amount=150000,
+            check_number="ECH-9",
+            check_bank="Banco Nación",
+            check_issue_date=date(2026, 1, 10),
+            check_payment_date=date(2026, 2, 10),
+            check_type="deferred",
+        )
+        cash = self._create_voucher(
+            customer_identification="CUST-CASH-DECL",
+            document_type="cash",
+            amount=150000,
+            voucher_date=date(2026, 9, 1),
+        )
+        retention = self._create_voucher(
+            customer_identification="CUST-RET",
+            document_type="retention_certificate",
+            amount=150000,
+            voucher_number="RET-1",
+            voucher_date=date(2026, 9, 1),
+            retention_kind="iva",
+        )
+        self.assertEqual(echeck.document_type, "echeck")
+        self.assertEqual(echeck.check_number, "ECH-9")
+        self.assertEqual(echeck.check_type, "deferred")
+        self.assertAlmostEqual(echeck.amount, 150000, places=2)
+        self.assertEqual(cash.document_type, "cash")
+        self.assertAlmostEqual(cash.amount, 150000, places=2)
+        self.assertEqual(cash.voucher_date, date(2026, 9, 1))
+        self.assertFalse(cash.message_main_attachment_id)
+        self.assertEqual(retention.document_type, "retention_certificate")
+        self.assertEqual(retention.retention_kind, "iva")
+        self.assertEqual(retention.voucher_number, "RET-1")
+
+    def test_cash_persists_without_proof(self):
+        """Triangulation: cash with amount and no designated proof MUST persist."""
+        voucher = self._create_voucher(
+            customer_identification="CUST-CASH-NOPROOF",
+            document_type="cash",
+            amount=250.5,
+        )
+        self.assertEqual(voucher.document_type, "cash")
+        self.assertAlmostEqual(voucher.amount, 250.5, places=2)
+        self.assertFalse(voucher.message_main_attachment_id)
+
     # --- 1.4 / 1.5 Seller validate, intercept, unlink ---
 
     def test_action_validate_seller_from_draft_does_not_stamp_reviewer(self):
