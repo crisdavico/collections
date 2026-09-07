@@ -280,14 +280,15 @@ class TestCollectionSheetReport(TransactionCase):
             [sheet, sheet_b],
         )
 
-    def test_pdf_in_all_four_states(self):
-        """Bound PDF values MUST build for open, proposal, closed, and cancelled."""
+    def test_pdf_in_all_five_states(self):
+        """Bound PDF values MUST build for every legal sheet state."""
         sheet, _partner = self._populated_sheet()
         render = self.env[RENDER_MODEL]
         self._mark_validated_collections(sheet.voucher_ids)
         reference = sheet.name
         advances = (
             ("open", lambda: None),
+            ("submitted", sheet.action_seller_close),
             ("proposal", sheet.action_confirm),
             ("closed", sheet.action_close),
             ("cancelled", sheet.action_cancel),

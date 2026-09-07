@@ -9,14 +9,15 @@ chatter, optional image/PDF designated proof (`message_main_attachment_id` on ch
 `validated_seller`; Collections only via Document Review Approve; no Reject). Collection
 sheets group a seller’s vouchers through `open` → Confirm → `proposal` → Close →
 `closed` (Proposal or Closed may Cancel to `cancelled`; Cancelled may Open back to
-`open`) and have their own chatter and activities. The sheet form notebook is
-Allocations, Vouchers, and Debt. Operators print a Planilla de Cobranza from a sheet:
-bound Print PDF (`qweb-pdf`, A4 portrait, company letterhead) and header Export XLSX
-share `_collection_report_data()`. Sheet recon inputs are `commission_percent` (0–100),
-`cash_on_hand`, and `commission_withheld` (frozen while closed or cancelled). Allocation
-lines carry required `document_kind` (`invoice` / `quotation`, default `invoice`). Print
-includes draft allocations and vouchers; `mismatch` flags when voucher totals disagree
-with allocation `total_vouchers`.
+`open`). Selection also includes dormant `submitted` (Submitted by Seller; PDF Rendida)
+on the five-state statusbar. Sheets have their own chatter and activities. The sheet
+form notebook is Allocations, Vouchers, and Debt. Operators print a Planilla de Cobranza
+from a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, company letterhead) and header
+Export XLSX share `_collection_report_data()`. Sheet recon inputs are
+`commission_percent` (0–100), `cash_on_hand`, and `commission_withheld` (frozen while
+closed or cancelled). Allocation lines carry required `document_kind` (`invoice` /
+`quotation`, default `invoice`). Print includes draft allocations and vouchers;
+`mismatch` flags when voucher totals disagree with allocation `total_vouchers`.
 
 Per-company Collection Settings (`res.company` + related `res.config.settings`; XMLID
 `collection.action_collection_config_settings`) control enabled sellers (empty = none

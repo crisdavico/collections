@@ -353,8 +353,8 @@ class CollectionAllocation(models.Model):
             if allocation.state == "draft" and sheet.state not in DRAFT_SHEET_STATES:
                 raise ValidationError(
                     _(
-                        "Draft allocations must belong to an open, proposal, or "
-                        "cancelled collection sheet."
+                        "Draft allocations must belong to an open, submitted, "
+                        "proposal, or cancelled collection sheet."
                     )
                 )
             if allocation.state == "confirmed" and sheet.state != CONFIRMED_SHEET_STATE:

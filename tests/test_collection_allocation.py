@@ -13,7 +13,12 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
-from .common_connector import install_bound_test_connector, install_test_connector_type
+from .common_connector import (
+    confirm_sheet,
+    force_sheet_state,
+    install_bound_test_connector,
+    install_test_connector_type,
+)
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -213,7 +218,7 @@ class TestCollectionAllocation(TransactionCase):
         (other_voucher | _voucher).with_context(collection_audited_state=True).write(
             {"state": "validated_collections"}
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet_b = self._create_sheet(force_new=True)
         voucher_b = self._create_voucher(partner, sheet_b, amount=25.0)
         alloc_b = self._create_allocation(
@@ -506,9 +511,7 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(sheet.state, "open")
         with self.assertRaises(ValidationError):
             allocation._check_sheet_state_iff()
-        sheet.with_context(collection_sheet_audited_state=True).write(
-            {"state": "closed"}
-        )
+        force_sheet_state(sheet, "closed")
         allocation._check_sheet_state_iff()
         self.assertEqual(allocation.state, "confirmed")
         self.assertEqual(sheet.state, "closed")
@@ -526,10 +529,43 @@ class TestCollectionAllocation(TransactionCase):
         voucher.with_context(collection_audited_state=True).write(
             {"state": "validated_collections"}
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(allocation.state, "draft")
         allocation._check_sheet_state_iff()
+
+    def test_iff_draft_on_submitted_passes(self):
+        """draft MUST hold iff the sheet is open, submitted, proposal, or cancelled."""
+        allocation, _voucher, sheet, _partner = self._balanced_allocation()
+        force_sheet_state(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_create_draft_allocation_on_submitted(self):
+        """Triangulation: ORM create on a submitted sheet MUST persist draft."""
+        partner = self._partner("ALLOC-SUB-CRT")
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(partner, sheet, amount=60.0)
+        force_sheet_state(sheet, "submitted")
+        allocation = self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[self._line_vals(amount_applied=60.0, invoice_balance=60.0)],
+        )
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(sheet.state, "submitted")
+        allocation._check_sheet_state_iff()
+
+    def test_draft_state_error_names_submitted(self):
+        """A draft-versus-confirmed pairing error MUST name submitted."""
+        allocation, _voucher, sheet, _partner = self._balanced_allocation()
+        force_sheet_state(sheet, "closed")
+        self.assertEqual(allocation.state, "draft")
+        with self.assertRaises(ValidationError) as error:
+            allocation._check_sheet_state_iff()
+        self.assertIn("submitted", str(error.exception))
 
     def test_iff_draft_on_cancelled_passes(self):
         """Triangulation: draft on cancelled MUST satisfy the iff constraint."""
@@ -537,7 +573,7 @@ class TestCollectionAllocation(TransactionCase):
         voucher.with_context(collection_audited_state=True).write(
             {"state": "validated_collections"}
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         self.assertEqual(allocation.state, "draft")
@@ -549,7 +585,7 @@ class TestCollectionAllocation(TransactionCase):
         voucher.with_context(collection_audited_state=True).write(
             {"state": "validated_collections"}
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(allocation.state, "draft")
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
@@ -562,7 +598,7 @@ class TestCollectionAllocation(TransactionCase):
         voucher.with_context(collection_audited_state=True).write(
             {"state": "validated_collections"}
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         self.assertEqual(allocation.state, "draft")
@@ -574,7 +610,7 @@ class TestCollectionAllocation(TransactionCase):
         voucher.with_context(collection_audited_state=True).write(
             {"state": "validated_collections"}
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(allocation.state, "confirmed")
         sheet.action_cancel()
@@ -588,10 +624,10 @@ class TestCollectionAllocation(TransactionCase):
         voucher.with_context(collection_audited_state=True).write(
             {"state": "validated_collections"}
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
-        sheet.action_open()
-        self.assertEqual(sheet.state, "open")
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
         self.assertEqual(allocation.state, "draft")
         allocation._check_sheet_state_iff()
 
@@ -602,7 +638,7 @@ class TestCollectionAllocation(TransactionCase):
             {"state": "validated_collections"}
         )
         self.assertEqual(allocation.state, "draft")
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(allocation.state, "draft")
         allocation._check_sheet_state_iff()
@@ -1158,7 +1194,7 @@ class TestCollectionAllocation(TransactionCase):
         """Cancelled draft lines MUST refuse amount_applied writes."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         self.assertEqual(allocation.state, "draft")
@@ -1184,7 +1220,7 @@ class TestCollectionAllocation(TransactionCase):
             partner, sheet, amount=10.0, document_id="ALLOC-CLOSED-OUT"
         )
         self._mark_validated(voucher, outsider)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(allocation.state, "confirmed")
@@ -1213,8 +1249,25 @@ class TestCollectionAllocation(TransactionCase):
             partner, sheet, amount=20.0, document_id="ALLOC-PROP-EXTRA"
         )
         self._mark_validated(voucher, extra)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
+        line = allocation.line_ids
+        line.write({"amount_applied": 40.0})
+        self.assertEqual(line.amount_applied, 40.0)
+        allocation.write({"voucher_ids": [Command.link(extra.id)]})
+        self.assertIn(extra, allocation.voucher_ids)
+        self.assertIn(voucher, allocation.voucher_ids)
+
+    def test_submitted_draft_line_and_voucher_writes_persist(self):
+        """Submitted draft allocations MUST remain writable."""
+        allocation, voucher, sheet, partner = self._balanced_allocation(amount=80.0)
+        extra = self._create_voucher(
+            partner, sheet, amount=20.0, document_id="ALLOC-SUB-EXTRA"
+        )
+        self._mark_validated(voucher, extra)
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
         self.assertEqual(allocation.state, "draft")
         line = allocation.line_ids
         line.write({"amount_applied": 40.0})
@@ -1227,7 +1280,7 @@ class TestCollectionAllocation(TransactionCase):
         """Debt lines on a cancelled sheet MUST refuse unlink."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         line = allocation.line_ids
@@ -1242,7 +1295,7 @@ class TestCollectionAllocation(TransactionCase):
         """Triangulation: debt lines on a closed sheet MUST refuse unlink."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         line = allocation.line_ids
@@ -1297,7 +1350,7 @@ class TestCollectionAllocation(TransactionCase):
         receipt = self._create_receipt(allocation, "invoice")
         self._create_value(receipt, voucher, 100.0)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(allocation.state, "confirmed")
@@ -1319,7 +1372,7 @@ class TestCollectionAllocation(TransactionCase):
         receipt = self._create_receipt(allocation, "invoice")
         self._create_value(receipt, voucher, 100.0)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         self.assertEqual(allocation.state, "draft")
@@ -1339,7 +1392,7 @@ class TestCollectionAllocation(TransactionCase):
         """Proposal draft allocations MUST remain writable for receipt_ids."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(allocation.state, "draft")
         allocation.write(

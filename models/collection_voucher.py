@@ -11,6 +11,7 @@ from odoo.tools.mimetypes import guess_mimetype
 from odoo.tools.translate import _
 
 from .collection_common import (
+    ADMIN_EDITABLE_SHEET_STATES,
     CHECK_TYPE_SELECTION,
     DOCUMENT_TYPE_SELECTION,
     RETENTION_KIND_SELECTION,
@@ -371,7 +372,7 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _sheet_is_frozen(self, sheet):
-        return bool(sheet) and sheet.state != "open"
+        return bool(sheet) and sheet.state not in ADMIN_EDITABLE_SHEET_STATES
 
     @api.private
     def _ensure_sheet_membership_unlocked(self, new_sheet_id):
@@ -575,7 +576,7 @@ class CollectionVoucher(models.Model):
             raise UserError(
                 self.env._("A valid collection sheet is required for Document Review.")
             )
-        if sheet.state != "open":
+        if sheet.state not in ADMIN_EDITABLE_SHEET_STATES:
             raise UserError(
                 self.env._(
                     "Document Review is only available on open collection sheets."

@@ -296,11 +296,11 @@ included `action_review_reject`.)
 
 `get_review_queue`, `action_review_approve`, and `action_review_set_rotation` MUST
 require a validated sheet identifier and MUST operate only on that sheet. The identified
-sheet MUST be `open`. Direct or global review MUST NOT succeed. Missing, invalid, or
-non-open identifiers MUST be refused (not empty-queue success). Mutations MUST refuse
-non-members of that sheet. OWL MUST pass the identifier on queue, approve, and rotation.
-Reject MUST NOT be an operation. (Previously: Required a validated sheet identifier with
-no Open-only gate.)
+sheet MUST be `open` or `submitted`. Direct or global review MUST NOT succeed. Missing,
+invalid, or neither-`open`-nor-`submitted` identifiers MUST be refused (not empty-queue
+success). Mutations MUST refuse non-members of that sheet. OWL MUST pass the identifier
+on queue, approve, and rotation. Reject MUST NOT be an operation.
+(Previously: The identified sheet MUST be `open`.)
 
 #### Scenario: Required sheet context
 
@@ -327,7 +327,15 @@ no Open-only gate.)
 - WHEN `get_review_queue` runs with that sheet identifier
 - THEN the call MUST succeed (empty queue allowed when no eligible members)
 
-#### Scenario: Non-open sheet identifier refused
+#### Scenario: Submitted sheet identifier works
+
+- GIVEN Document Review ON and a saved submitted sheet
+- WHEN `get_review_queue`, `action_review_approve`, or `action_review_set_rotation` runs
+  with that sheet identifier
+- THEN the call MUST succeed when members are eligible (empty queue allowed)
+- AND MUST NOT `sudo()`
+
+#### Scenario: Non-reviewable sheet identifier refused
 
 - GIVEN Document Review ON and a saved proposal, closed, or cancelled sheet
 - WHEN `get_review_queue`, `action_review_approve`, or `action_review_set_rotation` runs

@@ -7,6 +7,7 @@ from odoo.tests import TransactionCase
 
 from .common_connector import (
     TEST_INVOICES,
+    confirm_sheet,
     install_bound_test_connector,
     install_test_connector_type,
 )
@@ -259,7 +260,7 @@ class TestCollectionAllocationDebtPicker(TransactionCase):
     def test_cancelled_sheet_refuses_picker(self):
         """Cancelled draft allocations MUST refuse the picker."""
         allocation, sheet, _partner, _seller = self._partial_allocation()
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         self.assertEqual(allocation.state, "draft")
@@ -274,7 +275,7 @@ class TestCollectionAllocationDebtPicker(TransactionCase):
     def test_closed_allocation_refuses_picker(self):
         """Closed/confirmed allocations MUST refuse the picker."""
         allocation, sheet, _partner, _seller = self._partial_allocation()
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(allocation.state, "confirmed")

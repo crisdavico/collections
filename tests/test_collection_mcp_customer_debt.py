@@ -11,7 +11,11 @@ from odoo.tests import TransactionCase
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
-from .common_connector import TEST_CONNECTOR_TYPE, install_test_connector_type
+from .common_connector import (
+    TEST_CONNECTOR_TYPE,
+    confirm_sheet,
+    install_test_connector_type,
+)
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -172,7 +176,7 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
                 ],
             }
         )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         if close:
             sheet.action_close()
             allocation.invalidate_recordset(["state"])

@@ -11,10 +11,18 @@ identical Total Cobrado, Total Aplicado, Remanente, Total Comisión, and Diferen
 
 `collection.sheet` MUST persist `commission_percent` (Float, default 0), `cash_on_hand`,
 and `commission_withheld` (Monetary). Percent MUST be constrained 0–100 (Odoo 19
-`models.Constraint`, MUST NOT `_sql_constraints`). Closed and cancelled sheets MUST
-refuse writes of those three fields (`UserError`, no persist). Open and proposal sheets
-MAY edit them. Open from Cancelled MUST NOT reset stored values. (Previously: Closed
-sheets refused writes; open sheets MAY edit; Reopen MUST NOT reset.)
+`models.Constraint`, MUST NOT `_sql_constraints`). Seller-declared `cash_on_hand` and
+`commission_withheld` MUST be writable only while `state` is `open`. `commission_percent`
+MUST be writable while `state` is not `closed` or `cancelled`. Closed and cancelled
+sheets MUST refuse writes of those three fields (`UserError`, no persist). A single
+audited write that sets `state` to `submitted` together with the two seller declarations
+MUST be accepted because the guard MUST evaluate the pre-write `open` state. After
+`submitted`, further writes of the two seller declarations MUST be refused while
+`commission_percent` MAY still persist. Reinstate from Cancelled MUST NOT reset stored
+values. Form widgets for the three fields MUST be readonly when the corresponding write
+would be refused.
+(Previously: All three fields editable on `open` and `proposal`; Closed and Cancelled
+refused all three; Open from Cancelled kept values.)
 
 #### Scenario: Percent range
 
@@ -33,15 +41,31 @@ sheets refused writes; open sheets MAY edit; Reopen MUST NOT reset.)
 #### Scenario: Open edit then cancel keeps values
 
 - GIVEN an open sheet with those three fields set
-- WHEN Confirm, then Close or Cancel, then Open from Cancelled runs
+- WHEN Seller Close, then Confirm, then Close or Cancel, then Reinstate from Cancelled
+  runs
 - THEN the three values MUST remain
 
-#### Scenario: Proposal recon remains editable
+#### Scenario: Combined close write persists declarations
+
+- GIVEN an open sheet
+- WHEN Seller Close writes `state` `submitted` together with `cash_on_hand` and
+  `commission_withheld`
+- THEN `state` MUST be `submitted`
+- AND both declaration amounts MUST persist
+
+#### Scenario: Submitted freezes seller declarations only
+
+- GIVEN a submitted sheet
+- WHEN `cash_on_hand` or `commission_withheld` is written
+- THEN MUST raise `UserError` and stored values MUST be unchanged
+- AND a lawful `commission_percent` write MUST persist
+
+#### Scenario: Proposal recon rate remains editable
 
 - GIVEN a proposal sheet
-- WHEN `commission_percent`, `cash_on_hand`, or `commission_withheld` is written
-  lawfully
+- WHEN `commission_percent` is written lawfully
 - THEN the write MUST persist
+- AND writes of `cash_on_hand` or `commission_withheld` MUST be refused
 
 ### Requirement: Shared report payload
 
@@ -277,20 +301,21 @@ users MUST receive `AccessError` on a company-A sheet. Report code MUST NOT `sud
 ### Requirement: PDF and XLSX available in all sheet states
 
 Bound Print → Planilla de Cobranza (`qweb-pdf`) and header Export XLSX MUST remain
-available for saved sheets in `open`, `proposal`, `closed`, and `cancelled`. Builders
-MUST NOT refuse solely because of sheet `state`. Report content rules MUST stay
-unchanged. Unsaved and mixed-currency guards MUST still apply.
+available for saved sheets in `open`, `submitted`, `proposal`, `closed`, and
+`cancelled`. Builders MUST NOT refuse solely because of sheet `state`. Report content
+rules MUST stay unchanged. Unsaved and mixed-currency guards MUST still apply.
+(Previously: Available in the four states `open`, `proposal`, `closed`, `cancelled`.)
 
-#### Scenario: PDF in all four states
+#### Scenario: PDF in all five states
 
-- GIVEN a saved sheet in `open`, `proposal`, `closed`, or `cancelled`
+- GIVEN a saved sheet in `open`, `submitted`, `proposal`, `closed`, or `cancelled`
 - WHEN bound PDF Print runs
 - THEN a payload MUST be produced
 - AND MUST NOT raise because of sheet `state`
 
-#### Scenario: XLSX in all four states
+#### Scenario: XLSX in all five states
 
-- GIVEN a saved sheet in `open`, `proposal`, `closed`, or `cancelled`
+- GIVEN a saved sheet in `open`, `submitted`, `proposal`, `closed`, or `cancelled`
 - WHEN Export XLSX runs
 - THEN `action_print_xlsx` MUST return a download
 - AND MUST NOT raise because of sheet `state`
@@ -309,14 +334,15 @@ Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require 
 one property, integer `seller_id`, and MUST NOT accept `model`, `domain`, `fields`,
 `context`, `order`, a `sheet_id`, or a report reference. The tool MUST resolve the
 seller's own `open` sheet on `env.company` through
-`collection.sheet._open_sheets_for_seller` and MUST NOT print `proposal`, `closed`, or
-`cancelled` sheets. It MUST render the bound `collection.action_report_collection_sheet`
-and return
+`collection.sheet._open_sheets_for_seller` and MUST NOT print `submitted`, `proposal`,
+`closed`, or `cancelled` sheets. It MUST render the bound
+`collection.action_report_collection_sheet` and return
 `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, filename, mimetype, content_base64}`
 where `content_base64` is the standard-base64 report body and `filename` is a slug
 ending `.pdf` carrying the sheet reference with `/` replaced. The tool MUST NOT create
 an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
 `collection.connector` or seller binding, and MUST NOT expose the XLSX.
+(Previously: Non-open list omitted `submitted`.)
 
 #### Scenario: Open sheet returns base64 PDF
 
@@ -331,8 +357,8 @@ an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
 
 #### Scenario: No open sheet returns null
 
-- GIVEN an internal seller with no sheet, or only `proposal` / `closed` / `cancelled`
-  sheets
+- GIVEN an internal seller with no sheet, or only `submitted` / `proposal` / `closed` /
+  `cancelled` sheets
 - WHEN `get_collection_sheet_pdf` runs with that `seller_id`
 - THEN the response MUST be exactly `{ "sheet": null }`
 - AND the report MUST NOT be rendered
@@ -359,3 +385,14 @@ an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
 - WHEN `get_collection_sheet_pdf` runs with that `seller_id`
 - THEN the response MUST be `{ "sheet": null }`
 - AND the company-B report MUST NOT be rendered
+
+### Requirement: Submitted Spanish report label
+
+When sheet `state` is `submitted`, PDF and XLSX `state_label` MUST be `Rendida`. Other
+existing Spanish state labels MUST remain unchanged.
+
+#### Scenario: Submitted prints Rendida
+
+- GIVEN a saved submitted sheet
+- WHEN `_collection_report_data()` or bound PDF/XLSX build runs
+- THEN `state_label` MUST be `Rendida`

@@ -62,19 +62,25 @@ class CollectionSheetReportMcpMixin(models.AbstractModel):
 
     @api.model
     @api.private
+    def _collection_sheet_identity(self, sheet) -> dict:
+        """Return the shared MCP sheet identity dict (no report bytes)."""
+        return {
+            "id": sheet.id,
+            "name": sheet.name,
+            "state": sheet.state,
+            "seller_id": sheet.seller_id.id,
+            "date_from": fields.Date.to_string(sheet.date_from) or None,
+            "date_to": fields.Date.to_string(sheet.date_to) or None,
+            "voucher_count": sheet.voucher_count,
+        }
+
+    @api.model
+    @api.private
     def _collection_sheet_pdf_payload(self, sheet) -> dict:
         """Build the base64 envelope plus sheet metadata for one open sheet."""
         content, mimetype = self._collection_render_sheet_pdf(sheet)
         return {
-            "sheet": {
-                "id": sheet.id,
-                "name": sheet.name,
-                "state": sheet.state,
-                "seller_id": sheet.seller_id.id,
-                "date_from": fields.Date.to_string(sheet.date_from) or None,
-                "date_to": fields.Date.to_string(sheet.date_to) or None,
-                "voucher_count": sheet.voucher_count,
-            },
+            "sheet": self._collection_sheet_identity(sheet),
             "filename": self._collection_sheet_pdf_filename(sheet),
             "mimetype": mimetype,
             "content_base64": base64.b64encode(content).decode(),

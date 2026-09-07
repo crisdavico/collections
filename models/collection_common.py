@@ -37,8 +37,10 @@ DOCUMENT_KIND_SELECTION = (
     ("quotation", "Quotation"),
 )
 
-# Sheet states that gate allocation state and downstream membership writes.
-DRAFT_SHEET_STATES = frozenset({"open", "proposal", "cancelled"})
+# Sheet states that gate seller write, admin edit, and allocation pairing.
+SELLER_SHEET_STATES = frozenset({"open"})
+ADMIN_EDITABLE_SHEET_STATES = frozenset({"open", "submitted"})
+DRAFT_SHEET_STATES = frozenset({"open", "submitted", "proposal", "cancelled"})
 CONFIRMED_SHEET_STATE = "closed"
 FROZEN_SHEET_STATES = frozenset({"closed", "cancelled"})
 

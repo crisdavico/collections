@@ -12,7 +12,7 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
-from .common_connector import install_bound_test_connector
+from .common_connector import confirm_sheet, install_bound_test_connector
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -425,7 +425,7 @@ class TestCollectionReceipt(TransactionCase):
         receipt = self._create_receipt(allocation, "invoice")
         value = self._create_value(receipt, voucher, 100.0)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertIn("receipt_ids", allocation._fields)
@@ -452,7 +452,7 @@ class TestCollectionReceipt(TransactionCase):
         receipt = self._create_receipt(allocation, "invoice")
         value = self._create_value(receipt, voucher, 100.0)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         with self.assertRaises(UserError):
@@ -713,7 +713,7 @@ class TestCollectionReceipt(TransactionCase):
         self.assertEqual(receipt.state, "draft")
         self.assertFalse(receipt.external_receipt_id)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
@@ -730,7 +730,7 @@ class TestCollectionReceipt(TransactionCase):
         self._create_value(invoice, voucher, 40.0)
         self._create_value(quotation, voucher, 60.0)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(invoice.state, "issued")
         self.assertEqual(quotation.state, "issued")
@@ -743,7 +743,7 @@ class TestCollectionReceipt(TransactionCase):
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         self.assertFalse(allocation.receipt_ids)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(allocation.state, "confirmed")
@@ -756,7 +756,7 @@ class TestCollectionReceipt(TransactionCase):
         empty = self._create_receipt(allocation, "invoice")
         self.assertFalse(empty.value_ids)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(empty.state, "draft")
@@ -769,7 +769,7 @@ class TestCollectionReceipt(TransactionCase):
         receipt = self._create_receipt(allocation, "invoice")
         self._create_value(receipt, voucher, 100.0)
         self._mark_validated(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         with self.assertRaises(UserError):
             sheet.action_close()
         self.assertEqual(sheet.state, "proposal")

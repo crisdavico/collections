@@ -16,6 +16,7 @@ from odoo.tools import mute_logger
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from .common_connector import (
+    confirm_sheet,
     install_bound_test_connector,
     install_test_connector_type,
     mcp_env_with_listable_customers,
@@ -170,7 +171,7 @@ class TestCollectionMcpAllocation(TransactionCase):
             sheet.voucher_ids.with_context(collection_audited_state=True).write(
                 {"state": "validated_collections"}
             )
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         return sheet
 
@@ -857,7 +858,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         """Proposal MUST NOT occupy MCP open; create MAY open a new sheet."""
         proposal = self.sheet
         self.assertEqual(proposal.state, "open")
-        proposal.action_confirm()
+        confirm_sheet(proposal)
         self.assertEqual(proposal.state, "proposal")
         self.env.company.auto_create_sheet = True
         payment = self._payment(100.0)
@@ -874,6 +875,28 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(result["sheet_id"], allocation.sheet_id.id)
         proposal.invalidate_recordset(["state"])
         self.assertEqual(proposal.state, "proposal")
+
+    def test_create_new_open_while_submitted_exists(self):
+        """Submitted MUST NOT occupy MCP open; create MAY open a new sheet."""
+        submitted = self.sheet
+        self.assertEqual(submitted.state, "open")
+        submitted.action_seller_close()
+        self.assertEqual(submitted.state, "submitted")
+        self.env.company.auto_create_sheet = True
+        payment = self._payment(100.0)
+        result = self._call(
+            self._payload([payment], [self._applied(INVOICE_OVERDUE, 100.0)])
+        )
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        self.assertTrue(allocation.exists())
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(allocation.sheet_id.state, "open")
+        self.assertNotEqual(allocation.sheet_id, submitted)
+        self.assertEqual(result["sheet_id"], allocation.sheet_id.id)
+        submitted.invalidate_recordset(["state"])
+        self.assertEqual(submitted.state, "submitted")
 
     def test_empty_applications_on_account(self):
         """Empty applications MUST expand to every outstanding ERP invoice at 0."""
@@ -1676,7 +1699,7 @@ class TestCollectionMcpAllocation(TransactionCase):
                 ],
             }
         )
-        self.sheet.action_confirm()
+        confirm_sheet(self.sheet)
         self.assertEqual(self.sheet.state, "proposal")
         self.assertEqual(other_alloc.state, "draft")
         sheet_two = self._create_sheet(force_new=True)

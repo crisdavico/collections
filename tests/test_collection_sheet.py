@@ -10,6 +10,7 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from .common_connector import confirm_sheet, force_sheet_state
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -124,13 +125,7 @@ class TestCollectionSheet(TransactionCase):
         allocations.with_context(collection_allocation_audited_state=True).write(
             {"state": "confirmed"}
         )
-        sheet.with_context(collection_sheet_audited_state=True).write(
-            {"state": "closed"}
-        )
-
-    def _force_sheet_state(self, sheet, state):
-        sheet.with_context(collection_sheet_audited_state=True).write({"state": state})
-        return sheet
+        force_sheet_state(sheet, "closed")
 
     def _mark_validated_collections(self, vouchers):
         vouchers.with_context(collection_audited_state=True).write(
@@ -141,9 +136,9 @@ class TestCollectionSheet(TransactionCase):
     def _second_open_via_audited(self):
         """Leave two open sheets for the same seller (bypasses one-open)."""
         first = self._create_sheet()
-        self._force_sheet_state(first, "closed")
+        force_sheet_state(first, "closed")
         leftover = self._create_sheet()
-        self._force_sheet_state(first, "open")
+        force_sheet_state(first, "open")
         return first, leftover
 
     def _sheet_count(self):
@@ -168,12 +163,15 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.state, "open")
         state_field = self.env["collection.sheet"]._fields["state"]
         state_keys = {key for key, _label in state_field.selection}
-        self.assertEqual(state_keys, {"open", "proposal", "closed", "cancelled"})
+        self.assertEqual(
+            state_keys, {"open", "submitted", "proposal", "closed", "cancelled"}
+        )
         self.assertFalse(hasattr(type(sheet), "action_reopen"))
+        self.assertFalse(hasattr(type(sheet), "action_open"))
 
     def test_sequence_names_are_unique(self):
         first = self._create_sheet()
-        first.action_confirm()
+        confirm_sheet(first)
         first.action_close()
         second = self._create_sheet()
         self.assertNotEqual(first.name, second.name)
@@ -189,7 +187,38 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.state, "open")
         self.assertFalse(sheet.voucher_ids)
         self.assertFalse(sheet.allocation_ids)
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
         sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertFalse(sheet.allocation_ids)
+
+    def test_confirm_from_open_refused(self):
+        """Confirm MUST refuse an open sheet even when every member is validated."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CONF-OPEN-REFUSE",
+            sheet_id=sheet.id,
+            amount=25.0,
+        )
+        self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-CONF-OPEN-REFUSE"
+        )
+        self._mark_validated_collections(voucher)
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(voucher.state, "validated_collections")
+        with self.assertRaises(UserError):
+            sheet.action_confirm()
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(voucher.state, "validated_collections")
+
+    def test_confirm_from_submitted_reaches_proposal(self):
+        """Confirm from submitted MUST reach proposal."""
+        sheet = self._create_sheet()
+        force_sheet_state(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(sheet.voucher_ids)
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         self.assertFalse(sheet.allocation_ids)
 
@@ -207,13 +236,14 @@ class TestCollectionSheet(TransactionCase):
         self._mark_validated_collections(voucher)
         self.assertEqual(voucher.state, "validated_collections")
         self.assertEqual(allocation.state, "draft")
+        sheet.action_seller_close()
         sheet.action_confirm()
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(allocation.state, "draft")
         allocation._check_sheet_state_iff()
 
     def test_action_confirm_unreviewed_member_blocks(self):
-        """Any member not validated_collections MUST UserError and stay open."""
+        """Any member not validated_collections MUST UserError and stay submitted."""
         sheet = self._create_sheet()
         reviewed = self._create_voucher(
             customer_identification="CUST-CONF-OK",
@@ -227,10 +257,11 @@ class TestCollectionSheet(TransactionCase):
         )
         self._mark_validated_collections(reviewed)
         self.assertEqual(unreviewed.state, "draft")
+        force_sheet_state(sheet, "submitted")
         with self.assertRaises(UserError) as error:
             sheet.action_confirm()
         self.assertIn("validated", str(error.exception).lower())
-        self.assertEqual(sheet.state, "open")
+        self.assertEqual(sheet.state, "submitted")
         self.assertEqual(reviewed.state, "validated_collections")
         self.assertEqual(unreviewed.state, "draft")
 
@@ -244,20 +275,103 @@ class TestCollectionSheet(TransactionCase):
         )
         voucher.action_validate_seller()
         self.assertEqual(voucher.state, "validated_seller")
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
         with self.assertRaises(UserError):
             sheet.action_confirm()
-        self.assertEqual(sheet.state, "open")
+        self.assertEqual(sheet.state, "submitted")
         self.assertEqual(voucher.state, "validated_seller")
 
+    def test_action_seller_close_empty_members_pass(self):
+        """Empty member set MUST pass Seller Close to submitted."""
+        sheet = self._create_sheet()
+        self.assertEqual(sheet.state, "open")
+        self.assertFalse(sheet.voucher_ids)
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(sheet.allocation_ids)
+
+    def test_action_seller_close_draft_members_name_offenders(self):
+        """Draft members MUST UserError listing those vouchers and stay open."""
+        sheet = self._create_sheet()
+        first = self._create_voucher(
+            customer_identification="CUST-SC-DRAFT-A",
+            sheet_id=sheet.id,
+            amount=10.0,
+        )
+        second = self._create_voucher(
+            customer_identification="CUST-SC-DRAFT-B",
+            sheet_id=sheet.id,
+            amount=15.0,
+        )
+        self.assertEqual(first.state, "draft")
+        self.assertEqual(second.state, "draft")
+        with self.assertRaises(UserError) as error:
+            sheet.action_seller_close()
+        message = str(error.exception)
+        self.assertIn(first.name, message)
+        self.assertIn(second.name, message)
+        self.assertEqual(sheet.state, "open")
+
+    def test_action_seller_close_validated_collections_member_passes(self):
+        """validated_collections members MUST pass; allocations stay draft."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-SC-VC",
+            sheet_id=sheet.id,
+            amount=25.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-SC-VC"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close(cash_on_hand=40.0, commission_withheld=5.0)
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(sheet.cash_on_hand, 40.0)
+        self.assertEqual(sheet.commission_withheld, 5.0)
+
+    def test_action_seller_close_validated_seller_member_passes(self):
+        """Triangulation: validated_seller MUST pass Seller Close (unlike Confirm)."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-SC-VS",
+            sheet_id=sheet.id,
+            amount=12.0,
+        )
+        voucher.action_validate_seller()
+        self.assertEqual(voucher.state, "validated_seller")
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(voucher.state, "validated_seller")
+
+    def test_action_seller_close_refused_from_every_non_open_state(self):
+        """Seller Close from submitted, proposal, closed, or cancelled MUST refuse."""
+        for state in ("submitted", "proposal", "closed", "cancelled"):
+            sheet = self._create_sheet()
+            force_sheet_state(sheet, state)
+            with self.assertRaises(UserError):
+                sheet.action_seller_close()
+            self.assertEqual(sheet.state, state)
+
+    def test_action_seller_close_is_recordset_capable(self):
+        """Seller Close MUST run on a recordset (no ensure_one)."""
+        first = self._create_sheet()
+        other = self._other_internal_seller()
+        second = self._create_sheet(seller_id=other.id)
+        (first | second).action_seller_close()
+        self.assertEqual(first.state, "submitted")
+        self.assertEqual(second.state, "submitted")
+
     def test_illegal_close_cancel_open_from_open_refused(self):
-        """Close, Cancel, or Open from open MUST refuse and leave state open."""
+        """Close, Cancel, or Reinstate from open MUST refuse and leave state open."""
         sheet = self._create_sheet()
         with self.assertRaises(UserError):
             sheet.action_close()
         with self.assertRaises(UserError):
             sheet.action_cancel()
         with self.assertRaises(UserError):
-            sheet.action_open()
+            sheet.action_reinstate()
         self.assertEqual(sheet.state, "open")
 
     def test_action_close_from_proposal_confirms_then_closes(self):
@@ -272,7 +386,7 @@ class TestCollectionSheet(TransactionCase):
             sheet, voucher, invoice_id="INV-CLOSE-1"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(allocation.state, "draft")
         sheet.action_close()
@@ -300,7 +414,7 @@ class TestCollectionSheet(TransactionCase):
             sheet, second_voucher, invoice_id="INV-CLOSE-B"
         )
         self._mark_validated_collections(first_voucher | second_voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(first.state, "confirmed")
@@ -309,7 +423,7 @@ class TestCollectionSheet(TransactionCase):
 
     def test_action_close_rejected_when_already_closed(self):
         sheet = self._create_sheet()
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         with self.assertRaises(UserError):
             sheet.action_close()
@@ -327,7 +441,7 @@ class TestCollectionSheet(TransactionCase):
             sheet, voucher, invoice_id="INV-CAN-P"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(allocation.state, "draft")
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
@@ -354,7 +468,7 @@ class TestCollectionSheet(TransactionCase):
             sheet, second_voucher, invoice_id="INV-CAN-B"
         )
         self._mark_validated_collections(first_voucher | second_voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(first.state, "confirmed")
         self.assertEqual(second.state, "confirmed")
@@ -364,8 +478,84 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(second.state, "draft")
         (first | second)._check_sheet_state_iff()
 
+    def test_action_cancel_from_submitted_drafts_allocations(self):
+        """Cancel from submitted MUST set cancelled and leave allocations draft."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CAN-S",
+            sheet_id=sheet.id,
+            amount=22.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-CAN-S"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(allocation.state, "draft")
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
+
+    def test_action_cancel_from_submitted_empty_members(self):
+        """Triangulation: an empty submitted sheet MUST still Cancel."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(sheet.voucher_ids)
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+
+    def test_reinstate_succeeds_while_seller_has_a_new_open_sheet(self):
+        """Reinstate MUST write submitted even when another open sheet exists."""
+        cancelled = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-REINSTATE",
+            sheet_id=cancelled.id,
+            amount=16.0,
+        )
+        allocation = self._create_balanced_allocation(
+            cancelled, voucher, invoice_id="INV-REINSTATE"
+        )
+        self._mark_validated_collections(voucher)
+        confirm_sheet(cancelled)
+        cancelled.action_cancel()
+        self.assertEqual(cancelled.state, "cancelled")
+        current = self._create_sheet()
+        self.assertEqual(current.state, "open")
+        cancelled.action_reinstate()
+        self.assertEqual(cancelled.state, "submitted")
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(current.state, "open")
+        allocation._check_sheet_state_iff()
+
+    def test_submitted_cannot_return_to_open(self):
+        """Open or a raw write of state open MUST refuse on a submitted sheet."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(hasattr(type(sheet), "action_open"))
+        with self.assertRaises(UserError):
+            sheet.write({"state": "open"})
+        self.assertEqual(sheet.state, "submitted")
+
+    def test_cancelled_cannot_return_to_open(self):
+        """Open or a raw write of state open MUST refuse; Reinstate writes submitted."""
+        sheet = self._create_sheet()
+        confirm_sheet(sheet)
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertFalse(hasattr(type(sheet), "action_open"))
+        with self.assertRaises(UserError):
+            sheet.write({"state": "open"})
+        self.assertEqual(sheet.state, "cancelled")
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertNotEqual(sheet.state, "open")
+
     def test_action_open_from_cancelled_leaves_draft(self):
-        """Open from cancelled MUST set open and leave allocations draft."""
+        """Reinstate from cancelled MUST set submitted and leave allocations draft."""
         sheet = self._create_sheet()
         voucher = self._create_voucher(
             customer_identification="CUST-OPEN-1",
@@ -376,32 +566,38 @@ class TestCollectionSheet(TransactionCase):
             sheet, voucher, invoice_id="INV-OPEN-1"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         self.assertEqual(allocation.state, "draft")
-        sheet.action_open()
-        self.assertEqual(sheet.state, "open")
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
         self.assertEqual(allocation.state, "draft")
         allocation._check_sheet_state_iff()
 
     def test_action_open_rejected_when_already_open(self):
         sheet = self._create_sheet()
         with self.assertRaises(UserError):
-            sheet.action_open()
+            sheet.action_reinstate()
         self.assertEqual(sheet.state, "open")
 
     def test_raw_state_write_routes_to_audited_actions(self):
-        """write({state}) without audited-state context runs Confirm/Close/Cancel/Open."""
+        """Raw write({state}) dispatches Seller Close, Confirm, Close, or Cancel."""
         sheet = self._create_sheet()
+        sheet.write({"state": "submitted"})
+        self.assertEqual(sheet.state, "submitted")
         sheet.write({"state": "proposal"})
         self.assertEqual(sheet.state, "proposal")
         sheet.write({"state": "closed"})
         self.assertEqual(sheet.state, "closed")
         sheet.write({"state": "cancelled"})
         self.assertEqual(sheet.state, "cancelled")
-        sheet.write({"state": "open"})
-        self.assertEqual(sheet.state, "open")
+        with self.assertRaises(UserError) as error:
+            sheet.write({"state": "open"})
+        message = str(error.exception)
+        self.assertIn("Seller Close", message)
+        self.assertIn("Reinstate", message)
+        self.assertEqual(sheet.state, "cancelled")
 
     def test_raw_state_write_invalid_transition_rejected(self):
         """Intercepted write still enforces Confirm/Close/Cancel/Open preconditions."""
@@ -415,7 +611,7 @@ class TestCollectionSheet(TransactionCase):
         with self.assertRaises(UserError):
             sheet.write({"state": "cancelled"})
         self.assertEqual(sheet.state, "open")
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         with self.assertRaises(UserError):
             sheet.write({"state": "proposal"})
         self.assertEqual(sheet.state, "proposal")
@@ -423,19 +619,19 @@ class TestCollectionSheet(TransactionCase):
     def test_audited_state_write_allowed_with_context(self):
         """collection_sheet_audited_state allows the write used by audited actions."""
         sheet = self._create_sheet()
-        self._force_sheet_state(sheet, "proposal")
+        force_sheet_state(sheet, "proposal")
         self.assertEqual(sheet.state, "proposal")
-        self._force_sheet_state(sheet, "closed")
+        force_sheet_state(sheet, "closed")
         self.assertEqual(sheet.state, "closed")
-        self._force_sheet_state(sheet, "cancelled")
+        force_sheet_state(sheet, "cancelled")
         self.assertEqual(sheet.state, "cancelled")
-        self._force_sheet_state(sheet, "open")
+        force_sheet_state(sheet, "open")
         self.assertEqual(sheet.state, "open")
 
     def test_non_open_create_rejected(self):
         """Create MUST persist open and MUST reject any other state."""
         before = self._sheet_count()
-        for state in ("proposal", "closed", "cancelled"):
+        for state in ("submitted", "proposal", "closed", "cancelled"):
             with self.subTest(state=state):
                 with self.assertRaises(UserError):
                     self._create_sheet(state=state)
@@ -456,7 +652,7 @@ class TestCollectionSheet(TransactionCase):
     def test_proposal_does_not_occupy_one_open(self):
         """A proposal sheet MUST NOT count toward the one-open limit."""
         proposal = self._create_sheet()
-        proposal.action_confirm()
+        confirm_sheet(proposal)
         self.assertEqual(proposal.state, "proposal")
         second = self._create_sheet()
         self.assertEqual(second.state, "open")
@@ -464,19 +660,19 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(second.seller_id, proposal.seller_id)
 
     def test_open_rejected_if_another_open_exists(self):
+        """Create of a second open sheet is still refused; Reinstate is not."""
         first = self._create_sheet()
-        self._force_sheet_state(first, "closed")
+        force_sheet_state(first, "closed")
         cancelled = self._create_sheet()
-        cancelled.action_confirm()
+        confirm_sheet(cancelled)
         cancelled.action_cancel()
-        self._force_sheet_state(first, "open")
-        with self.assertRaises(UserError):
-            cancelled.action_open()
-        self.assertEqual(cancelled.state, "cancelled")
+        force_sheet_state(first, "open")
+        cancelled.action_reinstate()
+        self.assertEqual(cancelled.state, "submitted")
         self.assertEqual(first.state, "open")
 
     def test_blocked_open_keeps_allocations_draft(self):
-        """Blocked Open MUST leave the sheet cancelled and allocations draft."""
+        """Reinstate with another open sheet MUST leave allocations draft."""
         cancelled = self._create_sheet()
         voucher = self._create_voucher(
             customer_identification="CUST-OPEN-BLOCK",
@@ -487,36 +683,37 @@ class TestCollectionSheet(TransactionCase):
             cancelled, voucher, invoice_id="INV-OPEN-BLOCK"
         )
         self._mark_validated_collections(voucher)
-        cancelled.action_confirm()
+        confirm_sheet(cancelled)
         cancelled.action_cancel()
         first = self._create_sheet()
-        with self.assertRaises(UserError):
-            cancelled.action_open()
-        self.assertEqual(cancelled.state, "cancelled")
+        cancelled.action_reinstate()
+        self.assertEqual(cancelled.state, "submitted")
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(first.state, "open")
         allocation._check_sheet_state_iff()
 
-    def test_leftover_multiple_opens_confirm_still_succeeds(self):
-        """Confirm of extras MUST still succeed when more than one sheet is open."""
+    def test_leftover_open_extras_cannot_confirm(self):
+        """Leftover open extras MUST refuse Confirm; they MAY still Seller Close."""
         first, leftover = self._second_open_via_audited()
         self.assertEqual(first.state, "open")
         self.assertEqual(leftover.state, "open")
-        leftover.action_confirm()
-        self.assertEqual(leftover.state, "proposal")
+        with self.assertRaises(UserError):
+            leftover.action_confirm()
+        self.assertEqual(leftover.state, "open")
+        leftover.action_seller_close()
+        self.assertEqual(leftover.state, "submitted")
+        with self.assertRaises(UserError):
+            first.action_confirm()
         self.assertEqual(first.state, "open")
-        first.action_confirm()
-        self.assertEqual(first.state, "proposal")
 
     def test_leftover_multiple_opens_reject_new_ops(self):
         first, leftover = self._second_open_via_audited()
         before = self._sheet_count()
         with self.assertRaises(UserError):
             self._create_sheet()
-        self._force_sheet_state(first, "cancelled")
-        with self.assertRaises(UserError):
-            first.action_open()
-        self.assertEqual(first.state, "cancelled")
+        force_sheet_state(first, "cancelled")
+        first.action_reinstate()
+        self.assertEqual(first.state, "submitted")
         voucher = self._create_voucher(
             customer_identification="CUST-LEFT-ACT", seller_id=False
         )
@@ -650,7 +847,7 @@ class TestCollectionSheet(TransactionCase):
             customer_identification="CUST-REASG", sheet_id=sheet_a.id
         )
         voucher.write({"sheet_id": False})
-        sheet_a.action_confirm()
+        confirm_sheet(sheet_a)
         sheet_b = self._create_sheet()
         voucher.write({"sheet_id": sheet_b.id})
         self.assertEqual(voucher.sheet_id, sheet_b)
@@ -700,7 +897,7 @@ class TestCollectionSheet(TransactionCase):
     def test_unlink_closed_empty_refused(self):
         """Unlink of a closed sheet MUST fail even with no allocations or members."""
         sheet = self._create_sheet()
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         self.assertFalse(sheet.allocation_ids)
         self.assertFalse(sheet.voucher_ids)
@@ -721,7 +918,7 @@ class TestCollectionSheet(TransactionCase):
         )
         self.assertFalse(sheet.allocation_ids)
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         sheet_id = sheet.id
         voucher_id = voucher.id
@@ -823,7 +1020,7 @@ class TestCollectionSheet(TransactionCase):
     def test_unlink_proposal_refused(self):
         """Unlink of a proposal sheet MUST fail even when empty."""
         sheet = self._create_sheet()
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         sheet_id = sheet.id
         with self.assertRaises(UserError):
@@ -831,6 +1028,18 @@ class TestCollectionSheet(TransactionCase):
         leftover = self.env["collection.sheet"].browse(sheet_id)
         self.assertTrue(leftover.exists())
         self.assertEqual(leftover.state, "proposal")
+
+    def test_unlink_submitted_refused(self):
+        """Unlink of a submitted sheet MUST fail even when empty."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        sheet_id = sheet.id
+        with self.assertRaises(UserError):
+            sheet.unlink()
+        leftover = self.env["collection.sheet"].browse(sheet_id)
+        self.assertTrue(leftover.exists())
+        self.assertEqual(leftover.state, "submitted")
 
     def test_unlink_cancelled_refused(self):
         """Triangulation: unlink of a cancelled sheet MUST fail and remain cancelled."""
@@ -841,7 +1050,7 @@ class TestCollectionSheet(TransactionCase):
             amount=9.0,
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         sheet_id = sheet.id
         voucher_id = voucher.id
@@ -874,7 +1083,7 @@ class TestCollectionSheet(TransactionCase):
         )
         outsider.write({"seller_id": self._seller().id})
         self._mark_validated_collections(member)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         with self.assertRaises(UserError):
             outsider.write({"sheet_id": sheet.id})
@@ -907,7 +1116,7 @@ class TestCollectionSheet(TransactionCase):
         other = dummy_customer_partner(self.env, customer="CUST-FRZ-OTHER")
         original = member.partner_id
         self._mark_validated_collections(member)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         with self.assertRaises(UserError) as error:
             member.write({"partner_id": other.id})
@@ -928,7 +1137,7 @@ class TestCollectionSheet(TransactionCase):
         )
         outsider.write({"seller_id": self._seller().id})
         self._mark_validated_collections(member)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         with self.assertRaises(UserError):
             sheet.write({"voucher_ids": [Command.link(outsider.id)]})
@@ -950,7 +1159,7 @@ class TestCollectionSheet(TransactionCase):
         )
         outsider.write({"seller_id": self._seller().id})
         self._mark_validated_collections(member)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         with self.assertRaises(UserError):
@@ -959,11 +1168,46 @@ class TestCollectionSheet(TransactionCase):
             sheet.write({"voucher_ids": [Command.unlink(member.id)]})
         self.assertEqual(sheet.voucher_ids, member)
         self.assertFalse(outsider.sheet_id)
-
         action = self.env.ref("collection.action_create_collection_sheet")
         self.assertEqual(action.type, "ir.actions.server")
         self.assertEqual(action.binding_view_types, "list")
         self.assertEqual(action.binding_model_id.model, "collection.voucher")
+
+    def test_submitted_membership_add_and_remove(self):
+        """Submitted sheets MUST persist lawful membership add and remove."""
+        sheet = self._create_sheet()
+        member = self._create_voucher(
+            customer_identification="CUST-SUB-MEM", sheet_id=sheet.id
+        )
+        outsider = self._create_voucher(
+            customer_identification="CUST-SUB-OUT", seller_id=False
+        )
+        outsider.write({"seller_id": self._seller().id})
+        force_sheet_state(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
+        outsider.write({"sheet_id": sheet.id})
+        self.assertEqual(outsider.sheet_id, sheet)
+        self.assertIn(outsider, sheet.voucher_ids)
+        member.write({"sheet_id": False})
+        self.assertFalse(member.sheet_id)
+        self.assertNotIn(member, sheet.voucher_ids)
+        sheet.write({"voucher_ids": [Command.link(member.id)]})
+        self.assertEqual(member.sheet_id, sheet)
+        sheet.write({"voucher_ids": [Command.unlink(outsider.id)]})
+        self.assertFalse(outsider.sheet_id)
+        self.assertEqual(sheet.voucher_ids, member)
+
+    def test_submitted_partner_reassign_persists(self):
+        """Submitted sheets MUST allow voucher partner_id reassignment."""
+        sheet = self._create_sheet()
+        member = self._create_voucher(
+            customer_identification="CUST-SUB-PARTNER", sheet_id=sheet.id
+        )
+        other = dummy_customer_partner(self.env, customer="CUST-SUB-OTHER")
+        force_sheet_state(sheet, "submitted")
+        member.write({"partner_id": other.id})
+        self.assertEqual(member.partner_id, other)
+        self.assertEqual(sheet.state, "submitted")
 
     def test_action_open_document_review_returns_client_action_with_sheet_id(self):
         """Saved sheet + flag ON must open Document Review with that sheet_id."""
@@ -1014,10 +1258,21 @@ class TestCollectionSheet(TransactionCase):
                 sheet = self._create_sheet(
                     seller_id=self._other_internal_seller().id,
                 )
-                self._force_sheet_state(sheet, state)
+                force_sheet_state(sheet, state)
                 with self.assertRaises(UserError):
                     sheet.action_open_document_review()
                 self.assertEqual(sheet.state, state)
+
+    def test_action_open_document_review_succeeds_when_submitted(self):
+        """Saved submitted sheet + flag ON MUST open Document Review."""
+        self.env.company.write({"document_review_enabled": True})
+        sheet = self._create_sheet()
+        force_sheet_state(sheet, "submitted")
+        action = sheet.action_open_document_review()
+        self.assertEqual(action["type"], "ir.actions.client")
+        self.assertEqual(action["tag"], "collection.document_review")
+        self.assertEqual(action["params"]["sheet_id"], sheet.id)
+        self.assertEqual(sheet.state, "submitted")
 
     def test_empty_sheet_voucher_count_is_zero(self):
         """A sheet with no members MUST report non-stored voucher_count 0."""
@@ -1108,7 +1363,7 @@ class TestCollectionSheet(TransactionCase):
         self.env.company.write({"document_review_enabled": True})
         on_sheet = self._create_sheet()
         self.assertTrue(on_sheet.document_review_enabled)
-        on_sheet.action_confirm()
+        confirm_sheet(on_sheet)
         self.env.company.write({"document_review_enabled": False})
         off_sheet = self._create_sheet()
         self.assertFalse(off_sheet.document_review_enabled)
@@ -1156,10 +1411,21 @@ class TestCollectionSheet(TransactionCase):
         )
         self.assertEqual(falsey.sheet_id, sheet)
 
+    def test_create_honors_explicit_submitted_sheet_id(self):
+        """Explicit submitted same-seller sheet_id MUST be used instead of resolving."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        voucher = self._create_voucher(
+            customer_identification="CUST-AA-SUB-EXPL", sheet_id=sheet.id
+        )
+        self.assertEqual(voucher.sheet_id, sheet)
+        self.assertEqual(sheet.state, "submitted")
+
     def test_create_with_closed_sheet_id_fails(self):
         """Assigning a closed sheet on create MUST fail (Phase 2 freeze)."""
         sheet = self._create_sheet()
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         before = self.env["collection.voucher"].search_count([])
         with self.assertRaises(UserError):
@@ -1239,12 +1505,14 @@ class TestCollectionSheet(TransactionCase):
         seller = self._seller()
         other = self._other_internal_seller()
         self._ensure_enabled_seller(other)
-        self.env["collection.sheet"].search(
-            [
-                ("seller_id", "in", [seller.id, other.id]),
-                ("state", "=", "open"),
-            ]
-        ).action_confirm()
+        confirm_sheet(
+            self.env["collection.sheet"].search(
+                [
+                    ("seller_id", "in", [seller.id, other.id]),
+                    ("state", "=", "open"),
+                ]
+            )
+        )
         before = self._sheet_count()
         vouchers = self.env["collection.voucher"].create(
             [
@@ -1315,8 +1583,18 @@ class TestCollectionSheet(TransactionCase):
         self._clear_enabled_sellers()
         found = self.env["collection.sheet"].search([("id", "=", sheet.id)])
         self.assertEqual(found, sheet, "disabled-seller sheet must stay listed")
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
+        self.assertTrue(sheet.exists())
+
+    def test_disabled_seller_open_sheet_remains_closeable(self):
+        """A later-disabled seller MUST still Seller Close an existing open sheet."""
+        seller = self.env.ref("base.user_admin")
+        self._enable_sellers(seller)
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        self._clear_enabled_sellers()
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
         self.assertTrue(sheet.exists())
 
     def test_disabled_seller_sheet_open_skips_helper(self):
@@ -1324,11 +1602,11 @@ class TestCollectionSheet(TransactionCase):
         seller = self.env.ref("base.user_admin")
         self._enable_sellers(seller)
         sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self._clear_enabled_sellers()
-        sheet.action_open()
-        self.assertEqual(sheet.state, "open")
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
         self.assertTrue(sheet.exists())
 
     def _partner_has_autopost_bills_column(self):

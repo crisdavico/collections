@@ -1040,8 +1040,8 @@ class TestCollectionUi(TransactionCase):
             self.assertIn(field_name, search_fields, f"search must show {field_name}")
         self._assert_create_edit_enabled(list_root, "sheet list")
 
-    def test_collection_sheets_form_statusbar_four_states(self):
-        """Sheet form: four-state statusbar and header actions by state; no Reopen."""
+    def test_collection_sheets_form_statusbar_five_states(self):
+        """Sheet form: five-state statusbar and header actions by state; no Reopen."""
         form_root = self._arch_root("collection.view_collection_sheet_form")
         self.assertEqual(form_root.tag, "form")
         self._assert_create_edit_enabled(form_root, "sheet form")
@@ -1068,7 +1068,7 @@ class TestCollectionUi(TransactionCase):
         self.assertTrue(statusbar, "sheet form must include state statusbar in header")
         self.assertEqual(
             statusbar[0].get("statusbar_visible"),
-            "open,proposal,closed,cancelled",
+            "open,submitted,proposal,closed,cancelled",
         )
         options = statusbar[0].get("options") or ""
         self.assertIn("clickable", options)
@@ -1079,27 +1079,43 @@ class TestCollectionUi(TransactionCase):
                 f'./header/button[@name="{name}" and @type="object"]'
             )
 
+        seller_close = _header_button("action_seller_close")
         confirm = _header_button("action_confirm")
         close = _header_button("action_close")
         cancel = _header_button("action_cancel")
-        open_btn = _header_button("action_open")
+        reinstate = _header_button("action_reinstate")
         review = _header_button("action_open_document_review")
         xlsx = _header_button("action_print_xlsx")
+        self.assertTrue(seller_close, "form must include Seller Close button")
+        self.assertEqual(
+            seller_close[0].getnext().get("name"),
+            "action_confirm",
+            "Seller Close must sit immediately before Confirm",
+        )
+        seller_close_invisible = seller_close[0].get("invisible", "")
+        self.assertIn("open", seller_close_invisible)
+        self.assertIn("not id", seller_close_invisible)
         self.assertTrue(confirm, "form must include Confirm button")
         self.assertTrue(close, "form must include Close button")
         self.assertTrue(cancel, "form must include Cancel button")
-        self.assertTrue(open_btn, "form must include Open button")
+        self.assertTrue(reinstate, "form must include Reinstate button")
         self.assertTrue(review, "Document Review header button must remain")
         self.assertTrue(xlsx, "Export XLSX must remain on the sheet form")
         self.assertFalse(
             _header_button("action_reopen"),
             "Reopen MUST NOT appear on the sheet form",
         )
-        self.assertIn(
-            "state != 'open'",
-            confirm[0].get("invisible", ""),
-            "Confirm must be invisible when not open",
+        self.assertFalse(
+            _header_button("action_open"),
+            "Open MUST NOT appear on the sheet form",
         )
+        self.assertIn(
+            "not in",
+            confirm[0].get("invisible", ""),
+            "Confirm must be invisible when not in the admin-editable set",
+        )
+        self.assertIn("open", confirm[0].get("invisible", ""))
+        self.assertIn("submitted", confirm[0].get("invisible", ""))
         self.assertIn(
             "not id",
             confirm[0].get("invisible", ""),
@@ -1111,21 +1127,32 @@ class TestCollectionUi(TransactionCase):
             "Close must be invisible when not proposal",
         )
         cancel_invisible = cancel[0].get("invisible", "")
+        self.assertIn("submitted", cancel_invisible)
         self.assertIn("proposal", cancel_invisible)
         self.assertIn("closed", cancel_invisible)
         self.assertIn(
             "state != 'cancelled'",
-            open_btn[0].get("invisible", ""),
-            "Open must be invisible when not cancelled",
+            reinstate[0].get("invisible", ""),
+            "Reinstate must be invisible when not cancelled",
         )
         review_invisible = review[0].get("invisible", "")
-        self.assertIn("state != 'open'", review_invisible)
+        self.assertIn("not in", review_invisible)
+        self.assertIn("open", review_invisible)
+        self.assertIn("submitted", review_invisible)
         self.assertIn("document_review_enabled", review_invisible)
         header_buttons = [
             node for node in form_root.xpath("./header/*") if node.tag == "button"
         ]
         self.assertEqual(header_buttons[-1].get("name"), "action_print_xlsx")
         self.assertEqual(header_buttons[-1].getnext().get("name"), "state")
+        percent = form_root.xpath('.//field[@name="commission_percent"]')
+        cash = form_root.xpath('.//field[@name="cash_on_hand"]')
+        withheld = form_root.xpath('.//field[@name="commission_withheld"]')
+        self.assertTrue(percent and cash and withheld, "form must show recon inputs")
+        self.assertIn("closed", percent[0].get("readonly") or "")
+        self.assertIn("cancelled", percent[0].get("readonly") or "")
+        self.assertIn("open", cash[0].get("readonly") or "")
+        self.assertIn("open", withheld[0].get("readonly") or "")
         self.assertNotIn(
             "received_date",
             etree.tostring(form_root, encoding="unicode"),
@@ -1296,7 +1323,9 @@ class TestCollectionUi(TransactionCase):
             voucher_readonly,
             "allocation voucher M2M must freeze from sheet_id.state",
         )
+        self.assertIn("not in", voucher_readonly)
         self.assertIn("open", voucher_readonly)
+        self.assertIn("submitted", voucher_readonly)
         self.assertNotIn(
             "confirmed",
             voucher_readonly,
@@ -1482,6 +1511,7 @@ class TestCollectionUi(TransactionCase):
         allocation_field = allocation_fields[0]
         allocation_readonly = allocation_field.get("readonly") or ""
         self.assertIn("open", allocation_readonly)
+        self.assertIn("submitted", allocation_readonly)
         self.assertIn("proposal", allocation_readonly)
         allocation_lists = allocation_field.xpath("./list")
         self.assertTrue(allocation_lists, "allocation_ids must embed a <list>")
@@ -1558,7 +1588,8 @@ class TestCollectionUi(TransactionCase):
         readonly = voucher_field.get("readonly") or ""
         self.assertIn("state", readonly)
         self.assertIn("open", readonly)
-        self.assertIn("!=", readonly)
+        self.assertIn("submitted", readonly)
+        self.assertIn("not in", readonly)
 
     def test_sheet_form_debt_tab_amount_applied_only(self):
         """Debt tab MUST list lines; only amount_applied editable in Open/Proposal."""
@@ -1599,6 +1630,7 @@ class TestCollectionUi(TransactionCase):
         self.assertTrue(applied, "Debt list must include amount_applied")
         applied_readonly = applied[0].get("readonly") or ""
         self.assertIn("open", applied_readonly)
+        self.assertIn("submitted", applied_readonly)
         self.assertIn("proposal", applied_readonly)
         for node in list_node.xpath("./field"):
             name = node.get("name")
@@ -1657,7 +1689,8 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(button.get("type"), "object")
         self.assertEqual(
             button.get("invisible"),
-            "not id or not document_review_enabled or state != 'open'",
+            "not id or not document_review_enabled or "
+            "state not in ('open', 'submitted')",
         )
         helpers = form_root.xpath('.//field[@name="document_review_enabled"]')
         self.assertTrue(
@@ -1686,7 +1719,8 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(len(buttons), 1)
         self.assertEqual(
             buttons[0].get("invisible"),
-            "not id or not document_review_enabled or state != 'open'",
+            "not id or not document_review_enabled or "
+            "state not in ('open', 'submitted')",
         )
         self.env.company.write({"document_review_enabled": False})
         saved = self.env["collection.sheet"].create(

@@ -12,7 +12,12 @@ from odoo.tests import TransactionCase
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
-from .common_connector import install_bound_test_connector, install_test_connector_type
+from .common_connector import (
+    advance_sheet_to,
+    force_sheet_state,
+    install_bound_test_connector,
+    install_test_connector_type,
+)
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
     create_internal_seller,
@@ -179,20 +184,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         )
 
     def _drive_sheet(self, sheet, target):
-        if sheet.voucher_ids:
-            sheet.voucher_ids.with_context(collection_audited_state=True).write(
-                {"state": "validated_collections"}
-            )
-        sheet.action_confirm()
-        if target == "proposal":
-            return sheet
-        if target == "closed":
-            sheet.action_close()
-            return sheet
-        if target == "cancelled":
-            sheet.action_cancel()
-            return sheet
-        raise AssertionError(target)
+        return advance_sheet_to(sheet, target)
 
     def _next_document_id(self, prefix="LOOKUP-DOC"):
         self._doc_seq += 1
@@ -329,6 +321,16 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         )
         self._drive_sheet(sheet, "proposal")
         self.assertEqual(sheet.state, "proposal")
+        before = self._counts()
+        result = self._call(self._args())
+        self._assert_null(result)
+        self.assertEqual(self._counts(), before)
+
+    def test_submitted_sheet_does_not_occupy_mcp_open(self):
+        """A submitted sheet MUST NOT satisfy MCP open lookup."""
+        sheet = self._create_sheet()
+        self._drive_sheet(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
         before = self._counts()
         result = self._call(self._args())
         self._assert_null(result)
@@ -497,11 +499,9 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
     def test_multi_open_raises_existing_user_error(self):
         """More than one open sheet MUST raise the existing multi-open UserError."""
         first = self._create_sheet()
-        first.with_context(collection_sheet_audited_state=True).write(
-            {"state": "closed"}
-        )
+        force_sheet_state(first, "closed")
         leftover = self._create_sheet()
-        first.with_context(collection_sheet_audited_state=True).write({"state": "open"})
+        force_sheet_state(first, "open")
         self.assertEqual(first.state, "open")
         self.assertEqual(leftover.state, "open")
         err = self._assert_user_error_no_writes(lambda: self._call(self._args()))

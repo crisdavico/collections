@@ -7,7 +7,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_common import FROZEN_SHEET_STATES
+from .collection_common import FROZEN_SHEET_STATES, SELLER_SHEET_STATES
 
 _VOUCHER_BLOCK_ORDER = ("bank_transfer", "check", "cash_deposit")
 _DOCUMENT_KIND_ORDER = ("invoice", "quotation")
@@ -19,6 +19,7 @@ _VOUCHER_BLOCK_LABELS = {
 }
 _SHEET_STATE_LABELS = {
     "open": "Abierta",
+    "submitted": "Rendida",
     "proposal": "Propuesta",
     "closed": "Cerrada",
     "cancelled": "Cancelada",
@@ -27,9 +28,8 @@ _CHECK_TYPE_LABELS = {
     "common": "Común",
     "deferred": "Diferido",
 }
-_RECON_INPUT_FIELDS = frozenset(
-    {"cash_on_hand", "commission_withheld", "commission_percent"}
-)
+_SELLER_DECLARATION_FIELDS = frozenset({"cash_on_hand", "commission_withheld"})
+_ADMIN_RATE_FIELDS = frozenset({"commission_percent"})
 _RECON_STATUS = {
     -1: "outstanding",
     0: "balanced",
@@ -67,8 +67,18 @@ class CollectionSheetReport(models.Model):
     )
 
     def write(self, vals):
-        frozen = _RECON_INPUT_FIELDS & set(vals)
-        if frozen and any(sheet.state in FROZEN_SHEET_STATES for sheet in self):
+        declarations = _SELLER_DECLARATION_FIELDS & set(vals)
+        rates = _ADMIN_RATE_FIELDS & set(vals)
+        if declarations and any(
+            sheet.state not in SELLER_SHEET_STATES for sheet in self
+        ):
+            raise UserError(
+                _(
+                    "Seller-declared cash on hand and commission withheld can "
+                    "only be changed on an open collection sheet."
+                )
+            )
+        if rates and any(sheet.state in FROZEN_SHEET_STATES for sheet in self):
             raise UserError(
                 _("Closed collection sheets cannot change the reconciliation inputs.")
             )

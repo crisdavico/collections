@@ -12,6 +12,7 @@ from odoo.tests import TransactionCase
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
+from .common_connector import advance_sheet_to
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
     create_internal_seller,
@@ -144,20 +145,7 @@ class TestCollectionMcpSheetPdf(TransactionCase):
         return partner
 
     def _drive_sheet(self, sheet, target):
-        if sheet.voucher_ids:
-            sheet.voucher_ids.with_context(collection_audited_state=True).write(
-                {"state": "validated_collections"}
-            )
-        sheet.action_confirm()
-        if target == "proposal":
-            return sheet
-        if target == "closed":
-            sheet.action_close()
-            return sheet
-        if target == "cancelled":
-            sheet.action_cancel()
-            return sheet
-        raise AssertionError(target)
+        return advance_sheet_to(sheet, target)
 
     # ------------------------------------------------------------------
     # Invocation
@@ -312,6 +300,16 @@ class TestCollectionMcpSheetPdf(TransactionCase):
         self._populate(sheet, partner_name="Cliente Proposal")
         self._drive_sheet(sheet, "proposal")
         self.assertEqual(sheet.state, "proposal")
+        result, calls = self._call_with_stub_render()
+        self._assert_null(result)
+        self.assertEqual(calls, [])
+
+    def test_submitted_sheet_returns_null(self):
+        """A submitted sheet is not open; the tool returns {sheet: null}."""
+        sheet = self._create_sheet()
+        self._populate(sheet, partner_name="Cliente Submitted")
+        self._drive_sheet(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
         result, calls = self._call_with_stub_render()
         self._assert_null(result)
         self.assertEqual(calls, [])

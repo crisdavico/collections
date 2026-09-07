@@ -202,6 +202,8 @@ class TestCollectionMail(TransactionCase):
 
     def test_close_tracks_state_in_chatter(self):
         sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self._flush_tracking()
         sheet.action_confirm()
         self._flush_tracking()
         sheet.action_close()
@@ -211,21 +213,26 @@ class TestCollectionMail(TransactionCase):
         self.assertIn("state", tracked_fields)
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
         pairs = {(row.old_value_char, row.new_value_char) for row in state_tracking}
-        self.assertIn(("Open", "Proposal"), pairs)
+        self.assertIn(("Open", "Submitted by Seller"), pairs)
+        self.assertIn(("Submitted by Seller", "Proposal"), pairs)
         self.assertIn(("Proposal", "Closed"), pairs)
 
     def test_confirm_tracks_state_in_chatter(self):
         sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self._flush_tracking()
         sheet.action_confirm()
         self._flush_tracking()
         tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
-        self.assertTrue(state_tracking)
-        self.assertEqual(state_tracking[-1].old_value_char, "Open")
-        self.assertEqual(state_tracking[-1].new_value_char, "Proposal")
+        pairs = {(row.old_value_char, row.new_value_char) for row in state_tracking}
+        self.assertIn(("Open", "Submitted by Seller"), pairs)
+        self.assertIn(("Submitted by Seller", "Proposal"), pairs)
 
     def test_cancel_tracks_state_in_chatter(self):
         sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self._flush_tracking()
         sheet.action_confirm()
         self._flush_tracking()
         sheet.action_cancel()
@@ -233,20 +240,22 @@ class TestCollectionMail(TransactionCase):
         tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
         pairs = {(row.old_value_char, row.new_value_char) for row in state_tracking}
-        self.assertIn(("Open", "Proposal"), pairs)
+        self.assertIn(("Open", "Submitted by Seller"), pairs)
+        self.assertIn(("Submitted by Seller", "Proposal"), pairs)
         self.assertIn(("Proposal", "Cancelled"), pairs)
 
     def test_open_tracks_state_in_chatter(self):
         sheet = self._create_sheet()
+        sheet.action_seller_close()
         sheet.action_confirm()
         sheet.action_cancel()
         self._flush_tracking()
-        sheet.action_open()
+        sheet.action_reinstate()
         self._flush_tracking()
         tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
         state_tracking = tracking.filtered(lambda t: t.field_id.name == "state")
         pairs = {(row.old_value_char, row.new_value_char) for row in state_tracking}
-        self.assertIn(("Cancelled", "Open"), pairs)
+        self.assertIn(("Cancelled", "Submitted by Seller"), pairs)
 
     def test_non_image_extra_cannot_become_proof(self):
         """A non-image/non-PDF chatter file MUST NOT become designated proof."""

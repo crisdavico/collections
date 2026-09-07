@@ -258,3 +258,46 @@ def mcp_env_with_listable_customers(env, arguments, user, default_user):
     ctx = dict(env.context)
     ctx["collection_test_customers"] = customers
     return env(user=uid, context=ctx)
+
+
+def force_sheet_state(sheet, state):
+    """Write sheet ``state`` through the audited dispatcher bypass."""
+    sheet.with_context(collection_sheet_audited_state=True).write({"state": state})
+    return sheet
+
+
+def confirm_sheet(sheet):
+    """Confirm from submitted. Seller Close first when the sheet is still open."""
+    opens = sheet.filtered(lambda rec: rec.state == "open")
+    if opens:
+        opens.action_seller_close()
+    return sheet.action_confirm()
+
+
+def advance_sheet_to(sheet, target):
+    """Drive an open sheet through legal Seller Close/Confirm/Close/Cancel.
+
+    Marks members ``validated_collections`` so Seller Close and Confirm can run.
+    Use :func:`force_sheet_state` when a test must skip those gates.
+    """
+    if target == "open":
+        return sheet
+    vouchers = sheet.voucher_ids
+    if vouchers:
+        vouchers.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+    if sheet.state == "open":
+        sheet.action_seller_close()
+    if target == "submitted":
+        return sheet
+    sheet.action_confirm()
+    if target == "proposal":
+        return sheet
+    if target == "closed":
+        sheet.action_close()
+        return sheet
+    if target == "cancelled":
+        sheet.action_cancel()
+        return sheet
+    raise AssertionError(f"Unsupported sheet target {target!r}")

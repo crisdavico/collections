@@ -455,7 +455,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         raw = attachment.raw or b""
         self.assertTrue(raw.startswith(b"PK"), raw[:8])
 
-    def test_xlsx_in_all_four_states(self):
+    def test_xlsx_in_all_five_states(self):
         """Export XLSX MUST download in every sheet state without a state UserError."""
         sheet, _partner = self._populated_sheet()
         if sheet.voucher_ids:
@@ -464,6 +464,7 @@ class TestCollectionSheetXlsx(TransactionCase):
             )
         advances = (
             ("open", lambda: None),
+            ("submitted", sheet.action_seller_close),
             ("proposal", sheet.action_confirm),
             ("closed", sheet.action_close),
             ("cancelled", sheet.action_cancel),

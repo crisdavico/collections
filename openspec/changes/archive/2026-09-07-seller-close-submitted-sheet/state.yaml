@@ -1,0 +1,34 @@
+# SDD change state — orchestrator-managed
+change: seller-close-submitted-sheet
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: cursor-grok-4.6-high
+phase: verify
+updated: 2026-09-07
+artifacts:
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+verify_notes: |
+  Verify FAIL admitted. 17/17 tasks. Collection 840/840. img-build 0.
+  111/124 scenarios; 5 UNTESTED blockers. Next is remediate, not archive.
+explore_notes: |
+  Live code confirms settled design. Confirm call sites: 83 in 14 test files
+  (plan said 163 in 12). Sibling _confirm() at collection_receipt_proposal
+  tests/common.py:188. MCP lockout at tools/collection_allocation.py:710.
+notes: |
+  Source plan: /home/crisd/.claude/plans/with-all-this-information-idempotent-lynx.md
+  User asked automatic pipeline through verify inclusive.
+  One grok 4.6 subagent per SDD phase; apply uses one grok 4.6 subagent per task phase.
+  Settled product decisions are in the source plan; do not reopen them.
+  Parallel in-flight changes (do not edit their artifacts or acquire their SDD lock):
+    - expose-allocatable-customer-debt (apply)
+    - 2026-09-04-document-review-editable-ocr (apply)
+  Manifest on origin is 19.0.1.41.0; plan target is 19.0.1.42.0 (dormant Selection key).
+  Nebula agent is documentation-only (fetch Planilla before close); no nebula code.
+  PR 5 one-line sibling fix lives in collection_receipt_proposal (outside apply.roots);
+  planning may name it; apply of that slice needs edit-authority consent.

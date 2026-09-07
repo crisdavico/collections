@@ -12,7 +12,11 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
-from .common_connector import install_bound_test_connector
+from .common_connector import (
+    advance_sheet_to,
+    force_sheet_state,
+    install_bound_test_connector,
+)
 from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
@@ -176,31 +180,33 @@ class TestCollectionSheetReportData(TransactionCase):
         return vouchers
 
     def _drive_sheet(self, sheet, target):
-        self._mark_validated_collections(sheet.voucher_ids)
-        if target == "open":
-            return sheet
-        sheet.action_confirm()
-        if target == "proposal":
-            return sheet
-        if target == "closed":
-            sheet.action_close()
-            return sheet
-        if target == "cancelled":
-            sheet.action_cancel()
-            return sheet
-        raise AssertionError(target)
+        return advance_sheet_to(sheet, target)
 
-    def _assert_recon_write_refused(self, sheet):
-        before = {name: sheet[name] for name in _RECON_FIELDS}
+    def _assert_seller_declaration_write_refused(self, sheet):
+        before = {name: sheet[name] for name in ("cash_on_hand", "commission_withheld")}
         for field_name, value in (
             ("cash_on_hand", 99.0),
             ("commission_withheld", 99.0),
-            ("commission_percent", 9.0),
         ):
             with self.assertRaises(UserError):
                 sheet.write({field_name: value})
             sheet.invalidate_recordset(_RECON_FIELDS)
             self.assertEqual(sheet[field_name], before[field_name], field_name)
+
+    def _assert_admin_rate_write_refused(self, sheet):
+        before = sheet.commission_percent
+        with self.assertRaises(UserError) as error:
+            sheet.write({"commission_percent": 9.0})
+        self.assertEqual(
+            str(error.exception),
+            "Closed collection sheets cannot change the reconciliation inputs.",
+        )
+        sheet.invalidate_recordset(["commission_percent"])
+        self.assertEqual(sheet.commission_percent, before)
+
+    def _assert_recon_write_refused(self, sheet):
+        self._assert_seller_declaration_write_refused(sheet)
+        self._assert_admin_rate_write_refused(sheet)
 
     def _assert_nested_primitives(self, value, path="payload"):
         if isinstance(value, dict):
@@ -273,21 +279,44 @@ class TestCollectionSheetReportData(TransactionCase):
         self._assert_recon_write_refused(sheet)
 
     def test_proposal_recon_remains_editable(self):
-        """Proposal sheets MAY persist lawful recon-input writes."""
+        """Proposal sheets MAY persist commission_percent; seller decls MUST refuse."""
         _allocation, _voucher, sheet, _partner = self._balanced()
         self._drive_sheet(sheet, "proposal")
         self.assertEqual(sheet.state, "proposal")
-        sheet.write(
-            {
-                "commission_percent": 7.5,
-                "cash_on_hand": 18.0,
-                "commission_withheld": 2.0,
-            }
-        )
-        sheet.invalidate_recordset(_RECON_FIELDS)
+        sheet.write({"commission_percent": 7.5})
+        sheet.invalidate_recordset(["commission_percent"])
         self.assertEqual(sheet.commission_percent, 7.5)
-        self.assertEqual(sheet.cash_on_hand, 18.0)
-        self.assertEqual(sheet.commission_withheld, 2.0)
+        self._assert_seller_declaration_write_refused(sheet)
+
+    def test_submitted_freezes_seller_declarations_only(self):
+        """Submitted MUST freeze decls while commission_percent MAY persist."""
+        _allocation, _voucher, sheet, _partner = self._balanced()
+        force_sheet_state(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
+        sheet.write({"commission_percent": 6.5})
+        sheet.invalidate_recordset(["commission_percent"])
+        self.assertEqual(sheet.commission_percent, 6.5)
+        self._assert_seller_declaration_write_refused(sheet)
+
+    def test_raw_combined_declaration_and_submitted_write_refused(self):
+        """Raw decls plus state submitted MUST refuse unaudited Seller Close."""
+        sheet = self._create_sheet(force_new=True)
+        self.assertEqual(sheet.state, "open")
+        before_cash = sheet.cash_on_hand
+        before_withheld = sheet.commission_withheld
+        with self.assertRaises(UserError) as error:
+            sheet.write(
+                {
+                    "cash_on_hand": 25.0,
+                    "commission_withheld": 3.0,
+                    "state": "submitted",
+                }
+            )
+        self.assertIn("Seller Close", str(error.exception))
+        sheet.invalidate_recordset(["state", "cash_on_hand", "commission_withheld"])
+        self.assertEqual(sheet.state, "open")
+        self.assertEqual(sheet.cash_on_hand, before_cash)
+        self.assertEqual(sheet.commission_withheld, before_withheld)
 
     def test_open_from_cancelled_keeps_recon_values(self):
         """Confirm then Cancel then Open MUST keep stored recon inputs."""
@@ -300,19 +329,20 @@ class TestCollectionSheetReportData(TransactionCase):
             }
         )
         self._drive_sheet(sheet, "cancelled")
-        sheet.action_open()
-        self.assertEqual(sheet.state, "open")
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.commission_percent, 12.5)
         self.assertEqual(sheet.cash_on_hand, 40.0)
         self.assertEqual(sheet.commission_withheld, 5.5)
 
-    def test_payload_in_all_four_states(self):
+    def test_payload_in_all_five_states(self):
         """PDF payload MUST build in every sheet state without a state UserError."""
         _allocation, _voucher, sheet, _partner = self._balanced(amount=80.0)
         reference = sheet.name
         self._mark_validated_collections(sheet.voucher_ids)
         advances = (
             ("open", lambda: None),
+            ("submitted", sheet.action_seller_close),
             ("proposal", sheet.action_confirm),
             ("closed", sheet.action_close),
             ("cancelled", sheet.action_cancel),
@@ -328,7 +358,7 @@ class TestCollectionSheetReportData(TransactionCase):
                 self.assertEqual(payload["reference"], reference)
                 self.assertEqual(payload["voucher_count"], 1)
                 labels.append(payload["state_label"])
-        self.assertEqual(len(set(labels)), 4)
+        self.assertEqual(len(set(labels)), 5)
 
     def test_payload_keys_and_primitives(self):
         """Payload MUST expose listed keys with primitive nested row values."""

@@ -14,6 +14,7 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tools import SQL
 
+from odoo.addons.collection.models.collection_common import SELLER_SHEET_STATES
 from odoo.addons.collection.tools.collection_voucher import (
     _COLLECTION_AMOUNT_SCHEMA,
     _PAYMENT_SCHEMA,
@@ -707,7 +708,10 @@ class CollectionAllocationMixin(models.AbstractModel):
         if not vouchers.sheet_id or len(vouchers.sheet_id) != 1:
             raise UserError(_("Vouchers must belong to a single collection sheet."))
         sheet = vouchers.sheet_id
-        if sheet.state != "open" or sheet.company_id != self.env.company:
+        if (
+            sheet.state not in SELLER_SHEET_STATES
+            or sheet.company_id != self.env.company
+        ):
             raise UserError(
                 _("The collection sheet must be open in the current company.")
             )

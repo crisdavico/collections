@@ -14,6 +14,7 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from .common_connector import confirm_sheet
 from .test_collection_payment import (
     PDF_B64,
     PNG_B64,
@@ -389,7 +390,8 @@ class TestCollectionVoucher(TransactionCase):
         )
 
     def test_persist_echeck_cash_and_retention_certificate(self):
-        """ORM MUST persist echeck, cash, and retention_certificate plus retention_kind."""
+        """ORM MUST persist echeck, cash, and retention_certificate plus
+        retention_kind."""
         echeck = self._create_voucher(
             customer_identification="CUST-ECH",
             document_type="echeck",
@@ -1020,9 +1022,7 @@ class TestCollectionVoucher(TransactionCase):
             vouchers=voucher,
             lines=[self._line_vals(amount_applied=60.0, invoice_balance=100.0)],
         )
-        self._create_allocation(
-            sheet, partner_q, residual_reason="on_account"
-        )
+        self._create_allocation(sheet, partner_q, residual_reason="on_account")
         voucher.write({"allocation_id": False})
         self.assertFalse(voucher.allocation_id)
         voucher.write({"partner_id": partner_q.id})
@@ -1163,7 +1163,7 @@ class TestCollectionVoucher(TransactionCase):
             sheet_id=sheet.id, amount=10.0, document_id="FRZ-PROP-SHEET"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         with self.assertRaises(UserError) as error:
             voucher.write({"sheet_id": False})
@@ -1180,7 +1180,7 @@ class TestCollectionVoucher(TransactionCase):
             sheet_id=sheet.id, amount=10.0, document_id="FRZ-CAN-SHEET"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         with self.assertRaises(UserError):
@@ -1196,7 +1196,7 @@ class TestCollectionVoucher(TransactionCase):
         other = dummy_customer_partner(self.env, customer="FRZ-PROP-OTHER")
         original = voucher.partner_id
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         with self.assertRaises(UserError) as error:
             voucher.write({"partner_id": other.id})
         self.assertEqual(
@@ -1215,7 +1215,7 @@ class TestCollectionVoucher(TransactionCase):
             from_account="KEEP-FROM",
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         with self.assertRaises(UserError):
             voucher.write({"amount": 99.0})
         voucher.invalidate_recordset()
@@ -1232,7 +1232,7 @@ class TestCollectionVoucher(TransactionCase):
             from_account="KEEP-FROM-CAN",
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_cancel()
         with self.assertRaises(UserError):
             voucher.write({"from_account": "HACKED"})
@@ -1247,7 +1247,7 @@ class TestCollectionVoucher(TransactionCase):
             sheet_id=sheet.id, amount=15.0, document_id="FRZ-CLOSED-BIZ"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         sheet.action_close()
         with self.assertRaises(UserError):
             voucher.write({"amount": 1.0})
@@ -1268,7 +1268,7 @@ class TestCollectionVoucher(TransactionCase):
             sheet, partner, residual_reason="on_account"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(allocation.state, "draft")
         voucher.write({"allocation_id": allocation.id})
@@ -1283,7 +1283,7 @@ class TestCollectionVoucher(TransactionCase):
             sheet_id=sheet.id, amount=10.0, document_id="FRZ-CHATTER"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_confirm()
+        confirm_sheet(sheet)
         proposal_note = voucher.message_post(
             body="Operator note on proposal voucher",
             message_type="comment",

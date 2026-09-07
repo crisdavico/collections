@@ -417,11 +417,18 @@
             <form string="Collection Sheet">
                 <header>
                     <button
+            name="action_seller_close"
+            string="Seller Close"
+            type="object"
+            class="oe_highlight"
+            invisible="not id or state != 'open'"
+          />
+                    <button
             name="action_confirm"
             string="Confirm"
             type="object"
             class="oe_highlight"
-            invisible="not id or state != 'open'"
+            invisible="not id or state not in ('open', 'submitted')"
           />
                     <button
             name="action_close"
@@ -434,11 +441,11 @@
             name="action_cancel"
             string="Cancel"
             type="object"
-            invisible="state not in ('proposal', 'closed')"
+            invisible="state not in ('submitted', 'proposal', 'closed')"
           />
                     <button
-            name="action_open"
-            string="Open"
+            name="action_reinstate"
+            string="Reinstate"
             type="object"
             invisible="state != 'cancelled'"
           />
@@ -447,7 +454,7 @@
             string="Document Review"
             type="object"
             class="oe_highlight"
-            invisible="not id or not document_review_enabled or state != 'open'"
+            invisible="not id or not document_review_enabled or state not in ('open', 'submitted')"
           />
                     <button
             name="action_print_xlsx"
@@ -457,7 +464,7 @@
                     <field
             name="state"
             widget="statusbar"
-            statusbar_visible="open,proposal,closed,cancelled"
+            statusbar_visible="open,submitted,proposal,closed,cancelled"
             options="{'clickable': False}"
           />
                 </header>
@@ -498,16 +505,22 @@
                         </group>
                         <group>
                             <field name="currency_id" invisible="1" />
-                            <field name="commission_percent" />
-                            <field name="cash_on_hand" />
-                            <field name="commission_withheld" />
+                            <field
+                name="commission_percent"
+                readonly="state in ('closed', 'cancelled')"
+              />
+                            <field name="cash_on_hand" readonly="state != 'open'" />
+                            <field
+                name="commission_withheld"
+                readonly="state != 'open'"
+              />
                         </group>
                     </group>
                     <notebook>
                         <page string="Allocations">
                             <field
                 name="allocation_ids"
-                readonly="state not in ('open', 'proposal')"
+                readonly="state not in ('open', 'submitted', 'proposal')"
               >
                                 <list>
                                     <field name="name" string="Reference" />
@@ -527,7 +540,7 @@
                 name="voucher_ids"
                 create="false"
                 delete="false"
-                readonly="state != 'open'"
+                readonly="state not in ('open', 'submitted')"
               >
                                 <list create="false" delete="false">
                                     <field name="name" />
@@ -540,11 +553,7 @@
                             </field>
                         </page>
                         <page string="Debt">
-                            <field
-                name="debt_line_ids"
-                create="false"
-                delete="false"
-              >
+                            <field name="debt_line_ids" create="false" delete="false">
                                 <list create="false" delete="false" editable="bottom">
                                     <field name="partner_id" readonly="1" />
                                     <field name="document_kind" readonly="1" />
@@ -553,7 +562,7 @@
                                     <field name="invoice_balance" readonly="1" />
                                     <field
                     name="amount_applied"
-                    readonly="parent.state not in ('open', 'proposal')"
+                    readonly="parent.state not in ('open', 'submitted', 'proposal')"
                   />
                                     <field name="currency_id" column_invisible="1" />
                                 </list>

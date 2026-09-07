@@ -6,13 +6,18 @@ from odoo.exceptions import UserError
 from odoo.tools import SQL
 from odoo.tools.translate import _
 
-from .collection_common import record_id, sanitize_voucher_commands
+from .collection_common import (
+    ADMIN_EDITABLE_SHEET_STATES,
+    SELLER_SHEET_STATES,
+    record_id,
+    sanitize_voucher_commands,
+)
 
 _STATE_WRITE_ACTIONS = {
     "proposal": "action_confirm",
     "closed": "action_close",
     "cancelled": "action_cancel",
-    "open": "action_open",
+    "submitted": "_dispatch_submitted_state_write",
 }
 _VALIDATED_COLLECTIONS = "validated_collections"
 
@@ -65,6 +70,7 @@ class CollectionSheet(models.Model):
     state = fields.Selection(
         selection=[
             ("open", "Open"),
+            ("submitted", "Submitted by Seller"),
             ("proposal", "Proposal"),
             ("closed", "Closed"),
             ("cancelled", "Cancelled"),
@@ -107,7 +113,7 @@ class CollectionSheet(models.Model):
             [
                 ("seller_id", "=", record_id(seller)),
                 ("company_id", "=", record_id(company)),
-                ("state", "=", "open"),
+                ("state", "in", list(SELLER_SHEET_STATES)),
             ]
         )
 
@@ -152,7 +158,7 @@ class CollectionSheet(models.Model):
                 )
             if "voucher_ids" in vals:
                 vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
-            if (vals.get("state") or "open") != "open":
+            if vals.get("state") and vals["state"] not in SELLER_SHEET_STATES:
                 raise UserError(_("Collection sheets can only be created in Open."))
             seller_id = vals.get("seller_id")
             if seller_id:
@@ -175,19 +181,26 @@ class CollectionSheet(models.Model):
             target = vals["state"]
             rest = {key: value for key, value in vals.items() if key != "state"}
             if rest:
+                if target == "submitted":
+                    raise UserError(
+                        _(
+                            "Sheet state can only be changed via Seller Close, "
+                            "Confirm, Close, Cancel, or Reinstate."
+                        )
+                    )
                 super().write(rest)
             action_name = _STATE_WRITE_ACTIONS.get(target)
             if action_name:
                 return getattr(self, action_name)()
             raise UserError(
                 _(
-                    "Sheet state can only be changed via Confirm, Close, Cancel, "
-                    "or Open."
+                    "Sheet state can only be changed via Seller Close, Confirm, "
+                    "Close, Cancel, or Reinstate."
                 )
             )
         if "voucher_ids" in vals:
             if not self.env.context.get("collection_sheet_unlinking") and any(
-                sheet.state != "open" for sheet in self
+                sheet.state not in ADMIN_EDITABLE_SHEET_STATES for sheet in self
             ):
                 raise UserError(
                     _(
@@ -206,13 +219,55 @@ class CollectionSheet(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_open_sheets_and_cascade_allocations(self):
-        if any(sheet.state != "open" for sheet in self):
+        if any(sheet.state not in SELLER_SHEET_STATES for sheet in self):
             raise UserError(_("Only open collection sheets can be deleted."))
         self.allocation_ids.unlink()
 
+    def action_seller_close(self, cash_on_hand=None, commission_withheld=None):
+        for sheet in self:
+            self._lock_open_sheet_for_seller(sheet.seller_id, sheet.company_id)
+            # Lock is worthless without a re-read: cached state/membership can
+            # predate the lock and hide a concurrent close or voucher insert.
+            sheet.invalidate_recordset(["state", "voucher_ids"])
+            if sheet.state not in SELLER_SHEET_STATES:
+                raise UserError(
+                    _("Only open collection sheets can be closed by the seller.")
+                )
+        self._raise_if_draft_vouchers_block_seller_close()
+        vals = {"state": "submitted"}
+        if cash_on_hand is not None:
+            vals["cash_on_hand"] = cash_on_hand
+        if commission_withheld is not None:
+            vals["commission_withheld"] = commission_withheld
+        return self.with_context(collection_sheet_audited_state=True).write(vals)
+
+    @api.private
+    def _raise_if_draft_vouchers_block_seller_close(self):
+        drafts = self.mapped("voucher_ids").filtered(
+            lambda voucher: voucher.state == "draft"
+        )
+        if not drafts:
+            return
+        names = ", ".join(drafts.mapped("name"))
+        raise UserError(_("Seller Close cannot include draft vouchers: %s", names))
+
+    @api.private
+    def _dispatch_submitted_state_write(self):
+        states = set(self.mapped("state"))
+        if len(states) != 1:
+            raise UserError(
+                _("Seller Close and Reinstate cannot run on mixed sheet states.")
+            )
+        current = next(iter(states))
+        if current in SELLER_SHEET_STATES:
+            return self.action_seller_close()
+        if current == "cancelled":
+            return self.action_reinstate()
+        raise UserError(_("Only open collection sheets can be closed by the seller."))
+
     def action_confirm(self):
-        if any(sheet.state != "open" for sheet in self):
-            raise UserError(_("Only open sheets can be confirmed."))
+        if any(sheet.state != "submitted" for sheet in self):
+            raise UserError(_("Only submitted sheets can be confirmed."))
         for sheet in self:
             if any(
                 voucher.state != _VALIDATED_COLLECTIONS for voucher in sheet.voucher_ids
@@ -267,8 +322,12 @@ class CollectionSheet(models.Model):
         return result
 
     def action_cancel(self):
-        if any(sheet.state not in ("proposal", "closed") for sheet in self):
-            raise UserError(_("Only proposal or closed sheets can be cancelled."))
+        if any(
+            sheet.state not in ("submitted", "proposal", "closed") for sheet in self
+        ):
+            raise UserError(
+                _("Only submitted, proposal, or closed sheets can be cancelled.")
+            )
         allocations = self.mapped("allocation_ids")
         result = self.with_context(collection_sheet_audited_state=True).write(
             {"state": "cancelled"}
@@ -280,20 +339,12 @@ class CollectionSheet(models.Model):
             allocations._check_sheet_state_iff()
         return result
 
-    def action_open(self):
+    def action_reinstate(self):
         if any(sheet.state != "cancelled" for sheet in self):
-            raise UserError(_("Only cancelled sheets can be opened."))
-        seen_keys = set()
-        for sheet in self:
-            key = (sheet.company_id.id, sheet.seller_id.id)
-            if key in seen_keys:
-                raise UserError(_("This seller already has an open collection sheet."))
-            self._lock_open_sheet_for_seller(sheet.seller_id, sheet.company_id)
-            self._raise_if_seller_has_open_sheet(sheet.seller_id, sheet.company_id)
-            seen_keys.add(key)
+            raise UserError(_("Only cancelled sheets can be reinstated."))
         allocations = self.mapped("allocation_ids")
         result = self.with_context(collection_sheet_audited_state=True).write(
-            {"state": "open"}
+            {"state": "submitted"}
         )
         if allocations:
             allocations._check_sheet_state_iff()
@@ -303,7 +354,7 @@ class CollectionSheet(models.Model):
         self.ensure_one()
         self.env["collection.voucher"]._ensure_document_review_enabled()
         self._ensure_saved_sheet()
-        if self.state != "open":
+        if self.state not in ADMIN_EDITABLE_SHEET_STATES:
             raise UserError(
                 _("Document Review is only available on open collection sheets.")
             )

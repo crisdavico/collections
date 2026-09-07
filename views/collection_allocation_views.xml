@@ -134,7 +134,7 @@
                 widget="many2many"
                 options="{'no_create': True, 'no_create_edit': True}"
                 domain="[('partner_id', '=', partner_id), ('sheet_id', '=', sheet_id), '|', ('allocation_id', '=', False), ('allocation_id', '=', id)]"
-                readonly="sheet_id.state != 'open'"
+                readonly="sheet_id.state not in ('open', 'submitted')"
               >
                                 <list>
                                     <field name="name" />

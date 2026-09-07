@@ -11,6 +11,7 @@ from lxml import etree
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
+from .common_connector import force_sheet_state
 from .test_collection_payment import (
     PDF_B64,
     PNG_B64,
@@ -69,9 +70,7 @@ class TestCollectionDocumentReview(TransactionCase):
             [("seller_id", "=", seller_id), ("state", "=", "open")]
         )
         if opens:
-            opens.with_context(collection_sheet_audited_state=True).write(
-                {"state": "closed"}
-            )
+            force_sheet_state(opens, "closed")
 
     def _create_attached_voucher(self, **extra):
         extra.setdefault("attachment_filename", "proof.png")
@@ -397,9 +396,7 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         for state in ("proposal", "closed", "cancelled"):
             with self.subTest(state=state):
-                sheet.with_context(collection_sheet_audited_state=True).write(
-                    {"state": state}
-                )
+                force_sheet_state(sheet, state)
                 with self.assertRaises(UserError):
                     Voucher.get_review_queue(sheet.id)
                 with self.assertRaises(UserError):
@@ -408,6 +405,43 @@ class TestCollectionDocumentReview(TransactionCase):
                     voucher.action_review_set_rotation(sheet.id, 90)
                 self.assertEqual(voucher.state, "validated_seller")
                 self.assertEqual(voucher.attachment_rotation, 0)
+
+    def test_review_rpcs_succeed_on_submitted_sheet(self):
+        """Inverse of the 3-state freeze: submitted identifiers MUST review."""
+        Voucher = self.env["collection.voucher"]
+        self._close_open_sheets()
+        sheet = self._create_sheet()
+        rotatable = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-SUB-ROT",
+            document_id="DOC-REV-SUB-ROT",
+            seller_id=self._seller().id,
+            sheet_id=sheet.id,
+        )
+        approved = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-SUB-APPR",
+            document_id="DOC-REV-SUB-APPR",
+            seller_id=self._seller().id,
+            sheet_id=sheet.id,
+        )
+        force_sheet_state(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
+        queue = Voucher.get_review_queue(sheet.id)
+        self.assertEqual(len(queue), 2)
+        self.assertEqual({item["id"] for item in queue}, {rotatable.id, approved.id})
+        rotatable.action_review_set_rotation(sheet.id, 90)
+        self.assertEqual(rotatable.attachment_rotation, 90)
+        approved.action_review_approve(sheet.id, {"amount": 41.0})
+        self.assertEqual(approved.state, "validated_collections")
+        self.assertAlmostEqual(approved.amount, 41.0, places=2)
+
+    def test_review_queue_empty_on_submitted_sheet(self):
+        """Triangulation: empty submitted queue MUST succeed, not refuse."""
+        Voucher = self.env["collection.voucher"]
+        self._close_open_sheets()
+        sheet = self._create_sheet()
+        force_sheet_state(sheet, "submitted")
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(Voucher.get_review_queue(sheet.id), [])
 
     def test_review_rpcs_still_succeed_on_open_sheet(self):
         """Triangulation: an open sheet identifier MUST still load the queue."""
