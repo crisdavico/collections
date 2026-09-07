@@ -34,6 +34,13 @@ only, the server lazily resolves each string into `partner_id` and MAY create a
 keeps the first-call partner. Each payment may nest `raw_ocr` and `seller_confirmed`
 (typed review fields; both omitted leaves empty provenance). MCP `get_seller_id`
 resolves `{seller_id}` from a WhatsApp/mobile among the company's enabled sellers. MCP
-`list_collection_customers` and `customer_debt` keep the same payloads (`{customers}`
-and `{customer, summary, invoices}`) and MUST NOT create partners. Coordinated Nebula
-tool `register_latest_collection_voucher` calls `create_collection_vouchers` only.
+`list_collection_customers` and `customer_debt` MUST NOT create partners.
+`list_collection_customers` still returns `{customers}`. `customer_debt` still returns
+`{customer, summary, invoices}` with unchanged gross `balance` / `total_balance` /
+`overdue_balance` / `open_balance`; it also includes `invoices[].allocatable_balance`
+and summary `total_allocatable_balance`, `open_allocatable_balance`, and
+`overdue_allocatable_balance` (gross minus draft and confirmed reservations, clamped at
+zero). MCP `get_collection_sheet_pdf` takes only `seller_id` and returns the seller's
+open Planilla de Cobranza as `{sheet, filename, mimetype, content_base64}`, or
+`{sheet: null}` when there is no open sheet. Coordinated Nebula tool
+`register_latest_collection_voucher` calls `create_collection_vouchers` only.

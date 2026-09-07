@@ -20,6 +20,7 @@ from . import test_collection_mcp_customer_debt
 from . import test_collection_mcp_customer_list
 from . import test_collection_mcp_partner_resolve
 from . import test_collection_mcp_seller_lookup
+from . import test_collection_mcp_sheet_pdf
 from . import test_collection_mcp_tool
 from . import test_collection_payment
 from . import test_collection_receipt

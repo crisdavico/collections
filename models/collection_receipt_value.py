@@ -5,7 +5,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.translate import _
 
-from .collection_allocation import _FROZEN_SHEET_STATES
+from .collection_common import raise_if_sheet_frozen
 
 
 class CollectionReceiptValue(models.Model):
@@ -62,19 +62,19 @@ class CollectionReceiptValue(models.Model):
 
     @api.constrains("amount", "voucher_id", "receipt_id")
     def _check_voucher_split_cap(self):
-        vouchers = self.mapped("voucher_id")
-        for voucher in vouchers:
-            if not voucher:
+        vouchers = self.voucher_id
+        if not vouchers:
+            return
+        # One search for the whole batch; splitting per voucher would be N+1.
+        applied = {}
+        for value in self.search([("voucher_id", "in", vouchers.ids)]):
+            voucher = value.voucher_id
+            if value.receipt_id.allocation_id != voucher.allocation_id:
                 continue
-            allocation = voucher.allocation_id
-            values = self.env["collection.receipt.value"].search(
-                [
-                    ("voucher_id", "=", voucher.id),
-                    ("receipt_id.allocation_id", "=", allocation.id),
-                ]
-            )
-            total = sum(value.amount or 0.0 for value in values)
-            if total > (voucher.amount or 0.0):
+            applied[voucher.id] = applied.get(voucher.id, 0.0) + (value.amount or 0.0)
+        for voucher in vouchers:
+            total = applied.get(voucher.id, 0.0)
+            if voucher.currency_id.compare_amounts(total, voucher.amount or 0.0) > 0:
                 raise ValidationError(
                     _("Receipt values for a voucher cannot exceed the voucher amount.")
                 )
@@ -95,16 +95,13 @@ class CollectionReceiptValue(models.Model):
 
     @api.private
     def _raise_if_sheet_frozen(self):
-        frozen = self.receipt_id.sheet_id.filtered(
-            lambda sheet: sheet.state in _FROZEN_SHEET_STATES
+        raise_if_sheet_frozen(
+            self.receipt_id.sheet_id,
+            _(
+                "Closed or cancelled collection sheets cannot change "
+                "collection receipt values."
+            ),
         )
-        if frozen:
-            raise UserError(
-                _(
-                    "Closed or cancelled collection sheets cannot change "
-                    "collection receipt values."
-                )
-            )
 
     @api.private
     def _raise_if_receipt_issued(self):

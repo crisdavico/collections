@@ -9,27 +9,30 @@ defaults:
   artifact_store: openspec
   delivery_strategy: ask-on-risk
   planning_depth: standard
-  subagent_model: cursor-grok-4.5-high
+  subagent_model: cursor-grok-4.6-high
   chain_strategy: stacked-to-main
 
 context: |
   Stack: Odoo 19 on Python, PostgreSQL 17, Docker Compose, and Doodba.
-  Scope: collection addon (odoo/custom/src/private/collection/) plus coordinated
-    Nebula agent at /home/crisd/projects/nebula/nebula-agent.
-  Product: Payment vouchers / collections registration for company sellers.
-  Models: collection.voucher (standalone per payment); mail.thread + activities.
-  MCP: create_collection_vouchers (one voucher per payment; list identity).
-  Testing: invoke test -m collection (Odoo TransactionCase in containers);
-    nebula-agent uv run make test / integration_tests.
+  Scope: private addon odoo/custom/src/private/collection/.
+  Product: Manual payment vouchers and collection allocations for company sellers.
+  Models: collection.voucher, collection.sheet, collection.allocation (+ line,
+    revision), collection.receipt (+ value), collection.connector and bindings.
+  MCP: muk_mcp.mixin @mcp_tool methods (write create_collection_allocation;
+    read get_seller_id, list_collection_customers, customer_debt,
+    get_collection_allocation, get_collection_sheet_pdf). Never sudo();
+    never add a muk_mcp.tool row.
+  Consumer: Nebula Collections Agent (separate repo).
+  Testing: invoke test -m collection --mode=update (Odoo TransactionCase).
   Quality: pre-commit (Ruff, pylint-odoo, ESLint, Prettier, OCA checks).
-  Conventions: repo AGENTS.md + this module's .atl/skill-registry.md.
+  Conventions: repo AGENTS.md + this module's AGENTS.md.
 
 testing:
-  detected: "2026-08-11"
+  detected: "2026-09-06"
   strict_tdd: true
   runner:
     framework: Odoo native test runner
-    command: invoke test -m collection
+    command: invoke test -m collection --mode=update
   layers:
     unit:
       available: true
@@ -55,46 +58,37 @@ testing:
       command: pre-commit run --files odoo/custom/src/private/collection/**
   notes:
     - Strict TDD enabled; run module tests after each work unit.
-    - Prefer scoped pre-commit on collection paths over full-repo lint.
-    - Coordinated Nebula changes live under /home/crisd/projects/nebula/nebula-agent.
+    - Prefer scoped pre-commit on this addon over full-repo lint.
+    - Default invoke test -m collection (mode=init) reports 0 tests; use --mode=update.
 
 rules:
   proposal:
-    - State user impact, affected models/views, risks, and rollback strategy.
-    - Keep Odoo changes inside collection unless dependency configuration must change.
-    - Coordinated Nebula MCP rename/list-formatter work is in-scope for this change.
+    - State user impact, MCP contract, risks, and rollback strategy.
+    - Keep Odoo changes inside collection/ unless dependency configuration must change.
+    - Do not include nebula-agent implementation unless explicitly in scope.
   specs:
     - Use RFC 2119 keywords for requirements.
     - Express acceptance scenarios with Given, When, and Then.
-    - Cover authorization, voucher/payment persistence, and UI behavior when relevant.
+    - Cover MCP payloads, reservations, write-path revalidation, and no sudo.
   design:
     - Follow Odoo 19 patterns and the repository AGENTS.md files.
-    - Document model, view, sequence, migration, and security impacts.
+    - Document MCP mixin tools, query batching, and security.
     - Include sequence diagrams only for complex cross-component flows.
   tasks:
     - Group tasks into reviewable work units with tests beside implementation.
     - Flag plans that may exceed the 400 changed-line review budget.
-    - Include module upgrade and scoped pre-commit verification.
+    - Include module install/upgrade and scoped pre-commit verification.
   apply:
     guidelines:
       - Edit owned Odoo code only under odoo/custom/src/private/collection/.
-      - SQLite connector lives under
-        odoo/custom/src/private/collection_connector_sqlite/ (parent Doodba tree).
-      - Coordinated Nebula edits are allowed under
-        /home/crisd/projects/nebula/nebula-agent (MCP name, list formatter, tests,
-        collection-voucher-registration spec, AGENTS.md).
       - Do not edit Copier-managed or git-aggregate-managed files directly.
-      - Load exact skills from odoo/custom/src/private/collection/.atl/skill-registry.md
-        before implementation.
+      - Load odoo-19 skills and this module's AGENTS.md before implementation.
     roots:
       - /home/crisd/projects/seedian/seedian/odoo/custom/src/private/collection
-      - /home/crisd/projects/seedian/seedian/odoo/custom/src/private
-      - /home/crisd/projects/seedian/seedian/odoo/custom/src/private/collection_connector_sqlite
-      - /home/crisd/projects/nebula/nebula-agent
     tdd: true
-    test_command: invoke test -m collection
+    test_command: invoke test -m collection --mode=update
   verify:
-    test_command: invoke test -m collection
+    test_command: invoke test -m collection --mode=update
     build_command: invoke img-build
     lint_command: pre-commit run --files odoo/custom/src/private/collection/**
     coverage_threshold: 0

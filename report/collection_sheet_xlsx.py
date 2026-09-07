@@ -492,7 +492,7 @@ def _write_customers(ws, fmt, payload, start):
         totals.get("residual") or 0.0,
     )
     _merge(ws, total_row, 6, 7, "", fmt["total"])
-    return next_row, _a1(total_row, 3), _a1(total_row, 4), _a1(total_row, 5)
+    return next_row, _a1(total_row, 5)
 
 
 def _write_documents(ws, fmt, payload, start):
@@ -804,9 +804,7 @@ def _build_xlsx(payload):
         # Clientes SUMIF formulas forward-ref Facturas/Comprobantes rows;
         # Resumen is written last so it can cache those totals.
         customer_start = 15
-        next_row, _c_ref, _a_ref, residual_ref = _write_customers(
-            ws, fmt, payload, customer_start
-        )
+        next_row, residual_ref = _write_customers(ws, fmt, payload, customer_start)
         next_row, applied_ref, commission_refs = _write_documents(
             ws, fmt, payload, next_row
         )
@@ -835,17 +833,11 @@ def _build_xlsx(payload):
     return _align_workbook_xml(output.getvalue())
 
 
-_TEMPLATE_COLS = (
-    "<cols>"
-    '<col min="1" max="1" width="13" customWidth="1"/>'
-    '<col min="2" max="2" width="32" customWidth="1"/>'
-    '<col min="3" max="3" width="19" customWidth="1"/>'
-    '<col min="4" max="4" width="17" customWidth="1"/>'
-    '<col min="5" max="5" width="14" customWidth="1"/>'
-    '<col min="6" max="6" width="14" customWidth="1"/>'
-    '<col min="7" max="7" width="15" customWidth="1"/>'
-    '<col min="8" max="8" width="15" customWidth="1"/>'
-    "</cols>"
+_TEMPLATE_COLS = "<cols>{}</cols>".format(
+    "".join(
+        f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+        for index, width in enumerate(COLUMN_WIDTHS, start=1)
+    )
 )
 
 

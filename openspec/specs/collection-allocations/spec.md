@@ -9,51 +9,47 @@ ERP debt; back-office validates or rejects.
 
 ### Requirement: MCP create_collection_allocation
 
-MUST expose MCP write `create_collection_allocation` for Enabled Seller internal
-callers (`category=write`, `registry=mcp`, method-discovered; MUST NOT add a
-`muk_mcp.tool` row). Input MUST be:
+MUST expose MCP write `create_collection_allocation` for Enabled Seller internal callers
+(`category=write`, `registry=mcp`, method-discovered; MUST NOT add a `muk_mcp.tool`
+row). Input MUST be:
 
-| Key | Rule |
-| --- | --- |
-| seller_id | int > 0 |
-| customer_identification | stripped string; top-level only; MUST NOT on payment items |
-| request_id | required |
-| payments[] | minItems 1; each item requires `document_id` and `seller_confirmed`; optional `raw_ocr` and `attachment`; voucher fields MUST come from `seller_confirmed`; `seller_confirmed.document_type` MUST be one of the seven catalog codes; amount MUST accept a decimal string |
-| receipts[] | REQUIRED; minItems 1; each item requires `document_kind` and `values[]`; `applications[]` MAY be empty (on account); amounts MUST accept decimal strings |
+| Key                     | Rule                                                                                                                                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| seller_id               | int > 0                                                                                                                                                                                                                                                                  |
+| customer_identification | stripped string; top-level only; MUST NOT on payment items                                                                                                                                                                                                               |
+| request_id              | required                                                                                                                                                                                                                                                                 |
+| payments[]              | minItems 1; each item requires `document_id` and `seller_confirmed`; optional `raw_ocr` and `attachment`; voucher fields MUST come from `seller_confirmed`; `seller_confirmed.document_type` MUST be one of the seven catalog codes; amount MUST accept a decimal string |
+| receipts[]              | REQUIRED; minItems 1; each item requires `document_kind` and `values[]`; `applications[]` MAY be empty (on account); amounts MUST accept decimal strings                                                                                                                 |
 
-MUST NOT accept `invoices`, `splits`, `total_debt`, or `residual_reason`.
-Unknown keys at any nested level MUST be rejected (see Strict nested-key parse).
+MUST NOT accept `invoices`, `splits`, `total_debt`, or `residual_reason`. Unknown keys
+at any nested level MUST be rejected (see Strict nested-key parse).
 
-`seller_confirmed.document_type` `unsupported` MUST raise `UserError` with no
-writes. The six dump types `bank_transfer`, `check`, `echeck`, `cash_deposit`,
-`retention_certificate`, and `cash` MUST persist when otherwise valid.
-Seller-declared `cash` MUST persist with `attachment` and `raw_ocr` omitted or
-null.
+`seller_confirmed.document_type` `unsupported` MUST raise `UserError` with no writes.
+The six dump types `bank_transfer`, `check`, `echeck`, `cash_deposit`,
+`retention_certificate`, and `cash` MUST persist when otherwise valid. Seller-declared
+`cash` MUST persist with `attachment` and `raw_ocr` omitted or null.
 
-Success output MUST be exactly `{sheet_id, vouchers, allocation}`: `vouchers[]`
-one `{id,name,state,document_id}` row per submitted payment IN SEND ORDER;
-`allocation` exactly seven keys
-`{id,name,state,revision,total_vouchers,total_applied,residual}` with
-`revision` a JSON int (MUST NOT be bool, float, or str). Persist `draft`
-revision-1; `UNIQUE(sheet_id, partner_id)`. Unbound identification MUST
-lazy-resolve via `resolve_customer_partner` on this write. When
-`company.auto_create_sheet` is False, MUST raise a named `UserError` and write
-zero rows. Exact same-company `document_id` set MUST reuse rows and continue to
-allocation (MUST NOT voucher-style early-return). Partial overlap or
-other-company hit MUST raise generic conflict with no writes. Revalidation
-failure MUST roll back vouchers and allocation. Errors MUST be raised, NEVER
-`{"error":...}` bodies. MUST NOT `sudo()`.
-(Previously: Four-type `seller_confirmed`; amounts advertised as numbers only;
-`unsupported` reject was not stated on this requirement; extra nested keys were
-ignored on payment objects.)
+Success output MUST be exactly `{sheet_id, vouchers, allocation}`: `vouchers[]` one
+`{id,name,state,document_id}` row per submitted payment IN SEND ORDER; `allocation`
+exactly seven keys `{id,name,state,revision,total_vouchers,total_applied,residual}` with
+`revision` a JSON int (MUST NOT be bool, float, or str). Persist `draft` revision-1;
+`UNIQUE(sheet_id, partner_id)`. Unbound identification MUST lazy-resolve via
+`resolve_customer_partner` on this write. When `company.auto_create_sheet` is False,
+MUST raise a named `UserError` and write zero rows. Exact same-company `document_id` set
+MUST reuse rows and continue to allocation (MUST NOT voucher-style early-return).
+Partial overlap or other-company hit MUST raise generic conflict with no writes.
+Revalidation failure MUST roll back vouchers and allocation. Errors MUST be raised,
+NEVER `{"error":...}` bodies. MUST NOT `sudo()`. (Previously: Four-type
+`seller_confirmed`; amounts advertised as numbers only; `unsupported` reject was not
+stated on this requirement; extra nested keys were ignored on payment objects.)
 
 #### Scenario: First create
 
-- GIVEN valid enabled-seller payload with inline `payments` and required
-  `receipts` (`applications` MAY be `[]`)
+- GIVEN valid enabled-seller payload with inline `payments` and required `receipts`
+  (`applications` MAY be `[]`)
 - WHEN create with a new `request_id`
-- THEN `draft`, `revision` 1 (int), matching totals, `sheet_id`, and
-  `vouchers[]` in send order
+- THEN `draft`, `revision` 1 (int), matching totals, `sheet_id`, and `vouchers[]` in
+  send order
 - AND a second header for same (sheet, partner) MUST be unique-rejected
 
 #### Scenario: Authorization denied
@@ -78,8 +74,7 @@ ignored on payment objects.)
 
 #### Scenario: Partial overlap or other-company conflict
 
-- GIVEN a partial same-company `document_id` overlap, or a hit only in another
-  company
+- GIVEN a partial same-company `document_id` overlap, or a hit only in another company
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise generic conflict with no writes and no ids disclosed
 
@@ -100,12 +95,11 @@ ignored on payment objects.)
 #### Scenario: Six dump types persist with decimal-string amounts
 
 - GIVEN a valid one-customer dump for `bank_transfer`, `check`, `echeck`,
-  `cash_deposit`, `retention_certificate`, or `cash` whose amounts are decimal
-  strings
+  `cash_deposit`, `retention_certificate`, or `cash` whose amounts are decimal strings
 - WHEN create runs with a new `request_id`
-- THEN allocation MUST persist `draft` with response
-  `{sheet_id, vouchers, allocation}`
+- THEN allocation MUST persist `draft` with response `{sheet_id, vouchers, allocation}`
 - AND `cash` MAY omit proof; the other five MAY include valid proof
+
 ### Requirement: Idempotency and amend
 
 MUST replay identical `request_id` (zero writes) with
@@ -142,6 +136,7 @@ was a no-op.)
 - WHEN retry uses the same payments but different receipt values, applications, or
   `document_kind`
 - THEN MUST NOT treat content as unchanged
+
 ### Requirement: Input and sheet gates
 
 Vouchers MUST be caller-company, amount > 0, one partner, one caller seller, one sheet.
@@ -184,6 +179,7 @@ requires a sheet chosen in Odoo) with zero writes. (Previously: Vouchers MUST be
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise a named `UserError`
 - AND MUST write zero vouchers, sheets, and allocations
+
 ### Requirement: Revalidation and residual
 
 Each payload application with `amount_applied > 0` MUST remain in fresh ERP debt.
@@ -219,6 +215,7 @@ MCP wrote `total_debt`.)
 - WHEN create or amend runs
 - THEN I1 MUST keep payload `amount_applied` and I2 MUST persist at 0; a payload row
   with `amount_applied > 0` missing from ERP MUST refuse
+
 ### Requirement: Freeze, revisions, ACL, back-office
 
 When `state` is `confirmed`, freeze `line_ids`/`voucher_ids`/`receipt_ids`/
@@ -258,6 +255,7 @@ then amend refused.)
 - WHEN Validate or Reject is invoked
 - THEN the action MUST NOT exist
 - AND `state` MUST stay `draft` or `confirmed`
+
 ### Requirement: Source detach residual refuse
 
 When a voucher would leave a `draft` allocation, the system MUST NOT project residual as
@@ -292,6 +290,7 @@ underflow refused on draft.)
 - GIVEN a confirmed allocation with a linked voucher
 - WHEN that voucher is detached
 - THEN the move MUST be refused and `voucher_ids` MUST be unchanged
+
 ### Requirement: Partner match after voucher write
 
 Every allocated voucher's `partner_id` MUST equal the allocation `partner_id` after
@@ -313,6 +312,7 @@ Same-write attach used a confirmed same-sheet target.)
 - WHEN `partner_id` is written to Q with `allocation_id` B in the same vals
 - THEN partner match MUST hold
 - AND the voucher MUST belong to B
+
 ### Requirement: MCP get_collection_allocation
 
 MUST expose `get_collection_allocation` via `@mcp_tool` on `muk_mcp.mixin`
@@ -360,6 +360,7 @@ list.)
 - WHEN `get_collection_allocation` runs
 - THEN MUST raise (multi-open `UserError` or AccessError/UserError) with zero writes and
   MUST NOT return `{"error":...}`
+
 ### Requirement: Draft default and confirm-on-close invariant
 
 Allocation `state` MUST be `draft` or `confirmed` only. Default MUST be `draft`. `draft`
@@ -415,6 +416,7 @@ write MUST be refused except audited Close, Cancel, or Open transitions. (Previo
 - WHEN a non-audited `state` write is attempted
 - THEN the write MUST be refused
 - AND stored `state` MUST be unchanged
+
 ### Requirement: Draft unlink with revisions
 
 The system MUST allow unlinking a `draft` allocation even when revision rows exist. That
@@ -445,6 +447,7 @@ forbidden. Unlink of a `confirmed` allocation MUST be refused even with zero rev
 - WHEN an operator writes or unlinks that revision directly
 - THEN the operation MUST be refused
 - AND the parent draft MUST remain
+
 ### Requirement: Allocation line document_kind
 
 Each `collection.allocation.line` MUST have required Selection `document_kind`
@@ -502,6 +505,7 @@ optional kind.)
 - GIVEN a draft line with `document_kind` `quotation`
 - WHEN MCP amend recreates lines from a receipt whose applications omit that invoice
 - THEN stored `document_kind` MUST remain `quotation` (MUST NOT wipe to `invoice`)
+
 ### Requirement: Customer Debt snapshot and form
 
 MUST snapshot every outstanding ERP invoice onto `line_ids` (including
@@ -549,6 +553,7 @@ NOT backfill existing allocations.
 - WHEN notebook and totals are inspected
 - THEN page MUST be Customer Debt with parent-arch `document_kind` before
   `invoice_number`, helpers on six totals, and no Residual Reason
+
 ### Requirement: Totals and residual formula
 
 | Field                                 | MUST                                                              |
@@ -573,6 +578,7 @@ it. MCP create MUST NOT accept `residual_reason`.
 - GIVEN MCP create without `residual_reason` or a sheet print
 - WHEN persist or report runs
 - THEN reason MUST NOT be stored or read
+
 ### Requirement: Cancelled and Closed allocation write guards
 
 When the sheet is `closed` or `cancelled`, writes to allocation `line_ids` (including
@@ -605,6 +611,7 @@ subject to other rules. MUST NOT `sudo()`. (Previously: Frozen membership omitte
 - GIVEN a debt line on a cancelled sheet
 - WHEN the line is unlinked
 - THEN MUST refuse and the line MUST remain
+
 ### Requirement: MCP open sheet is state open only
 
 `create_collection_allocation` and `get_collection_allocation` MUST resolve sheets only
@@ -631,32 +638,31 @@ sheet is `proposal`.
 - GIVEN only a closed or cancelled sheet for that seller in that company
 - WHEN `get_collection_allocation` runs
 - THEN MUST return `{allocation: null}` with zero writes
+
 ### Requirement: MCP receipts payload
 
-`create_collection_allocation` MUST include `receipts[]` (`minItems` 1). Each
-receipt MUST have unique `document_kind` (`invoice` or `quotation`), required
-`values[]` (`minItems` 1; `{document_id, amount}` amount > 0), and
-`applications[]` that MAY be empty (on account). A payment MAY appear on both
-kinds. Sum of value amounts per payment across receipts MUST equal that
-payment's `seller_confirmed` amount. Applied total per receipt MUST NOT exceed
-funded values. Unknown `document_id` or duplicate kind / duplicate payment+kind
-/ duplicate `external_document_id` MUST raise with no writes. Value `amount`,
-application `balance_seen`, and `amount_applied` MUST accept decimal strings
-(and MAY accept numbers). Application `number` MAY be JSON `null` (omit).
-(Previously: Amounts were not required to accept decimal strings; `number` null
-was not named.)
+`create_collection_allocation` MUST include `receipts[]` (`minItems` 1). Each receipt
+MUST have unique `document_kind` (`invoice` or `quotation`), required `values[]`
+(`minItems` 1; `{document_id, amount}` amount > 0), and `applications[]` that MAY be
+empty (on account). A payment MAY appear on both kinds. Sum of value amounts per payment
+across receipts MUST equal that payment's `seller_confirmed` amount. Applied total per
+receipt MUST NOT exceed funded values. Unknown `document_id` or duplicate kind /
+duplicate payment+kind / duplicate `external_document_id` MUST raise with no writes.
+Value `amount`, application `balance_seen`, and `amount_applied` MUST accept decimal
+strings (and MAY accept numbers). Application `number` MAY be JSON `null` (omit).
+(Previously: Amounts were not required to accept decimal strings; `number` null was not
+named.)
 
 #### Scenario: Split one voucher two kinds
 
-- GIVEN a valid create payload with one payment amount 100 and receipt values 40
-  invoice plus 60 quotation
+- GIVEN a valid create payload with one payment amount 100 and receipt values 40 invoice
+  plus 60 quotation
 - WHEN create succeeds
 - THEN both values MUST persist on the matching receipts
 
 #### Scenario: Empty applications is on account
 
-- GIVEN a valid create with one invoice receipt, full values, and
-  `applications: []`
+- GIVEN a valid create with one invoice receipt, full values, and `applications: []`
 - WHEN create succeeds
 - THEN the invoice receipt MUST persist with those values
 - AND allocation lines MUST expand outstanding ERP invoices at applied 0
@@ -674,6 +680,7 @@ was not named.)
 - WHEN create succeeds
 - THEN those receipts and applications MUST persist
 - AND `balance_seen` revalidation MUST still use `currency.compare_amounts`
+
 ### Requirement: Persist receipt grouping on create and amend
 
 On successful create or amend, the system MUST persist at most one receipt per
@@ -694,15 +701,16 @@ applied line's `document_kind` from the parent receipt.
 - GIVEN a draft allocation with one invoice receipt
 - WHEN amend sends a voucher superset with explicit values covering all payments
 - THEN receipt values MUST match the new payload
+
 ### Requirement: Strict nested-key parse of dump payloads
 
-Runtime parse of `create_collection_allocation` MUST reject unknown keys at
-every nested object (`extra=forbid`): request, each payment, `seller_confirmed`,
-`raw_ocr`, `attachment`, each receipt, each value, and each application. It MUST
-reject keys that do not belong to that payment’s `document_type` (type-owned
-fields only; see collection-vouchers). Explicit JSON `null` on optional dump
-fields MUST be accepted as omit. Omitted optional keys MUST remain valid. A
-forbidden key MUST raise `UserError` with no writes.
+Runtime parse of `create_collection_allocation` MUST reject unknown keys at every nested
+object (`extra=forbid`): request, each payment, `seller_confirmed`, `raw_ocr`,
+`attachment`, each receipt, each value, and each application. It MUST reject keys that
+do not belong to that payment’s `document_type` (type-owned fields only; see
+collection-vouchers). Explicit JSON `null` on optional dump fields MUST be accepted as
+omit. Omitted optional keys MUST remain valid. A forbidden key MUST raise `UserError`
+with no writes.
 
 #### Scenario: Unknown key on payment or request rejected
 
@@ -719,14 +727,82 @@ forbidden key MUST raise `UserError` with no writes.
 
 #### Scenario: Type-foreign nest fields rejected
 
-- GIVEN `seller_confirmed.document_type` `bank_transfer` with `check_number` set
-  (or any type-foreign field for that discriminator)
+- GIVEN `seller_confirmed.document_type` `bank_transfer` with `check_number` set (or any
+  type-foreign field for that discriminator)
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise `UserError` with no writes
 
 #### Scenario: Explicit nulls accepted as omit
 
-- GIVEN a dump whose unused typed nest fields, `attachment`, `raw_ocr`, and
-  application `number` are JSON `null`
+- GIVEN a dump whose unused typed nest fields, `attachment`, `raw_ocr`, and application
+  `number` are JSON `null`
 - WHEN `create_collection_allocation` runs with otherwise valid data
 - THEN parse MUST treat those nulls as omit and MAY persist
+
+### Requirement: MCP customer_debt allocatable balances
+
+MCP `customer_debt` MUST keep each invoice's gross connector `balance` and existing
+summary fields (`total_balance`, `overdue_balance`, `open_balance`, `invoice_count`)
+unchanged. It MUST add `invoices[].allocatable_balance` and summary
+`total_allocatable_balance`, `open_allocatable_balance`, and
+`overdue_allocatable_balance`.
+
+Allocatable MUST be the gross connector `balance` minus ALL same-company
+`collection.allocation.line.amount_applied` on allocations whose `state` is `draft` OR
+`confirmed`, INCLUDING allocations on proposal, closed, or cancelled sheets that
+`get_collection_allocation` does not expose. The result MUST be clamped at zero (MUST
+NEVER be negative). No reservations MUST mean allocatable equals gross. Empty `invoices`
+MUST still return the three allocatable summary keys as `0`. MUST NOT `sudo()`.
+
+Write-path revalidation MUST reuse the same reservation lookup, MUST still exclude the
+destination allocation, and MUST still raise `UserError`
+`Applied amount exceeds available invoice balance.` when applied exceeds available.
+`balance_seen` revalidation MUST still compare against GROSS connector `balance` via
+`currency.compare_amounts` (MUST NOT switch that check to allocatable).
+
+#### Scenario: Gross unchanged when no reservations
+
+- GIVEN an enabled bound seller and outstanding overdue 100 plus open 50 with no draft
+  or confirmed applications
+- WHEN `customer_debt` runs
+- THEN each invoice `balance` MUST stay 100 and 50
+- AND each `allocatable_balance` MUST equal that gross
+- AND summary `total_balance` / `overdue_balance` / `open_balance` MUST stay 150 / 100 /
+  50
+- AND `total_allocatable_balance` MUST be 150, `overdue_allocatable_balance` 100, and
+  `open_allocatable_balance` 50
+
+#### Scenario: Hidden draft on a proposal sheet reduces allocatable
+
+- GIVEN a draft allocation on a **proposal** sheet applying 40 to the open invoice
+  (`inv-bound-open`, gross 50) that `get_collection_allocation` does not expose
+- WHEN `customer_debt` runs for identification `20-11111111-1`
+- THEN the open invoice `balance` MUST stay 50 and `allocatable_balance` MUST be 10
+- AND the overdue invoice MUST stay 100 / 100
+- AND summary gross totals MUST stay 150 / 100 / 50
+- AND `open_allocatable_balance` MUST be 10 and `total_allocatable_balance` MUST be 110
+
+#### Scenario: Confirmed consumption on a closed sheet reduces allocatable
+
+- GIVEN a confirmed allocation on a **closed** sheet applying 40 to the open invoice
+- WHEN `customer_debt` runs
+- THEN gross `balance` MUST stay 50 and `allocatable_balance` MUST be 10
+- AND summary gross totals MUST be unchanged
+
+#### Scenario: Over-reservation reports zero never negative
+
+- GIVEN draft or confirmed applications whose sum exceeds the open invoice gross 50
+- WHEN `customer_debt` runs
+- THEN that invoice `allocatable_balance` MUST be 0
+- AND MUST NOT be negative
+
+#### Scenario: Write-path available still excludes destination
+
+- GIVEN a hidden proposal-sheet draft reservation of the full open-invoice balance
+- WHEN `create_collection_allocation` on a new open sheet applies 1 to that invoice
+- THEN MUST raise `UserError` `Applied amount exceeds available invoice balance.` with
+  no writes
+- AND an amendment of the DESTINATION allocation MUST still exclude dest from reserved
+  amounts
+- AND `balance_seen` MUST still be revalidated against GROSS connector `balance` via
+  `currency.compare_amounts`

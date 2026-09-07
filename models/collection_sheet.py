@@ -3,9 +3,10 @@
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
-from odoo.fields import Command
 from odoo.tools import SQL
 from odoo.tools.translate import _
+
+from .collection_common import record_id, sanitize_voucher_commands
 
 _STATE_WRITE_ACTIONS = {
     "proposal": "action_confirm",
@@ -89,6 +90,7 @@ class CollectionSheet(models.Model):
             sheet.date_from = min(create_dates) if create_dates else False
             sheet.date_to = max(create_dates) if create_dates else False
 
+    @api.depends_context("company")
     def _compute_document_review_enabled(self):
         enabled = bool(self.env.company._document_review_enabled())
         for sheet in self:
@@ -100,31 +102,23 @@ class CollectionSheet(models.Model):
             sheet.voucher_count = len(sheet.voucher_ids)
 
     @api.private
-    def _company_id_of(self, company):
-        return company.id if isinstance(company, models.Model) else company
-
-    @api.private
     def _open_sheets_for_seller(self, seller, company):
-        seller_id = seller.id if isinstance(seller, models.Model) else seller
-        company_id = self._company_id_of(company)
         return self.search(
             [
-                ("seller_id", "=", seller_id),
-                ("company_id", "=", company_id),
+                ("seller_id", "=", record_id(seller)),
+                ("company_id", "=", record_id(company)),
                 ("state", "=", "open"),
             ]
         )
 
     @api.private
     def _lock_open_sheet_for_seller(self, seller, company):
-        seller_id = seller.id if isinstance(seller, models.Model) else seller
-        company_id = int(self._company_id_of(company))
         self.env.cr.execute(
             SQL(
                 "SELECT pg_advisory_xact_lock(hashtext(%s || %s), %s)",
                 "collection.sheet.open.",
-                str(company_id),
-                int(seller_id),
+                str(int(record_id(company))),
+                int(record_id(seller)),
             )
         )
 
@@ -157,14 +151,11 @@ class CollectionSheet(models.Model):
                     or "/"
                 )
             if "voucher_ids" in vals:
-                vals["voucher_ids"] = self._sanitize_voucher_commands(
-                    vals["voucher_ids"]
-                )
-            resulting_state = vals.get("state") or "open"
-            if resulting_state != "open":
+                vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
+            if (vals.get("state") or "open") != "open":
                 raise UserError(_("Collection sheets can only be created in Open."))
             seller_id = vals.get("seller_id")
-            if resulting_state == "open" and seller_id:
+            if seller_id:
                 key = (company_id, seller_id)
                 if key in opening_keys:
                     raise UserError(
@@ -190,7 +181,8 @@ class CollectionSheet(models.Model):
                 return getattr(self, action_name)()
             raise UserError(
                 _(
-                    "Sheet state can only be changed via Confirm, Close, Cancel, or Open."
+                    "Sheet state can only be changed via Confirm, Close, Cancel, "
+                    "or Open."
                 )
             )
         if "voucher_ids" in vals:
@@ -204,7 +196,7 @@ class CollectionSheet(models.Model):
                     )
                 )
             vals = dict(vals)
-            vals["voucher_ids"] = self._sanitize_voucher_commands(vals["voucher_ids"])
+            vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
         return super().write(vals)
 
     def unlink(self):
@@ -213,12 +205,10 @@ class CollectionSheet(models.Model):
         return super().unlink()
 
     @api.ondelete(at_uninstall=False)
-    def _unlink_if_no_allocations(self):
+    def _unlink_open_sheets_and_cascade_allocations(self):
         if any(sheet.state != "open" for sheet in self):
             raise UserError(_("Only open collection sheets can be deleted."))
-        drafts = self.mapped("allocation_ids")
-        if drafts:
-            drafts.unlink()
+        self.allocation_ids.unlink()
 
     def action_confirm(self):
         if any(sheet.state != "open" for sheet in self):
@@ -308,16 +298,6 @@ class CollectionSheet(models.Model):
         if allocations:
             allocations._check_sheet_state_iff()
         return result
-
-    @api.private
-    def _sanitize_voucher_commands(self, commands):
-        sanitized = []
-        for command in commands or []:
-            if command and command[0] == Command.DELETE:
-                sanitized.append(Command.unlink(command[1]))
-            else:
-                sanitized.append(command)
-        return sanitized
 
     def action_open_document_review(self):
         self.ensure_one()

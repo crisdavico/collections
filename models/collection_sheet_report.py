@@ -7,7 +7,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_allocation import _FROZEN_SHEET_STATES
+from .collection_common import FROZEN_SHEET_STATES
 
 _VOUCHER_BLOCK_ORDER = ("bank_transfer", "check", "cash_deposit")
 _DOCUMENT_KIND_ORDER = ("invoice", "quotation")
@@ -68,7 +68,7 @@ class CollectionSheetReport(models.Model):
 
     def write(self, vals):
         frozen = _RECON_INPUT_FIELDS & set(vals)
-        if frozen and any(sheet.state in _FROZEN_SHEET_STATES for sheet in self):
+        if frozen and any(sheet.state in FROZEN_SHEET_STATES for sheet in self):
             raise UserError(
                 _("Closed collection sheets cannot change the reconciliation inputs.")
             )
@@ -83,7 +83,7 @@ class CollectionSheetReport(models.Model):
             raise UserError(
                 _("Collection sheet report does not support mixed currencies.")
             )
-        currency = currencies[:1] or self.currency_id
+        currency = self._collection_report_currency()
         partners = self.allocation_ids.partner_id | self.voucher_ids.partner_id
         codes = self._collection_report_customer_codes(partners)
         customers = self._collection_report_customers(codes)
@@ -161,6 +161,12 @@ class CollectionSheetReport(models.Model):
         }
 
     @api.private
+    def _collection_report_currency(self):
+        """Allocation currency when the sheet has one, else the company currency."""
+        self.ensure_one()
+        return self.allocation_ids.currency_id[:1] or self.currency_id
+
+    @api.private
     def _collection_report_customer_codes(self, partners):
         """Return `{partner_id: code}` from raw connector bindings (blank if none)."""
         self.ensure_one()
@@ -207,7 +213,7 @@ class CollectionSheetReport(models.Model):
     def _collection_report_document_blocks(self, codes):
         """Split invoice then quotation blocks; drop empties; round then sum."""
         self.ensure_one()
-        currency = self.allocation_ids.currency_id[:1] or self.currency_id
+        currency = self._collection_report_currency()
         percent = self.commission_percent or 0.0
         grouped = {kind: [] for kind in _DOCUMENT_KIND_ORDER}
         for line in self.allocation_ids.line_ids:
@@ -272,7 +278,7 @@ class CollectionSheetReport(models.Model):
             grouped.setdefault(code, []).append(
                 (
                     self._collection_report_code_sort(partner_code, partner.name)
-                    + (voucher_date or date.max, voucher.name or ""),
+                    + (voucher_date, voucher.name or ""),
                     self._collection_report_voucher_row(voucher, partner_code),
                 )
             )
@@ -354,7 +360,7 @@ class CollectionSheetReport(models.Model):
     def _collection_report_recon(self, collected, tendered):
         """Tri-state banner from tendered minus net due."""
         self.ensure_one()
-        currency = self.allocation_ids.currency_id[:1] or self.currency_id
+        currency = self._collection_report_currency()
         withheld = self.commission_withheld or 0.0
         net_due = collected - withheld
         tendered_total = tendered["total"]

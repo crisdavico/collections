@@ -6,12 +6,17 @@ import json
 from pathlib import Path
 
 from odoo.exceptions import AccessError, UserError
+from odoo.fields import Command
 from odoo.tests import TransactionCase
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from .common_connector import TEST_CONNECTOR_TYPE, install_test_connector_type
-from .test_collection_payment import create_internal_seller, ensure_enabled_seller
+from .test_collection_payment import (
+    create_internal_seller,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+)
 
 TOOL_NAME = "customer_debt"
 _LEAK_TOKENS = (
@@ -141,6 +146,38 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
             self.assertNotIn(token, message)
         return ctx.exception
 
+    def _reserve_open_invoice(self, amount_applied, *, close=False):
+        """Reserve inv-bound-open on a sheet, then Confirm (and optionally Close)."""
+        partner = dummy_customer_partner(
+            self.env, customer=f"DEBT-RESERVE-{amount_applied}-{int(close)}"
+        )
+        sheet = self.env["collection.sheet"].create({"seller_id": self.seller.id})
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "inv-bound-open",
+                            "invoice_number": "A-0002",
+                            "issue_date": "2026-04-01",
+                            "due_date": "2026-09-01",
+                            "invoice_amount": 50.0,
+                            "invoice_balance": 50.0,
+                            "invoice_state": "open",
+                            "amount_applied": amount_applied,
+                        }
+                    )
+                ],
+            }
+        )
+        sheet.action_confirm()
+        if close:
+            sheet.action_close()
+            allocation.invalidate_recordset(["state"])
+        return sheet, allocation
+
     def test_customer_debt_discovered_as_method_read_mcp(self):
         """customer_debt is method-discovered read/mcp; no DB row."""
         by_name = {
@@ -197,14 +234,23 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
                     "due_date",
                     "amount",
                     "balance",
+                    "allocatable_balance",
                     "state",
                     "document_kind",
                 },
             )
+        by_id = {row["external_invoice_id"]: row for row in result["invoices"]}
+        self.assertEqual(by_id["inv-bound-overdue"]["balance"], 100.0)
+        self.assertEqual(by_id["inv-bound-overdue"]["allocatable_balance"], 100.0)
+        self.assertEqual(by_id["inv-bound-open"]["balance"], 50.0)
+        self.assertEqual(by_id["inv-bound-open"]["allocatable_balance"], 50.0)
         self.assertEqual(result["summary"]["total_balance"], 150.0)
         self.assertEqual(result["summary"]["overdue_balance"], 100.0)
         self.assertEqual(result["summary"]["open_balance"], 50.0)
         self.assertEqual(result["summary"]["invoice_count"], 2)
+        self.assertEqual(result["summary"]["total_allocatable_balance"], 150.0)
+        self.assertEqual(result["summary"]["overdue_allocatable_balance"], 100.0)
+        self.assertEqual(result["summary"]["open_allocatable_balance"], 50.0)
         self.assertEqual(self.env["res.partner"].search_count([]), before_partners)
 
     def test_quotation_debt_rows_include_kind_and_omit_source(self):
@@ -259,6 +305,69 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
         self.assertEqual(payload["invoices"], [])
         self.assertEqual(payload["summary"]["invoice_count"], 0)
         self.assertEqual(payload["summary"]["total_balance"], 0.0)
+        self.assertEqual(payload["summary"]["total_allocatable_balance"], 0.0)
+        self.assertEqual(payload["summary"]["open_allocatable_balance"], 0.0)
+        self.assertEqual(payload["summary"]["overdue_allocatable_balance"], 0.0)
+
+    def test_proposal_draft_reservation_reduces_allocatable_not_gross(self):
+        """Hidden proposal-sheet draft MUST reduce allocatable; gross stays."""
+        sheet, allocation = self._reserve_open_invoice(40.0)
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
+        result = self._call(
+            {
+                "seller_id": self.seller.id,
+                "customer_identification": "20-11111111-1",
+            }
+        )
+        by_id = {row["external_invoice_id"]: row for row in result["invoices"]}
+        self.assertEqual(by_id["inv-bound-open"]["balance"], 50.0)
+        self.assertEqual(by_id["inv-bound-open"]["allocatable_balance"], 10.0)
+        self.assertEqual(by_id["inv-bound-overdue"]["balance"], 100.0)
+        self.assertEqual(by_id["inv-bound-overdue"]["allocatable_balance"], 100.0)
+        self.assertEqual(result["summary"]["total_balance"], 150.0)
+        self.assertEqual(result["summary"]["overdue_balance"], 100.0)
+        self.assertEqual(result["summary"]["open_balance"], 50.0)
+        self.assertEqual(result["summary"]["open_allocatable_balance"], 10.0)
+        self.assertEqual(result["summary"]["overdue_allocatable_balance"], 100.0)
+        self.assertEqual(result["summary"]["total_allocatable_balance"], 110.0)
+
+    def test_closed_confirmed_reservation_reduces_allocatable(self):
+        """Confirmed consumption on a closed sheet MUST reduce allocatable."""
+        sheet, allocation = self._reserve_open_invoice(40.0, close=True)
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        result = self._call(
+            {
+                "seller_id": self.seller.id,
+                "customer_identification": "20-11111111-1",
+            }
+        )
+        by_id = {row["external_invoice_id"]: row for row in result["invoices"]}
+        self.assertEqual(by_id["inv-bound-open"]["balance"], 50.0)
+        self.assertEqual(by_id["inv-bound-open"]["allocatable_balance"], 10.0)
+        self.assertEqual(result["summary"]["total_balance"], 150.0)
+        self.assertEqual(result["summary"]["open_balance"], 50.0)
+        self.assertEqual(result["summary"]["open_allocatable_balance"], 10.0)
+        self.assertEqual(result["summary"]["total_allocatable_balance"], 110.0)
+
+    def test_over_reservation_reports_zero_never_negative(self):
+        """Applied greater than gross MUST report allocatable_balance 0."""
+        self._reserve_open_invoice(60.0)
+        result = self._call(
+            {
+                "seller_id": self.seller.id,
+                "customer_identification": "20-11111111-1",
+            }
+        )
+        by_id = {row["external_invoice_id"]: row for row in result["invoices"]}
+        self.assertEqual(by_id["inv-bound-open"]["balance"], 50.0)
+        self.assertEqual(by_id["inv-bound-open"]["allocatable_balance"], 0.0)
+        self.assertGreaterEqual(by_id["inv-bound-open"]["allocatable_balance"], 0.0)
+        self.assertEqual(result["summary"]["total_balance"], 150.0)
+        self.assertEqual(result["summary"]["open_allocatable_balance"], 0.0)
+        self.assertEqual(result["summary"]["overdue_allocatable_balance"], 100.0)
+        self.assertEqual(result["summary"]["total_allocatable_balance"], 100.0)
 
     def test_portal_and_public_callers_denied_access_error(self):
         """Portal and public callers MUST receive AccessError."""

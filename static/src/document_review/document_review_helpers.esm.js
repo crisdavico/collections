@@ -148,15 +148,6 @@ export function rpcErrorMessage(error) {
   return _t("Could not complete the review action.");
 }
 
-export const IMAGE_EXTENSIONS = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "bmp",
-  "svg",
-]);
 export const PDF_MIME = "application/pdf";
 export const PDF_EXTENSION = "pdf";
 
@@ -185,9 +176,8 @@ export function attachmentViewerKind(item) {
   if (mime === PDF_MIME || extension === PDF_EXTENSION) {
     return "pdf";
   }
-  if (mime.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)) {
-    return "image";
-  }
+  // The server only designates image/* or application/pdf proof, so anything
+  // that is not a PDF is rendered by the image viewer.
   return "image";
 }
 

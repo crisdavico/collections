@@ -8,20 +8,14 @@ from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tools.translate import _
 
+from .collection_common import DOCUMENT_TYPE_CODES
+
 COLLECTION_SEQUENCE_SPECS = (
     ("collection.voucher", "Payment Voucher", "COL/%(year)s/", 4),
     ("collection.sheet", "Collection Sheet", "CS/%(year)s/", 4),
     ("collection.allocation", "Collection Allocation", "CA/%(year)s/", 4),
 )
-COLLECTION_TYPE_CODES = (
-    "bank_transfer",
-    "check",
-    "cash_deposit",
-    "unsupported",
-    "echeck",
-    "cash",
-    "retention_certificate",
-)
+COLLECTION_TYPE_CODES = DOCUMENT_TYPE_CODES
 
 
 class ResCompany(models.Model):
@@ -210,13 +204,7 @@ class ResCompany(models.Model):
     @api.private
     def _collection_internal_users_by_mobile(self, normalize):
         """Map normalized AR mobile → internal users (no sudo, one search)."""
-        internals = self.env["res.users"].search(
-            [
-                ("share", "=", False),
-                ("phone", "!=", False),
-                ("phone", "!=", ""),
-            ]
-        )
+        internals = self.env["muk_mcp.mixin"]._collection_internal_users_with_phone()
         index = {}
         for user in internals:
             needle = normalize(user.phone)

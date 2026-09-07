@@ -40,16 +40,21 @@ class CollectionSellerLookupMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_match_internal_users_by_mobile(self, needle: str):
-        """Return internal users whose phone normalizes to needle (no sudo)."""
-        candidates = self.env["res.users"].search(
+    def _collection_internal_users_with_phone(self):
+        """Return internal users that carry a phone number (one search, no sudo)."""
+        return self.env["res.users"].search(
             [
                 ("share", "=", False),
                 ("phone", "!=", False),
                 ("phone", "!=", ""),
             ]
         )
-        return candidates.filtered(
+
+    @api.model
+    @api.private
+    def _collection_match_internal_users_by_mobile(self, needle: str):
+        """Return internal users whose phone normalizes to needle (no sudo)."""
+        return self._collection_internal_users_with_phone().filtered(
             lambda user: self._collection_normalize_ar_mobile(user.phone) == needle
         )
 

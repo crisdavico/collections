@@ -2,10 +2,9 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_allocation import _FROZEN_SHEET_STATES
+from .collection_common import DOCUMENT_KIND_SELECTION, raise_if_sheet_frozen
 
 
 class CollectionAllocationLine(models.Model):
@@ -43,10 +42,7 @@ class CollectionAllocationLine(models.Model):
     )
     external_invoice_id = fields.Char(required=True)
     document_kind = fields.Selection(
-        selection=[
-            ("invoice", "Invoice"),
-            ("quotation", "Quotation"),
-        ],
+        selection=list(DOCUMENT_KIND_SELECTION),
         default="invoice",
         required=True,
     )
@@ -83,13 +79,7 @@ class CollectionAllocationLine(models.Model):
 
     @api.private
     def _raise_if_sheet_frozen(self):
-        frozen = self.sheet_id.filtered(
-            lambda sheet: sheet.state in _FROZEN_SHEET_STATES
+        raise_if_sheet_frozen(
+            self.sheet_id,
+            _("Closed or cancelled collection sheets cannot change allocation lines."),
         )
-        if frozen:
-            raise UserError(
-                _(
-                    "Closed or cancelled collection sheets cannot change "
-                    "allocation lines."
-                )
-            )

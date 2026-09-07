@@ -1,3 +1,10 @@
 # Local AI runtime cache (skill-registry is tracked)
 .atl/*
 !.atl/skill-registry.md
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local code-graph index
+.codegraph/

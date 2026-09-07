@@ -594,8 +594,7 @@ class TestCollectionMcpAllocation(TransactionCase):
                 },
             },
         ]
-        vals, idents = mixin._collection_parse_payment_vals(payments, f"  {IDENT}  ")
-        self.assertEqual(idents, [IDENT, IDENT])
+        vals = mixin._collection_parse_payment_vals(payments, f"  {IDENT}  ")
         self.assertEqual(
             [row["document_id"] for row in vals],
             ["DOC-PARSE-A", "DOC-PARSE-B"],
@@ -1651,6 +1650,75 @@ class TestCollectionMcpAllocation(TransactionCase):
             ),
             before_conf,
         )
+
+    def test_hidden_proposal_reservation_refuses_new_open_apply(self):
+        """Hidden proposal draft of full open balance MUST refuse a 1-peso apply."""
+        other_partner = dummy_customer_partner(
+            self.env, customer="ALLOC-HIDDEN-PROPOSAL"
+        )
+        other_alloc = self.env["collection.allocation"].create(
+            {
+                "sheet_id": self.sheet.id,
+                "partner_id": other_partner.id,
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": INVOICE_OPEN["external_invoice_id"],
+                            "invoice_number": INVOICE_OPEN["number"],
+                            "issue_date": INVOICE_OPEN["issue_date"],
+                            "due_date": INVOICE_OPEN["due_date"],
+                            "invoice_amount": INVOICE_OPEN["amount"],
+                            "invoice_balance": INVOICE_OPEN["balance"],
+                            "invoice_state": INVOICE_OPEN["state"],
+                            "amount_applied": 50.0,
+                        }
+                    )
+                ],
+            }
+        )
+        self.sheet.action_confirm()
+        self.assertEqual(self.sheet.state, "proposal")
+        self.assertEqual(other_alloc.state, "draft")
+        sheet_two = self._create_sheet(force_new=True)
+        too_much = self._create_vouchers([1.0], sheet=sheet_two, prefix="ALLOC-HIDDEN")
+        before = self._counts()
+        err = self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    self._payments_from_vouchers(too_much),
+                    [self._applied(INVOICE_OPEN, 1.0)],
+                    request_id="req-hidden-proposal-apply",
+                )
+            ),
+            before,
+        )
+        self.assertEqual(str(err), "Applied amount exceeds available invoice balance.")
+
+        dest_vouchers = self._create_vouchers(
+            [100.0], sheet=sheet_two, prefix="ALLOC-DEST"
+        )
+        first = self._call(
+            self._payload(
+                self._payments_from_vouchers(dest_vouchers),
+                [self._applied(INVOICE_OVERDUE, 100.0)],
+                request_id="req-hidden-dest-create",
+            )
+        )
+        dest = self.env["collection.allocation"].browse(first["allocation"]["id"])
+        extra = self._create_vouchers(
+            [10.0], sheet=sheet_two, prefix="ALLOC-DEST-AMEND"
+        )
+        amended = self._call(
+            self._payload(
+                self._payments_from_vouchers(dest.voucher_ids | extra),
+                [self._applied(INVOICE_OVERDUE, 100.0)],
+                request_id="req-hidden-dest-amend",
+            )
+        )
+        dest.invalidate_recordset()
+        self.assertEqual(amended["allocation"]["id"], dest.id)
+        self.assertEqual(dest.revision, 2)
+        self.assertEqual(dest.total_applied, 100.0)
 
     def test_invoice_missing_from_fresh_debt_rejected(self):
         """external_invoice_id absent from fresh get_customer_debt MUST error."""

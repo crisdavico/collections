@@ -177,17 +177,8 @@ class CollectionAllocationMixin(models.AbstractModel):
         )
         if replayed is not None:
             return replayed
-        (
-            _document_ids,
-            receipt_rows,
-            _request_key,
-            _identification,
-            payment_vals_list,
-        ) = self._collection_parse_allocation_form(
-            payments,
-            receipts,
-            request_id,
-            customer_identification,
+        receipt_rows, payment_vals_list = self._collection_parse_allocation_form(
+            payments, receipts, identification
         )
         self.env.company._assert_new_work(seller.id)
         if not self.env.company.auto_create_sheet:
@@ -257,42 +248,21 @@ class CollectionAllocationMixin(models.AbstractModel):
         self,
         payments: Any,
         receipts: Any,
-        request_id: Any,
-        customer_identification: Any,
-    ) -> tuple[
-        list[str],
-        list[dict[str, Any]],
-        str,
-        str,
-        list[dict[str, Any]],
-    ]:
-        """Validate MCP form fields in Python (do not trust schema minItems)."""
-        if not isinstance(request_id, str) or not request_id.strip():
-            raise UserError(_("request_id is required."))
-        if (
-            not isinstance(customer_identification, str)
-            or not customer_identification.strip()
-        ):
-            raise UserError(_("customer_identification is required."))
-        identification = customer_identification.strip()
-        if not isinstance(payments, list) or not payments:
-            raise UserError(_("payments must be a non-empty list."))
-        payment_vals_list, _identifications = self._collection_parse_payment_vals(
+        identification: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Validate payment and receipt bodies (do not trust schema minItems).
+
+        Identity fields are already validated by
+        ``_collection_parse_allocation_identity``, which runs first so a replay
+        can be answered without parsing the bodies at all.
+        """
+        payment_vals_list = self._collection_parse_payment_vals(
             payments, identification
         )
-        document_ids = [vals["document_id"] for vals in payment_vals_list]
-        if len(document_ids) != len(set(document_ids)):
-            raise UserError(_("Duplicate document_id in the same call is not allowed."))
         receipt_rows = self._collection_parse_allocation_receipts(
             receipts, payment_vals_list
         )
-        return (
-            document_ids,
-            receipt_rows,
-            request_id.strip(),
-            identification,
-            payment_vals_list,
-        )
+        return receipt_rows, payment_vals_list
 
     @api.model
     @api.private
@@ -763,6 +733,39 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
+    def _collection_reserved_amounts(
+        self,
+        external_invoice_ids: list[str],
+        exclude_allocation_id: int | bool = False,
+    ) -> dict[str, float]:
+        """Sum draft/confirmed applied amounts per external invoice.
+
+        Includes allocations on proposal, closed, and cancelled sheets.
+        Optionally exclude the destination allocation (amendments).
+        """
+        invoice_ids = [eid for eid in external_invoice_ids if eid]
+        if not invoice_ids:
+            return {}
+        domain = [
+            ("external_invoice_id", "in", invoice_ids),
+            ("company_id", "=", self.env.company.id),
+            ("allocation_id.state", "in", ("draft", "confirmed")),
+        ]
+        if exclude_allocation_id:
+            domain.append(("allocation_id", "!=", exclude_allocation_id))
+        grouped = self.env["collection.allocation.line"]._read_group(
+            domain,
+            groupby=["external_invoice_id"],
+            aggregates=["amount_applied:sum"],
+        )
+        return {
+            external_id: float(reserved or 0.0)
+            for external_id, reserved in grouped
+            if external_id
+        }
+
+    @api.model
+    @api.private
     def _collection_allocation_revalidate(
         self,
         connector,
@@ -796,7 +799,6 @@ class CollectionAllocationMixin(models.AbstractModel):
                 line.external_invoice_id: line.document_kind
                 for line in destination.line_ids
             }
-        Line = self.env["collection.allocation.line"]
         dest_id = destination.id if destination else False
         for external_id, applied in applied_by_id.items():
             if (
@@ -810,17 +812,14 @@ class CollectionAllocationMixin(models.AbstractModel):
                     balance_seen_by_id[external_id], fresh_balance
                 ):
                     raise UserError(_("An invoice balance has changed."))
+        reserved = self._collection_reserved_amounts(
+            list(fresh_invoices),
+            exclude_allocation_id=dest_id,
+        )
         line_vals: list[dict[str, Any]] = []
         for external_id, fresh in fresh_invoices.items():
             applied = applied_by_id.get(external_id, 0.0)
-            domain = [
-                ("external_invoice_id", "=", external_id),
-                ("company_id", "=", self.env.company.id),
-                ("allocation_id.state", "in", ("draft", "confirmed")),
-            ]
-            if dest_id:
-                domain.append(("allocation_id", "!=", dest_id))
-            elsewhere = sum(Line.search(domain).mapped("amount_applied"))
+            elsewhere = reserved.get(external_id, 0.0)
             available = (fresh.get("balance") or 0.0) - elsewhere
             if currency.compare_amounts(applied, available) > 0:
                 raise UserError(_("Applied amount exceeds available invoice balance."))
@@ -901,7 +900,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                         seller.id,
                         sidecars or [],
                         provenances or [],
-                        [identification] * len(payment_vals_list),
+                        identification,
                     )
                 except UniqueViolation:
                     self.env.invalidate_all()

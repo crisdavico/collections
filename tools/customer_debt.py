@@ -37,7 +37,9 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
             "Return outstanding invoices and balances for an Enabled Seller's "
             "active customer from the company's collection connector. Returns "
             "{customer, summary, invoices} with invoice document_kind "
-            "(default invoice). Internal users only."
+            "(default invoice) and allocatable_balance (gross balance minus "
+            "draft and confirmed reservations, clamped at zero). Internal "
+            "users only."
         ),
         input_schema=_CUSTOMER_DEBT_SCHEMA,
         category="read",
@@ -56,8 +58,36 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
         connector = self.env.company._collection_active_connector()
         result = connector.get_customer_debt(seller.id, customer_identification)
         result.pop("source", None)
-        for invoice in result.get("invoices") or []:
+        invoices = result.get("invoices") or []
+        for invoice in invoices:
             kind = invoice.get("document_kind")
             if kind in (None, False, ""):
                 invoice["document_kind"] = "invoice"
+        reserved = self._collection_reserved_amounts(
+            [
+                invoice["external_invoice_id"]
+                for invoice in invoices
+                if invoice.get("external_invoice_id")
+            ]
+        )
+        total_allocatable = 0.0
+        open_allocatable = 0.0
+        overdue_allocatable = 0.0
+        for invoice in invoices:
+            gross = invoice.get("balance") or 0.0
+            elsewhere = reserved.get(invoice.get("external_invoice_id"), 0.0)
+            allocatable = gross - elsewhere
+            if allocatable < 0.0:
+                allocatable = 0.0
+            invoice["allocatable_balance"] = allocatable
+            total_allocatable += allocatable
+            state = invoice.get("state")
+            if state == "open":
+                open_allocatable += allocatable
+            elif state == "overdue":
+                overdue_allocatable += allocatable
+        summary = result.setdefault("summary", {})
+        summary["total_allocatable_balance"] = total_allocatable
+        summary["open_allocatable_balance"] = open_allocatable
+        summary["overdue_allocatable_balance"] = overdue_allocatable
         return result

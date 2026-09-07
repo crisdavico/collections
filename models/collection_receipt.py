@@ -5,7 +5,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_allocation import _FROZEN_SHEET_STATES
+from .collection_common import DOCUMENT_KIND_SELECTION, raise_if_sheet_frozen
 
 
 class CollectionReceipt(models.Model):
@@ -20,10 +20,7 @@ class CollectionReceipt(models.Model):
         index=True,
     )
     document_kind = fields.Selection(
-        selection=[
-            ("invoice", "Invoice"),
-            ("quotation", "Quotation"),
-        ],
+        selection=list(DOCUMENT_KIND_SELECTION),
         default="invoice",
         required=True,
     )
@@ -128,16 +125,13 @@ class CollectionReceipt(models.Model):
 
     @api.private
     def _raise_if_sheet_frozen(self):
-        frozen = self.sheet_id.filtered(
-            lambda sheet: sheet.state in _FROZEN_SHEET_STATES
+        raise_if_sheet_frozen(
+            self.sheet_id,
+            _(
+                "Closed or cancelled collection sheets cannot change "
+                "collection receipts."
+            ),
         )
-        if frozen:
-            raise UserError(
-                _(
-                    "Closed or cancelled collection sheets cannot change "
-                    "collection receipts."
-                )
-            )
 
     @api.private
     def _raise_if_issued(self):

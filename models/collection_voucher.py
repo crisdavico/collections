@@ -10,6 +10,13 @@ from odoo.tools.float_utils import float_compare
 from odoo.tools.mimetypes import guess_mimetype
 from odoo.tools.translate import _
 
+from .collection_common import (
+    CHECK_TYPE_SELECTION,
+    DOCUMENT_TYPE_SELECTION,
+    RETENTION_KIND_SELECTION,
+    record_id,
+)
+
 
 class CollectionVoucher(models.Model):
     _name = "collection.voucher"
@@ -17,22 +24,8 @@ class CollectionVoucher(models.Model):
     _inherit = ["mail.thread.main.attachment", "mail.activity.mixin"]
     _order = "id desc"
 
-    _DOCUMENT_TYPE_SELECTION = (
-        ("bank_transfer", "Bank Transfer"),
-        ("check", "Check"),
-        ("cash_deposit", "Cash Deposit"),
-        ("unsupported", "Unsupported"),
-        ("echeck", "Echeck"),
-        ("cash", "Cash"),
-        ("retention_certificate", "Retention Certificate"),
-    )
-    _RETENTION_KIND_SELECTION = (
-        ("iva", "IVA"),
-        ("ganancias", "Ganancias"),
-        ("iibb", "IIBB"),
-        ("suss", "SUSS"),
-        ("other", "Other"),
-    )
+    _DOCUMENT_TYPE_SELECTION = DOCUMENT_TYPE_SELECTION
+    _RETENTION_KIND_SELECTION = RETENTION_KIND_SELECTION
 
     name = fields.Char(
         string="Reference",
@@ -108,12 +101,7 @@ class CollectionVoucher(models.Model):
     check_bank = fields.Char()
     check_issue_date = fields.Date()
     check_payment_date = fields.Date()
-    check_type = fields.Selection(
-        selection=[
-            ("common", "Common"),
-            ("deferred", "Deferred"),
-        ],
-    )
+    check_type = fields.Selection(selection=list(CHECK_TYPE_SELECTION))
     retention_kind = fields.Selection(selection=_RETENTION_KIND_SELECTION)
     attachment_rotation = fields.Integer(default=0, copy=False)
     reviewed_by = fields.Many2one(
@@ -145,10 +133,7 @@ class CollectionVoucher(models.Model):
     ocr_check_issue_date = fields.Date(string="Check Issue Date", copy=False)
     ocr_check_payment_date = fields.Date(string="Check Payment Date", copy=False)
     ocr_check_type = fields.Selection(
-        selection=[
-            ("common", "Common"),
-            ("deferred", "Deferred"),
-        ],
+        selection=list(CHECK_TYPE_SELECTION),
         string="Check Type",
         copy=False,
     )
@@ -174,10 +159,7 @@ class CollectionVoucher(models.Model):
     seller_check_issue_date = fields.Date(string="Check Issue Date", copy=False)
     seller_check_payment_date = fields.Date(string="Check Payment Date", copy=False)
     seller_check_type = fields.Selection(
-        selection=[
-            ("common", "Common"),
-            ("deferred", "Deferred"),
-        ],
+        selection=list(CHECK_TYPE_SELECTION),
         string="Check Type",
         copy=False,
     )
@@ -299,9 +281,7 @@ class CollectionVoucher(models.Model):
         if "message_main_attachment_id" in vals:
             if len(self) > 1:
                 return all(rec.write(vals) for rec in self)
-            new_id = self._normalize_main_attachment_id(
-                vals.get("message_main_attachment_id")
-            )
+            new_id = record_id(vals.get("message_main_attachment_id"))
             self._validate_main_attachment_id(new_id)
             vals = self._vals_with_review_reset_on_new_attachment(vals)
         intercepted = self._intercept_state_write(vals)
@@ -411,7 +391,7 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _ensure_partner_reassign_unlocked(self, new_partner):
-        new_id = self._partner_id_from_value(new_partner)
+        new_id = record_id(new_partner)
         for voucher in self:
             if not self._sheet_is_frozen(voucher.sheet_id):
                 continue
@@ -429,28 +409,6 @@ class CollectionVoucher(models.Model):
                     "sheet is not open."
                 )
             )
-
-    @api.private
-    def _ensure_source_allocation_detachable(self):
-        self.ensure_one()
-        current = self.allocation_id
-        if not current:
-            return
-        if current.state != "draft":
-            raise UserError(
-                _(
-                    "Allocation membership can only change when the current "
-                    "and target allocations are draft or unset."
-                )
-            )
-
-    @api.private
-    def _partner_id_from_value(self, value):
-        if not value:
-            return False
-        if isinstance(value, models.BaseModel):
-            return value[:1].id or False
-        return int(value)
 
     @api.constrains("partner_id", "allocation_id")
     def _check_voucher_allocation_partner(self):
@@ -477,34 +435,33 @@ class CollectionVoucher(models.Model):
     def _unlink_if_draft(self):
         if any(voucher.state != "draft" for voucher in self):
             raise UserError(_("You can only delete vouchers in the Draft state."))
+        if any(
+            not self._allocation_is_draft_or_unset(voucher.allocation_id)
+            for voucher in self
+        ):
+            raise self._allocation_membership_user_error()
 
-    @api.ondelete(at_uninstall=False)
-    def _unlink_if_draft_or_unset(self):
-        for voucher in self.filtered("allocation_id"):
-            voucher._ensure_source_allocation_detachable()
+    @api.private
+    def _allocation_membership_user_error(self):
+        return UserError(
+            _(
+                "Allocation membership can only change when the current "
+                "and target allocations are draft or unset."
+            )
+        )
 
     @api.private
     def _ensure_allocation_membership_writable(self, new_allocation_id):
         target = self._allocation_from_value(new_allocation_id)
-        for voucher in self:
-            current = voucher.allocation_id
-            if not self._allocation_is_draft_or_unset(
-                current
-            ) or not self._allocation_is_draft_or_unset(target):
-                raise UserError(
-                    _(
-                        "Allocation membership can only change when the current "
-                        "and target allocations are draft or unset."
-                    )
-                )
+        if not self._allocation_is_draft_or_unset(target) or any(
+            not self._allocation_is_draft_or_unset(voucher.allocation_id)
+            for voucher in self
+        ):
+            raise self._allocation_membership_user_error()
 
     @api.private
     def _allocation_from_value(self, value):
-        if not value:
-            return self.env["collection.allocation"]
-        if isinstance(value, models.BaseModel):
-            return value[:1]
-        return self.env["collection.allocation"].browse(int(value))
+        return self.env["collection.allocation"].browse(record_id(value) or [])
 
     @api.private
     def _allocation_is_draft_or_unset(self, allocation):
@@ -526,9 +483,13 @@ class CollectionVoucher(models.Model):
 
     @api.model
     def _validate_attachment_payload(self, attachment):
-        """Validate base64 + detected MIME before posting designated proof."""
+        """Validate base64 + detected MIME before posting designated proof.
+
+        Returns ``(decoded bytes, detected mimetype)`` so callers do not have to
+        decode the payload again, or ``(b"", "")`` when there is nothing to check.
+        """
         if not attachment:
-            return
+            return b"", ""
         raw = attachment
         if isinstance(raw, str):
             raw = raw.encode()
@@ -547,6 +508,7 @@ class CollectionVoucher(models.Model):
                     mimetype=mime or "unknown",
                 )
             )
+        return decoded, mime
 
     @api.constrains("attachment_rotation")
     def _check_attachment_rotation(self):
@@ -632,14 +594,6 @@ class CollectionVoucher(models.Model):
             )
 
     @api.private
-    def _normalize_main_attachment_id(self, value):
-        if not value:
-            return False
-        if isinstance(value, models.BaseModel):
-            return value.id or False
-        return int(value)
-
-    @api.private
     def _validate_main_attachment_id(self, attachment_id):
         if not attachment_id:
             return
@@ -660,9 +614,7 @@ class CollectionVoucher(models.Model):
         if "message_main_attachment_id" not in vals:
             return vals
         self.ensure_one()
-        new_id = self._normalize_main_attachment_id(
-            vals.get("message_main_attachment_id")
-        )
+        new_id = record_id(vals.get("message_main_attachment_id"))
         old_id = self.message_main_attachment_id.id or False
         if old_id == (new_id or False):
             return vals
@@ -753,14 +705,9 @@ class CollectionVoucher(models.Model):
     @api.private
     def _is_review_eligible(self):
         self.ensure_one()
-        return bool(
-            self.state == "validated_seller" and self._records_with_attachment()
+        return self.state == "validated_seller" and bool(
+            self.message_main_attachment_id
         )
-
-    @api.private
-    def _records_with_attachment(self):
-        """Return subset of ``self`` that has designated chatter proof."""
-        return self.filtered(lambda voucher: bool(voucher.message_main_attachment_id))
 
     @api.private
     def _attachment_content_url(self):

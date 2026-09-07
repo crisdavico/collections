@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import math
 import re
-from base64 import b64decode
 from datetime import date, datetime
 from typing import Any
 
@@ -13,7 +12,6 @@ from psycopg2.errors import UniqueViolation
 
 from odoo import _, api, models
 from odoo.exceptions import UserError
-from odoo.tools.mimetypes import guess_mimetype
 
 # One contract map drives flattened JSON Schema (MuK-safe) and runtime parse.
 # MuK ``to_strict_schema`` strips ``anyOf`` / ``additionalProperties``; amounts
@@ -278,13 +276,11 @@ class CollectionMcpMixin(models.AbstractModel):
     @api.model
     def _collection_parse_payment_vals(
         self, payments: list[dict[str, Any]], identification: str
-    ) -> tuple[list[dict[str, Any]], list[str]]:
+    ) -> list[dict[str, Any]]:
         """Validate payments; voucher fields come from required seller_confirmed."""
         if not isinstance(identification, str) or not identification.strip():
             raise UserError(_("customer_identification is required."))
-        identification = identification.strip()
         payment_vals_list: list[dict[str, Any]] = []
-        identifications: list[str] = []
         currency = self.env.company.currency_id
         for index, raw in enumerate(payments):
             if not isinstance(raw, dict):
@@ -343,14 +339,13 @@ class CollectionMcpMixin(models.AbstractModel):
                         index=index,
                     )
                 )
-            identifications.append(identification)
             vals: dict[str, Any] = {
                 "document_id": document_id.strip(),
                 **parsed,
                 "amount": amount_value,
             }
             payment_vals_list.append(vals)
-        return payment_vals_list, identifications
+        return payment_vals_list
 
     @api.model
     def _collection_parse_payment_attachments(
@@ -598,12 +593,11 @@ class CollectionMcpMixin(models.AbstractModel):
                 )
             )
 
+        # Reuse model allow-list/base64 gate (image/* or application/pdf); it
+        # hands back the decoded bytes so the payload is only decoded once.
         Voucher = self.env["collection.voucher"]
-        # Reuse model allow-list/base64 gate (image/* or application/pdf).
-        Voucher._validate_attachment_payload(datas)
+        decoded, detected = Voucher._validate_attachment_payload(datas)
 
-        raw = datas.encode() if isinstance(datas, str) else datas
-        detected = guess_mimetype(b64decode(raw, validate=True)) or ""
         declared = _collection_normalize_mimetype(mimetype)
         detected_normalized = _collection_normalize_mimetype(detected)
         if declared != detected_normalized:
@@ -616,7 +610,7 @@ class CollectionMcpMixin(models.AbstractModel):
                     detected=detected or "unknown",
                 )
             )
-        return name.strip(), b64decode(raw, validate=True)
+        return name.strip(), decoded
 
     @api.model
     def _collection_vouchers_by_document_ids(self, document_ids: list[str]):
@@ -712,17 +706,18 @@ class CollectionMcpMixin(models.AbstractModel):
         seller_id: int,
         sidecars: list[tuple[str, bytes] | None],
         provenances: list[dict[str, Any] | None],
-        identifications: list[str],
+        identification: str,
     ) -> dict[str, Any]:
-        """Atomically resolve customers and create one voucher per payment."""
+        """Atomically resolve customers and create one voucher per payment.
+
+        Every payment in a call belongs to the same ``identification``.
+        """
         Voucher = self.env["collection.voucher"]
         document_ids = [vals["document_id"] for vals in payment_vals_list]
         connector = self.env.company._collection_active_connector()
         with self.env.cr.savepoint():
             create_vals = []
-            for vals, provenance, identification in zip(
-                payment_vals_list, provenances, identifications, strict=True
-            ):
+            for vals, provenance in zip(payment_vals_list, provenances, strict=True):
                 try:
                     with self.env.cr.savepoint():
                         partner = connector.resolve_customer_partner(

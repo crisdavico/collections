@@ -6,12 +6,16 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command
 from odoo.tools.translate import _
 
+from .collection_common import (
+    CONFIRMED_SHEET_STATE,
+    DRAFT_SHEET_STATES,
+    FROZEN_SHEET_STATES,
+    sanitize_voucher_commands,
+)
+
 _FROZEN_FIELDS = frozenset(
     {"line_ids", "voucher_ids", "receipt_ids", "partner_id", "sheet_id"}
 )
-_DRAFT_SHEET_STATES = frozenset({"open", "proposal", "cancelled"})
-_CONFIRMED_SHEET_STATE = "closed"
-_FROZEN_SHEET_STATES = frozenset({"closed", "cancelled"})
 
 
 class CollectionAllocation(models.Model):
@@ -240,9 +244,7 @@ class CollectionAllocation(models.Model):
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
             if "voucher_ids" in vals:
-                vals["voucher_ids"] = self._sanitize_voucher_commands(
-                    vals["voucher_ids"]
-                )
+                vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
             sheet = self.env["collection.sheet"].browse(vals.get("sheet_id") or [])
             if "line_ids" not in vals:
                 partner = self.env["res.partner"].browse(vals.get("partner_id") or [])
@@ -264,17 +266,10 @@ class CollectionAllocation(models.Model):
         if not self:
             return True
         if _FROZEN_FIELDS & set(vals) and self._membership_is_frozen():
-            if any(allocation.state == "confirmed" for allocation in self):
-                raise UserError(_("Confirmed allocations cannot change membership."))
-            raise UserError(
-                _(
-                    "Closed or cancelled collection sheets cannot change "
-                    "allocation membership."
-                )
-            )
+            self._raise_membership_frozen()
         if "voucher_ids" in vals:
             vals = dict(vals)
-            vals["voucher_ids"] = self._sanitize_voucher_commands(vals["voucher_ids"])
+            vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
         if "state" in vals and not self.env.context.get(
             "collection_allocation_audited_state"
         ):
@@ -284,10 +279,22 @@ class CollectionAllocation(models.Model):
         return super().write(vals)
 
     @api.private
+    def _raise_membership_frozen(self):
+        """Raise the membership-freeze error that matches why ``self`` is frozen."""
+        if any(allocation.state == "confirmed" for allocation in self):
+            raise UserError(_("Confirmed allocations cannot change membership."))
+        raise UserError(
+            _(
+                "Closed or cancelled collection sheets cannot change "
+                "allocation membership."
+            )
+        )
+
+    @api.private
     def _membership_is_frozen(self):
         return any(
             allocation.state == "confirmed"
-            or allocation.sheet_id.state in _FROZEN_SHEET_STATES
+            or allocation.sheet_id.state in FROZEN_SHEET_STATES
             for allocation in self
         )
 
@@ -301,16 +308,6 @@ class CollectionAllocation(models.Model):
         if vouchers:
             models.Model.write(vouchers, {"allocation_id": False})
         return super().unlink()
-
-    @api.private
-    def _sanitize_voucher_commands(self, commands):
-        sanitized = []
-        for command in commands or []:
-            if command and command[0] == Command.DELETE:
-                sanitized.append(Command.unlink(command[1]))
-            else:
-                sanitized.append(command)
-        return sanitized
 
     @api.constrains("partner_id", "voucher_ids")
     def _check_voucher_partners(self):
@@ -353,17 +350,14 @@ class CollectionAllocation(models.Model):
             sheet = allocation.sheet_id
             if not sheet:
                 continue
-            if allocation.state == "draft" and sheet.state not in _DRAFT_SHEET_STATES:
+            if allocation.state == "draft" and sheet.state not in DRAFT_SHEET_STATES:
                 raise ValidationError(
                     _(
                         "Draft allocations must belong to an open, proposal, or "
                         "cancelled collection sheet."
                     )
                 )
-            if (
-                allocation.state == "confirmed"
-                and sheet.state != _CONFIRMED_SHEET_STATE
-            ):
+            if allocation.state == "confirmed" and sheet.state != CONFIRMED_SHEET_STATE:
                 raise ValidationError(
                     _("Confirmed allocations must belong to a closed collection sheet.")
                 )
@@ -436,16 +430,8 @@ class CollectionAllocation(models.Model):
     def _ensure_writable_debt_picker(self):
         self.ensure_one()
         self._ensure_saved_allocation()
-        if not self._membership_is_frozen():
-            return
-        if self.state == "confirmed":
-            raise UserError(_("Confirmed allocations cannot change membership."))
-        raise UserError(
-            _(
-                "Closed or cancelled collection sheets cannot change "
-                "allocation membership."
-            )
-        )
+        if self._membership_is_frozen():
+            self._raise_membership_frozen()
 
     def action_open_vouchers(self):
         self.ensure_one()

@@ -157,10 +157,10 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_40_0(self):
+    def test_manifest_version_is_1_41_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
-        self.assertIn('"version": "19.0.1.40.0"', manifest.read_text(encoding="utf-8"))
+        self.assertIn('"version": "19.0.1.41.0"', manifest.read_text(encoding="utf-8"))
         for leftover in (
             "19.0.1.26.0",
             "19.0.1.27.0",
@@ -171,6 +171,8 @@ class TestCollectionCompanyMigration(TransactionCase):
             "19.0.1.37.0",
             "19.0.1.38.0",
             "19.0.1.39.0",
+            "19.0.1.40.1",
+            "19.0.1.41.0",
         ):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
@@ -304,7 +306,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.40.0`", agents)
+        self.assertIn("Module metadata `19.0.1.41.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`open`/`proposal`/`closed`/`cancelled`", agents)
         self.assertIn("Confirm/Close/Cancel/Open", agents)
@@ -320,6 +322,8 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertNotIn("Module metadata `19.0.1.37.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.38.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.39.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.40.1`", agents)
+        self.assertNotIn("Module metadata `19.0.1.40.0`", agents)
         self.assertNotIn("`partner_id.group_expand`", agents)
         self.assertIn(
             '"Closed collection sheets cannot change membership. Reopen first."',

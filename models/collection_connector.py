@@ -215,6 +215,17 @@ class CollectionConnector(models.Model):
         return identification
 
     @api.private
+    def _source_payload(self):
+        """Return the connector provenance block shared by every read payload."""
+        self.ensure_one()
+        return {
+            "connector_id": self.id,
+            "connector_type": self.type,
+            "connector_name": self.name,
+            "company_id": self.company_id.id,
+        }
+
+    @api.private
     def _format_seller_list(self, rows):
         self.ensure_one()
         bindings = {
@@ -226,10 +237,6 @@ class CollectionConnector(models.Model):
             if not _row_is_active(row):
                 continue
             external_id = str(row.get("id") or row.get("external_seller_id") or "")
-            if "commission_percent" not in row:
-                commission_percent = 0.0
-            else:
-                commission_percent = row["commission_percent"]
             sellers.append(
                 {
                     "external_seller_id": external_id,
@@ -237,17 +244,12 @@ class CollectionConnector(models.Model):
                     "mobile": row.get("mobile") or "",
                     "active": True,
                     "odoo_seller_id": bindings.get(external_id),
-                    "commission_percent": commission_percent,
+                    "commission_percent": row.get("commission_percent", 0.0),
                 }
             )
         return {
             "sellers": sellers,
-            "source": {
-                "connector_id": self.id,
-                "connector_type": self.type,
-                "connector_name": self.name,
-                "company_id": self.company_id.id,
-            },
+            "source": self._source_payload(),
         }
 
     @api.private
@@ -269,12 +271,7 @@ class CollectionConnector(models.Model):
             )
         return {
             "customers": customers,
-            "source": {
-                "connector_id": self.id,
-                "connector_type": self.type,
-                "connector_name": self.name,
-                "company_id": self.company_id.id,
-            },
+            "source": self._source_payload(),
         }
 
     @api.private
@@ -333,10 +330,5 @@ class CollectionConnector(models.Model):
                 "invoice_count": len(invoices),
             },
             "invoices": invoices,
-            "source": {
-                "connector_id": self.id,
-                "connector_type": self.type,
-                "connector_name": self.name,
-                "company_id": self.company_id.id,
-            },
+            "source": self._source_payload(),
         }

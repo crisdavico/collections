@@ -196,12 +196,12 @@ The system MUST bind `ir.actions.report` `qweb-pdf` on `collection.sheet`
 Paperformat MUST be A4 portrait with compact header room (`margin_top` 20mm,
 `header_spacing` 5mm, `margin_bottom` 8mm, `margin_left`/`margin_right` 6mm) so the
 company letterhead does not leave a large blank band above Resumen and the tables span
-the usable width. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
-call `web.html_container` plus `web.external_layout` (PDF membrete is company
-letterhead, not workbook rows 1–4). Body MUST NOT repeat the Planilla title already set
-on `layout_document_title`. HTML render (MUST NOT spawn wkhtmltopdf in tests) MUST
-contain the sheet reference, seller name, every partner name, applied document numbers,
-and the recon banner.
+the usable width. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST call
+`web.html_container` plus `web.external_layout` (PDF membrete is company letterhead, not
+workbook rows 1–4). Body MUST NOT repeat the Planilla title already set on
+`layout_document_title`. HTML render (MUST NOT spawn wkhtmltopdf in tests) MUST contain
+the sheet reference, seller name, every partner name, applied document numbers, and the
+recon banner.
 
 #### Scenario: Print menu binding
 
@@ -209,8 +209,8 @@ and the recon banner.
 - WHEN inspected
 - THEN `report_type` MUST be `qweb-pdf`, model `collection.sheet`, binding report on
   that model, with the collection-sheet paperformat
-- AND paperformat orientation MUST be `Portrait`, `margin_top` 20,
-  `header_spacing` 5, `margin_bottom` 8, `margin_left`/`margin_right` 6
+- AND paperformat orientation MUST be `Portrait`, `margin_top` 20, `header_spacing` 5,
+  `margin_bottom` 8, `margin_left`/`margin_right` 6
 - AND the document arch MUST set `layout_document_title` and MUST NOT contain a body
   `<h2>`
 
@@ -300,3 +300,62 @@ unchanged. Unsaved and mixed-currency guards MUST still apply.
 - GIVEN a sheet that is not yet saved
 - WHEN PDF or XLSX build runs
 - THEN MUST raise `UserError` and MUST NOT emit output
+
+### Requirement: Read-only MCP tool get_collection_sheet_pdf
+
+The system MUST expose `get_collection_sheet_pdf` via `@mcp_tool` on `muk_mcp.mixin`
+(`category=read`, `registry=mcp`), method-discovered; MUST NOT add a DB tool record.
+Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require exactly
+one property, integer `seller_id`, and MUST NOT accept `model`, `domain`, `fields`,
+`context`, `order`, a `sheet_id`, or a report reference. The tool MUST resolve the
+seller's own `open` sheet on `env.company` through
+`collection.sheet._open_sheets_for_seller` and MUST NOT print `proposal`, `closed`, or
+`cancelled` sheets. It MUST render the bound `collection.action_report_collection_sheet`
+and return
+`{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, filename, mimetype, content_base64}`
+where `content_base64` is the standard-base64 report body and `filename` is a slug
+ending `.pdf` carrying the sheet reference with `/` replaced. The tool MUST NOT create
+an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
+`collection.connector` or seller binding, and MUST NOT expose the XLSX.
+
+#### Scenario: Open sheet returns base64 PDF
+
+- GIVEN an internal caller and an internal seller with exactly one `open` sheet on the
+  caller's company
+- WHEN `get_collection_sheet_pdf` runs with that `seller_id`
+- THEN the response MUST be exactly `sheet`, `filename`, `mimetype`, `content_base64`
+- AND `mimetype` MUST be `application/pdf` and `content_base64` MUST decode to the
+  rendered report bytes
+- AND the rendered record set MUST be that open sheet only
+- AND no record MUST be created or written
+
+#### Scenario: No open sheet returns null
+
+- GIVEN an internal seller with no sheet, or only `proposal` / `closed` / `cancelled`
+  sheets
+- WHEN `get_collection_sheet_pdf` runs with that `seller_id`
+- THEN the response MUST be exactly `{ "sheet": null }`
+- AND the report MUST NOT be rendered
+
+#### Scenario: More than one open sheet fails closed
+
+- GIVEN corrupted data where a seller has two `open` sheets on the caller's company
+- WHEN `get_collection_sheet_pdf` runs
+- THEN MUST raise `UserError` `This seller has more than one open collection sheet.`
+- AND MUST NOT return a PDF
+
+#### Scenario: Caller authorization
+
+- GIVEN a portal or public caller
+- WHEN `get_collection_sheet_pdf` runs with any `seller_id`
+- THEN MUST raise `AccessError` and MUST NOT return a PDF
+- AND an invalid, portal, or unknown `seller_id` from an internal caller MUST raise
+  `UserError`
+
+#### Scenario: Company scoping
+
+- GIVEN an internal caller restricted to company A and a seller whose only `open` sheet
+  belongs to company B
+- WHEN `get_collection_sheet_pdf` runs with that `seller_id`
+- THEN the response MUST be `{ "sheet": null }`
+- AND the company-B report MUST NOT be rendered

@@ -1,0 +1,17 @@
+# SDD change state — orchestrator-managed
+change: expose-allocatable-customer-debt
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+execution_mode: interactive
+subagent_model: cursor-grok-4.6-high
+phase: apply
+updated: 2026-09-06
+artifacts:
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+notes: |
+  Strict TDD. Additive MCP response fields only. No migrations/19.0.1.40.1/.
+  Do not edit openspec/changes/align-allocation-contracts/.
