@@ -45,6 +45,17 @@ SELLER_DECLARATION_STATES = frozenset({"submitted"})
 DRAFT_SHEET_STATES = frozenset({"open", "submitted", "proposal", "cancelled"})
 CONFIRMED_SHEET_STATE = "closed"
 FROZEN_SHEET_STATES = frozenset({"closed", "cancelled"})
+# Callers MAY skip ``raise_if_sheet_frozen`` only under these keys. Chatter
+# ``message_post`` is not a bypass.
+FROZEN_SHEET_BYPASS_CONTEXTS = frozenset(
+    {
+        "collection_sheet_audited_state",
+        "collection_allocation_audited_state",
+        "collection_receipt_audited_state",
+        "collection_allocation_parent_unlink",
+        "collection_sheet_unlinking",
+    }
+)
 
 
 def record_id(value):
@@ -71,6 +82,26 @@ def sanitize_voucher_commands(commands):
 
 
 def raise_if_sheet_frozen(sheets, message):
-    """Raise ``UserError(message)`` when any of ``sheets`` is closed/cancelled."""
+    """Raise ``UserError(message)`` when any of ``sheets`` is closed/cancelled.
+
+    This helper does not inspect ``env.context``. Callers skip it only under
+    ``FROZEN_SHEET_BYPASS_CONTEXTS`` (audited sheet/allocation/receipt state,
+    ``collection_allocation_parent_unlink``, ``collection_sheet_unlinking``).
+    ``message_post`` is not a bypass.
+    """
     if any(sheet.state in FROZEN_SHEET_STATES for sheet in sheets):
         raise UserError(message)
+
+
+def raise_if_create_vals_frozen(
+    env, vals_list, message, *, field="sheet_id", comodel="collection.sheet"
+):
+    """Refuse create when the sheet reached from ``vals_list`` is frozen."""
+    ids = []
+    for vals in vals_list:
+        identifier = record_id(vals.get(field))
+        if identifier:
+            ids.append(identifier)
+    records = env[comodel].browse(ids)
+    sheets = records if comodel == "collection.sheet" else records.mapped("sheet_id")
+    raise_if_sheet_frozen(sheets, message)

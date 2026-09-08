@@ -323,30 +323,7 @@ class CollectionSheet(models.Model):
     def action_close(self):
         if any(sheet.state != "proposal" for sheet in self):
             raise UserError(_("Only proposal sheets can be closed."))
-        for sheet in self:
-            receipts = sheet.allocation_ids.receipt_ids.filtered(
-                lambda rec: rec.state == "draft" and rec.value_ids
-            )
-            if not receipts:
-                continue
-            connector = sheet.company_id._collection_active_connector()
-            for receipt in receipts:
-                payload = connector.create_receipt(receipt)
-                external_id = (
-                    payload.get("external_receipt_id")
-                    if isinstance(payload, dict)
-                    else None
-                )
-                if not external_id:
-                    raise UserError(
-                        _("The collection connector did not return a receipt id.")
-                    )
-                receipt.with_context(collection_receipt_issuing=True).write(
-                    {
-                        "state": "issued",
-                        "external_receipt_id": str(external_id),
-                    }
-                )
+        self._mark_draft_receipts_closed()
         allocations = self.mapped("allocation_ids")
         if allocations:
             allocations.with_context(collection_allocation_audited_state=True).write(
@@ -366,6 +343,7 @@ class CollectionSheet(models.Model):
             raise UserError(
                 _("Only submitted, proposal, or closed sheets can be cancelled.")
             )
+        self._reopen_closed_receipts()
         allocations = self.mapped("allocation_ids")
         result = self.with_context(collection_sheet_audited_state=True).write(
             {"state": "cancelled"}
@@ -376,6 +354,16 @@ class CollectionSheet(models.Model):
             )
             allocations._check_sheet_state_iff()
         return result
+
+    @api.private
+    def _mark_draft_receipts_closed(self):
+        """Close every local draft receipt. Skip issued. No connector."""
+        self.mapped("allocation_ids.receipt_ids")._action_mark_closed()
+
+    @api.private
+    def _reopen_closed_receipts(self):
+        """Reopen local closed receipts to draft. Skip issued."""
+        self.mapped("allocation_ids.receipt_ids")._action_reopen_closed()
 
     def action_reinstate(self):
         if any(sheet.state != "cancelled" for sheet in self):

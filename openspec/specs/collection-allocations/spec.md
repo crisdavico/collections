@@ -367,13 +367,12 @@ Allocation `state` MUST be `draft` or `confirmed` only. Default MUST be `draft`.
 MUST hold iff the sheet is `open`, `submitted`, `proposal`, or `cancelled`. `confirmed`
 MUST hold iff the sheet is `closed`. MCP and ORM create MUST persist `draft` and
 revision 1 on first persist. Confirm MUST NOT change allocation `state`. Close MUST
-confirm every allocation then close the sheet. Cancel MUST return every allocation to
-`draft` (no-op if already `draft`). Reinstate from Cancelled MUST leave allocations
-`draft`. Raw allocation `state` write MUST be refused except audited Close, Cancel, or
-Reinstate transitions. A `UserError` that enumerates draft sheet states MUST include
-`submitted`.
-(Previously: `draft` iff sheet `open`, `proposal`, or `cancelled`; Open from Cancelled
-left draft; Confirm from `open`.)
+confirm every allocation then close the sheet and MUST NOT call `create_receipt`. Cancel
+MUST return every allocation to `draft` (no-op if already `draft`). Reinstate from
+Cancelled MUST leave allocations `draft`. Raw allocation `state` write MUST be refused
+except audited Close, Cancel, or Reinstate transitions. A `UserError` that enumerates
+draft sheet states MUST include `submitted`. (Previously: Close confirmed allocations
+after connector `create_receipt` dispatch.)
 
 #### Scenario: Create defaults to draft
 
@@ -395,6 +394,7 @@ left draft; Confirm from `open`.)
 - WHEN Close runs
 - THEN every allocation MUST be `confirmed`
 - AND the sheet MUST be `closed`
+- AND MUST NOT call `create_receipt`
 
 #### Scenario: Cancel drafts allocations
 
@@ -844,3 +844,28 @@ destination allocation, and MUST still raise `UserError`
   amounts
 - AND `balance_seen` MUST still be revalidated against GROSS connector `balance` via
   `currency.compare_amounts`
+
+### Requirement: Frozen sheet refuses allocation create
+
+When the sheet is `closed` or `cancelled`, create of allocations, allocation lines, and
+allocation revisions MUST be refused. Audited Close, Cancel, and Reinstate MAY write
+allocation `state` only. MUST NOT `sudo()`. (Previously: Freeze specified write and
+unlink only.)
+
+#### Scenario: Frozen sheet refuses allocation create
+
+- GIVEN a closed or cancelled sheet
+- WHEN an allocation is created via ORM or UI
+- THEN MUST refuse with no persist
+
+#### Scenario: Frozen sheet refuses line create
+
+- GIVEN a closed or cancelled sheet with an allocation
+- WHEN an allocation line is created
+- THEN MUST refuse with no persist
+
+#### Scenario: Frozen sheet refuses revision create
+
+- GIVEN a closed or cancelled sheet
+- WHEN an allocation revision is created
+- THEN MUST refuse with no persist

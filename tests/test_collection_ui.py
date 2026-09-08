@@ -2120,6 +2120,10 @@ class TestCollectionUi(TransactionCase):
             "receipt form arch must not use deprecated <tree>",
         )
         self.assertEqual(search_root.tag, "search")
+        filter_names = [node.get("name") for node in search_root.xpath(".//filter")]
+        self.assertIn("filter_draft", filter_names)
+        self.assertIn("filter_closed", filter_names)
+        self.assertIn("filter_issued", filter_names)
         nested_lists = form_root.xpath(".//list")
         self.assertTrue(nested_lists, "receipt form must embed at least one <list>")
         for list_node in nested_lists:

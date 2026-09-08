@@ -143,9 +143,11 @@ Rebuild MUST use explicit values (MUST NOT FIFO-compat from invoices).
 
 ### Requirement: Freeze and issued immutability
 
-When the sheet is `closed` or `cancelled`, receipt and value write and unlink MUST be
-refused. A receipt in `issued` MUST be immutable (write and unlink refused) even if the
-allocation is later drafted. MUST NOT `sudo()`.
+When the sheet is `closed` or `cancelled`, receipt and value create, write, and unlink
+MUST be refused except audited Close (`draft` → `closed`), Cancel (`closed` → `draft`),
+and Reinstate. A receipt in `issued` MUST be immutable (create of values, write, and
+unlink refused) even if the allocation is later drafted. MUST NOT `sudo()`. (Previously:
+Freeze refused write and unlink only; Close issued via `create_receipt`.)
 
 #### Scenario: Closed sheet refuses receipt write
 
@@ -158,6 +160,19 @@ allocation is later drafted. MUST NOT `sudo()`.
 - GIVEN an issued receipt
 - WHEN write or unlink is attempted
 - THEN MUST refuse
+
+#### Scenario: Frozen sheet refuses receipt create
+
+- GIVEN a closed or cancelled sheet
+- WHEN receipt or value create is attempted
+- THEN MUST refuse with no persist
+
+#### Scenario: Cancel reopens closed not issued
+
+- GIVEN a closed sheet with a `closed` receipt and an `issued` receipt
+- WHEN Cancel runs
+- THEN the `closed` receipt MUST become `draft` with no `external_receipt_id`
+- AND the `issued` receipt MUST remain `issued`
 
 ### Requirement: Draft unlink cascades receipts
 
@@ -174,8 +189,11 @@ survive with `allocation_id` unset.
 ### Requirement: ERP identity and state
 
 `external_receipt_id` MUST be unique among non-null values. Receipt `state` MUST be
-`draft` or `issued` only. Default MUST be `draft`. After successful `create_receipt`,
-the receipt MUST store that id and `issued`.
+`draft`, `closed`, or `issued` only. Default MUST be `draft`. Close MUST set local
+`draft` receipts to `closed` and MUST NOT stamp `external_receipt_id`. Historical
+`issued` receipts MUST keep `issued` and their external identity. Raw `state` write MUST
+be rejected except audited `draft` → `closed` and `closed` → `draft`. (Previously:
+`state` was `draft` or `issued` only; Close stamped `issued` via `create_receipt`.)
 
 #### Scenario: Unique external id
 
@@ -184,32 +202,24 @@ the receipt MUST store that id and `issued`.
 - THEN MUST refuse
 - AND a second null `external_receipt_id` MUST persist
 
-#### Scenario: Draft until issued
+#### Scenario: Close leaves draft receipts closed locally
 
-- GIVEN a grouped draft receipt
-- WHEN Close dispatches `create_receipt` successfully
-- THEN `state` MUST be `issued` and `external_receipt_id` MUST be the returned id
-
-### Requirement: Close dispatches create_receipt
-
-Sheet Close MUST dispatch connector op `create_receipt` for each draft receipt that has
-at least one value. Grouping MUST already exist from persist. The system MUST use the
-company active connector. Failure MUST raise and MUST roll back Close (MUST NOT leave
-issued ids without matching persist).
-
-#### Scenario: Close issues draft receipts
-
-- GIVEN a proposal sheet whose allocations have draft receipts with values
+- GIVEN a grouped draft receipt on a proposal sheet
 - WHEN Close runs
-- THEN each such receipt MUST be dispatched via `create_receipt`
-- AND on success those receipts MUST be `issued`
+- THEN `state` MUST be `closed` and `external_receipt_id` MUST remain unset
+- AND MUST NOT call `create_receipt`
 
-#### Scenario: Close with zero receipts
+#### Scenario: Historical issued keeps identity
 
-- GIVEN a proposal sheet whose allocations have zero receipts
-- WHEN Close runs
-- THEN Close MUST still confirm allocations and close the sheet
-- AND MUST NOT dispatch `create_receipt`
+- GIVEN an issued receipt with non-null `external_receipt_id`
+- WHEN Close, Cancel, or Reinstate runs on its sheet
+- THEN `state` MUST remain `issued` and `external_receipt_id` MUST be unchanged
+
+#### Scenario: Raw receipt state write rejected
+
+- GIVEN a draft or closed receipt
+- WHEN `state` is written except via audited Close or Cancel
+- THEN the write MUST be rejected and stored `state` MUST be unchanged
 
 ### Requirement: Company ACL and no sudo
 
@@ -246,10 +256,11 @@ migrate folders MUST NOT be added.
 
 ### Requirement: Read-mostly views
 
-Receipt UI MUST be read-mostly. Issuance (`external_receipt_id`, `issued`) MUST be owned
-by the ERP hand-off, not by operator form edit. Collection Receipts list, search, and
-form MUST NOT expose `external_receipt_id`. The allocation form Receipts list MUST NOT
-expose `external_receipt_id`. List tags MUST be `<list>` (MUST NOT `<tree>`).
+Receipt UI MUST be read-mostly. Historical `issued` and `external_receipt_id` MUST NOT
+be stamped by operator form edit or by Close. Collection Receipts list, search, and form
+MUST NOT expose `external_receipt_id`. The allocation form Receipts list MUST NOT expose
+`external_receipt_id`. List tags MUST be `<list>` (MUST NOT `<tree>`). (Previously:
+Issuance was owned by the ERP Close hand-off.)
 
 #### Scenario: Form does not issue
 
@@ -258,6 +269,13 @@ expose `external_receipt_id`. List tags MUST be `<list>` (MUST NOT `<tree>`).
 - THEN they MUST NOT stamp `issued` or set `external_receipt_id` as a normal form edit
 - AND Collection Receipts views and the allocation Receipts list MUST NOT show
   `external_receipt_id`
+
+#### Scenario: Closed is a legal receipt state
+
+- GIVEN a closed receipt after Close
+- WHEN an operator opens the receipt form
+- THEN `state` MUST show `closed`
+- AND they MUST NOT stamp `issued` or `external_receipt_id`
 
 ### Requirement: Cash replacement ledger
 
@@ -357,3 +375,22 @@ the sheet has no allocations or no cash values, replacement MUST be a silent no-
 - WHEN that deposit reaches `validated_collections`
 - THEN no replacement row MUST be created
 - AND the deposit MUST persist
+
+### Requirement: Frozen sheet refuses cash replacement create
+
+When the sheet is `closed` or `cancelled`, create of `collection.cash.replacement` MUST
+be refused. Audited Close, Cancel, and Reinstate MUST NOT create replacement rows. MUST
+NOT `sudo()`. (Previously: Replacement create was context-gated only.)
+
+#### Scenario: Frozen sheet refuses replacement create
+
+- GIVEN a closed or cancelled sheet
+- WHEN a cash replacement create is attempted
+- THEN MUST refuse with no persist
+
+#### Scenario: Cancel still does not reverse
+
+- GIVEN replacement rows on a closed sheet
+- WHEN Cancel then Reinstate run
+- THEN no replacement create MUST occur
+- AND existing `replace` rows MUST remain

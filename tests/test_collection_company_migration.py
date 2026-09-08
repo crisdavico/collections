@@ -194,12 +194,12 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_43_0(self):
+    def test_manifest_version_is_1_44_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.43.0"', manifest_text)
-        self.assertNotIn('"version": "19.0.1.42.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.44.0"', manifest_text)
+        self.assertNotIn('"version": "19.0.1.43.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
             "19.0.1.27.0",
@@ -213,6 +213,7 @@ class TestCollectionCompanyMigration(TransactionCase):
             "19.0.1.40.1",
             "19.0.1.41.0",
             "19.0.1.42.0",
+            "19.0.1.44.0",
         ):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
@@ -355,9 +356,10 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.43.0`", agents)
-        self.assertNotIn("Module metadata `19.0.1.42.0`", agents)
+        self.assertIn("Module metadata `19.0.1.44.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.43.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
+        self.assertIn("`migrations/19.0.1.43.0/`", agents)
         self.assertIn(
             "`open`/`submitted`/`proposal`/`closed`/`cancelled`",
             agents,
@@ -369,6 +371,24 @@ class TestCollectionCompanyMigration(TransactionCase):
             "Do **not** add `migrations/19.0.1.42.0/`",
             " ".join(agents.split()),
         )
+        self.assertIn(
+            "Do **not** add `migrations/19.0.1.44.0/`",
+            " ".join(agents.split()),
+        )
+        self.assertNotIn("dispatches connector `create_receipt`", agents)
+        self.assertIn(
+            "MUST NOT consult the connector",
+            " ".join(agents.split()),
+        )
+        self.assertIn(
+            "MUST NOT call `create_receipt`",
+            " ".join(agents.split()),
+        )
+        self.assertIn("`draft`/`closed`/`issued`", agents)
+        self.assertIn("reopens local `closed` receipts", agents)
+        self.assertIn("freeze create", " ".join(agents.split()))
+        self.assertIn("`close_collection_sheet`", agents)
+        self.assertIn("`action_seller_close`", agents)
         self.assertIn("Confirm/Close/Cancel/Open", agents)
         self.assertIn("Allocations, Vouchers, and Debt", " ".join(agents.split()))
         self.assertIn("one-open still `open` only", " ".join(agents.split()))

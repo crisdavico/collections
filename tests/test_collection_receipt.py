@@ -4,6 +4,7 @@
 import inspect
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from psycopg2 import IntegrityError
 
@@ -21,7 +22,7 @@ from .test_collection_payment import (
 
 
 class TestCollectionReceipt(TransactionCase):
-    """Receipt uniqueness, values, derived apps, totals, freeze, issued, ACL."""
+    """Receipt uniqueness, values, totals, freeze, closed, local Close, ACL."""
 
     def _seller(self):
         return ensure_enabled_seller(self.env)
@@ -125,6 +126,44 @@ class TestCollectionReceipt(TransactionCase):
                 "voucher_id": voucher.id,
                 "amount": amount,
             }
+        )
+
+    _CREATE_RECEIPT = (
+        "odoo.addons.collection.models.collection_connector."
+        "CollectionConnector.create_receipt"
+    )
+
+    def _close_locally(self, sheet):
+        """Close with no connector; fail if ``create_receipt`` runs."""
+        self.env.company.write({"collection_connector_id": False})
+        with patch(self._CREATE_RECEIPT) as mocked:
+            mocked.side_effect = AssertionError("create_receipt must not run")
+            sheet.action_close()
+            mocked.assert_not_called()
+        return sheet
+
+    def _enable_seller_deposit_type(self):
+        catalog = self.env.ref("collection.document_type_seller_deposit")
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def _create_replacement(self, receipt, cash, deposit, amount=10.0, **extra):
+        vals = {
+            "receipt_id": receipt.id,
+            "cash_voucher_id": cash.id,
+            "deposit_voucher_id": deposit.id,
+            "amount": amount,
+            "direction": extra.pop("direction", "replace"),
+            "created_by": extra.pop("created_by", self.env.user.id),
+            "created_at": extra.pop("created_at", "2026-09-01 12:00:00"),
+        }
+        vals.update(extra)
+        return (
+            self.env["collection.cash.replacement"]
+            .with_context(collection_cash_replacement=True)
+            .create(vals)
         )
 
     def test_unique_kind_per_allocation(self):
@@ -672,6 +711,9 @@ class TestCollectionReceipt(TransactionCase):
         leftover_value = self.env["collection.receipt.value"].browse(value_id)
         self.assertTrue(leftover_value.exists())
         self.assertEqual(leftover_value.amount, 100.0)
+        with self.assertRaises(UserError):
+            self._create_receipt(allocation, "quotation")
+        self.assertEqual(allocation.receipt_ids, receipt)
 
     def test_issued_receipt_is_immutable(self):
         """Issued receipts MUST refuse write and unlink even on a draft allocation."""
@@ -908,8 +950,7 @@ class TestCollectionReceipt(TransactionCase):
         self.assertFalse(allocation.receipt_ids)
 
     def test_close_issues_draft_receipts(self):
-        """Close MUST dispatch create_receipt and stamp issued with the stub id."""
-        self._install_test_connector()
+        """Close MUST set draft receipts to closed locally with no connector."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         receipt = self._create_receipt(allocation, "invoice")
         self._create_value(receipt, voucher, 100.0)
@@ -918,15 +959,16 @@ class TestCollectionReceipt(TransactionCase):
         self._mark_validated(voucher)
         confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
-        sheet.action_close()
+        self._close_locally(sheet)
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(allocation.state, "confirmed")
-        self.assertEqual(receipt.state, "issued")
-        self.assertEqual(receipt.external_receipt_id, f"stub-{receipt.id}")
+        self.assertEqual(receipt.state, "closed")
+        self.assertFalse(receipt.external_receipt_id)
+        states = {key for key, _label in receipt._fields["state"].selection}
+        self.assertEqual(states, {"draft", "closed", "issued"})
 
     def test_close_issues_quotation_receipt_with_matching_stub(self):
-        """Triangulation: quotation receipts MUST also issue with stub-{id}."""
-        self._install_test_connector()
+        """Triangulation: invoice and quotation drafts MUST both close locally."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         invoice = self._create_receipt(allocation, "invoice")
         quotation = self._create_receipt(allocation, "quotation")
@@ -934,12 +976,11 @@ class TestCollectionReceipt(TransactionCase):
         self._create_value(quotation, voucher, 60.0)
         self._mark_validated(voucher)
         confirm_sheet(sheet)
-        sheet.action_close()
-        self.assertEqual(invoice.state, "issued")
-        self.assertEqual(quotation.state, "issued")
-        self.assertEqual(invoice.external_receipt_id, f"stub-{invoice.id}")
-        self.assertEqual(quotation.external_receipt_id, f"stub-{quotation.id}")
-        self.assertNotEqual(invoice.external_receipt_id, quotation.external_receipt_id)
+        self._close_locally(sheet)
+        self.assertEqual(invoice.state, "closed")
+        self.assertEqual(quotation.state, "closed")
+        self.assertFalse(invoice.external_receipt_id)
+        self.assertFalse(quotation.external_receipt_id)
 
     def test_close_with_zero_receipts_still_closes(self):
         """Close MUST confirm allocations with zero receipts and MUST NOT dispatch."""
@@ -947,35 +988,212 @@ class TestCollectionReceipt(TransactionCase):
         self.assertFalse(allocation.receipt_ids)
         self._mark_validated(voucher)
         confirm_sheet(sheet)
-        sheet.action_close()
+        self._close_locally(sheet)
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(allocation.state, "confirmed")
         self.assertFalse(allocation.receipt_ids)
 
     def test_close_skips_zero_value_receipts(self):
-        """Draft receipts with no values MUST stay draft; Close MUST still succeed."""
-        self._install_test_connector()
+        """Empty draft receipts MUST still become closed; Close MUST NOT dispatch."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         empty = self._create_receipt(allocation, "invoice")
         self.assertFalse(empty.value_ids)
         self._mark_validated(voucher)
         confirm_sheet(sheet)
-        sheet.action_close()
+        self._close_locally(sheet)
         self.assertEqual(sheet.state, "closed")
-        self.assertEqual(empty.state, "draft")
+        self.assertEqual(empty.state, "closed")
         self.assertFalse(empty.external_receipt_id)
 
     def test_close_missing_connector_rolls_back(self):
-        """Missing connector MUST raise and MUST NOT close or issue receipts."""
-        self.env.company.write({"collection_connector_id": False})
+        """Close MUST succeed with no connector and MUST NOT call create_receipt."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         receipt = self._create_receipt(allocation, "invoice")
         self._create_value(receipt, voucher, 100.0)
         self._mark_validated(voucher)
         confirm_sheet(sheet)
-        with self.assertRaises(UserError):
-            sheet.action_close()
-        self.assertEqual(sheet.state, "proposal")
-        self.assertEqual(allocation.state, "draft")
-        self.assertEqual(receipt.state, "draft")
+        self._close_locally(sheet)
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(receipt.state, "closed")
         self.assertFalse(receipt.external_receipt_id)
+
+    def test_close_does_not_rewrite_issued_receipts(self):
+        """Historical issued receipts MUST keep issued and their external id."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        issued = self._create_receipt(allocation, "invoice")
+        self._create_value(issued, voucher, 100.0)
+        issued.with_context(collection_receipt_issuing=True).write(
+            {"state": "issued", "external_receipt_id": "ERP-KEEP"}
+        )
+        self._mark_validated(voucher)
+        confirm_sheet(sheet)
+        self._close_locally(sheet)
+        self.assertEqual(issued.state, "issued")
+        self.assertEqual(issued.external_receipt_id, "ERP-KEEP")
+
+    def test_raw_receipt_state_write_rejected(self):
+        """Raw receipt state writes MUST UserError except audited Close/Cancel."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        receipt = self._create_receipt(allocation, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        with self.assertRaises(UserError):
+            receipt.write({"state": "issued"})
+        self.assertEqual(receipt.state, "draft")
+        self._mark_validated(voucher)
+        confirm_sheet(sheet)
+        self._close_locally(sheet)
+        self.assertEqual(receipt.state, "closed")
+        with self.assertRaises(UserError):
+            receipt.write({"state": "draft"})
+        with self.assertRaises(UserError):
+            receipt.write({"state": "issued"})
+        self.assertEqual(receipt.state, "closed")
+        self.assertFalse(receipt.external_receipt_id)
+
+    def test_audited_receipt_helpers_cycle_draft_closed(self):
+        """Audited helpers MUST close drafts and reopen closed, skipping issued."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        draft = self._create_receipt(allocation, "invoice")
+        issued = self._create_receipt(allocation, "quotation")
+        self._create_value(draft, voucher, 40.0)
+        self._create_value(issued, voucher, 60.0)
+        issued.with_context(collection_receipt_issuing=True).write(
+            {"state": "issued", "external_receipt_id": "ERP-HELPER"}
+        )
+        states = {key for key, _label in draft._fields["state"].selection}
+        self.assertEqual(states, {"draft", "closed", "issued"})
+        (draft | issued)._action_mark_closed()
+        self.assertEqual(draft.state, "closed")
+        self.assertFalse(draft.external_receipt_id)
+        self.assertEqual(issued.state, "issued")
+        self.assertEqual(issued.external_receipt_id, "ERP-HELPER")
+        with self.assertRaises(UserError):
+            draft.write({"state": "draft"})
+        with self.assertRaises(UserError):
+            draft.write({"state": "issued"})
+        (draft | issued)._action_reopen_closed()
+        self.assertEqual(draft.state, "draft")
+        self.assertFalse(draft.external_receipt_id)
+        self.assertEqual(issued.state, "issued")
+        self.assertEqual(issued.external_receipt_id, "ERP-HELPER")
+
+    def test_cancel_reopens_closed_receipts_not_issued(self):
+        """Cancel from closed MUST reopen local closed receipts and skip issued."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        local = self._create_receipt(allocation, "invoice")
+        issued = self._create_receipt(allocation, "quotation")
+        self._create_value(local, voucher, 40.0)
+        self._create_value(issued, voucher, 60.0)
+        issued.with_context(collection_receipt_issuing=True).write(
+            {"state": "issued", "external_receipt_id": "ERP-KEEP-CAN"}
+        )
+        self._mark_validated(voucher)
+        confirm_sheet(sheet)
+        self._close_locally(sheet)
+        self.assertEqual(local.state, "closed")
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(local.state, "draft")
+        self.assertFalse(local.external_receipt_id)
+        self.assertEqual(issued.state, "issued")
+        self.assertEqual(issued.external_receipt_id, "ERP-KEEP-CAN")
+        with self.assertRaises(UserError):
+            local.write({"document_kind": "quotation"})
+        with self.assertRaises(UserError):
+            self._create_receipt(allocation, "invoice")
+
+    def test_frozen_sheet_refuses_receipt_and_value_create(self):
+        """Closed and cancelled sheets MUST refuse receipt and value create."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        confirm_sheet(sheet)
+        self._close_locally(sheet)
+        self.assertEqual(sheet.state, "closed")
+        with self.assertRaises(UserError):
+            self._create_receipt(allocation, "invoice")
+        self.assertFalse(allocation.receipt_ids)
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        with self.assertRaises(UserError):
+            self._create_receipt(allocation, "quotation")
+        self.assertFalse(allocation.receipt_ids)
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
+        receipt = self._create_receipt(allocation, "invoice")
+        self.assertTrue(receipt.id)
+        self.assertEqual(receipt.state, "draft")
+        value = self._create_value(receipt, voucher, 100.0)
+        self.assertTrue(value.id)
+
+    def test_frozen_sheet_refuses_replacement_create(self):
+        """Closed sheets MUST refuse cash replacement create even with the gate."""
+        allocation, voucher, sheet, partner = self._balanced_allocation()
+        cash = self._create_voucher(
+            partner, sheet, amount=50.0, document_type="cash", document_id="RCPT-CASH"
+        )
+        allocation.write({"voucher_ids": [Command.link(cash.id)]})
+        receipt = self._create_receipt(allocation, "invoice")
+        self._enable_seller_deposit_type()
+        self.env.company.write({"auto_create_sheet": False})
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": sheet.seller_id.id,
+                "company_id": sheet.company_id.id,
+                "amount": 50.0,
+                "voucher_number": "SD-RCPT-FRZ",
+                "voucher_date": "2026-09-08",
+            }
+        )
+        self.assertFalse(deposit.sheet_id)
+        self._mark_validated(voucher, cash)
+        sheet.action_seller_close()
+        sheet.action_declare_cash(cash_on_hand=50.0, commission_withheld=0.0)
+        sheet.action_confirm()
+        self._close_locally(sheet)
+        with self.assertRaises(UserError):
+            self._create_replacement(receipt, cash, deposit)
+        self.assertFalse(
+            self.env["collection.cash.replacement"].search(
+                [("receipt_id", "=", receipt.id)]
+            )
+        )
+
+    def test_cancel_does_not_create_reverse_replacements(self):
+        """Cancel then Reinstate MUST NOT create reverse replacements."""
+        allocation, voucher, sheet, partner = self._balanced_allocation()
+        cash = self._create_voucher(
+            partner, sheet, amount=50.0, document_type="cash", document_id="RCPT-CASH-R"
+        )
+        allocation.write({"voucher_ids": [Command.link(cash.id)]})
+        receipt = self._create_receipt(allocation, "invoice")
+        self._create_value(receipt, voucher, 50.0)
+        self._enable_seller_deposit_type()
+        self.env.company.write({"auto_create_sheet": False})
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": sheet.seller_id.id,
+                "company_id": sheet.company_id.id,
+                "amount": 50.0,
+                "voucher_number": "SD-RCPT-REV",
+                "voucher_date": "2026-09-08",
+            }
+        )
+        self.assertFalse(deposit.sheet_id)
+        row = self._create_replacement(receipt, cash, deposit, amount=10.0)
+        self.assertEqual(row.direction, "replace")
+        self._mark_validated(voucher, cash)
+        sheet.action_seller_close()
+        sheet.action_declare_cash(cash_on_hand=50.0, commission_withheld=0.0)
+        sheet.action_confirm()
+        self._close_locally(sheet)
+        sheet.action_cancel()
+        sheet.action_reinstate()
+        leftovers = self.env["collection.cash.replacement"].search(
+            [("receipt_id", "=", receipt.id)]
+        )
+        self.assertEqual(leftovers, row)
+        self.assertEqual(leftovers.direction, "replace")
+        self.assertFalse(leftovers.filtered(lambda rec: rec.direction == "reverse"))

@@ -10,6 +10,7 @@ from .collection_common import (
     CONFIRMED_SHEET_STATE,
     DRAFT_SHEET_STATES,
     FROZEN_SHEET_STATES,
+    raise_if_create_vals_frozen,
     sanitize_voucher_commands,
 )
 
@@ -241,6 +242,9 @@ class CollectionAllocation(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        raise_if_create_vals_frozen(
+            self.env, vals_list, self._frozen_allocation_error_message()
+        )
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
             if "voucher_ids" in vals:
@@ -278,17 +282,19 @@ class CollectionAllocation(models.Model):
             )
         return super().write(vals)
 
+    @api.model
+    @api.private
+    def _frozen_allocation_error_message(self):
+        return _(
+            "Closed or cancelled collection sheets cannot change allocation membership."
+        )
+
     @api.private
     def _raise_membership_frozen(self):
         """Raise the membership-freeze error that matches why ``self`` is frozen."""
         if any(allocation.state == "confirmed" for allocation in self):
             raise UserError(_("Confirmed allocations cannot change membership."))
-        raise UserError(
-            _(
-                "Closed or cancelled collection sheets cannot change "
-                "allocation membership."
-            )
-        )
+        raise UserError(self._frozen_allocation_error_message())
 
     @api.private
     def _membership_is_frozen(self):

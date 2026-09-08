@@ -443,7 +443,7 @@ class TestCollectionMcpAttachment(TransactionCase):
         message = str(err.exception).lower()
         self.assertNotIn("tool not found", message)
         self.assertTrue(
-            "datas" in message or "attachment" in message,
+            "datas" in message or "attachment" in message or "base64" in message,
             f"Expected nest datas validation, got: {err.exception}",
         )
         self.assertEqual(

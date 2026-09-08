@@ -1,0 +1,22 @@
+# SDD change state — orchestrator-managed
+change: local-immutable-close
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: automatic
+planning_depth: standard
+subagent_model: cursor-grok-4.6-high
+phase: verify
+updated: 2026-09-08
+artifacts:
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+  verify: true
+notes: |
+  User launched /sdd-new from settled plan cierre-local-inmutable_9a4b4f97.plan.md.
+  Continue through verify inclusive. One grok 4.6 subagent per SDD phase.
+  Apply: one grok 4.6 subagent per task phase.
+  Strict TDD. Manifest 19.0.1.44.0. No SQL migration.
+  MCP Seller Close, Nebula, collection_connector_sqlite out of scope.

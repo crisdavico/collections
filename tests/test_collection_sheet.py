@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from datetime import date
+from unittest.mock import patch
 
 from psycopg2 import IntegrityError
 
@@ -544,6 +545,85 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(second.state, "confirmed")
         (first | second)._check_sheet_state_iff()
 
+    def test_action_close_without_connector_succeeds(self):
+        """Close from proposal MUST succeed with no connector and MUST NOT dispatch."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CLOSE-NOERP",
+            sheet_id=sheet.id,
+            amount=25.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-CLOSE-NOERP"
+        )
+        receipt = self.env["collection.receipt"].create(
+            {"allocation_id": allocation.id, "document_kind": "invoice"}
+        )
+        self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": voucher.id,
+                "amount": 25.0,
+            }
+        )
+        self._mark_validated_collections(voucher)
+        confirm_sheet(sheet)
+        self.env.company.write({"collection_connector_id": False})
+        create_receipt = (
+            "odoo.addons.collection.models.collection_connector."
+            "CollectionConnector.create_receipt"
+        )
+        with patch(create_receipt) as mocked:
+            mocked.side_effect = AssertionError("create_receipt must not run")
+            sheet.action_close()
+            mocked.assert_not_called()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertEqual(receipt.state, "closed")
+        self.assertFalse(receipt.external_receipt_id)
+
+    def test_action_close_with_zero_receipts_still_closes(self):
+        """Close MUST confirm allocations with zero receipts and MUST NOT dispatch."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CLOSE-ZERO",
+            sheet_id=sheet.id,
+            amount=18.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-CLOSE-ZERO"
+        )
+        self.assertFalse(allocation.receipt_ids)
+        self._mark_validated_collections(voucher)
+        confirm_sheet(sheet)
+        create_receipt = (
+            "odoo.addons.collection.models.collection_connector."
+            "CollectionConnector.create_receipt"
+        )
+        with patch(create_receipt) as mocked:
+            mocked.side_effect = AssertionError("create_receipt must not run")
+            sheet.action_close()
+            mocked.assert_not_called()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(allocation.state, "confirmed")
+        self.assertFalse(allocation.receipt_ids)
+
+    def test_action_close_keeps_voucher_validated_collections(self):
+        """Close MUST leave member vouchers in validated_collections."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CLOSE-VOUCHER",
+            sheet_id=sheet.id,
+            amount=12.0,
+        )
+        self._create_balanced_allocation(sheet, voucher, invoice_id="INV-CLOSE-VOUCHER")
+        self._mark_validated_collections(voucher)
+        confirm_sheet(sheet)
+        self.assertEqual(voucher.state, "validated_collections")
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertEqual(voucher.state, "validated_collections")
+
     def test_action_close_rejected_when_already_closed(self):
         sheet = self._create_sheet()
         confirm_sheet(sheet)
@@ -629,6 +709,50 @@ class TestCollectionSheet(TransactionCase):
         self.assertFalse(sheet.voucher_ids)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
+
+    def test_cancel_closed_then_reinstate_to_submitted(self):
+        """Cancel from closed MUST freeze until Reinstate writes submitted."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CAN-CYCLE",
+            sheet_id=sheet.id,
+            amount=20.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-CAN-CYCLE"
+        )
+        receipt = self.env["collection.receipt"].create(
+            {"allocation_id": allocation.id, "document_kind": "invoice"}
+        )
+        self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": voucher.id,
+                "amount": 20.0,
+            }
+        )
+        self._mark_validated_collections(voucher)
+        confirm_sheet(sheet)
+        self.env.company.write({"collection_connector_id": False})
+        create_receipt = (
+            "odoo.addons.collection.models.collection_connector."
+            "CollectionConnector.create_receipt"
+        )
+        with patch(create_receipt) as mocked:
+            mocked.side_effect = AssertionError("create_receipt must not run")
+            sheet.action_close()
+            mocked.assert_not_called()
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertEqual(allocation.state, "draft")
+        self.assertEqual(receipt.state, "draft")
+        with self.assertRaises(UserError):
+            voucher.write({"sheet_id": False})
+        self.assertEqual(voucher.sheet_id, sheet)
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(allocation.state, "draft")
+        allocation._check_sheet_state_iff()
 
     def test_reinstate_succeeds_while_seller_has_a_new_open_sheet(self):
         """Reinstate MUST write submitted even when another open sheet exists."""

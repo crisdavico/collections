@@ -4,7 +4,11 @@
 from odoo import api, fields, models
 from odoo.tools.translate import _
 
-from .collection_common import DOCUMENT_KIND_SELECTION, raise_if_sheet_frozen
+from .collection_common import (
+    DOCUMENT_KIND_SELECTION,
+    raise_if_create_vals_frozen,
+    raise_if_sheet_frozen,
+)
 
 
 class CollectionAllocationLine(models.Model):
@@ -67,6 +71,17 @@ class CollectionAllocationLine(models.Model):
         "Each external invoice can appear only once per allocation.",
     )
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        raise_if_create_vals_frozen(
+            self.env,
+            vals_list,
+            self._frozen_line_error_message(),
+            field="allocation_id",
+            comodel="collection.allocation",
+        )
+        return super().create(vals_list)
+
     def write(self, vals):
         self._raise_if_sheet_frozen()
         return super().write(vals)
@@ -77,9 +92,13 @@ class CollectionAllocationLine(models.Model):
             return
         self._raise_if_sheet_frozen()
 
+    @api.model
+    @api.private
+    def _frozen_line_error_message(self):
+        return _(
+            "Closed or cancelled collection sheets cannot change allocation lines."
+        )
+
     @api.private
     def _raise_if_sheet_frozen(self):
-        raise_if_sheet_frozen(
-            self.sheet_id,
-            _("Closed or cancelled collection sheets cannot change allocation lines."),
-        )
+        raise_if_sheet_frozen(self.sheet_id, self._frozen_line_error_message())

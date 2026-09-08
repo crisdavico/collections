@@ -339,17 +339,21 @@ upgrade (MUST NOT remap). Legal transitions MUST be: `open` → Seller Close →
 `submitted`; `submitted` → Confirm → `proposal`; `proposal` → Close → `closed`;
 `submitted` or `proposal` or `closed` → Cancel → `cancelled`; `cancelled` → Reinstate →
 `submitted`. Create MUST persist `open` and MUST reject any other `state`. `open` MUST
-be reachable only via create. Close MUST succeed only from `proposal` and MUST confirm
-every allocation then close. Cancel MUST succeed from `submitted`, `proposal`, or
-`closed` and MUST return every allocation to `draft`. Reinstate MUST succeed from
-`cancelled` without checking one-open, MUST write `submitted` (MUST NOT write `open`),
-and MUST leave allocations `draft`. Confirm MUST run only from `submitted` and MUST NOT
-confirm allocations. Any internal user MAY run those audited actions. Write of raw
-`state` MUST be rejected except via Seller Close, Confirm, Close, Cancel, or Reinstate.
-Reinstate of a historical cancelled sheet MUST remain allowed even if the seller is
-later disabled. Open and Reopen MUST NOT exist.
-(Previously: Confirm from `open`; Open from `cancelled` to `open` with a one-open check;
-Cancel from `proposal` or `closed` only.)
+be reachable only via create. Close (`action_close`) MUST succeed only from `proposal`,
+MUST NOT consult the connector, and MUST NOT call `create_receipt`. Close MUST, in one
+transaction, set every local `draft` receipt to `closed` with no `external_receipt_id`,
+confirm every allocation, and close the sheet. Member vouchers MUST remain
+`validated_collections`. Cancel MUST succeed from `submitted`, `proposal`, or `closed`
+and MUST return every allocation to `draft`. Cancel from `closed` MUST reopen local
+`closed` receipts to `draft` and MUST NOT change `issued` receipts. While `cancelled`,
+the sheet MUST remain frozen until Reinstate. Reinstate MUST succeed from `cancelled`
+without checking one-open, MUST write `submitted` (MUST NOT write `open`), and MUST
+leave allocations `draft`. Confirm MUST run only from `submitted` and MUST NOT confirm
+allocations. Any internal user MAY run those audited actions. Write of raw `state` MUST
+be rejected except via Seller Close, Confirm, Close, Cancel, or Reinstate. Reinstate of
+a historical cancelled sheet MUST remain allowed even if the seller is later disabled.
+Open and Reopen MUST NOT exist. (Previously: Close dispatched connector `create_receipt`
+then confirmed allocations.)
 
 #### Scenario: Default open on create
 
@@ -359,10 +363,43 @@ Cancel from `proposal` or `closed` only.)
 
 #### Scenario: Close when proposal
 
-- GIVEN a proposal sheet with zero or more draft allocations
+- GIVEN a proposal sheet with zero or more draft allocations and optional draft receipts
 - WHEN an internal user Closes it
 - THEN `state` MUST become `closed`
 - AND every allocation MUST be `confirmed`
+- AND every draft receipt MUST be `closed` with no `external_receipt_id`
+
+#### Scenario: Close without connector succeeds
+
+- GIVEN a proposal sheet and no company active connector
+- WHEN Close runs
+- THEN MUST succeed and MUST NOT call `create_receipt`
+
+#### Scenario: Close without receipts still closes
+
+- GIVEN a proposal sheet whose allocations have zero receipts
+- WHEN Close runs
+- THEN allocations MUST be `confirmed` and the sheet MUST be `closed`
+
+#### Scenario: Close keeps voucher documentary state
+
+- GIVEN a proposal sheet whose members are `validated_collections`
+- WHEN Close runs
+- THEN those vouchers MUST remain `validated_collections`
+
+#### Scenario: Close does not rewrite issued receipts
+
+- GIVEN a proposal sheet with a historical `issued` receipt
+- WHEN Close runs
+- THEN that receipt MUST remain `issued` with its `external_receipt_id`
+
+#### Scenario: Cancel from closed reopens local receipts only
+
+- GIVEN a closed sheet with local `closed` receipts and historical `issued` receipts
+- WHEN Cancel runs
+- THEN local `closed` receipts MUST be `draft` with no `external_receipt_id`
+- AND `issued` receipts MUST remain `issued`
+- AND freeze MUST remain until Reinstate
 
 #### Scenario: Reinstate from cancelled to submitted
 
@@ -931,3 +968,23 @@ raise `UserError`.
 - WHEN `declare_collection_cash` runs with any `seller_id`
 - THEN MUST raise `AccessError`
 - AND no sheet MUST change declarations
+
+### Requirement: Frozen associate create freeze
+
+When a sheet is `closed` or `cancelled`, create of business data on that sheet,
+allocation, allocation line, receipt, receipt value, allocation revision, or cash
+replacement MUST be refused. Audited Close, Cancel, and Reinstate, plus tracking and
+chatter, MAY write. Member vouchers MUST freeze via the parent sheet. (Previously:
+Freeze covered write and unlink, not create.)
+
+#### Scenario: Frozen sheet refuses associate create
+
+- GIVEN a closed or cancelled sheet
+- WHEN create of an allocation, line, receipt, value, revision, or cash replacement runs
+- THEN MUST refuse with no persist
+
+#### Scenario: Proposal still allows allocation create
+
+- GIVEN a proposal sheet
+- WHEN an allocation is created lawfully
+- THEN the create MUST persist

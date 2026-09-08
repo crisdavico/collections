@@ -5,6 +5,8 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
+from .collection_common import raise_if_create_vals_frozen
+
 
 class CollectionCashReplacement(models.Model):
     _name = "collection.cash.replacement"
@@ -73,6 +75,13 @@ class CollectionCashReplacement(models.Model):
             raise UserError(
                 _("Cash replacements can only be created by the replacement flow.")
             )
+        raise_if_create_vals_frozen(
+            self.env,
+            vals_list,
+            _("Closed or cancelled collection sheets cannot change cash replacements."),
+            field="receipt_id",
+            comodel="collection.receipt",
+        )
         return super().create(vals_list)
 
     def write(self, vals):

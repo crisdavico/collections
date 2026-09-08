@@ -1336,6 +1336,48 @@ class TestCollectionVoucher(TransactionCase):
         voucher.invalidate_recordset()
         self.assertAlmostEqual(voucher.amount, 15.0, places=2)
 
+    def test_membership_freeze_stays_on_admin_editable_sheet_states(self):
+        """Voucher membership MUST freeze outside ADMIN_EDITABLE_SHEET_STATES."""
+        from odoo.addons.collection.models.collection_common import (
+            ADMIN_EDITABLE_SHEET_STATES,
+        )
+
+        self.assertEqual(ADMIN_EDITABLE_SHEET_STATES, frozenset({"open", "submitted"}))
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            sheet_id=sheet.id, amount=10.0, document_id="FRZ-ADMIN-EDIT"
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertIn(sheet.state, ADMIN_EDITABLE_SHEET_STATES)
+        voucher.write({"sheet_id": False})
+        self.assertFalse(voucher.sheet_id)
+        voucher.write({"sheet_id": sheet.id})
+        self.assertEqual(voucher.sheet_id, sheet)
+        confirm_sheet(sheet)
+        self.assertEqual(sheet.state, "proposal")
+        self.assertNotIn(sheet.state, ADMIN_EDITABLE_SHEET_STATES)
+        with self.assertRaises(UserError) as error:
+            voucher.write({"sheet_id": False})
+        self.assertEqual(
+            str(error.exception),
+            "Closed collection sheets cannot change membership. Reopen first.",
+        )
+        self.assertEqual(voucher.sheet_id, sheet)
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertNotIn(sheet.state, ADMIN_EDITABLE_SHEET_STATES)
+        with self.assertRaises(UserError):
+            voucher.write({"sheet_id": False})
+        self.assertEqual(voucher.sheet_id, sheet)
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        self.assertNotIn(sheet.state, ADMIN_EDITABLE_SHEET_STATES)
+        with self.assertRaises(UserError):
+            voucher.write({"sheet_id": False})
+        self.assertEqual(voucher.sheet_id, sheet)
+
     def test_allocation_id_writable_on_proposal(self):
         """allocation_id MUST stay writable while the sheet is proposal."""
         partner = dummy_customer_partner(self.env, customer="PROP-ALLOC")

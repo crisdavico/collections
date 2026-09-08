@@ -169,6 +169,18 @@ class TestCollectionAllocation(TransactionCase):
         )
         return records
 
+    def _revision_vals(self, allocation, **extra):
+        vals = {
+            "allocation_id": allocation.id,
+            "revision": extra.pop("revision", 1),
+            "request_id": extra.pop("request_id", f"req-alloc-{allocation.id}"),
+            "content_hash": extra.pop("content_hash", "hash"),
+            "confirmed_by": extra.pop("confirmed_by", self.env.user.id),
+            "confirmed_at": extra.pop("confirmed_at", "2026-09-01 12:00:00"),
+        }
+        vals.update(extra)
+        return vals
+
     def _bind_erp_customer(self, partner, seller, identification=ERP_CUSTOMER_IDENT):
         install_test_connector_type(self)
         connector = install_bound_test_connector(self, seller)
@@ -1241,6 +1253,87 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(allocation.partner_id, partner)
         self.assertEqual(allocation.sheet_id, sheet)
         self.assertEqual(line.amount_applied, original)
+
+    def test_frozen_sheet_refuses_allocation_create(self):
+        """Closed and cancelled sheets MUST refuse allocation create with no persist."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        confirm_sheet(sheet)
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        other = self._partner("ALLOC-FRZ-CREATE")
+        with self.assertRaises(UserError):
+            self._create_allocation(sheet, other)
+        leftover = self.env["collection.allocation"].search(
+            [("sheet_id", "=", sheet.id), ("partner_id", "=", other.id)]
+        )
+        self.assertFalse(leftover)
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        cancelled_partner = self._partner("ALLOC-FRZ-CAN")
+        with self.assertRaises(UserError):
+            self._create_allocation(sheet, cancelled_partner)
+        self.assertFalse(
+            self.env["collection.allocation"].search(
+                [("sheet_id", "=", sheet.id), ("partner_id", "=", cancelled_partner.id)]
+            )
+        )
+        self.assertEqual(allocation.sheet_id, sheet)
+
+    def test_frozen_sheet_refuses_line_create(self):
+        """Closed sheets MUST refuse allocation line create with no persist."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        confirm_sheet(sheet)
+        sheet.action_close()
+        before = allocation.line_ids
+        line_vals = self._line_vals(
+            amount_applied=1.0,
+            invoice_balance=1.0,
+            external_invoice_id="INV-FRZ-CREATE",
+        )
+        line_vals["allocation_id"] = allocation.id
+        with self.assertRaises(UserError):
+            self.env["collection.allocation.line"].create(line_vals)
+        allocation.invalidate_recordset(["line_ids"])
+        self.assertEqual(allocation.line_ids, before)
+
+    def test_frozen_sheet_refuses_revision_create(self):
+        """Closed sheets MUST refuse revision create even with the revision gate."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        self._mark_validated(voucher)
+        confirm_sheet(sheet)
+        sheet.action_close()
+        with self.assertRaises(UserError):
+            self.env["collection.allocation.revision"].with_context(
+                collection_allocation_revision=True
+            ).create(self._revision_vals(allocation, request_id="req-frz-create"))
+        self.assertFalse(
+            self.env["collection.allocation.revision"].search(
+                [("allocation_id", "=", allocation.id)]
+            )
+        )
+
+    def test_proposal_still_allows_allocation_create(self):
+        """Proposal sheets MUST still persist a lawful allocation create."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation()
+        other = self._partner("ALLOC-PROP-CREATE")
+        extra_voucher = self._create_voucher(
+            other, sheet, amount=15.0, document_id="ALLOC-PROP-CREATE-V"
+        )
+        self._mark_validated(voucher, extra_voucher)
+        confirm_sheet(sheet)
+        self.assertEqual(sheet.state, "proposal")
+        extra = self._create_allocation(
+            sheet,
+            other,
+            vouchers=extra_voucher,
+            lines=[self._line_vals(amount_applied=15.0, invoice_balance=15.0)],
+        )
+        self.assertTrue(extra.id)
+        self.assertEqual(extra.state, "draft")
+        self.assertEqual(extra.sheet_id, sheet)
+        self.assertEqual(allocation.state, "draft")
 
     def test_proposal_draft_line_and_voucher_writes_persist(self):
         """Triangulation: proposal draft allocations MUST remain writable."""

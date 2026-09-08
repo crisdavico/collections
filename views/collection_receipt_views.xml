@@ -32,6 +32,11 @@
           domain="[('state', '=', 'draft')]"
         />
                 <filter
+          string="Closed"
+          name="filter_closed"
+          domain="[('state', '=', 'closed')]"
+        />
+                <filter
           string="Issued"
           name="filter_issued"
           domain="[('state', '=', 'issued')]"

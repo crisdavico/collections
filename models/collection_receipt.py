@@ -5,7 +5,11 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_common import DOCUMENT_KIND_SELECTION, raise_if_sheet_frozen
+from .collection_common import (
+    DOCUMENT_KIND_SELECTION,
+    raise_if_create_vals_frozen,
+    raise_if_sheet_frozen,
+)
 
 _APPLIED_DEPENDS = (
     "document_kind",
@@ -13,6 +17,13 @@ _APPLIED_DEPENDS = (
     "allocation_id.line_ids.amount_applied",
 )
 _VALUES_DEPENDS = ("value_ids.amount",)
+_RECEIPT_STATE_SELECTION = (
+    ("draft", "Draft"),
+    ("closed", "Closed"),
+    ("issued", "Issued"),
+)
+_STATE_CONTEXT_AUDITED = "collection_receipt_audited_state"
+_STATE_CONTEXT_ISSUING = "collection_receipt_issuing"
 
 
 class CollectionReceipt(models.Model):
@@ -80,10 +91,7 @@ class CollectionReceipt(models.Model):
     )
     external_receipt_id = fields.Char(index=True, copy=False)
     state = fields.Selection(
-        selection=[
-            ("draft", "Draft"),
-            ("issued", "Issued"),
-        ],
+        selection=list(_RECEIPT_STATE_SELECTION),
         default="draft",
         required=True,
         copy=False,
@@ -119,11 +127,24 @@ class CollectionReceipt(models.Model):
             receipt.total_applied = total_applied
             receipt.amount_on_account = total_values - total_applied
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        raise_if_create_vals_frozen(
+            self.env,
+            vals_list,
+            self._frozen_receipt_error_message(),
+            field="allocation_id",
+            comodel="collection.allocation",
+        )
+        return super().create(vals_list)
+
     def write(self, vals):
-        if self.env.context.get("collection_receipt_issuing"):
+        self._intercept_state_write(vals)
+        if self.env.context.get(_STATE_CONTEXT_ISSUING):
             return super().write(vals)
-        self._raise_if_sheet_frozen()
         self._raise_if_issued()
+        if not self.env.context.get(_STATE_CONTEXT_AUDITED):
+            self._raise_if_sheet_frozen()
         return super().write(vals)
 
     @api.ondelete(at_uninstall=False)
@@ -134,13 +155,45 @@ class CollectionReceipt(models.Model):
         self._raise_if_issued()
 
     @api.private
+    def _action_mark_closed(self):
+        drafts = self.filtered(lambda receipt: receipt.state == "draft")
+        if not drafts:
+            return True
+        return drafts.with_context(**{_STATE_CONTEXT_AUDITED: True}).write(
+            {"state": "closed"}
+        )
+
+    @api.private
+    def _action_reopen_closed(self):
+        closed = self.filtered(lambda receipt: receipt.state == "closed")
+        if not closed:
+            return True
+        return closed.with_context(**{_STATE_CONTEXT_AUDITED: True}).write(
+            {"state": "draft"}
+        )
+
+    @api.private
+    def _intercept_state_write(self, vals):
+        if "state" not in vals or self._state_write_is_audited():
+            return None
+        raise UserError(_("Receipt state can only be changed via Close or Cancel."))
+
+    @api.private
+    def _state_write_is_audited(self):
+        return bool(
+            self.env.context.get(_STATE_CONTEXT_AUDITED)
+            or self.env.context.get(_STATE_CONTEXT_ISSUING)
+        )
+
+    @api.private
     def _raise_if_sheet_frozen(self):
-        raise_if_sheet_frozen(
-            self.sheet_id,
-            _(
-                "Closed or cancelled collection sheets cannot change "
-                "collection receipts."
-            ),
+        raise_if_sheet_frozen(self.sheet_id, self._frozen_receipt_error_message())
+
+    @api.model
+    @api.private
+    def _frozen_receipt_error_message(self):
+        return _(
+            "Closed or cancelled collection sheets cannot change collection receipts."
         )
 
     @api.private

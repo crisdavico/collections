@@ -5,7 +5,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.translate import _
 
-from .collection_common import raise_if_sheet_frozen
+from .collection_common import raise_if_create_vals_frozen, raise_if_sheet_frozen
 
 
 class CollectionReceiptValue(models.Model):
@@ -82,6 +82,17 @@ class CollectionReceiptValue(models.Model):
                     _("Receipt values for a voucher cannot exceed the voucher amount.")
                 )
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        raise_if_create_vals_frozen(
+            self.env,
+            vals_list,
+            self._frozen_value_error_message(),
+            field="receipt_id",
+            comodel="collection.receipt",
+        )
+        return super().create(vals_list)
+
     def write(self, vals):
         if self.env.context.get("collection_receipt_issuing"):
             return super().write(vals)
@@ -96,14 +107,18 @@ class CollectionReceiptValue(models.Model):
         self._raise_if_sheet_frozen()
         self._raise_if_receipt_issued()
 
+    @api.model
+    @api.private
+    def _frozen_value_error_message(self):
+        return _(
+            "Closed or cancelled collection sheets cannot change "
+            "collection receipt values."
+        )
+
     @api.private
     def _raise_if_sheet_frozen(self):
         raise_if_sheet_frozen(
-            self.receipt_id.sheet_id,
-            _(
-                "Closed or cancelled collection sheets cannot change "
-                "collection receipt values."
-            ),
+            self.receipt_id.sheet_id, self._frozen_value_error_message()
         )
 
     @api.private
