@@ -18,6 +18,11 @@ CATALOG_XMLIDS = (
         "retention_certificate",
         "Retention Certificate",
     ),
+    (
+        "collection.document_type_seller_deposit",
+        "seller_deposit",
+        "Seller Deposit",
+    ),
 )
 ALL_TYPE_CODES = frozenset(code for _xmlid, code, _name in CATALOG_XMLIDS)
 
@@ -32,11 +37,12 @@ class TestCollectionCompanySettings(TransactionCase):
             self.assertEqual(rec.code, code, f"{xmlid} must store code {code}")
             self.assertEqual(rec.name, name, f"{xmlid} must store name {name}")
 
-    def test_catalog_has_exactly_seven_seeded_types(self):
-        """Install data seeds exactly the seven catalog codes including echeck/cash/retention."""
+    def test_catalog_has_exactly_eight_seeded_types(self):
+        """Install data seeds the eight catalog codes including seller_deposit."""
         types = self.env["collection.document.type"].search([])
         self.assertEqual(set(types.mapped("code")), ALL_TYPE_CODES)
-        self.assertEqual(len(types), 7)
+        self.assertEqual(len(types), 8)
+        self.assertEqual(len(CATALOG_XMLIDS), 8)
 
     def test_catalog_duplicate_code_raises_integrity_error(self):
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
@@ -72,16 +78,16 @@ class TestCollectionCompanySettings(TransactionCase):
         company = self.env["res.company"].new({"name": "Auto Sheet Default Co"})
         self.assertTrue(company.auto_create_sheet)
 
-    def test_env_company_allows_all_seven_document_types(self):
+    def test_env_company_allows_all_eight_document_types(self):
         codes = set(self.env.company.allowed_document_type_ids.mapped("code"))
         self.assertEqual(
             codes,
             ALL_TYPE_CODES,
-            "all seven document types must start enabled on the company",
+            "all eight document types must start enabled on the company",
         )
 
-    def test_new_company_enables_all_seven_document_types(self):
-        """Triangulation: a company with no prior settings enables all seven types."""
+    def test_new_company_enables_all_eight_document_types(self):
+        """Triangulation: a company with no prior settings enables all eight types."""
         company = self.env["res.company"].new({"name": "Catalog Default Co"})
         codes = set(company.allowed_document_type_ids.mapped("code"))
         self.assertEqual(codes, ALL_TYPE_CODES)

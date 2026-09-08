@@ -20,10 +20,11 @@ Ground truth order: source under this directory →
   `collection.connector.seller.binding` (1:1 external seller ↔ `res.users`);
   `collection.connector.customer.binding` (1:1 external customer ↔ `res.partner`).
 - **Integrations:** `mail.thread` / activities on vouchers and sheets; MuK MCP tools on
-  `muk_mcp.mixin`: write `create_collection_allocation` plus `close_collection_sheet`;
-  read `get_seller_id` plus `list_collection_customers` plus `customer_debt` plus
-  `get_collection_allocation` plus `get_collection_sheet_pdf`. Coordinated Nebula
-  first-party tool `register_latest_collection_voucher` lives in
+  `muk_mcp.mixin`: write `create_collection_allocation` plus `close_collection_sheet`
+  plus `declare_collection_cash` plus `create_seller_deposit`; read `get_seller_id` plus
+  `list_collection_customers` plus `customer_debt` plus `get_collection_allocation` plus
+  `get_collection_sheet_pdf`. Coordinated Nebula first-party tool
+  `register_latest_collection_voucher` lives in
   `/home/crisd/projects/nebula/nebula-agent`.
 - **Attachments (in scope):** each `collection.voucher` MAY have one optional image or
   PDF designated proof (`message_main_attachment_id` via chatter / `ir.attachment`).
@@ -78,7 +79,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 | Path                                              | Role                                                                                                                                                           |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `__manifest__.py`                                 | Module metadata `19.0.1.42.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                                        |
+| `__manifest__.py`                                 | Module metadata `19.0.1.43.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                                        |
 | `models/res_company.py`                           | Collection Settings fields + `_assert_new_work`; Import sync; seq copy; type seed                                                                              |
 | `models/res_config_settings.py`                   | Related writable Collection Settings + Import action                                                                                                           |
 | `models/collection_connector.py`                  | Company-scoped connector + `_dispatch` allowlist (`list_customers`, `get_customer_debt`, `create_receipt`)                                                     |
@@ -86,7 +87,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `models/collection_connector_customer_binding.py` | 1:1 external customer ↔ `res.partner`; UNIQUE + related stored `company_id`                                                                                    |
 | `models/collection_document_type.py`              | Catalog `code`/`name`; `UNIQUE(code)` Constraint                                                                                                               |
 | `models/collection_voucher.py`                    | Voucher model, sequence on create, Validate by Seller, draft-only unlink, provenance copies, `retention_kind`, `allocation_id`; freeze non-open writes         |
-| `models/collection_voucher_review_snapshot.py`    | Immutable Document Review snapshots (`UNIQUE(voucher_id, revision)`); seven-type Selection + `retention_kind`                                                  |
+| `models/collection_voucher_review_snapshot.py`    | Immutable Document Review snapshots (`UNIQUE(voucher_id, revision)`); eight-type Selection + `retention_kind`                                                  |
 | `models/collection_sheet.py`                      | Sheet model, `open`/`submitted`/`proposal`/`closed`/`cancelled`, Confirm/Close/Cancel/Open; one-open; freeze; cascade open unlink                              |
 | `models/collection_sheet_report.py`               | Second `_inherit`: recon fields, `_collection_report_data()`, `action_print_xlsx`; freeze Closed+Cancelled; Rendida label                                      |
 | `models/collection_allocation.py`                 | Allocation header; UNIQUE(sheet, partner); draft iff Open/Proposal/Cancelled; freeze when sheet Closed/Cancelled; Add Debt picker                              |
@@ -103,6 +104,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `tools/customer_debt.py`                          | `@mcp_tool` `customer_debt` (read) on `muk_mcp.mixin`                                                                                                          |
 | `tools/sheet_report.py`                           | `@mcp_tool` `get_collection_sheet_pdf` (read) on `muk_mcp.mixin`; base64 Planilla                                                                              |
 | `tools/collection_sheet_close.py`                 | `@mcp_tool` `close_collection_sheet` (write) on `muk_mcp.mixin`; Seller Close by `seller_id`                                                                   |
+| `tools/collection_cash_declare.py`                | `@mcp_tool` `declare_collection_cash` (write) on `muk_mcp.mixin`; Declare Cash on submitted                                                                    |
+| `tools/collection_seller_deposit.py`              | `@mcp_tool` `create_seller_deposit` (write) on `muk_mcp.mixin`; remittance on submitted                                                                        |
 | `views/collection_views.xml`                      | List/search/form + menus/actions; no stages kanban; three-page notebook; `<delete>` reassign kanban; XLSX last before `state`                                  |
 | `views/collection_allocation_views.xml`           | Allocation list/form/search; Customer Debt Add Debt + `create="false"`; Receipts page; parent-arch `document_kind`; menu sequence 30                           |
 | `views/collection_receipt_views.xml`              | Read-mostly receipt `<list>`/`form`/`search`; Values + Applied Debt pages; issuance readonly; menu sequence 40                                                 |
@@ -113,7 +116,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `report/collection_sheet_templates.xml`           | QWeb templates (`t-out`, `web.html_container` + `web.external_layout`)                                                                                         |
 | `views/res_config_settings_views.xml`             | Collection Settings UI; XMLID `action_collection_config_settings`                                                                                              |
 | `data/ir_sequence_data.xml`                       | Per-company seq XMLIDs on `base.main_company` (`COL/` + `CS/` + `CA/`)                                                                                         |
-| `data/collection_document_type_data.xml`          | Seven catalog XMLID rows (`bank_transfer`, `check`, `echeck`, `cash_deposit`, `retention_certificate`, `cash`, `unsupported`); seed empty company allow-lists  |
+| `data/collection_document_type_data.xml`          | Eight catalog XMLID rows (`bank_transfer`, `check`, `echeck`, `cash_deposit`, `retention_certificate`, `cash`, `unsupported`); seed empty company allow-lists  |
 | `security/collection_security.xml`                | Global `ir.rule` `[('company_id', 'in', company_ids)]`                                                                                                         |
 | `security/ir.model.access.csv`                    | Voucher/sheet/allocation/line/receipt/value CRUD; picker transients `1,1,1,1`; snapshot/revision gated create; catalog read                                    |
 | `migrations/19.0.1.17.0/post-migrate.py`          | Stamp/repair/seed/four-types; per-company `COL/` `CS/` (do not add `CA` here)                                                                                  |
@@ -138,10 +141,12 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `collection_connector_id` (company-scoped active connector). **Import** (Settings
   users) fetches `list_sellers()`, creates/matches users, upserts bindings (including
   overwrite of `commission_percent`), and **replaces** `enabled_seller_ids`. Catalog
-  `collection.document.type` has seven XMLID rows (`bank_transfer`, `check`, `echeck`,
-  `cash_deposit`, `retention_certificate`, `cash`, `unsupported`); voucher
-  `document_type` stays Selection. Voucher and snapshot carry `retention_kind`. MCP
-  write still rejects `unsupported`.
+  `collection.document.type` has eight XMLID rows (`bank_transfer`, `check`, `echeck`,
+  `cash_deposit`, `retention_certificate`, `cash`, `unsupported`, `seller_deposit`);
+  voucher `document_type` stays Selection. `seller_deposit` stamps sentinel
+  `collection.partner_seller_deposit`
+  (`data/collection_seller_deposit_partner_data.xml`) via `_seller_deposit_partner()`.
+  Voucher and snapshot carry `retention_kind`. MCP write still rejects `unsupported`.
 - **New-work helper:** `res.company._assert_new_work(seller, document_type=None)`
   (`@api.private`). Seller is required; seller MUST be in `enabled_seller_ids` (empty
   list rejects); if `document_type` is not None it MUST be an allowed code. Raise
@@ -154,8 +159,9 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `CS/<year>/<number>`, and `collection.allocation` → `CA/<year>/<number>`. Always
   `with_company(record.company_id).next_by_code(...)`. XMLIDs bind to
   `base.main_company` (`seq_collection_allocation`). `res.company.create` copies all
-  three sequences (`number_next=1` on copies) and unions all seven types; new companies
-  start with empty enabled sellers. Manifest `19.0.1.42.0`; migrate folders
+  three sequences (`number_next=1` on copies) and unions all eight types
+  (`COLLECTION_TYPE_CODES` follows `DOCUMENT_TYPE_CODES`); new companies start with
+  empty enabled sellers. Manifest `19.0.1.43.0`; migrate folders
   `migrations/19.0.1.17.0/` (COL/CS stamp/repair), `migrations/19.0.1.25.0/` (`CA/`
   copy), `migrations/19.0.1.28.0/` (allocation state remap; no `CA/`),
   `migrations/19.0.1.31.0/` (voucher state SQL remap; no snapshot `decision` rewrite),
@@ -163,7 +169,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `migrations/19.0.1.33.0/` (unlink reassign XMLID; no sheet-state remap), and
   `migrations/19.0.1.34.0/` (additive; no receipt backfill), and
   `migrations/19.0.1.40.0/` (union all seven types onto every company via
-  `_collection_enable_all_document_types`; extras kept). Do **not** add
+  `_collection_enable_all_document_types`; extras kept), and `migrations/19.0.1.43.0/`
+  (union all eight types including `seller_deposit`; extras kept). Do **not** add
   `collection.allocation` to `COLLECTION_SEQUENCE_CODES` in 1.17.0. Do **not** add
   `migrations/19.0.1.26.0/`, `migrations/19.0.1.27.0/`, `migrations/19.0.1.29.0/`,
   `migrations/19.0.1.30.0/`, `migrations/19.0.1.35.0/`, or `migrations/19.0.1.36.0/`
@@ -197,26 +204,31 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   Snapshot `decision` stays `approved`/`rejected` (not voucher states).
 - **Sheet lifecycle:** `collection.sheet` `state` Selection is
   `open`/`submitted`/`proposal`/`closed`/`cancelled` (English Submitted by Seller; PDF
-  Rendida). Default `open`. The `submitted` key is dormant: named sets omit it, there is
-  no Seller Close, and Confirm still runs only from `open`. Confirm/Close/Cancel/Open.
-  Existing `open`/`closed` rows stay on upgrade (no remap). Raw `state` write is
-  rejected except via Confirm/Close/Cancel/Open. Sheets inherit `mail.thread` +
-  `mail.activity.mixin`; Confirm/Close/Cancel/Open SHOULD be tracked in chatter. Confirm
-  runs only from `open` (every member `validated_collections`; empty members pass),
-  writes `proposal`, and MUST NOT confirm allocations. `action_close` (from `proposal`)
-  dispatches connector `create_receipt` for each draft receipt with ≥1 value **while the
-  sheet is still proposal** (context `collection_receipt_issuing` stamps
-  `external_receipt_id` + `issued`), then confirms every allocation and closes. Missing
-  or failed dispatch MUST raise and roll back Close. Zero receipts / zero-value receipts
-  skip dispatch; Close still confirms. Cancel (from `proposal` or `closed`) writes
-  `cancelled` and drafts allocations (skip iff mid-flight via
-  `collection_allocation_audited_state`, recheck after both writes). Open (from
-  `cancelled`) writes `open` and leaves allocations `draft`. Unlink **open** sheets:
-  unlink draft allocations first (vouchers unassigned). Unlink **proposal**, **closed**,
-  or **cancelled** refused even when empty (`sheet_id` `ondelete="restrict"`). Recon
-  inputs (`commission_percent` 0–100, `cash_on_hand`, `commission_withheld`) live on
-  `models/collection_sheet_report.py` (second `_inherit`); Closed and Cancelled refuse
-  those writes; Proposal remains editable; Open-from-Cancelled keeps stored values.
+  Rendida). Default `open`. Seller Close (`action_seller_close` / MCP
+  `close_collection_sheet`) writes `submitted` without declaration amounts. Declare Cash
+  (`action_declare_cash` / MCP `declare_collection_cash`) runs only from `submitted`.
+  Confirm runs only from `submitted`. Confirm/Close/Cancel/Open. Existing
+  `open`/`closed` rows stay on upgrade (no remap). Raw `state` write is rejected except
+  via Confirm/Close/Cancel/Open. Sheets inherit `mail.thread` + `mail.activity.mixin`;
+  Seller Close, Declare Cash, Confirm, Close/Cancel/Open SHOULD be tracked in chatter.
+  Confirm runs only from `submitted` (every member `validated_collections`; empty
+  members pass; collected cash > 0 requires `cash_declared_at`), writes `proposal`, and
+  MUST NOT confirm allocations. `action_close` (from `proposal`) dispatches connector
+  `create_receipt` for each draft receipt with ≥1 value **while the sheet is still
+  proposal** (context `collection_receipt_issuing` stamps `external_receipt_id` +
+  `issued`), then confirms every allocation and closes. Missing or failed dispatch MUST
+  raise and roll back Close. Zero receipts / zero-value receipts skip dispatch; Close
+  still confirms. Cancel (from `proposal` or `closed`) writes `cancelled` and drafts
+  allocations (skip iff mid-flight via `collection_allocation_audited_state`, recheck
+  after both writes). Open (from `cancelled`) writes `open` and leaves allocations
+  `draft`. Unlink **open** sheets: unlink draft allocations first (vouchers unassigned).
+  Unlink **proposal**, **closed**, or **cancelled** refused even when empty (`sheet_id`
+  `ondelete="restrict"`). Recon inputs (`commission_percent` 0–100, `cash_on_hand`,
+  `commission_withheld`) live on `models/collection_sheet_report.py` (second
+  `_inherit`); Closed and Cancelled refuse those writes; Proposal remains editable;
+  seller declarations (`cash_on_hand` / `commission_withheld`, string Cash to
+  Administration) are writable only while `submitted`; Open-from-Cancelled keeps stored
+  values.
 - **Allocations:** `UNIQUE(sheet_id, partner_id)`. Selection `draft` | `confirmed`;
   default `draft` (`draft` iff sheet `open`/`proposal`/`cancelled`, `confirmed` iff
   sheet `closed`). Drop Validate/Reject. Freeze `line_ids` / `voucher_ids` /
@@ -301,23 +313,47 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   - Method-discovered `@mcp_tool` `get_collection_sheet_pdf` (`category=read`,
     `registry=mcp`) in `tools/sheet_report.py`. Required integer `seller_id` only.
     Internal caller; resolves the seller's single `open` sheet via
-    `_open_sheets_for_seller` on `env.company`, renders
-    `collection.action_report_collection_sheet` and returns
+    `_open_sheets_for_seller` on `env.company` (MUST NOT widen that helper). When there
+    is no open sheet, it serves the seller's single `submitted` sheet via
+    `_submitted_sheets_for_seller`. Renders `collection.action_report_collection_sheet`
+    and returns
     `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count},filename,mimetype,content_base64}`.
-    No open sheet → `{sheet: null}`; more than one open sheet → same `UserError` as
-    `get_collection_allocation`. No connector, no `sudo()`, no attachment written. MUST
-    NOT expose the XLSX or accept a `sheet_id`, report ref, or any generic report
-    argument.
+    No open and no submitted sheet → `{sheet: null}`; more than one open or more than
+    one submitted sheet → same `UserError` as `get_collection_allocation`. Open
+    preferred over submitted. No connector, no `sudo()`, no attachment written. MUST NOT
+    expose the XLSX or accept a `sheet_id`, report ref, or any generic report argument.
   - Method-discovered `@mcp_tool` `close_collection_sheet` (`category=write`,
     `registry=mcp`) in `tools/collection_sheet_close.py`. Required integer `seller_id`
-    plus `cash_on_hand` and `commission_withheld` (schema `number`; decimal strings
-    accepted). Internal caller; `_collection_require_internal_seller` then lock,
-    `_open_sheets_for_seller`, `check_access("write")`, `action_seller_close`. Success
-    `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}}` with `state`
-    `submitted`. No open sheet → `UserError` (MUST NOT `{sheet: null}`). More than one
+    only. MUST NOT accept `cash_on_hand` or `commission_withheld`. Internal caller;
+    `_collection_require_internal_seller` then lock, `_open_sheets_for_seller`,
+    `check_access("write")`, `action_seller_close`. Success
+    `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, cash:{collected}}`
+    with `state` `submitted`. `cash.collected` is SUM of `document_type == "cash"` on
+    that sheet. No open sheet → `UserError` (MUST NOT `{sheet: null}`). More than one
     open sheet → same `UserError` as `get_collection_allocation`. Disabled sellers MAY
     still close. No `sudo()`, no `sheet_id`, no report bytes. MUST NOT add a migrate
     folder for this tool.
+  - Method-discovered `@mcp_tool` `declare_collection_cash` (`category=write`,
+    `registry=mcp`) in `tools/collection_cash_declare.py`. Required integer `seller_id`
+    plus `cash_on_hand` and `commission_withheld` (schema `number`; decimal strings
+    accepted). Internal caller; `_collection_require_internal_seller` then lock,
+    `_submitted_sheets_for_seller` (MUST NOT `_open_sheets_for_seller`),
+    `check_access("write")`, `action_declare_cash`. Success
+    `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}}` with `state`
+    `submitted`. Zero submitted sheets → `UserError` (MUST NOT `{sheet: null}`). More
+    than one submitted sheet → same `UserError` as `get_collection_allocation`. Disabled
+    sellers MAY still declare. No `sudo()`, no `sheet_id`, no report bytes.
+  - Method-discovered `@mcp_tool` `create_seller_deposit` (`category=write`,
+    `registry=mcp`) in `tools/collection_seller_deposit.py`. Required integer
+    `seller_id`, `amount`, `voucher_number`, `voucher_date` (ISO); optional nested
+    `attachment`. MUST NOT accept `customer_identification` or `sheet_id`. Internal
+    caller; `_assert_new_work(seller, "seller_deposit")`, lock,
+    `_submitted_sheets_for_seller` (MUST NOT `_open_sheets_for_seller`),
+    `check_access("write")`. Mints `sd-<uuid4 hex>`; stamps sentinel +
+    `validated_seller` + explicit `sheet_id`; audited write `validated_collections`.
+    Success `{sheet:{...}, voucher:{id,name,state,document_id}}` with sheet `submitted`.
+    0 or `>1` submitted → `UserError`. Portal/public → `AccessError`. Do **not** add
+    `seller_deposit` to allocation `_DOCUMENT_TYPES`. No `sudo()`.
   - Method-discovered `@mcp_tool` `list_collection_customers` (`category=read`,
     `registry=mcp`) in `tools/customer_list.py`. Required integer `seller_id` (internal
     `res.users` id). Internal caller; must be on `env.company.enabled_seller_ids` and
@@ -479,7 +515,7 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_ui.py`                       | View arch; Add Debt picker; Customer Debt `create="false"`; Collection Settings; menus 10/30/40; Receipts page; receipt Applied Debt; form does not issue                                                                                                                                                      |
 | `tests/test_collection_document_review.py`          | Queue `validated_seller`+proof; one editable OCR-prefilled OWL control; Approve rewrites current; no Reject; snapshots `decision` approved/rejected                                                                                                                                                            |
 | `tests/test_collection_company_settings.py`         | Catalog, empty sellers, defaults, Collection Settings fields                                                                                                                                                                                                                                                   |
-| `tests/test_collection_company_migration.py`        | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; `19.0.1.28.0` remap; `19.0.1.31.0` voucher remap; manifest `19.0.1.42.0`; leftover pin no `migrations/19.0.1.42.0/`; `19.0.1.40.0` union-all; keep 1.31–1.34; no 1.26–1.30 / 1.35 / 1.36 / 1.37 / 1.38 / 1.39 / 1.40.1 / 1.41.0 / 1.42.0 migrate |
+| `tests/test_collection_company_migration.py`        | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; `19.0.1.28.0` remap; `19.0.1.31.0` voucher remap; manifest `19.0.1.43.0`; leftover pin no `migrations/19.0.1.42.0/`; `19.0.1.40.0` union-all; keep 1.31–1.34; no 1.26–1.30 / 1.35 / 1.36 / 1.37 / 1.38 / 1.39 / 1.40.1 / 1.41.0 / 1.42.0 migrate |
 | `tests/test_collection_allocation_document_kind.py` | Line `document_kind` default/selection/parent-arch `<list>`; MCP receipt kind; get returns kind                                                                                                                                                                                                                |
 | `tests/test_collection_sheet_report_data.py`        | Recon fields, payload primitives, freeze Closed+Cancelled, Proposal editable, four-state PDF payload, mismatch, mixed currency, no sudo                                                                                                                                                                        |
 | `tests/test_collection_sheet_report.py`             | Bound `qweb-pdf` + A4 portrait; HTML names/banner/`t-out`; company-B AccessError                                                                                                                                                                                                                               |
@@ -491,7 +527,9 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_mcp_allocation.py`           | MCP `create_collection_allocation` persist draft, amend iff draft, replay, gates, UniqueViolation                                                                                                                                                                                                              |
 | `tests/test_collection_mcp_allocation_lookup.py`    | MCP `get_collection_allocation` discovery, auth, null, found, `receipts[]`, no-write                                                                                                                                                                                                                           |
 | `tests/test_collection_mcp_sheet_pdf.py`            | MCP `get_collection_sheet_pdf` discovery, seller-only schema, auth, null branches, base64 envelope, company scoping, no sudo                                                                                                                                                                                   |
-| `tests/test_collection_mcp_sheet_close.py`          | MCP `close_collection_sheet` discovery, seller-only schema, 0-open UserError, amounts, no sudo                                                                                                                                                                                                                 |
+| `tests/test_collection_mcp_sheet_close.py`          | MCP `close_collection_sheet` discovery, seller-only schema, 0-open UserError, cash.collected, no sudo                                                                                                                                                                                                          |
+| `tests/test_collection_mcp_cash_declare.py`         | MCP `declare_collection_cash` discovery, submitted-only, 0-submitted UserError, no sudo                                                                                                                                                                                                                        |
+| `tests/test_collection_mcp_seller_deposit.py`       | MCP `create_seller_deposit` discovery, submitted-only, sentinel, audited validate, allocation still customer-required                                                                                                                                                                                          |
 | `tests/test_collection_receipt.py`                  | Receipt uniqueness, values, totals, freeze, issued, Close dispatch, ACL                                                                                                                                                                                                                                        |
 | `tests/test_collection_customer_binding.py`         | Customer binding UNIQUE / ACL `1,0,1,0` / company `ir.rule` / notebook                                                                                                                                                                                                                                         |
 | `tests/test_collection_customer_resolution.py`      | Lazy `resolve_customer_partner`; vat 1/0/>1; nested UniqueViolation                                                                                                                                                                                                                                            |

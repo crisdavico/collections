@@ -100,6 +100,11 @@
           name="filter_unsupported"
           domain="[('document_type', '=', 'unsupported')]"
         />
+                <filter
+          string="Seller Deposit"
+          name="filter_seller_deposit"
+          domain="[('document_type', '=', 'seller_deposit')]"
+        />
                 <separator />
                 <filter
           string="Created On"
@@ -197,11 +202,11 @@
                 />
                                 <field
                   name="voucher_number"
-                  invisible="document_type != 'bank_transfer'"
+                  invisible="document_type != 'bank_transfer' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="voucher_date"
-                  invisible="document_type != 'bank_transfer'"
+                  invisible="document_type != 'bank_transfer' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="check_number"
@@ -246,12 +251,12 @@
                                 <field
                   name="ocr_voucher_number"
                   readonly="1"
-                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer' and ocr_document_type != 'seller_deposit' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="ocr_voucher_date"
                   readonly="1"
-                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                  invisible="ocr_document_type != 'bank_transfer' and document_type != 'bank_transfer' and ocr_document_type != 'seller_deposit' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="ocr_check_number"
@@ -301,12 +306,12 @@
                                 <field
                   name="seller_voucher_number"
                   readonly="1"
-                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer' and seller_document_type != 'seller_deposit' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="seller_voucher_date"
                   readonly="1"
-                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer'"
+                  invisible="seller_document_type != 'bank_transfer' and document_type != 'bank_transfer' and seller_document_type != 'seller_deposit' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="seller_check_number"
@@ -509,10 +514,13 @@
                 name="commission_percent"
                 readonly="state in ('closed', 'cancelled')"
               />
-                            <field name="cash_on_hand" readonly="state != 'open'" />
+                            <field
+                name="cash_on_hand"
+                readonly="state != 'submitted'"
+              />
                             <field
                 name="commission_withheld"
-                readonly="state != 'open'"
+                readonly="state != 'submitted'"
               />
                         </group>
                     </group>

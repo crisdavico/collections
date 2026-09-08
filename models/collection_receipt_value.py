@@ -55,9 +55,14 @@ class CollectionReceiptValue(models.Model):
         for value in self:
             if not value.voucher_id or not value.receipt_id:
                 continue
-            if value.voucher_id.allocation_id != value.receipt_id.allocation_id:
+            voucher_sheet = value.voucher_id.sheet_id
+            receipt_sheet = value.receipt_id.sheet_id
+            if not voucher_sheet or voucher_sheet != receipt_sheet:
                 raise ValidationError(
-                    _("Receipt values must use vouchers from the same allocation.")
+                    _(
+                        "Receipt values must use vouchers from the same "
+                        "collection sheet."
+                    )
                 )
 
     @api.constrains("amount", "voucher_id", "receipt_id")
@@ -69,8 +74,6 @@ class CollectionReceiptValue(models.Model):
         applied = {}
         for value in self.search([("voucher_id", "in", vouchers.ids)]):
             voucher = value.voucher_id
-            if value.receipt_id.allocation_id != voucher.allocation_id:
-                continue
             applied[voucher.id] = applied.get(voucher.id, 0.0) + (value.amount or 0.0)
         for voucher in vouchers:
             total = applied.get(voucher.id, 0.0)
@@ -107,3 +110,117 @@ class CollectionReceiptValue(models.Model):
     def _raise_if_receipt_issued(self):
         if any(value.receipt_id.state == "issued" for value in self):
             raise UserError(_("Issued collection receipts cannot be modified."))
+
+    @api.model
+    @api.private
+    def _assert_replacement_currencies(self, receipt, cash_voucher, deposit_voucher):
+        currencies = {
+            receipt.currency_id.id,
+            cash_voucher.currency_id.id,
+            deposit_voucher.currency_id.id,
+        }
+        if not all(currencies) or len(currencies) != 1:
+            raise UserError(_("Cash replacement currencies must agree."))
+
+    @api.private
+    def _shrink_or_unlink(self, amount):
+        """Reduce this value by a rounded slice; unlink when the slice is all of it.
+
+        Returns the applied slice, or 0.0 when the slice is skipped.
+        """
+        self.ensure_one()
+        currency = self.currency_id
+        slice_amount = currency.round(amount or 0.0)
+        if currency.compare_amounts(slice_amount, 0.0) == 0:
+            return 0.0
+        current = currency.round(self.amount or 0.0)
+        if currency.compare_amounts(slice_amount, current) == 0:
+            self.unlink()
+            return slice_amount
+        remaining = currency.round(current - slice_amount)
+        if currency.compare_amounts(remaining, currency.rounding) < 0:
+            return 0.0
+        self.amount = remaining
+        return slice_amount
+
+    @api.model
+    @api.private
+    def _grow_voucher_amount(self, receipt, voucher, amount):
+        """Add a rounded slice of ``voucher`` onto ``receipt``.
+
+        Returns True when the money merged into an existing value.
+        """
+        currency = receipt.currency_id
+        slice_amount = currency.round(amount or 0.0)
+        if currency.compare_amounts(slice_amount, 0.0) == 0:
+            return False
+        twin = receipt.value_ids.filtered(
+            lambda value, target=voucher: value.voucher_id == target
+        )[:1]
+        if twin:
+            twin.amount = currency.round((twin.amount or 0.0) + slice_amount)
+            return True
+        self.create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": voucher.id,
+                "amount": slice_amount,
+            }
+        )
+        return False
+
+    @api.model
+    @api.private
+    def _cash_replace(self, receipt, cash_voucher, deposit_voucher, amount):
+        """Shrink cash and grow deposit on the same receipt; persist a replace row."""
+        return self._cash_move(
+            receipt,
+            source_voucher=cash_voucher,
+            target_voucher=deposit_voucher,
+            amount=amount,
+            direction="replace",
+        )
+
+    @api.model
+    @api.private
+    def _cash_reverse(self, receipt, cash_voucher, deposit_voucher, amount):
+        """Shrink deposit and grow cash on the same receipt; persist a reverse row."""
+        return self._cash_move(
+            receipt,
+            source_voucher=deposit_voucher,
+            target_voucher=cash_voucher,
+            amount=amount,
+            direction="reverse",
+        )
+
+    @api.model
+    @api.private
+    def _cash_move(self, receipt, source_voucher, target_voucher, amount, direction):
+        cash_voucher = source_voucher if direction == "replace" else target_voucher
+        deposit_voucher = target_voucher if direction == "replace" else source_voucher
+        self._assert_replacement_currencies(receipt, cash_voucher, deposit_voucher)
+        currency = receipt.currency_id
+        slice_amount = currency.round(amount or 0.0)
+        empty = self.env["collection.cash.replacement"]
+        if currency.compare_amounts(slice_amount, 0.0) == 0:
+            return empty
+        source_value = receipt.value_ids.filtered(
+            lambda value, target=source_voucher: value.voucher_id == target
+        )[:1]
+        if not source_value:
+            return empty
+        applied = source_value._shrink_or_unlink(slice_amount)
+        if currency.compare_amounts(applied, 0.0) == 0:
+            return empty
+        self._grow_voucher_amount(receipt, target_voucher, applied)
+        return empty.with_context(collection_cash_replacement=True).create(
+            {
+                "receipt_id": receipt.id,
+                "cash_voucher_id": cash_voucher.id,
+                "deposit_voucher_id": deposit_voucher.id,
+                "amount": applied,
+                "direction": direction,
+                "created_by": self.env.user.id,
+                "created_at": fields.Datetime.now(),
+            }
+        )

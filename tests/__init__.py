@@ -6,6 +6,7 @@ from . import test_collection_allocation
 from . import test_collection_allocation_acl
 from . import test_collection_allocation_debt_picker
 from . import test_collection_allocation_document_kind
+from . import test_collection_cash_replacement
 from . import test_collection_company_settings
 from . import test_collection_company_migration
 from . import test_collection_connector
@@ -16,9 +17,11 @@ from . import test_collection_document_review_flag
 from . import test_collection_mail
 from . import test_collection_mcp_allocation
 from . import test_collection_mcp_allocation_lookup
+from . import test_collection_mcp_cash_declare
 from . import test_collection_mcp_customer_debt
 from . import test_collection_mcp_customer_list
 from . import test_collection_mcp_partner_resolve
+from . import test_collection_mcp_seller_deposit
 from . import test_collection_mcp_seller_lookup
 from . import test_collection_mcp_sheet_close
 from . import test_collection_mcp_sheet_pdf

@@ -7,7 +7,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_common import FROZEN_SHEET_STATES, SELLER_SHEET_STATES
+from .collection_common import FROZEN_SHEET_STATES, SELLER_DECLARATION_STATES
 
 _VOUCHER_BLOCK_ORDER = ("bank_transfer", "check", "cash_deposit")
 _DOCUMENT_KIND_ORDER = ("invoice", "quotation")
@@ -51,6 +51,7 @@ class CollectionSheetReport(models.Model):
         default=0.0,
     )
     cash_on_hand = fields.Monetary(
+        string="Cash to Administration",
         currency_field="currency_id",
         tracking=True,
         copy=False,
@@ -59,6 +60,21 @@ class CollectionSheetReport(models.Model):
         currency_field="currency_id",
         tracking=True,
         copy=False,
+    )
+    cash_declared_at = fields.Datetime(copy=False, readonly=True)
+    cash_declared_by = fields.Many2one(
+        comodel_name="res.users",
+        copy=False,
+        readonly=True,
+        ondelete="restrict",
+    )
+    cash_collected = fields.Monetary(
+        compute="_compute_cash_banked_totals",
+        currency_field="currency_id",
+    )
+    cash_banked = fields.Monetary(
+        compute="_compute_cash_banked_totals",
+        currency_field="currency_id",
     )
 
     _commission_percent_range = models.Constraint(
@@ -70,12 +86,12 @@ class CollectionSheetReport(models.Model):
         declarations = _SELLER_DECLARATION_FIELDS & set(vals)
         rates = _ADMIN_RATE_FIELDS & set(vals)
         if declarations and any(
-            sheet.state not in SELLER_SHEET_STATES for sheet in self
+            sheet.state not in SELLER_DECLARATION_STATES for sheet in self
         ):
             raise UserError(
                 _(
                     "Seller-declared cash on hand and commission withheld can "
-                    "only be changed on an open collection sheet."
+                    "only be changed on a submitted collection sheet."
                 )
             )
         if rates and any(sheet.state in FROZEN_SHEET_STATES for sheet in self):
@@ -83,6 +99,21 @@ class CollectionSheetReport(models.Model):
                 _("Closed collection sheets cannot change the reconciliation inputs.")
             )
         return super().write(vals)
+
+    @api.depends("voucher_ids.document_type", "voucher_ids.amount")
+    def _compute_cash_banked_totals(self):
+        """Sum cash and seller_deposit voucher amounts. Never the replacement ledger."""
+        for sheet in self:
+            collected = 0.0
+            banked = 0.0
+            for voucher in sheet.voucher_ids:
+                amount = voucher.amount or 0.0
+                if voucher.document_type == "cash":
+                    collected += amount
+                elif voucher.document_type == "seller_deposit":
+                    banked += amount
+            sheet.cash_collected = collected
+            sheet.cash_banked = banked
 
     def _collection_report_data(self):
         """Build the shared Planilla de Cobranza payload (primitives + records)."""
@@ -130,6 +161,7 @@ class CollectionSheetReport(models.Model):
             "applied_total": applied_total,
             "voucher_blocks": voucher_blocks,
             "collected_total": collected_total,
+            "cash_banked": self.cash_banked or 0.0,
             "tendered": tendered,
             "recon": recon,
             "mismatch": mismatch,
@@ -269,7 +301,7 @@ class CollectionSheetReport(models.Model):
 
     @api.private
     def _collection_report_voucher_blocks(self, codes):
-        """Group vouchers by catalog code; preferred types then remaining alpha."""
+        """Group vouchers by catalog code; skip remittance; remaining alpha."""
         self.ensure_one()
         labels = {
             row.code: row.name
@@ -278,6 +310,8 @@ class CollectionSheetReport(models.Model):
         grouped = {}
         for voucher in self.voucher_ids:
             code = voucher.document_type or ""
+            if code == "seller_deposit":
+                continue
             partner = voucher.partner_id
             partner_code = codes.get(partner.id, "") or ""
             voucher_date = (
@@ -344,11 +378,14 @@ class CollectionSheetReport(models.Model):
 
     @api.private
     def _collection_report_tendered(self):
-        """Cash on hand plus deposit, check, and transfer voucher totals."""
+        """Cash on hand plus typed voucher totals, including remittance."""
         self.ensure_one()
         deposits = 0.0
         checks = 0.0
         transfers = 0.0
+        echecks = 0.0
+        retentions = 0.0
+        seller_deposits = 0.0
         for voucher in self.voucher_ids:
             amount = voucher.amount or 0.0
             if voucher.document_type == "cash_deposit":
@@ -357,13 +394,30 @@ class CollectionSheetReport(models.Model):
                 checks += amount
             elif voucher.document_type == "bank_transfer":
                 transfers += amount
+            elif voucher.document_type == "echeck":
+                echecks += amount
+            elif voucher.document_type == "retention_certificate":
+                retentions += amount
+            elif voucher.document_type == "seller_deposit":
+                seller_deposits += amount
         cash = self.cash_on_hand or 0.0
         return {
             "cash": cash,
             "deposits": deposits,
             "checks": checks,
             "transfers": transfers,
-            "total": cash + deposits + checks + transfers,
+            "echecks": echecks,
+            "retentions": retentions,
+            "seller_deposits": seller_deposits,
+            "total": (
+                cash
+                + deposits
+                + checks
+                + transfers
+                + echecks
+                + retentions
+                + seller_deposits
+            ),
         }
 
     @api.private

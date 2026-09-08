@@ -91,8 +91,9 @@ class CollectionSheetReportMcpMixin(models.AbstractModel):
         name="get_collection_sheet_pdf",
         description=(
             "Render the Planilla de Cobranza of a seller's open collection sheet "
-            "and return it as base64 ({sheet, filename, mimetype, content_base64}), "
-            "or {sheet: null} when the seller has no open sheet. Internal users only."
+            "(or the submitted sheet when none is open) and return it as base64 "
+            "({sheet, filename, mimetype, content_base64}), or {sheet: null} "
+            "when the seller has neither. Internal users only."
         ),
         input_schema=_GET_COLLECTION_SHEET_PDF_SCHEMA,
         category="read",
@@ -112,7 +113,15 @@ class CollectionSheetReportMcpMixin(models.AbstractModel):
         )
         if len(opens) > 1:
             raise UserError(_("This seller has more than one open collection sheet."))
-        if not opens:
+        if opens:
+            opens.check_access("read")
+            return self._collection_sheet_pdf_payload(opens)
+        submitted = self.env["collection.sheet"]._submitted_sheets_for_seller(
+            seller, self.env.company
+        )
+        if len(submitted) > 1:
+            raise UserError(_("This seller has more than one open collection sheet."))
+        if not submitted:
             return dict(_NULL_SHEET)
-        opens.check_access("read")
-        return self._collection_sheet_pdf_payload(opens)
+        submitted.check_access("read")
+        return self._collection_sheet_pdf_payload(submitted)

@@ -3,6 +3,7 @@
 
 import binascii
 from base64 import b64decode
+from datetime import date
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -14,6 +15,7 @@ from .collection_common import (
     ADMIN_EDITABLE_SHEET_STATES,
     CHECK_TYPE_SELECTION,
     DOCUMENT_TYPE_SELECTION,
+    FROZEN_SHEET_STATES,
     RETENTION_KIND_SELECTION,
     record_id,
 )
@@ -62,6 +64,22 @@ class CollectionVoucher(models.Model):
         ondelete="set null",
         check_company=True,
         index=True,
+    )
+    receipt_value_ids = fields.One2many(
+        comodel_name="collection.receipt.value",
+        inverse_name="voucher_id",
+        string="Receipt Values",
+        readonly=True,
+    )
+    cash_replacement_ids = fields.One2many(
+        comodel_name="collection.cash.replacement",
+        inverse_name="cash_voucher_id",
+        string="Cash Replacements",
+        readonly=True,
+    )
+    replaced_amount = fields.Monetary(
+        compute="_compute_replaced_amount",
+        currency_field="currency_id",
     )
     state = fields.Selection(
         selection=[
@@ -200,10 +218,26 @@ class CollectionVoucher(models.Model):
         "A voucher assigned to a sheet must have a seller.",
     )
 
+    @api.depends("cash_replacement_ids.amount", "cash_replacement_ids.direction")
+    def _compute_replaced_amount(self):
+        for voucher in self:
+            replace = 0.0
+            reverse = 0.0
+            for row in voucher.cash_replacement_ids:
+                if row.direction == "replace":
+                    replace += row.amount or 0.0
+                elif row.direction == "reverse":
+                    reverse += row.amount or 0.0
+            net = replace - reverse
+            voucher.replaced_amount = (
+                voucher.currency_id.round(net) if voucher.currency_id else net
+            )
+
     @api.model_create_multi
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
+            self._apply_seller_deposit_partner(vals)
             company = self.env["res.company"].browse(
                 vals.get("company_id") or self.env.company.id
             )
@@ -226,6 +260,22 @@ class CollectionVoucher(models.Model):
             if vals.get("sheet_id"):
                 self._ensure_sheet_membership_unlocked(vals["sheet_id"])
         return super().create(vals_list)
+
+    @api.private
+    def _apply_seller_deposit_partner(self, vals):
+        """Stamp the remittance sentinel; refuse a customer partner."""
+        if vals.get("document_type") != "seller_deposit":
+            return
+        if vals.get("customer_identification"):
+            raise UserError(_("Seller deposits cannot use a customer identification."))
+        company = self.env["res.company"].browse(
+            vals.get("company_id") or self.env.company.id
+        )
+        sentinel = company._seller_deposit_partner()
+        partner_id = record_id(vals.get("partner_id"))
+        if partner_id and partner_id != sentinel.id:
+            raise UserError(_("Seller deposits cannot use a customer partner."))
+        vals["partner_id"] = sentinel.id
 
     def _selection_document_type(self):
         """Allowed company types, plus each record's current value if later dropped."""
@@ -288,7 +338,10 @@ class CollectionVoucher(models.Model):
         intercepted = self._intercept_state_write(vals)
         if intercepted is not None:
             return intercepted
-        return super().write(vals)
+        entering = self._seller_deposits_entering_validated_collections(vals)
+        result = super().write(vals)
+        entering._run_seller_deposit_cash_replacement()
+        return result
 
     def action_validate_seller(self):
         if any(voucher.state != "draft" for voucher in self):
@@ -337,6 +390,76 @@ class CollectionVoucher(models.Model):
         if len(self) > 1:
             return vals, all(rec.write(vals) for rec in self)
         return vals, None
+
+    @api.private
+    def _seller_deposits_entering_validated_collections(self, vals):
+        """Return seller_deposit rows whose write is entering validated_collections."""
+        if vals.get("state") != "validated_collections":
+            return self.browse()
+        return self.filtered(
+            lambda voucher: voucher.document_type == "seller_deposit"
+            and voucher.state != "validated_collections"
+        )
+
+    @api.private
+    def _run_seller_deposit_cash_replacement(self):
+        """Replace cash receipt values with this deposit using U5a primitives."""
+        Value = self.env["collection.receipt.value"]
+        for deposit in self.sorted("id"):
+            sheet = deposit.sheet_id
+            if not sheet or sheet.state in FROZEN_SHEET_STATES:
+                continue
+            currency = deposit.currency_id
+            remaining = currency.round(deposit.amount or 0.0)
+            for receipt, cash_value in deposit._iter_replaceable_cash_values():
+                if currency.compare_amounts(remaining, 0.0) <= 0:
+                    break
+                if not cash_value.exists():
+                    continue
+                slice_amount = min(remaining, cash_value.amount or 0.0)
+                row = Value._cash_replace(
+                    receipt, cash_value.voucher_id, deposit, slice_amount
+                )
+                if row:
+                    remaining = currency.round(remaining - row.amount)
+
+    @api.model
+    @api.private
+    def _replacement_fifo_key(self, line):
+        """Same shape as satellite `_proposal_fifo_key` (due_date, number)."""
+        return (line.due_date or date.max, line.invoice_number or "")
+
+    @api.model
+    @api.private
+    def _replacement_receipt_fifo_key(self, receipt):
+        """Earliest applied-line FIFO key on the receipt; undated applications last."""
+        keys = [self._replacement_fifo_key(line) for line in receipt.line_ids]
+        return min(keys) if keys else (date.max, "")
+
+    @api.model
+    @api.private
+    def _replacement_cash_upload_key(self, value):
+        """Oldest-uploaded cash first; id breaks equal create_date."""
+        uploaded = value.voucher_id.create_date or fields.Datetime.from_string(
+            "1970-01-01 00:00:00"
+        )
+        return (uploaded, value.id)
+
+    @api.private
+    def _iter_replaceable_cash_values(self):
+        """Yield (receipt, cash value): quotation then invoice, FIFO, oldest cash."""
+        self.ensure_one()
+        receipts = self.sheet_id.allocation_ids.receipt_ids
+        for kind in ("quotation", "invoice"):
+            kind_receipts = receipts.filtered(
+                lambda receipt, current=kind: receipt.document_kind == current
+            ).sorted(key=self._replacement_receipt_fifo_key)
+            for receipt in kind_receipts:
+                cash_values = receipt.value_ids.filtered(
+                    lambda value: value.voucher_id.document_type == "cash"
+                ).sorted(key=self._replacement_cash_upload_key)
+                for cash_value in cash_values:
+                    yield receipt, cash_value
 
     @api.private
     def _intercept_state_write(self, vals):

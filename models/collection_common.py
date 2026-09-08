@@ -19,6 +19,7 @@ DOCUMENT_TYPE_SELECTION = (
     ("echeck", "Echeck"),
     ("cash", "Cash"),
     ("retention_certificate", "Retention Certificate"),
+    ("seller_deposit", "Seller Deposit"),
 )
 DOCUMENT_TYPE_CODES = tuple(code for code, _label in DOCUMENT_TYPE_SELECTION)
 CHECK_TYPE_SELECTION = (
@@ -40,6 +41,7 @@ DOCUMENT_KIND_SELECTION = (
 # Sheet states that gate seller write, admin edit, and allocation pairing.
 SELLER_SHEET_STATES = frozenset({"open"})
 ADMIN_EDITABLE_SHEET_STATES = frozenset({"open", "submitted"})
+SELLER_DECLARATION_STATES = frozenset({"submitted"})
 DRAFT_SHEET_STATES = frozenset({"open", "submitted", "proposal", "cancelled"})
 CONFIRMED_SHEET_STATE = "closed"
 FROZEN_SHEET_STATES = frozenset({"closed", "cancelled"})

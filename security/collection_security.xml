@@ -55,4 +55,9 @@
         <field name="model_id" ref="model_collection_receipt_value" />
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
+    <record id="collection_cash_replacement_company_rule" model="ir.rule">
+        <field name="name">Collection Cash Replacement: multi-company</field>
+        <field name="model_id" ref="model_collection_cash_replacement" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

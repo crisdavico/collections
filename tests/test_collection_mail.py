@@ -257,6 +257,19 @@ class TestCollectionMail(TransactionCase):
         pairs = {(row.old_value_char, row.new_value_char) for row in state_tracking}
         self.assertIn(("Cancelled", "Submitted by Seller"), pairs)
 
+    def test_declare_cash_tracks_declarations_in_chatter(self):
+        """Declare Cash MUST track cash_on_hand and commission_withheld."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self._flush_tracking()
+        sheet.action_declare_cash(cash_on_hand=12.5, commission_withheld=1.25)
+        self._flush_tracking()
+        tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
+        tracked_fields = set(tracking.mapped("field_id.name"))
+        self.assertIn("cash_on_hand", tracked_fields)
+        self.assertIn("commission_withheld", tracked_fields)
+        self.assertEqual(sheet.state, "submitted")
+
     def test_non_image_extra_cannot_become_proof(self):
         """A non-image/non-PDF chatter file MUST NOT become designated proof."""
         voucher = self._create_voucher(customer_identification="MAIL-PROOF-TXT")

@@ -18,7 +18,7 @@ MONEY = "#,##0.00"
 INT = "#,##0"
 PCT = "0.0%"
 MONEY_BIG = '"$" #,##0.00'
-COLUMN_WIDTHS = (13, 32, 19, 17, 14, 14, 15, 15)
+COLUMN_WIDTHS = (13, 32, 19, 17, 14, 14, 15, 15, 14, 16, 15)
 _KIND_TITLES = {"invoice": "Facturas", "quotation": "Presupuestos"}
 _BANNER_FILL = {
     "balanced": ("#C6EFCE", "#006100"),
@@ -685,7 +685,8 @@ def _banner_format(workbook, status):
 def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
     tendered = payload.get("tendered") or {}
     recon = payload.get("recon") or {}
-    _write_section(ws, fmt, start, "Conciliación del Vendedor")
+    _merge(ws, start, 0, 10, "Conciliación del Vendedor", fmt["section"])
+    ws.set_row(start - 1, 20)
     _write_headers(
         ws,
         fmt,
@@ -696,7 +697,10 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
             ("Depósitos", 4, 4),
             ("Cheques", 5, 5),
             ("Transferencias", 6, 6),
-            ("Total Rendido", 7, 7),
+            ("Echeqs", 7, 7),
+            ("Retenciones", 8, 8),
+            ("Depósitos vendedor", 9, 9),
+            ("Total Rendido", 10, 10),
         ),
     )
     data_row = start + 2
@@ -706,6 +710,9 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
         (4, "cash_deposit", "deposits"),
         (5, "check", "checks"),
         (6, "bank_transfer", "transfers"),
+        (7, "echeck", "echecks"),
+        (8, "retention_certificate", "retentions"),
+        (9, "seller_deposit", "seller_deposits"),
     ):
         amount = tendered.get(key) or 0.0
         ref = voucher_subtotals.get(code)
@@ -717,8 +724,8 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
     _formula(
         ws,
         data_row,
-        7,
-        f"=SUM({_a1(data_row, 3)}:{_a1(data_row, 6)})",
+        10,
+        f"=SUM({_a1(data_row, 3)}:{_a1(data_row, 9)})",
         fmt["data_money"],
         tendered.get("total") or 0.0,
     )
@@ -767,7 +774,7 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
         tendered_row,
         "Total Rendido",
         "lo que entregó — efectivo, depósitos, cheques y transferencias",
-        f"={_a1(data_row, 7)}",
+        f"={_a1(data_row, 10)}",
         recon.get("tendered") or 0.0,
     )
     _recon_line(
@@ -826,7 +833,7 @@ def _build_xlsx(payload):
         ws.set_paper(9)
         ws.fit_to_pages(1, 0)
         ws.repeat_rows(0, 3)
-        ws.print_area(0, 0, last_row - 1, 7)
+        ws.print_area(0, 0, last_row - 1, 10)
         ws.set_margins(0.3, 0.3, 0.4, 0.4)
     finally:
         workbook.close()

@@ -4,6 +4,7 @@
 import inspect
 
 from odoo.exceptions import AccessError, UserError
+from odoo.fields import Command
 from odoo.tests import TransactionCase
 
 from .test_collection_payment import (
@@ -592,6 +593,116 @@ class TestCollectionAcl(TransactionCase):
         )
         self.assertEqual(snap_b.company_id, company_b)
         self._assert_hidden_from_user(self.internal_user, snap_b, ["revision", "id"])
+
+    def _enable_seller_deposit_type(self, company=None):
+        catalog = self.env.ref("collection.document_type_seller_deposit")
+        (company or self.env.company).write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def _cash_replacement_records(self):
+        """Open-sheet cash receipt plus same-sheet seller_deposit (not allocated)."""
+        seller = ensure_enabled_seller(self.env, self.internal_user)
+        partner = dummy_customer_partner(self.env, customer="ACL-REPL")
+        sheet = self.env["collection.sheet"].create(
+            {
+                "seller_id": seller.id,
+                "company_id": self.env.company.id,
+            }
+        )
+        cash = self.env["collection.voucher"].create(
+            {
+                "partner_id": partner.id,
+                "document_type": "cash",
+                "seller_id": seller.id,
+                "sheet_id": sheet.id,
+                "amount": 100.0,
+            }
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "voucher_ids": [Command.set(cash.ids)],
+            }
+        )
+        receipt = self.env["collection.receipt"].create(
+            {
+                "allocation_id": allocation.id,
+                "document_kind": "invoice",
+            }
+        )
+        self._enable_seller_deposit_type()
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": seller.id,
+                "sheet_id": sheet.id,
+                "amount": 50.0,
+                "voucher_number": "SD-ACL",
+                "voucher_date": "2026-09-08",
+            }
+        )
+        return allocation, receipt, cash, deposit
+
+    def _replacement_vals(self, receipt, cash, deposit, **extra):
+        vals = {
+            "receipt_id": receipt.id,
+            "cash_voucher_id": cash.id,
+            "deposit_voucher_id": deposit.id,
+            "amount": extra.pop("amount", 10.0),
+            "direction": extra.pop("direction", "replace"),
+            "created_by": extra.pop("created_by", self.env.user.id),
+            "created_at": extra.pop("created_at", "2026-09-01 12:00:00"),
+        }
+        vals.update(extra)
+        return vals
+
+    def test_cash_replacement_acl_1_0_1_0_and_company_rule(self):
+        """Ledger MUST be group_user 1,0,1,0 with a global company ir.rule."""
+        acls = self.env["ir.model.access"].search(
+            [("model_id.model", "=", "collection.cash.replacement")]
+        )
+        self.assertEqual(len(acls), 1)
+        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertTrue(acls.perm_read)
+        self.assertTrue(acls.perm_create)
+        self.assertFalse(acls.perm_write)
+        self.assertFalse(acls.perm_unlink)
+        self._assert_global_company_rule("collection.cash.replacement")
+        _allocation, receipt, cash, deposit = self._cash_replacement_records()
+        Replacement = self.env["collection.cash.replacement"].with_user(
+            self.internal_user
+        )
+        with self.assertRaises(UserError):
+            Replacement.create(self._replacement_vals(receipt, cash, deposit))
+        row = Replacement.with_context(collection_cash_replacement=True).create(
+            self._replacement_vals(
+                receipt, cash, deposit, created_by=self.internal_user.id
+            )
+        )
+        self.assertTrue(row.id)
+        self.assertEqual(row.direction, "replace")
+        self.assertEqual(row.company_id, self.env.company)
+        read = Replacement.browse(row.id).read(["amount", "direction"])
+        self.assertEqual(read[0]["direction"], "replace")
+        self.assertAlmostEqual(read[0]["amount"], 10.0, places=2)
+
+    def test_cash_replacement_write_refused(self):
+        """Existing replacement write MUST refuse and leave stored fields."""
+        _allocation, receipt, cash, deposit = self._cash_replacement_records()
+        row = (
+            self.env["collection.cash.replacement"]
+            .with_context(collection_cash_replacement=True)
+            .create(self._replacement_vals(receipt, cash, deposit, amount=25.0))
+        )
+        with self.assertRaises(UserError):
+            row.write({"amount": 1.0})
+        self.assertAlmostEqual(row.amount, 25.0, places=2)
+        self.assertEqual(row.direction, "replace")
+        self.assertEqual(row.cash_voucher_id, cash)
+        self.assertEqual(row.deposit_voucher_id, deposit)
 
     def test_connector_acl_user_read_system_write_rows(self):
         """Connectors: group_user read, group_system write; no extra groups."""

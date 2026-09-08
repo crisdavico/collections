@@ -8,6 +8,7 @@ from . import collection_connector_seller_binding
 from . import collection_allocation
 from . import collection_allocation_line
 from . import collection_allocation_revision
+from . import collection_cash_replacement
 from . import collection_receipt
 from . import collection_receipt_value
 from . import collection_document_type

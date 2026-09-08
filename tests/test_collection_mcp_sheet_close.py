@@ -69,11 +69,7 @@ class TestCollectionMcpSheetClose(TransactionCase):
         return self.env["collection.sheet"].create({"seller_id": seller.id})
 
     def _args(self, **extra):
-        payload = {
-            "seller_id": self.seller.id,
-            "cash_on_hand": 10.5,
-            "commission_withheld": 2.25,
-        }
+        payload = {"seller_id": self.seller.id}
         payload.update(extra)
         return payload
 
@@ -99,24 +95,18 @@ class TestCollectionMcpSheetClose(TransactionCase):
             "close_collection_sheet must not have a DB muk_mcp.tool row",
         )
 
-    def test_input_schema_is_seller_id_and_amounts(self):
-        """Schema MUST require seller_id plus amounts and MUST omit sheet_id."""
+    def test_input_schema_is_seller_id_only(self):
+        """Schema MUST require seller_id only and MUST omit amounts and sheet_id."""
         by_name = {
             entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
         }
         schema = by_name[TOOL_NAME]["inputSchema"]
         self.assertEqual(schema["type"], "object")
-        self.assertEqual(
-            set(schema["required"]),
-            {"seller_id", "cash_on_hand", "commission_withheld"},
-        )
-        self.assertEqual(
-            set(schema["properties"]),
-            {"seller_id", "cash_on_hand", "commission_withheld"},
-        )
+        self.assertEqual(set(schema["required"]), {"seller_id"})
+        self.assertEqual(set(schema["properties"]), {"seller_id"})
         self.assertEqual(schema["properties"]["seller_id"]["type"], "integer")
-        self.assertEqual(schema["properties"]["cash_on_hand"]["type"], "number")
-        self.assertEqual(schema["properties"]["commission_withheld"]["type"], "number")
+        self.assertNotIn("cash_on_hand", schema["properties"])
+        self.assertNotIn("commission_withheld", schema["properties"])
         for key in _FORBIDDEN_INPUT_KEYS:
             self.assertNotIn(key, schema["properties"])
 
@@ -152,32 +142,31 @@ class TestCollectionMcpSheetClose(TransactionCase):
             self._call(self._args(sheet_id=sheet.id))
         self.assertEqual(sheet.state, "open")
 
-    def test_amounts_accept_number_and_decimal_string(self):
-        """Amounts MUST parse as JSON number or decimal string."""
-        number_sheet = self._create_sheet()
-        result = self._call(self._args(cash_on_hand=40.0, commission_withheld=5.5))
-        self.assertEqual(result["sheet"]["id"], number_sheet.id)
-        self.assertEqual(result["sheet"]["state"], "submitted")
-        self.assertEqual(number_sheet.cash_on_hand, 40.0)
-        self.assertEqual(number_sheet.commission_withheld, 5.5)
-
-        string_sheet = self._create_sheet()
-        result = self._call(
-            self._args(
-                seller_id=self.seller.id,
-                cash_on_hand="12.50",
-                commission_withheld="1.25",
-            )
-        )
-        self.assertEqual(result["sheet"]["id"], string_sheet.id)
-        self.assertEqual(string_sheet.cash_on_hand, 12.5)
-        self.assertEqual(string_sheet.commission_withheld, 1.25)
+    def test_amounts_on_close_refused(self):
+        """Passing cash_on_hand or commission_withheld MUST refuse close."""
+        sheet = self._create_sheet()
+        before_cash = sheet.cash_on_hand
+        before_withheld = sheet.commission_withheld
+        for extra in (
+            {"cash_on_hand": 40.0},
+            {"commission_withheld": 5.5},
+            {"cash_on_hand": 40.0, "commission_withheld": 5.5},
+            {"cash_on_hand": "12.50", "commission_withheld": "1.25"},
+        ):
+            with self.subTest(extra=extra):
+                with self.assertRaises(UserError):
+                    self._call(self._args(**extra))
+                self.assertEqual(sheet.state, "open")
+                self.assertEqual(sheet.cash_on_hand, before_cash)
+                self.assertEqual(sheet.commission_withheld, before_withheld)
 
     def test_internal_seller_closes_open_sheet(self):
         """Internal caller MUST close the seller's open sheet and return identity."""
         sheet = self._create_sheet()
+        before_cash = sheet.cash_on_hand
+        before_withheld = sheet.commission_withheld
         result = self._call()
-        self.assertEqual(set(result), {"sheet"})
+        self.assertEqual(set(result), {"sheet", "cash"})
         payload = result["sheet"]
         self.assertEqual(set(payload), _SHEET_KEYS)
         self.assertEqual(payload["id"], sheet.id)
@@ -187,11 +176,35 @@ class TestCollectionMcpSheetClose(TransactionCase):
         self.assertEqual(payload["voucher_count"], 0)
         self.assertIsNone(payload["date_from"])
         self.assertIsNone(payload["date_to"])
+        self.assertEqual(result["cash"], {"collected": 0.0})
         self.assertEqual(sheet.state, "submitted")
-        self.assertEqual(sheet.cash_on_hand, 10.5)
-        self.assertEqual(sheet.commission_withheld, 2.25)
+        self.assertEqual(sheet.cash_on_hand, before_cash)
+        self.assertEqual(sheet.commission_withheld, before_withheld)
         self.assertNotIn("content_base64", result)
         self.assertNotIn("filename", result)
+
+    def test_close_returns_cash_collected_from_cash_vouchers(self):
+        """cash.collected MUST equal SUM of cash vouchers on the closed sheet."""
+        from .test_collection_payment import dummy_customer_partner
+
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="MCP-CLOSE-CASH")
+        voucher = self.env["collection.voucher"].create(
+            {
+                "partner_id": partner.id,
+                "document_type": "cash",
+                "document_id": f"CASH-{self._testMethodName}",
+                "seller_id": self.seller.id,
+                "sheet_id": sheet.id,
+                "company_id": sheet.company_id.id,
+                "amount": 40.0,
+            }
+        )
+        voucher.action_validate_seller()
+        result = self._call()
+        self.assertEqual(result["sheet"]["id"], sheet.id)
+        self.assertEqual(result["cash"], {"collected": 40.0})
+        self.assertEqual(sheet.state, "submitted")
 
     def test_disabled_seller_can_still_close(self):
         """A later-disabled seller MUST still close an existing open sheet."""

@@ -325,11 +325,34 @@ class TestCollectionSheet(TransactionCase):
             sheet, voucher, invoice_id="INV-SC-VC"
         )
         self._mark_validated_collections(voucher)
-        sheet.action_seller_close(cash_on_hand=40.0, commission_withheld=5.0)
+        before_cash = sheet.cash_on_hand
+        before_withheld = sheet.commission_withheld
+        sheet.action_seller_close()
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(allocation.state, "draft")
-        self.assertEqual(sheet.cash_on_hand, 40.0)
-        self.assertEqual(sheet.commission_withheld, 5.0)
+        self.assertEqual(sheet.cash_on_hand, before_cash)
+        self.assertEqual(sheet.commission_withheld, before_withheld)
+
+    def test_action_seller_close_without_amounts(self):
+        """Seller Close MUST write submitted without declaration amounts."""
+        sheet = self._create_sheet()
+        before_cash = sheet.cash_on_hand
+        before_withheld = sheet.commission_withheld
+        sheet.action_seller_close()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(sheet.cash_on_hand, before_cash)
+        self.assertEqual(sheet.commission_withheld, before_withheld)
+
+    def test_action_seller_close_ignores_amount_kwargs(self):
+        """Kwargs on Seller Close MUST NOT persist cash_on_hand or withheld."""
+        sheet = self._create_sheet()
+        before_cash = sheet.cash_on_hand
+        before_withheld = sheet.commission_withheld
+        sheet.action_seller_close(cash_on_hand=40.0, commission_withheld=5.0)
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(sheet.cash_on_hand, before_cash)
+        self.assertEqual(sheet.commission_withheld, before_withheld)
+        self.assertNotEqual(sheet.cash_on_hand, 40.0)
 
     def test_action_seller_close_validated_seller_member_passes(self):
         """Triangulation: validated_seller MUST pass Seller Close (unlike Confirm)."""
@@ -362,6 +385,106 @@ class TestCollectionSheet(TransactionCase):
         (first | second).action_seller_close()
         self.assertEqual(first.state, "submitted")
         self.assertEqual(second.state, "submitted")
+
+    def test_submitted_sheet_accepts_declare_cash(self):
+        """Declare Cash MUST persist amounts and stamp declared_at/by on submitted."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        sheet.action_declare_cash(cash_on_hand=12.5, commission_withheld=1.25)
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(sheet.cash_on_hand, 12.5)
+        self.assertEqual(sheet.commission_withheld, 1.25)
+        self.assertTrue(sheet.cash_declared_at)
+        self.assertEqual(sheet.cash_declared_by, self.env.user)
+
+    def test_declare_cash_is_rerunnable(self):
+        """A later Declare Cash MUST replace amounts and restamp declared_at/by."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        sheet.action_declare_cash(cash_on_hand=10.0, commission_withheld=1.0)
+        first_at = sheet.cash_declared_at
+        sheet.action_declare_cash(cash_on_hand=20.0, commission_withheld=2.0)
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(sheet.cash_on_hand, 20.0)
+        self.assertEqual(sheet.commission_withheld, 2.0)
+        self.assertTrue(sheet.cash_declared_at)
+        self.assertGreaterEqual(sheet.cash_declared_at, first_at)
+
+    def test_non_submitted_declare_cash_refused(self):
+        """Declare Cash from open, proposal, closed, or cancelled MUST refuse."""
+        for state in ("open", "proposal", "closed", "cancelled"):
+            sheet = self._create_sheet()
+            if state != "open":
+                force_sheet_state(sheet, state)
+            before_cash = sheet.cash_on_hand
+            with self.assertRaises(UserError):
+                sheet.action_declare_cash(cash_on_hand=99.0, commission_withheld=9.0)
+            self.assertEqual(sheet.state, state)
+            self.assertEqual(sheet.cash_on_hand, before_cash)
+            self.assertFalse(sheet.cash_declared_at)
+            force_sheet_state(sheet, "cancelled")
+
+    def test_disabled_seller_may_still_declare_cash(self):
+        """A later-disabled seller MUST still Declare Cash on a submitted sheet."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self._clear_enabled_sellers()
+        sheet.action_declare_cash(cash_on_hand=8.0, commission_withheld=0.5)
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(sheet.cash_on_hand, 8.0)
+        self.assertEqual(sheet.commission_withheld, 0.5)
+        self.assertTrue(sheet.cash_declared_at)
+
+    def test_undeclared_cash_blocks_confirm(self):
+        """Confirm MUST refuse when collected cash > 0 and cash_declared_at is unset."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CASH-BLOCK",
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_type="cash",
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close()
+        self.assertFalse(sheet.cash_declared_at)
+        with self.assertRaises(UserError):
+            sheet.action_confirm()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(
+            sheet.allocation_ids.filtered(lambda rec: rec.state != "draft")
+        )
+
+    def test_zero_cash_confirm_without_declaration(self):
+        """Confirm MUST pass without Declare Cash when collected cash is zero."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-ZERO-CASH",
+            sheet_id=sheet.id,
+            amount=25.0,
+            document_type="bank_transfer",
+        )
+        self._create_balanced_allocation(sheet, voucher, invoice_id="INV-ZERO-CASH")
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close()
+        self.assertFalse(sheet.cash_declared_at)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+
+    def test_declared_cash_allows_confirm(self):
+        """Confirm MUST reach proposal after Declare Cash when collected cash > 0."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CASH-OK",
+            sheet_id=sheet.id,
+            amount=40.0,
+            document_type="cash",
+        )
+        self._create_balanced_allocation(sheet, voucher, invoice_id="INV-CASH-OK")
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close()
+        sheet.action_declare_cash(cash_on_hand=40.0, commission_withheld=0.0)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
 
     def test_illegal_close_cancel_open_from_open_refused(self):
         """Close, Cancel, or Reinstate from open MUST refuse and leave state open."""

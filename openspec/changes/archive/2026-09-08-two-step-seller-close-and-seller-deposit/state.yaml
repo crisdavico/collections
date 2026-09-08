@@ -1,0 +1,22 @@
+# SDD change state — orchestrator-managed
+change: two-step-seller-close-and-seller-deposit
+artifact_store: openspec
+delivery_strategy: auto-chain
+chain_strategy: stacked-to-main
+execution_mode: interactive
+planning_depth: standard
+subagent_model: cursor-grok-4.6-high
+phase: verify
+updated: 2026-09-08
+artifacts:
+  proposal: true
+  specs: true
+  design: true
+  tasks: true
+  verify: true
+notes: |
+  User launched /sdd-new from settled plan cash-banked-and-cash-ancient-volcano.md.
+  Continue through verify inclusive. One grok 4.6 subagent per phase.
+  Apply: one grok 4.6 subagent per task phase; reset if needed.
+  Strict TDD. Manifest 19.0.1.43.0. Do not add migrations/19.0.1.42.0/.
+  Sibling board addon collection_receipt_proposal is in scope for U1 lift + U6.

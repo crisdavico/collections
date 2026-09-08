@@ -357,6 +357,75 @@ class TestCollectionAllocationAcl(TransactionCase):
             self.env["collection.allocation.revision"].browse(rev_id).exists()
         )
 
+    def _enable_seller_deposit_type(self):
+        catalog = self.env.ref("collection.document_type_seller_deposit")
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+
+    def _cash_replacement_records(self):
+        allocation = self._create_allocation()
+        cash = self.env["collection.voucher"].create(
+            {
+                "partner_id": allocation.partner_id.id,
+                "document_type": "cash",
+                "seller_id": allocation.sheet_id.seller_id.id,
+                "sheet_id": allocation.sheet_id.id,
+                "company_id": allocation.company_id.id,
+                "amount": 100.0,
+            }
+        )
+        allocation.write({"voucher_ids": [Command.link(cash.id)]})
+        receipt = self.env["collection.receipt"].create(
+            {"allocation_id": allocation.id, "document_kind": "invoice"}
+        )
+        self._enable_seller_deposit_type()
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": allocation.sheet_id.seller_id.id,
+                "sheet_id": allocation.sheet_id.id,
+                "company_id": allocation.company_id.id,
+                "amount": 50.0,
+                "voucher_number": "SD-ALLOC-ACL",
+                "voucher_date": "2026-09-08",
+            }
+        )
+        return allocation, receipt, cash, deposit
+
+    def test_cash_replacement_acl_read_create_no_write_unlink(self):
+        """collection.cash.replacement MUST be 1,0,1,0 for base.group_user."""
+        self._assert_acl("collection.cash.replacement", (1, 0, 1, 0))
+
+    def test_draft_allocation_unlink_cascades_replacements(self):
+        """Draft allocation unlink MUST drop replacement rows and keep vouchers."""
+        allocation, receipt, cash, deposit = self._cash_replacement_records()
+        row = (
+            self.env["collection.cash.replacement"]
+            .with_context(collection_cash_replacement=True)
+            .create(
+                {
+                    "receipt_id": receipt.id,
+                    "cash_voucher_id": cash.id,
+                    "deposit_voucher_id": deposit.id,
+                    "amount": 10.0,
+                    "direction": "replace",
+                    "created_by": self.internal_user.id,
+                    "created_at": "2026-09-01 12:00:00",
+                }
+            )
+        )
+        row_id, cash_id, deposit_id = row.id, cash.id, deposit.id
+        allocation.with_user(self.internal_user).unlink()
+        self.assertFalse(
+            self.env["collection.cash.replacement"].browse(row_id).exists()
+        )
+        leftover_cash = self.env["collection.voucher"].browse(cash_id)
+        leftover_deposit = self.env["collection.voucher"].browse(deposit_id)
+        self.assertTrue(leftover_cash.exists())
+        self.assertTrue(leftover_deposit.exists())
+        self.assertFalse(leftover_cash.allocation_id)
+
     def test_parent_unlink_refused_when_confirmed(self):
         """Confirmed parent unlink MUST be refused; revisions MUST remain."""
         allocation = self._create_allocation()
@@ -407,6 +476,7 @@ class TestCollectionAllocationAcl(TransactionCase):
             "collection.allocation",
             "collection.allocation.line",
             "collection.allocation.revision",
+            "collection.cash.replacement",
         ):
             self._assert_global_company_rule(model_name)
 

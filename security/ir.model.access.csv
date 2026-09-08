@@ -16,3 +16,4 @@ access_collection_allocation_debt_candidate_user,collection.allocation.debt.cand
 access_collection_allocation_revision_user,collection.allocation.revision.user,model_collection_allocation_revision,base.group_user,1,0,1,1
 access_collection_receipt_user,collection.receipt.user,model_collection_receipt,base.group_user,1,1,1,1
 access_collection_receipt_value_user,collection.receipt.value.user,model_collection_receipt_value,base.group_user,1,1,1,1
+access_collection_cash_replacement_user,collection.cash.replacement.user,model_collection_cash_replacement,base.group_user,1,0,1,0

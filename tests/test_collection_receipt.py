@@ -167,9 +167,29 @@ class TestCollectionReceipt(TransactionCase):
         self.assertEqual(invoice_value.voucher_id, voucher)
         self.assertEqual(quotation_value.voucher_id, voucher)
 
-    def test_over_split_zero_duplicate_or_mismatched_allocation_refused(self):
-        """Over-split, amount <= 0, duplicate (receipt, voucher), or mismatch."""
-        allocation, voucher, sheet, partner = self._balanced_allocation(amount=100.0)
+    def test_reverse_relation_lists_values_on_receipt_value_ids(self):
+        """Voucher receipt_value_ids MUST list every value of that voucher."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation(amount=100.0)
+        invoice = self._create_receipt(allocation, "invoice")
+        quotation = self._create_receipt(allocation, "quotation")
+        value_invoice = self._create_value(invoice, voucher, 40.0)
+        value_quotation = self._create_value(quotation, voucher, 60.0)
+        self.assertIn("receipt_value_ids", voucher._fields)
+        self.assertEqual(
+            set(voucher.receipt_value_ids.ids),
+            {value_invoice.id, value_quotation.id},
+        )
+        self.assertEqual(voucher.receipt_value_ids.mapped("amount"), [40.0, 60.0])
+
+    def test_reverse_relation_empty_when_voucher_has_no_values(self):
+        """A voucher with no receipt values MUST have an empty receipt_value_ids."""
+        _allocation, voucher, _sheet, _partner = self._balanced_allocation(amount=100.0)
+        self.assertIn("receipt_value_ids", voucher._fields)
+        self.assertFalse(voucher.receipt_value_ids)
+
+    def test_over_split_on_one_allocation_zero_or_duplicate_refused(self):
+        """Over-split, amount <= 0, or duplicate (receipt, voucher) MUST refuse."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation(amount=100.0)
         invoice = self._create_receipt(allocation, "invoice")
         self._create_value(invoice, voucher, 100.0)
         with self.assertRaises(ValidationError):
@@ -184,19 +204,146 @@ class TestCollectionReceipt(TransactionCase):
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
             with self.env.cr.savepoint():
                 self._create_value(invoice, voucher, 10.0)
+
+    def test_cross_customer_same_sheet_accepted(self):
+        """Values 40 on A and 60 on B of the same sheet MUST persist."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation(amount=100.0)
         other_partner = self._partner("RCPT-CUST-B")
         other_voucher = self._create_voucher(
-            other_partner, sheet, amount=50.0, document_id="RCPT-OTHER-V"
+            other_partner, sheet, amount=50.0, document_id="RCPT-CROSS-B"
         )
         other_alloc = self._create_allocation(
             sheet,
             other_partner,
             vouchers=other_voucher,
-            lines=[self._line_vals(amount_applied=50.0, invoice_balance=50.0)],
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-CROSS-B",
+                )
+            ],
+        )
+        receipt_a = self._create_receipt(allocation, "invoice")
+        receipt_b = self._create_receipt(other_alloc, "invoice")
+        value_a = self._create_value(receipt_a, voucher, 40.0)
+        value_b = self._create_value(receipt_b, voucher, 60.0)
+        self.assertEqual(value_a.amount, 40.0)
+        self.assertEqual(value_b.amount, 60.0)
+        self.assertEqual(value_a.voucher_id, voucher)
+        self.assertEqual(value_b.voucher_id, voucher)
+        self.assertEqual(value_a.receipt_id.sheet_id, sheet)
+        self.assertEqual(value_b.receipt_id.sheet_id, sheet)
+        self.assertNotEqual(
+            value_a.receipt_id.allocation_id, value_b.receipt_id.allocation_id
+        )
+
+    def test_cross_sheet_refused(self):
+        """A value linking a voucher on S1 to a receipt on S2 MUST refuse."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation(amount=100.0)
+        other_seller = create_internal_seller(self.env, login="rcpt-sheet-b")
+        other_sheet = self._create_sheet(seller_id=other_seller.id, force_new=True)
+        other_partner = self._partner("RCPT-SHEET-B")
+        other_voucher = self._create_voucher(
+            other_partner, other_sheet, amount=50.0, document_id="RCPT-SHEET-B-V"
+        )
+        other_alloc = self._create_allocation(
+            other_sheet,
+            other_partner,
+            vouchers=other_voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-SHEET-B",
+                )
+            ],
         )
         other_receipt = self._create_receipt(other_alloc, "invoice")
+        Value = self.env["collection.receipt.value"]
+        before_ids = set(Value.search([]).ids)
         with self.assertRaises(ValidationError):
             self._create_value(other_receipt, voucher, 10.0)
+        self.assertEqual(set(Value.search([]).ids), before_ids)
+        self.assertFalse(Value.search([("voucher_id", "=", voucher.id)]))
+
+    def test_over_cap_across_customers_refused(self):
+        """40 on A + 50 on B + 20 on C MUST refuse because 110 exceeds 100."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation(amount=100.0)
+        partner_b = self._partner("RCPT-CAP-B")
+        partner_c = self._partner("RCPT-CAP-C")
+        voucher_b = self._create_voucher(
+            partner_b, sheet, amount=50.0, document_id="RCPT-CAP-B-V"
+        )
+        voucher_c = self._create_voucher(
+            partner_c, sheet, amount=50.0, document_id="RCPT-CAP-C-V"
+        )
+        alloc_b = self._create_allocation(
+            sheet,
+            partner_b,
+            vouchers=voucher_b,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-CAP-B",
+                )
+            ],
+        )
+        alloc_c = self._create_allocation(
+            sheet,
+            partner_c,
+            vouchers=voucher_c,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-CAP-C",
+                )
+            ],
+        )
+        receipt_a = self._create_receipt(allocation, "invoice")
+        receipt_b = self._create_receipt(alloc_b, "invoice")
+        receipt_c = self._create_receipt(alloc_c, "invoice")
+        first = self._create_value(receipt_a, voucher, 40.0)
+        second = self._create_value(receipt_b, voucher, 50.0)
+        with self.assertRaises(ValidationError):
+            self._create_value(receipt_c, voucher, 20.0)
+        self.assertEqual(first.amount, 40.0)
+        self.assertEqual(second.amount, 50.0)
+        self.assertFalse(
+            self.env["collection.receipt.value"].search(
+                [("receipt_id", "=", receipt_c.id)]
+            )
+        )
+
+    def test_at_cap_allowed(self):
+        """40 on A and 60 on B MUST persist when they sum to the voucher amount."""
+        allocation, voucher, sheet, _partner = self._balanced_allocation(amount=100.0)
+        other_partner = self._partner("RCPT-AT-CAP-B")
+        other_voucher = self._create_voucher(
+            other_partner, sheet, amount=50.0, document_id="RCPT-AT-CAP-B-V"
+        )
+        other_alloc = self._create_allocation(
+            sheet,
+            other_partner,
+            vouchers=other_voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-AT-CAP-B",
+                )
+            ],
+        )
+        receipt_a = self._create_receipt(allocation, "invoice")
+        receipt_b = self._create_receipt(other_alloc, "invoice")
+        value_a = self._create_value(receipt_a, voucher, 40.0)
+        value_b = self._create_value(receipt_b, voucher, 60.0)
+        self.assertEqual(value_a.amount, 40.0)
+        self.assertEqual(value_b.amount, 60.0)
+        self.assertEqual(value_a.voucher_id, voucher)
+        self.assertEqual(value_b.voucher_id, voucher)
 
     def test_derived_applications_from_applied_same_kind_lines(self):
         """Invoice receipt apps MUST be same-kind lines with amount_applied > 0."""
@@ -256,6 +403,62 @@ class TestCollectionReceipt(TransactionCase):
         self.assertEqual(receipt.total_values, 100.0)
         self.assertEqual(receipt.total_applied, 70.0)
         self.assertEqual(receipt.amount_on_account, 30.0)
+
+    def test_existing_applied_write_recomputes(self):
+        """Writing an existing line amount_applied MUST recompute without SQL error."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation(
+            amount=100.0,
+            lines=[
+                self._line_vals(
+                    amount_applied=70.0,
+                    invoice_balance=100.0,
+                    external_invoice_id="INV-REWRITE",
+                )
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        self.assertEqual(receipt.total_values, 100.0)
+        self.assertEqual(receipt.total_applied, 70.0)
+        self.assertEqual(receipt.amount_on_account, 30.0)
+        line = allocation.line_ids.filtered(
+            lambda rec: rec.external_invoice_id == "INV-REWRITE"
+        )
+        self.assertEqual(len(line), 1)
+        line.write({"amount_applied": 40.0})
+        receipt.invalidate_recordset(
+            ["total_applied", "total_values", "amount_on_account", "line_ids"]
+        )
+        self.assertEqual(receipt.total_values, 100.0)
+        self.assertEqual(receipt.total_applied, 40.0)
+        self.assertEqual(receipt.amount_on_account, 60.0)
+
+    def test_existing_applied_write_to_zero_drops_from_totals(self):
+        """Triangulation: writing amount_applied to 0 MUST drop the line from totals."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation(
+            amount=100.0,
+            lines=[
+                self._line_vals(
+                    amount_applied=70.0,
+                    invoice_balance=100.0,
+                    external_invoice_id="INV-ZERO-APPLIED",
+                )
+            ],
+        )
+        receipt = self._create_receipt(allocation, "invoice")
+        self._create_value(receipt, voucher, 100.0)
+        line = allocation.line_ids.filtered(
+            lambda rec: rec.external_invoice_id == "INV-ZERO-APPLIED"
+        )
+        self.assertEqual(len(line), 1)
+        line.write({"amount_applied": 0.0})
+        receipt.invalidate_recordset(
+            ["total_applied", "total_values", "amount_on_account", "line_ids"]
+        )
+        self.assertEqual(receipt.total_values, 100.0)
+        self.assertEqual(receipt.total_applied, 0.0)
+        self.assertEqual(receipt.amount_on_account, 100.0)
+        self.assertFalse(receipt.line_ids)
 
     def test_equal_totals_amount_on_account_zero(self):
         """Triangulation: values 50 and applied 50 MUST persist with on-account 0."""

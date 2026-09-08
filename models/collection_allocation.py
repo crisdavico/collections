@@ -373,6 +373,19 @@ class CollectionAllocation(models.Model):
         if isinstance(self.id, bool) or not isinstance(self.id, int) or self.id <= 0:
             raise UserError(_("This action requires a saved collection allocation."))
 
+    @api.private
+    def _receipt_get_or_create(self, document_kind):
+        """Return the receipt of ``document_kind``, creating it when missing."""
+        self.ensure_one()
+        receipt = self.receipt_ids.filtered(
+            lambda row, kind=document_kind: row.document_kind == kind
+        )[:1]
+        if receipt:
+            return receipt
+        return self.env["collection.receipt"].create(
+            {"allocation_id": self.id, "document_kind": document_kind}
+        )
+
     def action_open_debt_picker(self):
         self.ensure_one()
         self._ensure_writable_debt_picker()

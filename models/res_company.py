@@ -15,6 +15,7 @@ COLLECTION_SEQUENCE_SPECS = (
     ("collection.sheet", "Collection Sheet", "CS/%(year)s/", 4),
     ("collection.allocation", "Collection Allocation", "CA/%(year)s/", 4),
 )
+# Follow DOCUMENT_TYPE_CODES so catalog unions include every Selection code.
 COLLECTION_TYPE_CODES = DOCUMENT_TYPE_CODES
 
 
@@ -328,6 +329,71 @@ class ResCompany(models.Model):
         return bool(self.env.company.document_review_enabled)
 
     @api.model
+    @api.private
+    def _seller_deposit_partner(self):
+        """Return the seeded remittance sentinel partner."""
+        return self.env.ref("collection.partner_seller_deposit")
+
+    @api.model
+    def _collection_ensure_seller_deposit_partner(self):
+        """Seed XMLID collection.partner_seller_deposit (noupdate)."""
+        existing = self.env.ref(
+            "collection.partner_seller_deposit", raise_if_not_found=False
+        )
+        if existing:
+            return True
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        vals = {"name": "Seller Deposit", "company_id": False}
+        if "autopost_bills" in Partner._fields:
+            vals["autopost_bills"] = "ask"
+            partner = Partner.create(vals)
+        else:
+            self.env.cr.execute(
+                """
+                SELECT 1
+                  FROM information_schema.columns
+                 WHERE table_name = 'res_partner'
+                   AND column_name = 'autopost_bills'
+                """
+            )
+            if self.env.cr.fetchone():
+                self.env.cr.execute(
+                    """
+                    INSERT INTO res_partner (
+                        name, active, complete_name, type, is_company,
+                        company_id, autopost_bills, create_uid, write_uid,
+                        create_date, write_date
+                    )
+                    VALUES (
+                        %s, true, %s, 'contact', false, NULL, 'ask',
+                        1, 1,
+                        (now() AT TIME ZONE 'UTC'),
+                        (now() AT TIME ZONE 'UTC')
+                    )
+                    RETURNING id
+                    """,
+                    ("Seller Deposit", "Seller Deposit"),
+                )
+                partner = Partner.browse(self.env.cr.fetchone()[0])
+            else:
+                partner = Partner.create(vals)
+        self.env["ir.model.data"].create(
+            {
+                "name": "partner_seller_deposit",
+                "module": "collection",
+                "model": "res.partner",
+                "res_id": partner.id,
+                "noupdate": True,
+            }
+        )
+        return True
+
+    @api.model
     def _collection_seed_allowed_document_types(self):
         """Enable all catalog types on companies that have none yet."""
         types = self.env["collection.document.type"].search([])
@@ -346,7 +412,7 @@ class ResCompany(models.Model):
 
     @api.private
     def _collection_enable_all_document_types(self):
-        """Union all seven catalog types onto each company; keep extras."""
+        """Union all catalog types onto each company; keep extras."""
         types = self._collection_catalog_types()
         if not types or not self:
             return True

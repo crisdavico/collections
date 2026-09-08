@@ -111,6 +111,7 @@ class TestCollectionUi(TransactionCase):
         "check",
         "cash_deposit",
         "unsupported",
+        "seller_deposit",
     )
     ATTACHMENT_ACCEPT = "image/*,.pdf"
 
@@ -803,6 +804,38 @@ class TestCollectionUi(TransactionCase):
                     nodes[0], "bank_transfer", layered
                 )
 
+    def test_form_seller_deposit_number_and_date_visible(self):
+        """voucher_number and voucher_date MUST be visible for seller_deposit."""
+        form_root = self._arch_root("collection.view_collection_voucher_form")
+        current = self._notebook_page(form_root, NOTEBOOK_CURRENT)
+        for field_name in CASH_DEPOSIT_KEYS:
+            nodes = current.xpath(f'.//field[@name="{field_name}"]')
+            self.assertTrue(
+                nodes,
+                f"Current page must declare stored {field_name}",
+            )
+            self._assert_invisible_for_document_type(
+                nodes[0], "seller_deposit", field_name
+            )
+        for page_string, prefix, type_field in PROVENANCE_LAYERS:
+            page = self._notebook_page(form_root, page_string)
+            for field_name in CASH_DEPOSIT_KEYS:
+                layered = f"{prefix}{field_name}"
+                nodes = page.xpath(f'.//field[@name="{layered}"]')
+                self.assertTrue(
+                    nodes,
+                    f"{page_string} must declare stored {layered}",
+                )
+                invisible = nodes[0].get("invisible") or ""
+                self.assertIn(
+                    type_field,
+                    invisible,
+                    f"{layered} invisible= must use {type_field}",
+                )
+                self._assert_invisible_for_document_type(
+                    nodes[0], "seller_deposit", layered
+                )
+
     def test_form_has_no_history_page(self):
         """History page and review_snapshot_ids MUST be gone from the form."""
         form_root = self._arch_root("collection.view_collection_voucher_form")
@@ -1151,8 +1184,10 @@ class TestCollectionUi(TransactionCase):
         self.assertTrue(percent and cash and withheld, "form must show recon inputs")
         self.assertIn("closed", percent[0].get("readonly") or "")
         self.assertIn("cancelled", percent[0].get("readonly") or "")
-        self.assertIn("open", cash[0].get("readonly") or "")
-        self.assertIn("open", withheld[0].get("readonly") or "")
+        self.assertIn("submitted", cash[0].get("readonly") or "")
+        self.assertIn("submitted", withheld[0].get("readonly") or "")
+        self.assertNotIn("open", cash[0].get("readonly") or "")
+        self.assertNotIn("open", withheld[0].get("readonly") or "")
         self.assertNotIn(
             "received_date",
             etree.tostring(form_root, encoding="unicode"),

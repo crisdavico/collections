@@ -304,15 +304,47 @@ class TestCollectionMcpSheetPdf(TransactionCase):
         self._assert_null(result)
         self.assertEqual(calls, [])
 
-    def test_submitted_sheet_returns_null(self):
-        """A submitted sheet is not open; the tool returns {sheet: null}."""
+    def test_submitted_sheet_returns_base64_pdf(self):
+        """A submitted sheet MUST come back as a base64 PDF when no open sheet."""
         sheet = self._create_sheet()
         self._populate(sheet, partner_name="Cliente Submitted")
         self._drive_sheet(sheet, "submitted")
         self.assertEqual(sheet.state, "submitted")
         result, calls = self._call_with_stub_render()
-        self._assert_null(result)
-        self.assertEqual(calls, [])
+        self.assertEqual(result["sheet"]["id"], sheet.id)
+        self.assertEqual(result["sheet"]["state"], "submitted")
+        self.assertEqual(result["mimetype"], "application/pdf")
+        self.assertEqual(
+            base64.b64decode(result["content_base64"], validate=True), FAKE_PDF
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["res_ids"], sheet.ids)
+
+    def test_open_preferred_over_submitted(self):
+        """When both open and submitted exist, the open sheet MUST be printed."""
+        submitted = self._create_sheet()
+        self._populate(submitted, partner_name="Cliente Rendida")
+        self._drive_sheet(submitted, "submitted")
+        current = self._create_sheet()
+        self._populate(current, partner_name="Cliente Abierta")
+        result, calls = self._call_with_stub_render()
+        self.assertEqual(result["sheet"]["id"], current.id)
+        self.assertEqual(result["sheet"]["state"], "open")
+        self.assertEqual(calls[0]["res_ids"], current.ids)
+
+    def test_more_than_one_submitted_fails_closed(self):
+        """Zero open and two submitted sheets MUST raise and MUST NOT return a PDF."""
+        first = self._create_sheet()
+        first.action_seller_close()
+        second = self._create_sheet()
+        second.action_seller_close()
+        with self.assertRaises(UserError) as ctx:
+            result, calls = self._call_with_stub_render()
+            self.assertEqual(calls, [])
+            self.assertNotIn(
+                "content_base64", result if isinstance(result, dict) else {}
+            )
+        self.assertIn(MULTI_OPEN_MSG, str(ctx.exception))
 
     # ------------------------------------------------------------------
     # Happy path

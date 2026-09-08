@@ -381,6 +381,62 @@
                     <h3>Conciliación</h3>
                     <table class="o_cs_recon">
                         <tr>
+                            <th>Efectivo en Caja</th>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['tendered']['cash']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
+                            <th>Depósitos</th>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['tendered']['deposits']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
+                            <th>Cheques</th>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['tendered']['checks']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Transferencias</th>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['tendered']['transfers']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
+                            <th>Echeqs</th>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['tendered']['echecks']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
+                            <th>Retenciones</th>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['tendered']['retentions']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Depósitos vendedor</th>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['tendered']['seller_deposits']"
+                  t-options='{"widget": "monetary", "display_currency": payload["currency"]}'
+                />
+                            </td>
+                            <td class="o_cs_blank" colspan="4" />
+                        </tr>
+                        <tr>
                             <th class="o_cs_num">Cobrado</th>
                             <td class="o_cs_num">
                                 <span

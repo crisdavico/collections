@@ -7,6 +7,13 @@ from odoo.tools.translate import _
 
 from .collection_common import DOCUMENT_KIND_SELECTION, raise_if_sheet_frozen
 
+_APPLIED_DEPENDS = (
+    "document_kind",
+    "allocation_id.line_ids.document_kind",
+    "allocation_id.line_ids.amount_applied",
+)
+_VALUES_DEPENDS = ("value_ids.amount",)
+
 
 class CollectionReceipt(models.Model):
     _name = "collection.receipt"
@@ -59,14 +66,17 @@ class CollectionReceipt(models.Model):
     total_values = fields.Monetary(
         compute="_compute_totals",
         currency_field="currency_id",
+        depends=_VALUES_DEPENDS,
     )
     total_applied = fields.Monetary(
         compute="_compute_totals",
         currency_field="currency_id",
+        depends=_APPLIED_DEPENDS,
     )
     amount_on_account = fields.Monetary(
         compute="_compute_totals",
         currency_field="currency_id",
+        depends=_VALUES_DEPENDS + _APPLIED_DEPENDS,
     )
     external_receipt_id = fields.Char(index=True, copy=False)
     state = fields.Selection(

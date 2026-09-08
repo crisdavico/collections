@@ -41,6 +41,9 @@ BANNER_FILLS = {
     "outstanding": "FFC7CE",
 }
 SHEET_FORM_XML = Path(__file__).resolve().parents[1] / "views" / "collection_views.xml"
+QWEB_TEMPLATE = (
+    Path(__file__).resolve().parents[1] / "report" / "collection_sheet_templates.xml"
+)
 XLSX_SOURCE = (
     Path(__file__).resolve().parents[1] / "report" / "collection_sheet_xlsx.py"
 )
@@ -122,6 +125,29 @@ class TestCollectionSheetXlsx(TransactionCase):
             "sheet_id": sheet.id,
             "company_id": sheet.company_id.id,
             "amount": amount,
+        }
+        vals.update(extra)
+        return self.env["collection.voucher"].create(vals)
+
+    def _enable_seller_deposit_type(self, company=None):
+        catalog = self.env.ref("collection.document_type_seller_deposit")
+        (company or self.env.company).write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def _create_seller_deposit(self, sheet, amount=80.0, **extra):
+        self._enable_seller_deposit_type(company=sheet.company_id)
+        ensure_enabled_seller(self.env, sheet.seller_id, company=sheet.company_id)
+        vals = {
+            "document_type": "seller_deposit",
+            "document_id": extra.pop("document_id", self._next_document_id("SD")),
+            "seller_id": sheet.seller_id.id,
+            "sheet_id": sheet.id,
+            "company_id": sheet.company_id.id,
+            "amount": amount,
+            "voucher_number": extra.pop("voucher_number", "SD-1"),
+            "voucher_date": extra.pop("voucher_date", date(2026, 9, 8)),
         }
         vals.update(extra)
         return self.env["collection.voucher"].create(vals)
@@ -436,6 +462,52 @@ class TestCollectionSheetXlsx(TransactionCase):
                 f"{status} fill {rgb} must include {BANNER_FILLS[status]}",
             )
 
+    def test_xlsx_tendered_shows_echecks_retentions_seller_deposits(self):
+        """XLSX recon header MUST show the new tendered buckets and amounts."""
+        seller = create_internal_seller(self.env, "xlsx_tendered_buckets")
+        ensure_enabled_seller(self.env, seller)
+        sheet, partner = self._populated_sheet(
+            seller=seller,
+            partner_name="Tendered Buckets SA",
+            document_type="bank_transfer",
+            amount=100.0,
+        )
+        echeck = self._create_voucher(
+            partner, sheet, amount=30.0, document_type="echeck"
+        )
+        retention = self._create_voucher(
+            partner, sheet, amount=12.0, document_type="retention_certificate"
+        )
+        remittance = self._create_seller_deposit(sheet, amount=80.0)
+        content, payload = self._render_xlsx(sheet)
+        tendered = payload["tendered"]
+        self.assertEqual(tendered["echecks"], echeck.amount)
+        self.assertEqual(tendered["retentions"], retention.amount)
+        self.assertEqual(tendered["seller_deposits"], remittance.amount)
+        worksheet = self._load(content).active
+        cached = self._load(content, data_only=True).active
+        for header, amount in (
+            ("Echeqs", echeck.amount),
+            ("Retenciones", retention.amount),
+            ("Depósitos vendedor", remittance.amount),
+            ("Efectivo en Caja", tendered["cash"]),
+            ("Transferencias", tendered["transfers"]),
+        ):
+            title = self._cell_with_value(worksheet, header)
+            self.assertIsNotNone(title, f"missing XLSX header {header!r}")
+            below = cached.cell(title.row + 1, title.column)
+            self.assertAlmostEqual(float(below.value), amount, places=2, msg=header)
+
+    def test_qweb_recon_shows_new_tendered_buckets(self):
+        """QWeb recon table MUST t-out echecks, retentions, and seller_deposits."""
+        self.assertTrue(QWEB_TEMPLATE.is_file(), QWEB_TEMPLATE)
+        arch = QWEB_TEMPLATE.read_text(encoding="utf-8")
+        for key in ("echecks", "retentions", "seller_deposits"):
+            self.assertIn(f"payload['tendered']['{key}']", arch, key)
+        self.assertIn("Echeqs", arch)
+        self.assertIn("Retenciones", arch)
+        self.assertIn("Depósitos vendedor", arch)
+
     def test_action_print_xlsx_act_url_and_attachment(self):
         """action_print_xlsx MUST return act_url download and one xlsx attachment."""
         sheet, _partner = self._populated_sheet()
@@ -462,9 +534,14 @@ class TestCollectionSheetXlsx(TransactionCase):
             sheet.voucher_ids.with_context(collection_audited_state=True).write(
                 {"state": "validated_collections"}
             )
+
+        def _seller_close_and_declare():
+            sheet.action_seller_close()
+            sheet.action_declare_cash(cash_on_hand=12.5, commission_withheld=1.25)
+
         advances = (
             ("open", lambda: None),
-            ("submitted", sheet.action_seller_close),
+            ("submitted", _seller_close_and_declare),
             ("proposal", sheet.action_confirm),
             ("closed", sheet.action_close),
             ("cancelled", sheet.action_cancel),

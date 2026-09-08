@@ -358,8 +358,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(check.check_type, "common")
         self.assertEqual(check.check_number, "CHK-COMMON")
 
-    def test_document_type_selection_includes_seven_codes(self):
-        """Voucher Selection MUST include echeck, cash, and retention_certificate."""
+    def test_document_type_selection_includes_eight_codes(self):
+        """Voucher Selection MUST include seller_deposit as the eighth catalog code."""
         keys = {
             key
             for key, _label in self.env["collection.voucher"]._DOCUMENT_TYPE_SELECTION
@@ -374,6 +374,7 @@ class TestCollectionVoucher(TransactionCase):
                 "echeck",
                 "cash",
                 "retention_certificate",
+                "seller_deposit",
             },
         )
         self.assertIn("retention_kind", self.env["collection.voucher"]._fields)
@@ -427,6 +428,87 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(retention.document_type, "retention_certificate")
         self.assertEqual(retention.retention_kind, "iva")
         self.assertEqual(retention.voucher_number, "RET-1")
+
+    def test_persist_seller_deposit(self):
+        """seller_deposit MUST persist amount, voucher_number, and voucher_date."""
+        self._enable_seller_deposit_type()
+        voucher = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": self._ensure_enabled_seller().id,
+                "amount": 500.0,
+                "voucher_number": "SD-1",
+                "voucher_date": date(2026, 9, 8),
+            }
+        )
+        self.assertEqual(voucher.document_type, "seller_deposit")
+        self.assertAlmostEqual(voucher.amount, 500.0, places=2)
+        self.assertEqual(voucher.voucher_number, "SD-1")
+        self.assertEqual(voucher.voucher_date, date(2026, 9, 8))
+        self.assertEqual(
+            voucher.partner_id,
+            self.env.ref("collection.partner_seller_deposit"),
+        )
+
+    def _enable_seller_deposit_type(self):
+        catalog = self.env.ref("collection.document_type_seller_deposit")
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def test_seller_deposit_stamps_sentinel_partner(self):
+        """NEW seller_deposit create MUST stamp the seeded sentinel partner."""
+        self._enable_seller_deposit_type()
+        seller = self._ensure_enabled_seller()
+        voucher = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": seller.id,
+                "amount": 100.0,
+                "voucher_number": "SD-SENT",
+                "voucher_date": date(2026, 9, 8),
+            }
+        )
+        sentinel = self.env.ref("collection.partner_seller_deposit")
+        self.assertEqual(voucher.partner_id, sentinel)
+        self.assertTrue(voucher.partner_id)
+        self.assertTrue(sentinel.id)
+
+    def test_seller_deposit_refuses_customer_partner(self):
+        """ORM seller_deposit MUST refuse a customer partner with no write."""
+        self._enable_seller_deposit_type()
+        seller = self._ensure_enabled_seller()
+        customer = dummy_customer_partner(self.env, customer="CUST-SD-REFUSE")
+        Voucher = self.env["collection.voucher"]
+        before_ids = set(Voucher.search([]).ids)
+        with self.assertRaises(UserError):
+            Voucher.create(
+                {
+                    "document_type": "seller_deposit",
+                    "seller_id": seller.id,
+                    "partner_id": customer.id,
+                    "amount": 100.0,
+                    "voucher_number": "SD-BAD",
+                    "voucher_date": date(2026, 9, 8),
+                }
+            )
+        self.assertEqual(set(Voucher.search([]).ids), before_ids)
+
+    def test_seller_deposit_refuses_customer_identification(self):
+        """Triangulation: dummy customer identification MUST also refuse."""
+        self._enable_seller_deposit_type()
+        Voucher = self.env["collection.voucher"]
+        before_ids = set(Voucher.search([]).ids)
+        with self.assertRaises(UserError):
+            self._create_voucher(
+                customer_identification="CUST-SD-IDENT",
+                document_type="seller_deposit",
+                amount=80.0,
+                voucher_number="SD-IDENT",
+                voucher_date=date(2026, 9, 8),
+            )
+        self.assertEqual(set(Voucher.search([]).ids), before_ids)
 
     def test_cash_persists_without_proof(self):
         """Triangulation: cash with amount and no designated proof MUST persist."""

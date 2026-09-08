@@ -8,6 +8,7 @@ from odoo.tools.translate import _
 
 from .collection_common import (
     ADMIN_EDITABLE_SHEET_STATES,
+    SELLER_DECLARATION_STATES,
     SELLER_SHEET_STATES,
     record_id,
     sanitize_voucher_commands,
@@ -114,6 +115,16 @@ class CollectionSheet(models.Model):
                 ("seller_id", "=", record_id(seller)),
                 ("company_id", "=", record_id(company)),
                 ("state", "in", list(SELLER_SHEET_STATES)),
+            ]
+        )
+
+    @api.private
+    def _submitted_sheets_for_seller(self, seller, company):
+        return self.search(
+            [
+                ("seller_id", "=", record_id(seller)),
+                ("company_id", "=", record_id(company)),
+                ("state", "in", list(SELLER_DECLARATION_STATES)),
             ]
         )
 
@@ -234,12 +245,15 @@ class CollectionSheet(models.Model):
                     _("Only open collection sheets can be closed by the seller.")
                 )
         self._raise_if_draft_vouchers_block_seller_close()
-        vals = {"state": "submitted"}
-        if cash_on_hand is not None:
-            vals["cash_on_hand"] = cash_on_hand
-        if commission_withheld is not None:
-            vals["commission_withheld"] = commission_withheld
-        return self.with_context(collection_sheet_audited_state=True).write(vals)
+        return self.with_context(collection_sheet_audited_state=True).write(
+            {"state": "submitted"}
+        )
+
+    @api.private
+    def _cash_collected_total(self):
+        """Return SUM of cash voucher amounts on this sheet (company currency)."""
+        self.ensure_one()
+        return self.cash_collected or 0.0
 
     @api.private
     def _raise_if_draft_vouchers_block_seller_close(self):
@@ -250,6 +264,18 @@ class CollectionSheet(models.Model):
             return
         names = ", ".join(drafts.mapped("name"))
         raise UserError(_("Seller Close cannot include draft vouchers: %s", names))
+
+    def action_declare_cash(self, cash_on_hand, commission_withheld):
+        if any(sheet.state not in SELLER_DECLARATION_STATES for sheet in self):
+            raise UserError(_("Only submitted collection sheets can declare cash."))
+        return self.write(
+            {
+                "cash_on_hand": cash_on_hand,
+                "commission_withheld": commission_withheld,
+                "cash_declared_at": fields.Datetime.now(),
+                "cash_declared_by": self.env.user.id,
+            }
+        )
 
     @api.private
     def _dispatch_submitted_state_write(self):
@@ -276,6 +302,18 @@ class CollectionSheet(models.Model):
                     _(
                         "Confirm requires every member voucher to be validated "
                         "by collections."
+                    )
+                )
+            collected = sheet._cash_collected_total()
+            currency = sheet.company_id.currency_id
+            if (
+                currency.compare_amounts(collected, 0.0) > 0
+                and not sheet.cash_declared_at
+            ):
+                raise UserError(
+                    _(
+                        "Confirm requires Declare Cash when the sheet has "
+                        "collected cash."
                     )
                 )
         return self.with_context(collection_sheet_audited_state=True).write(
