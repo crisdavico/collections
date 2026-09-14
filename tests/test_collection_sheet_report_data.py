@@ -58,6 +58,8 @@ _PRIVATE_HELPERS = (
     "_collection_report_voucher_blocks",
     "_collection_report_voucher_row",
     "_collection_report_recon",
+    "_seller_commission_rates",
+    "_prepare_seller_commission_percent",
 )
 _RECON_FIELDS = ("commission_percent", "cash_on_hand", "commission_withheld")
 
@@ -208,15 +210,20 @@ class TestCollectionSheetReportData(TransactionCase):
         return advance_sheet_to(sheet, target)
 
     def _assert_seller_declaration_write_refused(self, sheet):
-        before = {name: sheet[name] for name in ("cash_on_hand", "commission_withheld")}
-        for field_name, value in (
-            ("cash_on_hand", 99.0),
-            ("commission_withheld", 99.0),
-        ):
-            with self.assertRaises(UserError):
-                sheet.write({field_name: value})
-            sheet.invalidate_recordset(_RECON_FIELDS)
-            self.assertEqual(sheet[field_name], before[field_name], field_name)
+        before = sheet.commission_withheld
+        with self.assertRaises(UserError):
+            sheet.write({"commission_withheld": 99.0})
+        sheet.invalidate_recordset(_RECON_FIELDS)
+        self.assertEqual(sheet.commission_withheld, before)
+
+    def _assert_cash_on_hand_write_refused(self, sheet):
+        """cash_on_hand is computed: a raw write MUST refuse in every state."""
+        before = sheet.cash_on_hand
+        with self.assertRaises(UserError) as error:
+            sheet.write({"cash_on_hand": 99.0})
+        self.assertIn("computed", str(error.exception))
+        sheet.invalidate_recordset(_RECON_FIELDS)
+        self.assertEqual(sheet.cash_on_hand, before)
 
     def _assert_admin_rate_write_refused(self, sheet):
         before = sheet.commission_percent
@@ -231,6 +238,7 @@ class TestCollectionSheetReportData(TransactionCase):
 
     def _assert_recon_write_refused(self, sheet):
         self._assert_seller_declaration_write_refused(sheet)
+        self._assert_cash_on_hand_write_refused(sheet)
         self._assert_admin_rate_write_refused(sheet)
 
     def _assert_nested_primitives(self, value, path="payload"):
@@ -253,6 +261,94 @@ class TestCollectionSheetReportData(TransactionCase):
             _PRIMITIVES,
             f"{path}={value!r} MUST be a primitive, not {type(value)!r}",
         )
+
+    def _seller_binding(self, seller=None, connector=None):
+        return self.env["collection.connector.seller.binding"].search(
+            [
+                ("connector_id", "=", (connector or self.connector).id),
+                ("user_id", "=", (seller or self.seller).id),
+            ],
+            limit=1,
+        )
+
+    def test_create_seeds_commission_percent_from_seller_binding(self):
+        """New sheets MUST copy the seller connector binding commission percent."""
+        self._seller_binding().write({"commission_percent": 7.5})
+        sheet = self._create_sheet(force_new=True)
+        self.assertEqual(sheet.commission_percent, 7.5)
+
+    def test_seeded_commission_percent_stays_editable(self):
+        """The seeded rate MUST remain a plain editable value, not a compute."""
+        self._seller_binding().write({"commission_percent": 7.5})
+        sheet = self._create_sheet(force_new=True)
+        sheet.write({"commission_percent": 3.0})
+        sheet.invalidate_recordset(["commission_percent"])
+        self.assertEqual(sheet.commission_percent, 3.0)
+
+    def test_explicit_commission_percent_on_create_wins(self):
+        """A non-zero percent in create vals MUST NOT be replaced by the binding."""
+        self._seller_binding().write({"commission_percent": 7.5})
+        sheet = self._create_sheet(force_new=True, commission_percent=2.5)
+        self.assertEqual(sheet.commission_percent, 2.5)
+
+    def test_binding_rate_change_leaves_existing_sheet_alone(self):
+        """Re-import MUST NOT rewrite the create-time snapshot on an open sheet."""
+        binding = self._seller_binding()
+        binding.write({"commission_percent": 7.5})
+        sheet = self._create_sheet(force_new=True)
+        sheet.write({"commission_percent": 3.0})
+        binding.write({"commission_percent": 9.0})
+        sheet.invalidate_recordset(["commission_percent"])
+        self.assertEqual(sheet.commission_percent, 3.0)
+
+    def test_create_without_seller_binding_seeds_zero(self):
+        """A seller with no binding MUST create at 0.0 without raising."""
+        other = create_internal_seller(self.env, "rpt-unbound-seller")
+        ensure_enabled_seller(self.env, other)
+        self.assertFalse(self._seller_binding(seller=other))
+        sheet = self._create_sheet(seller=other, force_new=True)
+        self.assertEqual(sheet.commission_percent, 0.0)
+
+    def test_create_without_active_connector_seeds_zero(self):
+        """No company connector MUST create at 0.0 without raising."""
+        self._seller_binding().write({"commission_percent": 7.5})
+        self.env.company.write({"collection_connector_id": False})
+        sheet = self._create_sheet(force_new=True)
+        self.assertEqual(sheet.commission_percent, 0.0)
+
+    def test_create_with_archived_connector_seeds_zero(self):
+        """Triangulation: an archived connector MUST create at 0.0."""
+        self._seller_binding().write({"commission_percent": 7.5})
+        self.connector.write({"active": False})
+        sheet = self._create_sheet(force_new=True)
+        self.assertEqual(sheet.commission_percent, 0.0)
+
+    def test_auto_created_sheet_seeds_commission_percent(self):
+        """The voucher auto-create path MUST seed the rate too."""
+        self._seller_binding().write({"commission_percent": 5.0})
+        self.env.company.write({"auto_create_sheet": True})
+        partner = dummy_customer_partner(self.env, customer="RPT-AUTO-RATE")
+        voucher = self.env["collection.voucher"].create(
+            {
+                "partner_id": partner.id,
+                "document_type": "bank_transfer",
+                "document_id": self._next_document_id("AUTO"),
+                "seller_id": self.seller.id,
+                "company_id": self.env.company.id,
+                "amount": 100.0,
+            }
+        )
+        self.assertTrue(voucher.sheet_id)
+        self.assertEqual(voucher.sheet_id.commission_percent, 5.0)
+
+    def test_onchange_seller_fills_commission_percent(self):
+        """Picking the seller on a new sheet MUST show the rate before saving."""
+        self._seller_binding().write({"commission_percent": 7.5})
+        draft = self.env["collection.sheet"].new(
+            {"company_id": self.env.company.id, "seller_id": self.seller.id}
+        )
+        draft._onchange_seller_commission_percent()
+        self.assertEqual(draft.commission_percent, 7.5)
 
     def test_percent_range_persists_bounds(self):
         """Open sheet MUST persist commission_percent 0 and 100."""
@@ -279,13 +375,7 @@ class TestCollectionSheetReportData(TransactionCase):
         allocation, _voucher, sheet, _partner = self._balanced()
         self._mark_validated_collections(sheet.voucher_ids)
         sheet.action_seller_close()
-        sheet.write(
-            {
-                "commission_percent": 8.0,
-                "cash_on_hand": 25.0,
-                "commission_withheld": 3.0,
-            }
-        )
+        sheet.write({"commission_percent": 8.0, "commission_withheld": 3.0})
         sheet.action_confirm()
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
@@ -297,13 +387,7 @@ class TestCollectionSheetReportData(TransactionCase):
         _allocation, _voucher, sheet, _partner = self._balanced()
         self._mark_validated_collections(sheet.voucher_ids)
         sheet.action_seller_close()
-        sheet.write(
-            {
-                "commission_percent": 8.0,
-                "cash_on_hand": 25.0,
-                "commission_withheld": 3.0,
-            }
-        )
+        sheet.write({"commission_percent": 8.0, "commission_withheld": 3.0})
         self._drive_sheet(sheet, "cancelled")
         self.assertEqual(sheet.state, "cancelled")
         self._assert_recon_write_refused(sheet)
@@ -319,24 +403,28 @@ class TestCollectionSheetReportData(TransactionCase):
         self._assert_seller_declaration_write_refused(sheet)
 
     def test_submitted_accepts_seller_declarations(self):
-        """Submitted MUST persist seller decls; commission_percent MAY persist."""
-        _allocation, _voucher, sheet, _partner = self._balanced()
+        """Submitted MUST persist withheld; cash_on_hand MUST follow by compute."""
+        _allocation, _voucher, sheet, _partner = self._balanced(
+            amount=28.0, voucher_extra={"document_type": "cash"}
+        )
         force_sheet_state(sheet, "submitted")
         self.assertEqual(sheet.state, "submitted")
         sheet.write({"commission_percent": 6.5})
-        sheet.write({"cash_on_hand": 25.0, "commission_withheld": 3.0})
+        sheet.write({"commission_withheld": 3.0})
         sheet.invalidate_recordset(_RECON_FIELDS)
         self.assertEqual(sheet.commission_percent, 6.5)
-        self.assertEqual(sheet.cash_on_hand, 25.0)
         self.assertEqual(sheet.commission_withheld, 3.0)
+        self.assertEqual(sheet.cash_on_hand, 25.0)
+        self._assert_cash_on_hand_write_refused(sheet)
 
     def test_open_freezes_seller_declarations(self):
-        """Open sheets MUST refuse seller-declared cash_on_hand and withheld."""
+        """Open sheets MUST refuse the seller-declared withheld commission."""
         sheet = self._create_sheet(force_new=True)
         self.assertEqual(sheet.state, "open")
         sheet.write({"commission_percent": 4.0})
         self.assertEqual(sheet.commission_percent, 4.0)
         self._assert_seller_declaration_write_refused(sheet)
+        self._assert_cash_on_hand_write_refused(sheet)
 
     def test_raw_combined_declaration_and_submitted_write_refused(self):
         """Raw decls plus state submitted MUST refuse: decls require submitted first."""
@@ -345,13 +433,7 @@ class TestCollectionSheetReportData(TransactionCase):
         before_cash = sheet.cash_on_hand
         before_withheld = sheet.commission_withheld
         with self.assertRaises(UserError) as error:
-            sheet.write(
-                {
-                    "cash_on_hand": 25.0,
-                    "commission_withheld": 3.0,
-                    "state": "submitted",
-                }
-            )
+            sheet.write({"commission_withheld": 3.0, "state": "submitted"})
         self.assertIn("submitted collection sheet", str(error.exception))
         sheet.invalidate_recordset(["state", "cash_on_hand", "commission_withheld"])
         self.assertEqual(sheet.state, "open")
@@ -360,22 +442,19 @@ class TestCollectionSheetReportData(TransactionCase):
 
     def test_open_from_cancelled_keeps_recon_values(self):
         """Confirm then Cancel then Reinstate MUST keep stored recon inputs."""
-        _allocation, _voucher, sheet, _partner = self._balanced()
+        _allocation, _voucher, sheet, _partner = self._balanced(
+            amount=45.5, voucher_extra={"document_type": "cash"}
+        )
         self._mark_validated_collections(sheet.voucher_ids)
         sheet.action_seller_close()
-        sheet.write(
-            {
-                "commission_percent": 12.5,
-                "cash_on_hand": 40.0,
-                "commission_withheld": 5.5,
-            }
-        )
+        sheet.write({"commission_percent": 12.5})
+        sheet.action_declare_cash(commission_withheld=5.5)
         self._drive_sheet(sheet, "cancelled")
         sheet.action_reinstate()
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.commission_percent, 12.5)
-        self.assertEqual(sheet.cash_on_hand, 40.0)
         self.assertEqual(sheet.commission_withheld, 5.5)
+        self.assertEqual(sheet.cash_on_hand, 40.0)
 
     def test_payload_in_all_five_states(self):
         """PDF payload MUST build in every sheet state without a state UserError."""
@@ -630,10 +709,17 @@ class TestCollectionSheetReportData(TransactionCase):
 
     def test_tendered_includes_cash_on_hand(self):
         """tendered.cash MUST equal cash_on_hand and be included in tendered.total."""
-        sheet = self._create_sheet(cash_on_hand=17.5)
+        sheet = self._create_sheet()
+        self._create_voucher(
+            dummy_customer_partner(self.env, customer="RPT-TENDERED-CASH"),
+            sheet,
+            amount=17.5,
+            document_type="cash",
+        )
         self._balanced(
             amount=100.0, sheet=sheet, voucher_extra={"document_type": "check"}
         )
+        self.assertEqual(sheet.cash_on_hand, 17.5)
         payload = sheet._collection_report_data()
         tendered = payload["tendered"]
         self.assertEqual(tendered["cash"], 17.5)
@@ -715,6 +801,102 @@ class TestCollectionSheetReportData(TransactionCase):
             )
         )
 
+    def test_cash_on_hand_is_cash_minus_deposits_minus_withheld(self):
+        """cash_on_hand MUST equal cash − seller_deposit − commission_withheld."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="RPT-COH")
+        self._create_voucher(partner, sheet, amount=500.0, document_type="cash")
+        self._create_voucher(partner, sheet, amount=120.0, document_type="cash")
+        self._create_seller_deposit(sheet, amount=200.0)
+        self.assertEqual(sheet.cash_on_hand, 420.0)
+        force_sheet_state(sheet, "submitted")
+        sheet.action_declare_cash(commission_withheld=70.0)
+        self.assertEqual(sheet.cash_collected, 620.0)
+        self.assertEqual(sheet.cash_banked, 200.0)
+        self.assertEqual(sheet.cash_on_hand, 350.0)
+
+    def test_cash_on_hand_ignores_other_document_types(self):
+        """Only cash and seller_deposit MUST move cash_on_hand."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="RPT-COH-OTHER")
+        for document_type in (
+            "bank_transfer",
+            "check",
+            "cash_deposit",
+            "echeck",
+            "retention_certificate",
+        ):
+            self._create_voucher(
+                partner, sheet, amount=90.0, document_type=document_type
+            )
+        self.assertEqual(sheet.cash_on_hand, 0.0)
+        self._create_voucher(partner, sheet, amount=25.0, document_type="cash")
+        self.assertEqual(sheet.cash_on_hand, 25.0)
+
+    def test_cash_on_hand_recomputes_on_voucher_membership_change(self):
+        """Adding, retyping, or removing a voucher MUST move stored cash_on_hand."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="RPT-COH-MOVE")
+        voucher = self._create_voucher(
+            partner, sheet, amount=60.0, document_type="cash"
+        )
+        self.assertEqual(sheet.cash_on_hand, 60.0)
+        voucher.write({"amount": 90.0})
+        self.assertEqual(sheet.cash_on_hand, 90.0)
+        voucher.write({"document_type": "bank_transfer"})
+        self.assertEqual(sheet.cash_on_hand, 0.0)
+        voucher.write({"document_type": "cash"})
+        voucher.unlink()
+        self.assertEqual(sheet.cash_on_hand, 0.0)
+
+    def test_cash_on_hand_is_stored_and_searchable(self):
+        """The computed cash_on_hand MUST be stored so search and read_group work."""
+        field = self.env["collection.sheet"]._fields["cash_on_hand"]
+        self.assertTrue(field.store)
+        self.assertTrue(field.compute)
+        self.assertTrue(field.readonly)
+        sheet = self._create_sheet(force_new=True, seller=self.seller)
+        self._create_voucher(
+            dummy_customer_partner(self.env, customer="RPT-COH-SEARCH"),
+            sheet,
+            amount=77.0,
+            document_type="cash",
+        )
+        sheet.flush_recordset(["cash_on_hand"])
+        found = self.env["collection.sheet"].search(
+            [("id", "=", sheet.id), ("cash_on_hand", "=", 77.0)]
+        )
+        self.assertEqual(found, sheet)
+
+    def test_cash_on_hand_goes_negative_when_deposits_exceed_cash(self):
+        """Remitting more than the collected cash MUST leave cash_on_hand negative."""
+        sheet = self._create_sheet()
+        self._create_voucher(
+            dummy_customer_partner(self.env, customer="RPT-COH-NEG"),
+            sheet,
+            amount=30.0,
+            document_type="cash",
+        )
+        self._create_seller_deposit(sheet, amount=100.0)
+        self.assertEqual(sheet.cash_on_hand, -70.0)
+
+    def test_cash_on_hand_create_write_refused(self):
+        """Passing cash_on_hand to create MUST refuse; the value stays derived."""
+        seller = create_internal_seller(self.env, "rpt-coh-create")
+        ensure_enabled_seller(self.env, seller)
+        with self.assertRaises(UserError) as error:
+            self.env["collection.sheet"].create(
+                {
+                    "seller_id": seller.id,
+                    "company_id": self.env.company.id,
+                    "cash_on_hand": 42.0,
+                }
+            )
+        self.assertIn("computed", str(error.exception))
+        self.assertFalse(
+            self.env["collection.sheet"].search([("seller_id", "=", seller.id)])
+        )
+
     def test_cash_deposit_still_collected_when_remittance_present(self):
         """cash_deposit MUST stay in collected; only seller_deposit is skipped."""
         sheet = self._create_sheet()
@@ -766,18 +948,30 @@ class TestCollectionSheetReportData(TransactionCase):
             + tendered["retentions"]
             + tendered["seller_deposits"],
         )
-        self.assertGreater(tendered["total"], remittance.amount)
+        # The remittance raises tendered.seller_deposits and lowers the derived
+        # cash_on_hand by the same amount, so it nets out of the total.
+        self.assertEqual(tendered["cash"], -remittance.amount)
+        self.assertEqual(tendered["total"], echeck.amount + retention.amount)
 
     def test_tendered_keeps_existing_keys_and_recon_algebra(self):
         """Existing tendered keys stay; net_due/difference algebra is untouched."""
-        sheet = self._create_sheet(cash_on_hand=10.0, commission_withheld=5.0)
+        sheet = self._create_sheet()
         self._balanced(
             amount=100.0,
             sheet=sheet,
             customer="RPT-TENDERED-KEYS",
             voucher_extra={"document_type": "bank_transfer"},
         )
+        self._create_voucher(
+            dummy_customer_partner(self.env, customer="RPT-TENDERED-KEYS-CASH"),
+            sheet,
+            amount=40.0,
+            document_type="cash",
+        )
         self._create_seller_deposit(sheet, amount=25.0)
+        force_sheet_state(sheet, "submitted")
+        sheet.write({"commission_withheld": 5.0})
+        self.assertEqual(sheet.cash_on_hand, 10.0)
         payload = sheet._collection_report_data()
         tendered = payload["tendered"]
         for key in (
@@ -817,14 +1011,17 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertEqual(tendered["seller_deposits"], remittance.amount)
         self.assertNotEqual(tendered["seller_deposits"], tendered["deposits"])
 
-    def test_recon_tri_state(self):
-        """compare_amounts vs 0 MUST map to balanced, in_favor, and outstanding."""
+    def test_recon_reachable_states(self):
+        """Computed cash makes the sheet balance; only unsupported leaves a gap.
+
+        ``in_favor`` is unreachable once ``cash_on_hand`` is derived: the cash
+        the seller brings is defined as the remainder, so tendered can never
+        exceed net due. The branch is covered directly below.
+        """
         statuses = []
-        # balanced: transfer 100, cash 0, withheld 0 → tendered 100, net_due 100
+        # balanced: transfer 100, no cash, withheld 0 → tendered 100, net_due 100
         seller_a = create_internal_seller(self.env, "rpt-recon-a")
-        sheet_a = self._create_sheet(
-            seller=seller_a, force_new=True, cash_on_hand=0.0, commission_withheld=0.0
-        )
+        sheet_a = self._create_sheet(seller=seller_a, force_new=True)
         self._balanced(
             amount=100.0,
             sheet=sheet_a,
@@ -833,24 +1030,21 @@ class TestCollectionSheetReportData(TransactionCase):
         )
         statuses.append(sheet_a._collection_report_data()["recon"]["status"])
 
-        # in_favor: transfer 100 + cash 50 → tendered 150 > net_due 100
+        # balanced with cash: cash 50 collected, none remitted, nothing withheld
         seller_b = create_internal_seller(self.env, "rpt-recon-b")
-        sheet_b = self._create_sheet(
-            seller=seller_b, force_new=True, cash_on_hand=50.0, commission_withheld=0.0
-        )
+        sheet_b = self._create_sheet(seller=seller_b, force_new=True)
         self._balanced(
-            amount=100.0,
+            amount=50.0,
             sheet=sheet_b,
-            customer="RPT-FAVOR",
-            voucher_extra={"document_type": "bank_transfer"},
+            customer="RPT-CASH-BAL",
+            voucher_extra={"document_type": "cash"},
         )
+        self.assertEqual(sheet_b.cash_on_hand, 50.0)
         statuses.append(sheet_b._collection_report_data()["recon"]["status"])
 
-        # outstanding: unsupported 100, cash 0 → tendered 0 < net_due 100
+        # outstanding: unsupported 100 never reaches tendered → tendered 0
         seller_c = create_internal_seller(self.env, "rpt-recon-c")
-        sheet_c = self._create_sheet(
-            seller=seller_c, force_new=True, cash_on_hand=0.0, commission_withheld=0.0
-        )
+        sheet_c = self._create_sheet(seller=seller_c, force_new=True)
         self._balanced(
             amount=100.0,
             sheet=sheet_c,
@@ -859,7 +1053,7 @@ class TestCollectionSheetReportData(TransactionCase):
         )
         statuses.append(sheet_c._collection_report_data()["recon"]["status"])
 
-        self.assertEqual(statuses, ["balanced", "in_favor", "outstanding"])
+        self.assertEqual(statuses, ["balanced", "balanced", "outstanding"])
         recon = sheet_b._collection_report_data()["recon"]
         for key in (
             "collected",
@@ -872,6 +1066,18 @@ class TestCollectionSheetReportData(TransactionCase):
         ):
             self.assertIn(key, recon)
         self.assertTrue(recon["status_message"])
+
+    def test_recon_in_favor_branch(self):
+        """A tendered total above net due MUST still map to in_favor."""
+        _allocation, _voucher, sheet, _partner = self._balanced(
+            amount=100.0,
+            customer="RPT-FAVOR",
+            voucher_extra={"document_type": "bank_transfer"},
+        )
+        tendered = dict(sheet._collection_report_tendered(), total=150.0)
+        recon = sheet._collection_report_recon(100.0, tendered)
+        self.assertEqual(recon["difference"], 50.0)
+        self.assertEqual(recon["status"], "in_favor")
 
     def test_unallocated_voucher_mismatch(self):
         """Unallocated sheet voucher MUST set mismatch and still count in collected."""

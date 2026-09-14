@@ -9,21 +9,27 @@ identical Total Cobrado, Total Aplicado, Remanente, Total Comisión, and Diferen
 
 ### Requirement: Sheet reconciliation inputs
 
-`collection.sheet` MUST persist `commission_percent` (Float, default 0), `cash_on_hand`,
-and `commission_withheld` (Monetary). Percent MUST be constrained 0–100 (Odoo 19
-`models.Constraint`, MUST NOT `_sql_constraints`). The stored field name `cash_on_hand`
-MUST remain `cash_on_hand` (the form string MAY read Cash to Administration).
-Seller-declared `cash_on_hand` and `commission_withheld` MUST be writable only while
-`state` is `submitted`. `commission_percent` MUST be writable while `state` is not
-`closed` or `cancelled`. Closed and cancelled sheets MUST refuse writes of those three
-fields (`UserError`, no persist). Seller Close MUST NOT persist the two seller
-declarations. After `open`, writes of the two seller declarations MUST be refused while
-`commission_percent` MAY still persist. Reinstate from Cancelled MUST NOT reset stored
-values. Form widgets for the three fields MUST be readonly when the corresponding write
-would be refused.
-(Previously: Seller declarations writable only while `open`; a combined Seller Close
-write persisted them because the guard evaluated the pre-write `open` state; after
-`submitted`, further declaration writes were refused.)
+`collection.sheet` MUST persist `commission_percent` (Float, default 0) and
+`commission_withheld` (Monetary). Percent MUST be constrained 0–100 (Odoo 19
+`models.Constraint`, MUST NOT `_sql_constraints`). `cash_on_hand` (Monetary, form string
+Cash to Administration) MUST be a **stored computed** field equal to `cash_collected −
+cash_banked − commission_withheld` — the sum of `cash` voucher amounts on the sheet minus
+the sum of `seller_deposit` voucher amounts minus the withheld commission — recomputed
+whenever a member voucher's `document_type` or `amount` changes, a voucher joins or
+leaves the sheet, or `commission_withheld` changes. It MAY be negative when remittances
+plus withheld commission exceed the collected cash. `cash_on_hand` MUST remain the field
+name and MUST be `store=True` so it stays searchable and groupable. Passing `cash_on_hand`
+to `create` or `write` MUST raise `UserError` in every state, including `submitted`.
+Seller-declared `commission_withheld` MUST be writable only while `state` is `submitted`.
+`commission_percent` MUST be writable while `state` is not `closed` or `cancelled`.
+Closed and cancelled sheets MUST refuse writes of the two writable fields (`UserError`,
+no persist). Seller Close MUST NOT persist the seller declaration. After `open`, writes
+of `commission_withheld` MUST be refused while `commission_percent` MAY still persist.
+Reinstate from Cancelled MUST NOT reset stored values. The `cash_on_hand` form widget
+MUST be readonly in every state; the other two MUST be readonly when the corresponding
+write would be refused.
+(Previously: `cash_on_hand` was a seller-declared Monetary written by Declare Cash and
+writable while `submitted`.)
 
 #### Scenario: Percent range
 
@@ -39,6 +45,20 @@ write persisted them because the guard evaluated the pre-write `open` state; aft
 - THEN MUST raise `UserError`
 - AND stored values MUST be unchanged
 
+#### Scenario: cash_on_hand is derived from the sheet vouchers
+
+- GIVEN a sheet carrying `cash` vouchers, `seller_deposit` vouchers, and a
+  `commission_withheld` amount
+- WHEN any of those three change
+- THEN `cash_on_hand` MUST equal cash total − seller_deposit total − withheld
+- AND vouchers of any other `document_type` MUST NOT move it
+
+#### Scenario: cash_on_hand write is always refused
+
+- GIVEN a sheet in any state
+- WHEN `cash_on_hand` is passed to `create` or `write`
+- THEN MUST raise `UserError` and the derived value MUST be unchanged
+
 #### Scenario: Open edit then cancel keeps values
 
 - GIVEN a submitted sheet with those three fields set
@@ -50,19 +70,19 @@ write persisted them because the guard evaluated the pre-write `open` state; aft
 - GIVEN an open sheet
 - WHEN Seller Close writes `state` `submitted` without declaration amounts
 - THEN `state` MUST be `submitted`
-- AND `cash_on_hand` and `commission_withheld` MUST remain unchanged by that write
+- AND `commission_withheld` MUST remain unchanged by that write
 
 #### Scenario: Submitted accepts seller declarations
 
 - GIVEN a submitted sheet
-- WHEN `cash_on_hand` or `commission_withheld` is written lawfully
-- THEN those amounts MUST persist
+- WHEN `commission_withheld` is written lawfully
+- THEN that amount MUST persist and `cash_on_hand` MUST follow by compute
 - AND a lawful `commission_percent` write MUST persist
 
 #### Scenario: Open freezes seller declarations
 
 - GIVEN an open sheet
-- WHEN `cash_on_hand` or `commission_withheld` is written
+- WHEN `commission_withheld` is written
 - THEN MUST raise `UserError` and stored values MUST be unchanged
 - AND a lawful `commission_percent` write MUST persist
 
@@ -71,7 +91,7 @@ write persisted them because the guard evaluated the pre-write `open` state; aft
 - GIVEN a proposal sheet
 - WHEN `commission_percent` is written lawfully
 - THEN the write MUST persist
-- AND writes of `cash_on_hand` or `commission_withheld` MUST be refused
+- AND writes of `commission_withheld` MUST be refused
 
 ### Requirement: Shared report payload
 
@@ -168,7 +188,10 @@ voucher-block subtotals and MUST NOT include `seller_deposit`. `tendered` MUST i
 `cash_on_hand` plus `cash_deposit`, `check`, `bank_transfer`, `echeck`,
 `retention_certificate`, and `seller_deposit` (`cash_banked`). Recon algebra MUST remain
 `net_due = collected − withheld` and `difference = tendered − net_due`. Every existing
-`recon` key MUST remain.
+`recon` key MUST remain. Because `cash_on_hand` is now derived as the remainder,
+`difference` MUST be 0 for any sheet without `unsupported` vouchers: the banner balances
+by construction and `in_favor` is unreachable from real sheet data. The `in_favor` branch
+MUST stay in `_collection_report_recon` and MUST still map a positive `difference`.
 (Previously: Every catalog code including remittance fed `collected_total`; `tendered`
 included only `cash_on_hand` plus deposits, checks, and transfers — no echeck,
 retention, or `seller_deposit`.)
@@ -198,7 +221,10 @@ retention, or `seller_deposit`.)
 
 - GIVEN `seller_deposit`, `echeck`, and `retention_certificate` members
 - WHEN `tendered` is built
-- THEN `tendered.total` MUST include those three amounts
+- THEN `tendered.seller_deposits`, `tendered.echecks`, and `tendered.retentions` MUST
+  carry those amounts and `tendered.total` MUST be their sum plus `tendered.cash`
+- AND a remittance MUST net out of `tendered.total`, because it raises
+  `tendered.seller_deposits` and lowers the derived `cash_on_hand` by the same amount
 - AND PDF and XLSX MUST show the same tendered buckets
 
 ### Requirement: Reconciliation status and mismatch
@@ -217,6 +243,13 @@ vouchers). `seller_deposit` MUST NOT set `mismatch` and MUST NOT inflate
 - GIVEN difference compared to 0 as equal, greater, or less
 - WHEN recon is built
 - THEN `status` MUST be `balanced`, `in_favor`, or `outstanding` respectively
+
+#### Scenario: Derived cash balances the banner
+
+- GIVEN a sheet whose vouchers carry no `unsupported` code
+- WHEN recon is built from the derived `cash_on_hand`
+- THEN `difference` MUST be 0 and `status` MUST be `balanced`
+- AND an `unsupported` voucher MUST make `status` `outstanding`
 
 #### Scenario: Unallocated voucher mismatch
 

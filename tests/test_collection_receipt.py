@@ -1149,7 +1149,7 @@ class TestCollectionReceipt(TransactionCase):
         self.assertFalse(deposit.sheet_id)
         self._mark_validated(voucher, cash)
         sheet.action_seller_close()
-        sheet.action_declare_cash(cash_on_hand=50.0, commission_withheld=0.0)
+        sheet.action_declare_cash(commission_withheld=0.0)
         sheet.action_confirm()
         self._close_locally(sheet)
         with self.assertRaises(UserError):
@@ -1186,7 +1186,7 @@ class TestCollectionReceipt(TransactionCase):
         self.assertEqual(row.direction, "replace")
         self._mark_validated(voucher, cash)
         sheet.action_seller_close()
-        sheet.action_declare_cash(cash_on_hand=50.0, commission_withheld=0.0)
+        sheet.action_declare_cash(commission_withheld=0.0)
         sheet.action_confirm()
         self._close_locally(sheet)
         sheet.action_cancel()

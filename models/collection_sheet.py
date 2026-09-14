@@ -8,6 +8,7 @@ from odoo.tools.translate import _
 
 from .collection_common import (
     ADMIN_EDITABLE_SHEET_STATES,
+    CONFIRM_REVIEW_EXEMPT_TYPES,
     SELLER_DECLARATION_STATES,
     SELLER_SHEET_STATES,
     record_id,
@@ -21,6 +22,9 @@ _STATE_WRITE_ACTIONS = {
     "submitted": "_dispatch_submitted_state_write",
 }
 _VALIDATED_COLLECTIONS = "validated_collections"
+# Enough for a Confirm-review-exempt member: the seller decided it and
+# Document Review has no proof to look at.
+_SELLER_DECIDED_STATES = frozenset({"validated_seller", _VALIDATED_COLLECTIONS})
 
 
 class CollectionSheet(models.Model):
@@ -265,12 +269,12 @@ class CollectionSheet(models.Model):
         names = ", ".join(drafts.mapped("name"))
         raise UserError(_("Seller Close cannot include draft vouchers: %s", names))
 
-    def action_declare_cash(self, cash_on_hand, commission_withheld):
+    def action_declare_cash(self, commission_withheld):
+        """Declare the withheld commission; cash on hand follows by compute."""
         if any(sheet.state not in SELLER_DECLARATION_STATES for sheet in self):
             raise UserError(_("Only submitted collection sheets can declare cash."))
         return self.write(
             {
-                "cash_on_hand": cash_on_hand,
                 "commission_withheld": commission_withheld,
                 "cash_declared_at": fields.Datetime.now(),
                 "cash_declared_by": self.env.user.id,
@@ -295,13 +299,13 @@ class CollectionSheet(models.Model):
         if any(sheet.state != "submitted" for sheet in self):
             raise UserError(_("Only submitted sheets can be confirmed."))
         for sheet in self:
-            if any(
-                voucher.state != _VALIDATED_COLLECTIONS for voucher in sheet.voucher_ids
-            ):
+            blocking = sheet._vouchers_blocking_confirm()
+            if blocking:
                 raise UserError(
                     _(
                         "Confirm requires every member voucher to be validated "
-                        "by collections."
+                        "by collections: %s",
+                        ", ".join(blocking.mapped("name")),
                     )
                 )
             collected = sheet._cash_collected_total()
@@ -318,6 +322,22 @@ class CollectionSheet(models.Model):
                 )
         return self.with_context(collection_sheet_audited_state=True).write(
             {"state": "proposal"}
+        )
+
+    @api.private
+    def _vouchers_blocking_confirm(self):
+        """Return the member vouchers whose review state still blocks Confirm.
+
+        Cash never carries a designated proof, so Document Review cannot reach
+        it and ``validated_seller`` is enough. Every other type -- including
+        ``seller_deposit``, whose remittance slip is reviewable -- MUST be
+        ``validated_collections``.
+        """
+        self.ensure_one()
+        return self.voucher_ids.filtered(
+            lambda voucher: voucher.state not in _SELLER_DECIDED_STATES
+            if voucher.document_type in CONFIRM_REVIEW_EXEMPT_TYPES
+            else voucher.state != _VALIDATED_COLLECTIONS
         )
 
     def action_close(self):

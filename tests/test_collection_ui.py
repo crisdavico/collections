@@ -1184,10 +1184,12 @@ class TestCollectionUi(TransactionCase):
         self.assertTrue(percent and cash and withheld, "form must show recon inputs")
         self.assertIn("closed", percent[0].get("readonly") or "")
         self.assertIn("cancelled", percent[0].get("readonly") or "")
-        self.assertIn("submitted", cash[0].get("readonly") or "")
+        self.assertEqual(cash[0].get("readonly"), "1")
         self.assertIn("submitted", withheld[0].get("readonly") or "")
-        self.assertNotIn("open", cash[0].get("readonly") or "")
         self.assertNotIn("open", withheld[0].get("readonly") or "")
+        collected = form_root.xpath('.//field[@name="cash_collected"]')
+        banked = form_root.xpath('.//field[@name="cash_banked"]')
+        self.assertTrue(collected and banked, "form must show the cash_on_hand terms")
         self.assertNotIn(
             "received_date",
             etree.tostring(form_root, encoding="unicode"),

@@ -1,0 +1,16 @@
+# SDD change state
+change: confirm-cash-review-exemption
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+phase: apply
+apply_slice: complete
+updated: 2026-09-08
+review_budget_risk: low
+notes: |
+  User-authorized: Confirm MUST NOT require Document Review of cash members;
+  seller_deposit members MUST still reach validated_collections.
+artifacts:
+  - proposal.md
+  - specs/collection-sheets/spec.md
+  - tasks.md

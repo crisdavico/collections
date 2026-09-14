@@ -514,14 +514,13 @@
                 name="commission_percent"
                 readonly="state in ('closed', 'cancelled')"
               />
-                            <field
-                name="cash_on_hand"
-                readonly="state != 'submitted'"
-              />
+                            <field name="cash_collected" />
+                            <field name="cash_banked" />
                             <field
                 name="commission_withheld"
                 readonly="state != 'submitted'"
               />
+                            <field name="cash_on_hand" readonly="1" />
                         </group>
                     </group>
                     <notebook>

@@ -38,6 +38,11 @@ DOCUMENT_KIND_SELECTION = (
     ("quotation", "Quotation"),
 )
 
+# Types that carry no designated proof to review, so Document Review never
+# reaches them and Confirm MUST NOT demand ``validated_collections`` of them.
+# ``seller_deposit`` is deliberately absent: its remittance slip is reviewed.
+CONFIRM_REVIEW_EXEMPT_TYPES = frozenset({"cash"})
+
 # Sheet states that gate seller write, admin edit, and allocation pairing.
 SELLER_SHEET_STATES = frozenset({"open"})
 ADMIN_EDITABLE_SHEET_STATES = frozenset({"open", "submitted"})

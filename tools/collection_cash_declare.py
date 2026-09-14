@@ -23,10 +23,9 @@ _DECLARE_COLLECTION_CASH_SCHEMA = {
             "minimum": 1,
             "description": "Internal seller user id.",
         },
-        "cash_on_hand": dict(_COLLECTION_AMOUNT_SCHEMA),
         "commission_withheld": dict(_COLLECTION_AMOUNT_SCHEMA),
     },
-    "required": ["seller_id", "cash_on_hand", "commission_withheld"],
+    "required": ["seller_id", "commission_withheld"],
 }
 
 
@@ -40,7 +39,8 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
         name="declare_collection_cash",
         description=(
             "Declare Cash on the authenticated seller's submitted collection "
-            "sheet with cash_on_hand and commission_withheld. Returns "
+            "sheet with commission_withheld. Cash to Administration is computed "
+            "from the sheet vouchers and MUST NOT be sent. Returns "
             "{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}} "
             "with state submitted. Internal users only."
         ),
@@ -51,7 +51,6 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
     def declare_collection_cash(
         self,
         seller_id: int,
-        cash_on_hand: Any,
         commission_withheld: Any,
         **kwargs: Any,
     ) -> dict:
@@ -70,12 +69,9 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
         if not self.env.user.has_group("base.group_user"):
             raise AccessError(_("Only internal users can declare collection cash."))
         try:
-            cash = _collection_normalize_amount(cash_on_hand)
             withheld = _collection_normalize_amount(commission_withheld)
         except ValueError as err:
-            raise UserError(
-                _("cash_on_hand and commission_withheld must be amounts.")
-            ) from err
+            raise UserError(_("commission_withheld must be an amount.")) from err
         seller = self._collection_require_internal_seller(seller_id)
         Sheet = self.env["collection.sheet"]
         Sheet._lock_open_sheet_for_seller(seller, self.env.company)
@@ -85,5 +81,5 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
         if not submitted:
             raise UserError(_("This seller has no submitted collection sheet."))
         submitted.check_access("write")
-        submitted.action_declare_cash(cash_on_hand=cash, commission_withheld=withheld)
+        submitted.action_declare_cash(commission_withheld=withheld)
         return {"sheet": self._collection_sheet_identity(submitted)}

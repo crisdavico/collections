@@ -28,7 +28,7 @@ _CHECK_TYPE_LABELS = {
     "common": "Común",
     "deferred": "Diferido",
 }
-_SELLER_DECLARATION_FIELDS = frozenset({"cash_on_hand", "commission_withheld"})
+_SELLER_DECLARATION_FIELDS = frozenset({"commission_withheld"})
 _ADMIN_RATE_FIELDS = frozenset({"commission_percent"})
 _RECON_STATUS = {
     -1: "outstanding",
@@ -53,6 +53,9 @@ class CollectionSheetReport(models.Model):
     cash_on_hand = fields.Monetary(
         string="Cash to Administration",
         currency_field="currency_id",
+        compute="_compute_cash_on_hand",
+        store=True,
+        readonly=True,
         tracking=True,
         copy=False,
     )
@@ -82,16 +85,116 @@ class CollectionSheetReport(models.Model):
         "Seller commission percent must be between 0 and 100.",
     )
 
+    @api.model
+    @api.private
+    def _seller_commission_rates(self, pairs):
+        """Map ``(company_id, seller_id)`` to the connector binding percent.
+
+        Fail-soft like ``_prepare_customer_debt_lines``: pairs without an active
+        company connector or without a seller binding are simply absent from the
+        result, so callers fall back to ``0.0``. One search for the whole batch.
+        """
+        rates = {}
+        wanted = {
+            (company_id, seller_id)
+            for company_id, seller_id in pairs
+            if isinstance(company_id, int)
+            and isinstance(seller_id, int)
+            and company_id
+            and seller_id
+        }
+        if not wanted:
+            return rates
+        companies = self.env["res.company"].browse(
+            sorted({company_id for company_id, _seller_id in wanted})
+        )
+        connector_companies = {}
+        for company in companies:
+            connector = company.collection_connector_id
+            if connector and connector.active:
+                connector_companies[connector.id] = company.id
+        if not connector_companies:
+            return rates
+        bindings = self.env["collection.connector.seller.binding"].search(
+            [
+                ("connector_id", "in", list(connector_companies)),
+                ("user_id", "in", sorted({seller for _company, seller in wanted})),
+            ]
+        )
+        for binding in bindings:
+            key = (connector_companies[binding.connector_id.id], binding.user_id.id)
+            if key in wanted:
+                rates[key] = binding.commission_percent or 0.0
+        return rates
+
+    @api.model
+    @api.private
+    def _prepare_seller_commission_percent(self, seller, company):
+        """Seller rate from the company connector binding; ``0.0`` when unresolved."""
+        if not seller or not company:
+            return 0.0
+        key = (company.id, seller.id)
+        return self._seller_commission_rates([key]).get(key, 0.0)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Seed the reconciliation rate from the seller connector binding.
+
+        Create-time snapshot only: a later Import never rewrites an existing
+        sheet, and the value stays editable while the sheet is not frozen. The
+        web client posts ``commission_percent`` 0 on every form create, so a
+        falsy incoming value counts as "not set".
+        """
+        if any("cash_on_hand" in vals for vals in vals_list):
+            raise UserError(
+                _(
+                    "Cash to Administration is computed from the sheet vouchers "
+                    "and the commission withheld; it cannot be written."
+                )
+            )
+        pending = [
+            vals
+            for vals in vals_list
+            if vals.get("seller_id") and not vals.get("commission_percent")
+        ]
+        if pending:
+            keys = [
+                (vals.get("company_id") or self.env.company.id, vals["seller_id"])
+                for vals in pending
+            ]
+            rates = self._seller_commission_rates(keys)
+            for vals, key in zip(pending, keys, strict=True):
+                rate = rates.get(key)
+                if rate:
+                    vals["commission_percent"] = rate
+        return super().create(vals_list)
+
+    @api.onchange("seller_id")
+    def _onchange_seller_commission_percent(self):
+        """Show the seller rate as soon as the seller is picked on a new sheet."""
+        if self._origin.id:
+            return
+        self.commission_percent = self._prepare_seller_commission_percent(
+            self.seller_id, self.company_id or self.env.company
+        )
+
     def write(self, vals):
         declarations = _SELLER_DECLARATION_FIELDS & set(vals)
         rates = _ADMIN_RATE_FIELDS & set(vals)
+        if "cash_on_hand" in vals:
+            raise UserError(
+                _(
+                    "Cash to Administration is computed from the sheet vouchers "
+                    "and the commission withheld; it cannot be written."
+                )
+            )
         if declarations and any(
             sheet.state not in SELLER_DECLARATION_STATES for sheet in self
         ):
             raise UserError(
                 _(
-                    "Seller-declared cash on hand and commission withheld can "
-                    "only be changed on a submitted collection sheet."
+                    "Seller-declared commission withheld can only be changed on "
+                    "a submitted collection sheet."
                 )
             )
         if rates and any(sheet.state in FROZEN_SHEET_STATES for sheet in self):
@@ -114,6 +217,27 @@ class CollectionSheetReport(models.Model):
                     banked += amount
             sheet.cash_collected = collected
             sheet.cash_banked = banked
+
+    @api.depends(
+        "voucher_ids.document_type",
+        "voucher_ids.amount",
+        "commission_withheld",
+        "currency_id",
+    )
+    def _compute_cash_on_hand(self):
+        """Cash the seller still owes administration.
+
+        Derived, never declared: collected cash minus what the seller already
+        remitted (``seller_deposit``) minus the commission they kept.
+        """
+        for sheet in self:
+            amount = (
+                (sheet.cash_collected or 0.0)
+                - (sheet.cash_banked or 0.0)
+                - (sheet.commission_withheld or 0.0)
+            )
+            currency = sheet.currency_id
+            sheet.cash_on_hand = currency.round(amount) if currency else amount
 
     def _collection_report_data(self):
         """Build the shared Planilla de Cobranza payload (primitives + records)."""

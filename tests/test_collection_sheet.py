@@ -283,6 +283,88 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(voucher.state, "validated_seller")
 
+    def _enable_document_type(self, code):
+        catalog = self.env.ref(f"collection.document_type_{code}")
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def test_action_confirm_cash_member_validated_seller_passes(self):
+        """Cash has no proof to review: validated_seller MUST pass Confirm."""
+        sheet = self._create_sheet()
+        cash = self._create_voucher(
+            customer_identification="CUST-CONF-CASH",
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=30.0,
+        )
+        self._create_balanced_allocation(sheet, cash, invoice_id="INV-CONF-CASH")
+        cash.action_validate_seller()
+        sheet.action_seller_close()
+        sheet.action_declare_cash(0.0)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(cash.state, "validated_seller")
+
+    def test_action_confirm_draft_cash_member_blocks(self):
+        """The cash exemption MUST NOT let a draft member through Confirm."""
+        sheet = self._create_sheet()
+        cash = self._create_voucher(
+            customer_identification="CUST-CONF-CASH-DRAFT",
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=30.0,
+        )
+        force_sheet_state(sheet, "submitted")
+        self.assertEqual(cash.state, "draft")
+        with self.assertRaises(UserError) as error:
+            sheet.action_confirm()
+        self.assertIn(cash.name, str(error.exception))
+        self.assertEqual(sheet.state, "submitted")
+
+    def test_action_confirm_seller_deposit_validated_seller_blocks(self):
+        """Triangulation: seller_deposit MUST still need validated_collections."""
+        self._enable_document_type("seller_deposit")
+        sheet = self._create_sheet()
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": sheet.seller_id.id,
+                "sheet_id": sheet.id,
+                "amount": 40.0,
+                "voucher_number": "SD-CONF-1",
+                "voucher_date": date(2026, 9, 8),
+            }
+        )
+        deposit.action_validate_seller()
+        sheet.action_seller_close()
+        with self.assertRaises(UserError) as error:
+            sheet.action_confirm()
+        self.assertIn(deposit.name, str(error.exception))
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(deposit.state, "validated_seller")
+
+    def test_action_confirm_seller_deposit_validated_collections_passes(self):
+        """A reviewed seller_deposit MUST pass Confirm."""
+        self._enable_document_type("seller_deposit")
+        sheet = self._create_sheet()
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": sheet.seller_id.id,
+                "sheet_id": sheet.id,
+                "amount": 40.0,
+                "voucher_number": "SD-CONF-2",
+                "voucher_date": date(2026, 9, 8),
+            }
+        )
+        deposit.action_validate_seller()
+        sheet.action_seller_close()
+        self._mark_validated_collections(deposit)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+
     def test_action_seller_close_empty_members_pass(self):
         """Empty member set MUST pass Seller Close to submitted."""
         sheet = self._create_sheet()
@@ -388,26 +470,41 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(second.state, "submitted")
 
     def test_submitted_sheet_accepts_declare_cash(self):
-        """Declare Cash MUST persist amounts and stamp declared_at/by on submitted."""
+        """Declare Cash MUST persist withheld and stamp declared_at/by on submitted."""
         sheet = self._create_sheet()
+        cash = self._create_voucher(
+            customer_identification="CUST-DECLARE",
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=13.75,
+        )
+        cash.action_validate_seller()
         sheet.action_seller_close()
-        sheet.action_declare_cash(cash_on_hand=12.5, commission_withheld=1.25)
+        sheet.action_declare_cash(commission_withheld=1.25)
         self.assertEqual(sheet.state, "submitted")
-        self.assertEqual(sheet.cash_on_hand, 12.5)
         self.assertEqual(sheet.commission_withheld, 1.25)
+        self.assertEqual(sheet.cash_on_hand, 12.5)
         self.assertTrue(sheet.cash_declared_at)
         self.assertEqual(sheet.cash_declared_by, self.env.user)
 
     def test_declare_cash_is_rerunnable(self):
-        """A later Declare Cash MUST replace amounts and restamp declared_at/by."""
+        """A later Declare Cash MUST replace withheld and restamp declared_at/by."""
         sheet = self._create_sheet()
+        cash = self._create_voucher(
+            customer_identification="CUST-DECLARE-AGAIN",
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=30.0,
+        )
+        cash.action_validate_seller()
         sheet.action_seller_close()
-        sheet.action_declare_cash(cash_on_hand=10.0, commission_withheld=1.0)
+        sheet.action_declare_cash(commission_withheld=1.0)
         first_at = sheet.cash_declared_at
-        sheet.action_declare_cash(cash_on_hand=20.0, commission_withheld=2.0)
+        self.assertEqual(sheet.cash_on_hand, 29.0)
+        sheet.action_declare_cash(commission_withheld=2.0)
         self.assertEqual(sheet.state, "submitted")
-        self.assertEqual(sheet.cash_on_hand, 20.0)
         self.assertEqual(sheet.commission_withheld, 2.0)
+        self.assertEqual(sheet.cash_on_hand, 28.0)
         self.assertTrue(sheet.cash_declared_at)
         self.assertGreaterEqual(sheet.cash_declared_at, first_at)
 
@@ -417,23 +514,30 @@ class TestCollectionSheet(TransactionCase):
             sheet = self._create_sheet()
             if state != "open":
                 force_sheet_state(sheet, state)
-            before_cash = sheet.cash_on_hand
+            before_withheld = sheet.commission_withheld
             with self.assertRaises(UserError):
-                sheet.action_declare_cash(cash_on_hand=99.0, commission_withheld=9.0)
+                sheet.action_declare_cash(commission_withheld=9.0)
             self.assertEqual(sheet.state, state)
-            self.assertEqual(sheet.cash_on_hand, before_cash)
+            self.assertEqual(sheet.commission_withheld, before_withheld)
             self.assertFalse(sheet.cash_declared_at)
             force_sheet_state(sheet, "cancelled")
 
     def test_disabled_seller_may_still_declare_cash(self):
         """A later-disabled seller MUST still Declare Cash on a submitted sheet."""
         sheet = self._create_sheet()
+        cash = self._create_voucher(
+            customer_identification="CUST-DECLARE-OFF",
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=8.5,
+        )
+        cash.action_validate_seller()
         sheet.action_seller_close()
         self._clear_enabled_sellers()
-        sheet.action_declare_cash(cash_on_hand=8.0, commission_withheld=0.5)
+        sheet.action_declare_cash(commission_withheld=0.5)
         self.assertEqual(sheet.state, "submitted")
-        self.assertEqual(sheet.cash_on_hand, 8.0)
         self.assertEqual(sheet.commission_withheld, 0.5)
+        self.assertEqual(sheet.cash_on_hand, 8.0)
         self.assertTrue(sheet.cash_declared_at)
 
     def test_undeclared_cash_blocks_confirm(self):
@@ -483,7 +587,7 @@ class TestCollectionSheet(TransactionCase):
         self._create_balanced_allocation(sheet, voucher, invoice_id="INV-CASH-OK")
         self._mark_validated_collections(voucher)
         sheet.action_seller_close()
-        sheet.action_declare_cash(cash_on_hand=40.0, commission_withheld=0.0)
+        sheet.action_declare_cash(commission_withheld=0.0)
         sheet.action_confirm()
         self.assertEqual(sheet.state, "proposal")
 

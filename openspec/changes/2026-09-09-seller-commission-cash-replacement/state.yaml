@@ -1,0 +1,25 @@
+# SDD change state
+change: seller-commission-cash-replacement
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+phase: proposal
+apply_slice: pending
+updated: 2026-09-09
+review_budget_risk: med
+notes: |
+  User-authorized decisions: mint the seller_commission voucher at Confirm (not at
+  Declare Cash, not by an admin button); residual cash warns but MUST NOT block any
+  transition; no backfill of existing sheets, forward-only.
+  Confirm-time minting is what removes the reverse/adjustment path: commission_withheld
+  is writable only while submitted, and Confirm leaves submitted, so the declaration and
+  the voucher amount are locked together in one transaction.
+  Phase 0 is a pre-existing defect fix (issued receipts abort replacement) and should
+  land as its own PR ahead of the feature.
+artifacts:
+  - proposal.md
+  - specs/collection-vouchers/spec.md
+  - specs/collection-sheets/spec.md
+  - specs/collection-receipts/spec.md
+  - specs/collection-sheet-report/spec.md
+  - tasks.md

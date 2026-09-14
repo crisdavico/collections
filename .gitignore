@@ -1,6 +1,7 @@
 # Local AI runtime cache (skill-registry is tracked)
 .atl/*
 !.atl/skill-registry.md
+.gentle-ai-instance
 
 # Python bytecode
 __pycache__/

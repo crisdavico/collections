@@ -11,7 +11,11 @@ from odoo.tests import TransactionCase
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from .test_collection_acl import TestCollectionAcl
-from .test_collection_payment import create_internal_seller, ensure_enabled_seller
+from .test_collection_payment import (
+    create_internal_seller,
+    dummy_customer_partner,
+    ensure_enabled_seller,
+)
 
 TOOL_NAME = "declare_collection_cash"
 _SHEET_KEYS = {
@@ -55,15 +59,28 @@ class TestCollectionMcpCashDeclare(TransactionCase):
     def _create_user(self, login, group_xmlid):
         return TestCollectionAcl._create_user.__func__(self, login, group_xmlid)
 
-    def _create_sheet(self, *, seller=None):
+    def _create_sheet(self, *, seller=None, cash=0.0):
         seller = seller or self.seller
         ensure_enabled_seller(self.env, seller)
-        return self.env["collection.sheet"].create({"seller_id": seller.id})
+        sheet = self.env["collection.sheet"].create({"seller_id": seller.id})
+        if cash:
+            voucher = self.env["collection.voucher"].create(
+                {
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="MCP-DECLARE-CASH"
+                    ).id,
+                    "document_type": "cash",
+                    "seller_id": seller.id,
+                    "sheet_id": sheet.id,
+                    "amount": cash,
+                }
+            )
+            voucher.action_validate_seller()
+        return sheet
 
     def _args(self, **extra):
         payload = {
             "seller_id": self.seller.id,
-            "cash_on_hand": 10.5,
             "commission_withheld": 2.25,
         }
         payload.update(extra)
@@ -91,8 +108,8 @@ class TestCollectionMcpCashDeclare(TransactionCase):
             "declare_collection_cash must not have a DB muk_mcp.tool row",
         )
 
-    def test_input_schema_requires_seller_and_amounts(self):
-        """Schema MUST require seller_id plus amounts and MUST omit sheet_id."""
+    def test_input_schema_requires_seller_and_withheld(self):
+        """Schema MUST require seller_id plus withheld and MUST omit cash_on_hand."""
         by_name = {
             entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
         }
@@ -100,21 +117,21 @@ class TestCollectionMcpCashDeclare(TransactionCase):
         self.assertEqual(schema["type"], "object")
         self.assertEqual(
             set(schema["required"]),
-            {"seller_id", "cash_on_hand", "commission_withheld"},
+            {"seller_id", "commission_withheld"},
         )
         self.assertEqual(
             set(schema["properties"]),
-            {"seller_id", "cash_on_hand", "commission_withheld"},
+            {"seller_id", "commission_withheld"},
         )
         self.assertEqual(schema["properties"]["seller_id"]["type"], "integer")
-        self.assertEqual(schema["properties"]["cash_on_hand"]["type"], "number")
         self.assertEqual(schema["properties"]["commission_withheld"]["type"], "number")
+        self.assertNotIn("cash_on_hand", schema["properties"])
         for key in _FORBIDDEN_INPUT_KEYS:
             self.assertNotIn(key, schema["properties"])
 
     def test_internal_seller_declares_on_submitted_sheet(self):
         """Internal caller MUST declare on the submitted sheet and return identity."""
-        sheet = self._create_sheet()
+        sheet = self._create_sheet(cash=12.75)
         sheet.action_seller_close()
         result = self._call()
         self.assertEqual(set(result), {"sheet"})
@@ -124,10 +141,20 @@ class TestCollectionMcpCashDeclare(TransactionCase):
         self.assertEqual(payload["state"], "submitted")
         self.assertEqual(payload["seller_id"], self.seller.id)
         self.assertEqual(sheet.state, "submitted")
-        self.assertEqual(sheet.cash_on_hand, 10.5)
         self.assertEqual(sheet.commission_withheld, 2.25)
+        self.assertEqual(sheet.cash_on_hand, 10.5)
         self.assertTrue(sheet.cash_declared_at)
         self.assertNotIn("content_base64", result)
+
+    def test_cash_on_hand_argument_is_rejected(self):
+        """cash_on_hand is computed: sending it MUST refuse the declaration."""
+        sheet = self._create_sheet(cash=12.75)
+        sheet.action_seller_close()
+        with self.assertRaises(UserError):
+            self._call(self._args(cash_on_hand=10.5))
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(sheet.cash_declared_at)
+        self.assertFalse(sheet.commission_withheld)
 
     def test_zero_submitted_sheets_raise_user_error_not_null(self):
         """Zero submitted sheets MUST raise UserError and MUST NOT return null."""

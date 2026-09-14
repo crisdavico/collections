@@ -191,7 +191,6 @@ class TestCollectionSheetXlsx(TransactionCase):
         amount=100.0,
         document_type="bank_transfer",
         commission_percent=0.0,
-        cash_on_hand=0.0,
         commission_withheld=0.0,
     ):
         seller = seller or self.seller
@@ -201,7 +200,6 @@ class TestCollectionSheetXlsx(TransactionCase):
             force_new=True,
             company=company,
             commission_percent=commission_percent,
-            cash_on_hand=cash_on_hand,
             commission_withheld=commission_withheld,
         )
         voucher = self._create_voucher(
@@ -431,16 +429,25 @@ class TestCollectionSheetXlsx(TransactionCase):
             ("xlsx_banner_fav", "bank_transfer", 50.0, "in_favor"),
             ("xlsx_banner_out", "unsupported", 0.0, "outstanding"),
         )
-        for login, document_type, cash, status in cases:
+        for login, document_type, surplus, status in cases:
             seller = create_internal_seller(self.env, login)
             ensure_enabled_seller(self.env, seller)
             sheet, _partner = self._populated_sheet(
                 seller=seller,
                 partner_name=f"Banner {status}",
                 document_type=document_type,
-                cash_on_hand=cash,
             )
-            content, payload = self._render_xlsx(sheet)
+            payload = sheet._collection_report_data()
+            if surplus:
+                # in_favor is unreachable once cash_on_hand is derived from the
+                # vouchers; bump tendered so the banner branch still renders.
+                tendered = dict(payload["tendered"])
+                tendered["total"] += surplus
+                payload["tendered"] = tendered
+                payload["recon"] = sheet._collection_report_recon(
+                    payload["collected_total"], tendered
+                )
+            content = bytes(self.env[XLSX_MODEL]._render_xlsx(payload))
             self.assertEqual(payload["recon"]["status"], status)
             message = payload["recon"]["status_message"]
             self.assertTrue(message)
@@ -537,7 +544,7 @@ class TestCollectionSheetXlsx(TransactionCase):
 
         def _seller_close_and_declare():
             sheet.action_seller_close()
-            sheet.action_declare_cash(cash_on_hand=12.5, commission_withheld=1.25)
+            sheet.action_declare_cash(commission_withheld=1.25)
 
         advances = (
             ("open", lambda: None),

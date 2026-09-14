@@ -258,11 +258,18 @@ class TestCollectionMail(TransactionCase):
         self.assertIn(("Cancelled", "Submitted by Seller"), pairs)
 
     def test_declare_cash_tracks_declarations_in_chatter(self):
-        """Declare Cash MUST track cash_on_hand and commission_withheld."""
+        """Declare Cash MUST track computed cash_on_hand and commission_withheld."""
         sheet = self._create_sheet()
+        cash = self._create_voucher(
+            customer_identification="MAIL-DECLARE-CASH",
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=13.75,
+        )
+        cash.action_validate_seller()
         sheet.action_seller_close()
         self._flush_tracking()
-        sheet.action_declare_cash(cash_on_hand=12.5, commission_withheld=1.25)
+        sheet.action_declare_cash(commission_withheld=1.25)
         self._flush_tracking()
         tracking = sheet.message_ids.sudo().mapped("tracking_value_ids")
         tracked_fields = set(tracking.mapped("field_id.name"))
