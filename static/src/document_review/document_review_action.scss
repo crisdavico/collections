@@ -166,6 +166,12 @@
     }
   }
 
+  /* The action owns its whole screen, so it renders the breadcrumb itself.
+     Pin it so the board below never squeezes it out of the flex column. */
+  > .o_control_panel {
+    flex: 0 0 auto;
+  }
+
   .shell {
     display: flex;
     flex: 1 1 auto;

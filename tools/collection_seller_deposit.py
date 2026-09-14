@@ -52,8 +52,9 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         name="create_seller_deposit",
         description=(
             "Create a seller_deposit on the seller's submitted sheet. Mints "
-            "sd-<uuid4 hex>, stamps the sentinel, writes validated_collections. "
-            "Returns {sheet, voucher}. Internal users only."
+            "sd-<uuid4 hex>, stamps the sentinel, leaves the voucher in "
+            "validated_seller for Document Review. Returns {sheet, voucher}. "
+            "Internal users only."
         ),
         input_schema=_CREATE_SELLER_DEPOSIT_SCHEMA,
         category="write",
@@ -69,6 +70,9 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         **kwargs: Any,
     ) -> dict:
         """Create a remittance voucher on the seller's submitted sheet.
+
+        The deposit slip is a reviewable designated proof, so the voucher stays
+        ``validated_seller``: only Document Review Approve promotes it.
 
         :raise AccessError: when the caller is not an internal user.
         :raise UserError: when the seller, type, extra keys, amounts, dates,
@@ -123,9 +127,6 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
                 message_type="notification",
                 attachments=[(name, raw)],
             )
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
         return {
             "sheet": self._collection_sheet_identity(submitted),
             "voucher": {

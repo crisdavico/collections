@@ -1,0 +1,16 @@
+# SDD change state
+change: seller-deposit-document-review
+artifact_store: openspec
+delivery_strategy: ask-on-risk
+chain_strategy: stacked-to-main
+phase: apply
+apply_slice: complete
+updated: 2026-09-09
+review_budget_risk: low
+notes: |
+  User-authorized: the seller deposit MUST be a sheet voucher that goes through
+  Document Review; no proof means Confirm stays blocked.
+artifacts:
+  - proposal.md
+  - specs/collection-vouchers/spec.md
+  - tasks.md

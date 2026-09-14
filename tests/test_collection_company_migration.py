@@ -194,12 +194,12 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_44_0(self):
+    def test_manifest_version_is_1_47_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.44.0"', manifest_text)
-        self.assertNotIn('"version": "19.0.1.43.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.47.0"', manifest_text)
+        self.assertNotIn('"version": "19.0.1.46.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
             "19.0.1.27.0",
@@ -214,11 +214,20 @@ class TestCollectionCompanyMigration(TransactionCase):
             "19.0.1.41.0",
             "19.0.1.42.0",
             "19.0.1.44.0",
+            "19.0.1.45.0",
+            "19.0.1.47.0",
         ):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
                 f"No migrations/{leftover}/ folder",
             )
+        migrate_146 = module_root / "migrations" / "19.0.1.46.0" / "post-migrate.py"
+        self.assertTrue(
+            migrate_146.is_file(), "Need 19.0.1.46.0 cash_on_hand recompute"
+        )
+        text_146 = migrate_146.read_text(encoding="utf-8")
+        self.assertIn("cash_on_hand", text_146)
+        self.assertIn("add_to_compute", text_146)
         migrate_143 = module_root / "migrations" / "19.0.1.43.0" / "post-migrate.py"
         self.assertTrue(migrate_143.is_file(), "Need 19.0.1.43.0 allow-list union")
         text_143 = migrate_143.read_text(encoding="utf-8")
@@ -356,8 +365,8 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.44.0`", agents)
-        self.assertNotIn("Module metadata `19.0.1.43.0`", agents)
+        self.assertIn("Module metadata `19.0.1.47.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.46.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`migrations/19.0.1.43.0/`", agents)
         self.assertIn(
@@ -375,6 +384,15 @@ class TestCollectionCompanyMigration(TransactionCase):
             "Do **not** add `migrations/19.0.1.44.0/`",
             " ".join(agents.split()),
         )
+        self.assertIn(
+            "Do **not** add `migrations/19.0.1.45.0/`",
+            " ".join(agents.split()),
+        )
+        self.assertIn(
+            "Do **not** add `migrations/19.0.1.47.0/`",
+            " ".join(agents.split()),
+        )
+        self.assertIn("`migrations/19.0.1.46.0/`", agents)
         self.assertNotIn("dispatches connector `create_receipt`", agents)
         self.assertIn(
             "MUST NOT consult the connector",

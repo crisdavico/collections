@@ -2,6 +2,7 @@
 <templates xml:space="preserve">
     <t t-name="collection.DocumentReviewAction">
         <div class="o_collection_doc_review">
+            <ControlPanel />
             <div class="shell">
                 <div t-if="state.loading &amp;&amp; !hasQueue" class="clay empty-state">
                     <p>Cargando cola de revisión…</p>

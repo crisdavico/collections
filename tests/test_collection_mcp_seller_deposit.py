@@ -18,6 +18,7 @@ from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
     PNG_B64,
     create_internal_seller,
+    dummy_customer_partner,
     ensure_enabled_seller,
 )
 
@@ -97,6 +98,61 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         payload.update(extra)
         return payload
 
+    def _proof(self, name="deposit.png"):
+        return {"name": name, "mimetype": "image/png", "datas": PNG_B64}
+
+    def _enable_document_review(self):
+        self.env.company.write({"document_review_enabled": True})
+        return self.env.company
+
+    def _sheet_with_replaceable_cash(self, cash_amount=100.0):
+        """Return an open sheet plus the receipt value a deposit can replace."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="SD-REVIEW-CUST")
+        cash = self.env["collection.voucher"].create(
+            {
+                "partner_id": partner.id,
+                "document_type": "cash",
+                "seller_id": sheet.seller_id.id,
+                "sheet_id": sheet.id,
+                "amount": cash_amount,
+            }
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "voucher_ids": [Command.set(cash.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-SD-REVIEW",
+                            "invoice_number": "SD-R-1",
+                            "issue_date": date(2026, 1, 1),
+                            "due_date": date(2026, 1, 31),
+                            "invoice_amount": cash_amount,
+                            "invoice_balance": cash_amount,
+                            "invoice_state": "open",
+                            "amount_applied": cash_amount,
+                            "document_kind": "invoice",
+                        }
+                    )
+                ],
+            }
+        )
+        receipt = self.env["collection.receipt"].create(
+            {"allocation_id": allocation.id, "document_kind": "invoice"}
+        )
+        cash_value = self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": cash.id,
+                "amount": cash_amount,
+            }
+        )
+        cash.action_validate_seller()
+        return sheet, cash, cash_value
+
     def _call(self, arguments=None, user=None, tool=TOOL_NAME):
         if arguments is None:
             arguments = self._args()
@@ -170,28 +226,63 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         self.assertEqual(voucher.voucher_date, date(2026, 9, 8))
         self.assertRegex(voucher.document_id, _DOCUMENT_ID_RE)
         self.assertEqual(voucher.document_id, voucher_payload["document_id"])
-        self.assertEqual(voucher.state, "validated_collections")
-        self.assertEqual(voucher_payload["state"], "validated_collections")
+        self.assertEqual(voucher.state, "validated_seller")
+        self.assertEqual(voucher_payload["state"], "validated_seller")
+        self.assertFalse(voucher.reviewed_by)
+        self.assertFalse(voucher.reviewed_at)
         self.assertFalse(voucher.allocation_id)
         self.assertNotIn("content_base64", result)
 
-    def test_optional_proof_is_posted_before_collections_validate(self):
-        """Optional nested attachment MUST become designated proof."""
+    def test_optional_proof_becomes_designated_proof_awaiting_review(self):
+        """Optional nested attachment MUST become reviewable designated proof."""
         sheet = self._create_sheet()
         sheet.action_seller_close()
-        result = self._call(
-            self._args(
-                attachment={
-                    "name": "deposit.png",
-                    "mimetype": "image/png",
-                    "datas": PNG_B64,
-                }
-            )
-        )
+        result = self._call(self._args(attachment=self._proof()))
         voucher = self.env["collection.voucher"].browse(result["voucher"]["id"])
-        self.assertEqual(voucher.state, "validated_collections")
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertTrue(voucher.message_main_attachment_id)
         self.assertEqual(voucher.message_main_attachment_id.name, "deposit.png")
+
+    def test_deposit_with_proof_enters_the_review_queue(self):
+        """The deposit slip MUST be listed by get_review_queue for its sheet."""
+        self._enable_document_review()
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        result = self._call(self._args(attachment=self._proof()))
+        voucher = self.env["collection.voucher"].browse(result["voucher"]["id"])
+        queue = self.env["collection.voucher"].get_review_queue(sheet_id=sheet.id)
+        self.assertEqual([row["voucher_id"] for row in queue], [voucher.id])
+        self.assertEqual(voucher.state, "validated_seller")
+
+    def test_review_approve_promotes_the_deposit_and_replaces_cash(self):
+        """Document Review Approve MUST be the promote path and MUST replace cash."""
+        self._enable_document_review()
+        sheet, cash, cash_value = self._sheet_with_replaceable_cash()
+        sheet.action_seller_close()
+        result = self._call(self._args(amount=40.0, attachment=self._proof()))
+        deposit = self.env["collection.voucher"].browse(result["voucher"]["id"])
+        deposit.action_review_approve(sheet_id=sheet.id)
+        self.assertEqual(deposit.state, "validated_collections")
+        self.assertEqual(deposit.reviewed_by, self.env.user)
+        self.assertTrue(deposit.reviewed_at)
+        rows = cash.cash_replacement_ids
+        self.assertEqual(rows.mapped("direction"), ["replace"])
+        self.assertEqual(rows.deposit_voucher_id, deposit)
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
+        self.assertAlmostEqual(cash_value.amount, 60.0, places=2)
+        deposit_value = sheet.allocation_ids.receipt_ids.value_ids.filtered(
+            lambda value: value.voucher_id == deposit
+        )
+        self.assertAlmostEqual(deposit_value.amount, 40.0, places=2)
+
+    def test_unreviewed_deposit_still_blocks_confirm(self):
+        """A validated_seller deposit MUST keep Confirm blocked."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        self._call()
+        with self.assertRaises(UserError):
+            sheet.action_confirm()
+        self.assertEqual(sheet.state, "submitted")
 
     def test_open_sheet_is_not_the_deposit_target(self):
         """An open sheet MUST NOT receive a deposit; the tool targets submitted only."""
@@ -298,5 +389,5 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         self.assertNotIn(".sudo(", method_code)
         self.assertNotIn("_open_sheets_for_seller", method_code)
         self.assertIn("_submitted_sheets_for_seller", method_code)
-        self.assertIn("collection_audited_state", method_code)
+        self.assertNotIn("validated_collections", method_code)
         self.assertIn("sd-", method_code)

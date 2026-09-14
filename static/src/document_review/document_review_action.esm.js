@@ -17,6 +17,7 @@ import {
   sanitizeQueueItem,
   storedViewerRotation,
 } from "@collection/document_review/document_review_helpers.esm";
+import {ControlPanel} from "@web/search/control_panel/control_panel";
 import {_t} from "@web/core/l10n/translation";
 import {registry} from "@web/core/registry";
 import {standardActionServiceProps} from "@web/webclient/actions/action_service";
@@ -24,6 +25,7 @@ import {useService} from "@web/core/utils/hooks";
 
 export class DocumentReviewAction extends Component {
   static template = "collection.DocumentReviewAction";
+  static components = {ControlPanel};
   static props = {...standardActionServiceProps};
 
   setup() {
