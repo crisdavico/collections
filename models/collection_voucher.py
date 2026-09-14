@@ -278,11 +278,31 @@ class CollectionVoucher(models.Model):
         vals["partner_id"] = sentinel.id
 
     def _selection_document_type(self):
-        """Allowed company types, plus each record's current value if later dropped."""
-        allowed_codes = set(self.env.company.allowed_document_type_ids.mapped("code"))
+        """Allowed company types, plus each record's current value if later dropped.
+
+        Labels come from the ``collection.document.type`` catalog, whose ``name``
+        is ``translate=True``. A selection resolved by method never passes through
+        ``ir.model.fields.selection``, so ``_description_selection`` hands back the
+        constant verbatim -- English in every language. The catalog mirrors
+        ``_DOCUMENT_TYPE_SELECTION`` code for code, so reading the label off the
+        record keeps en_US byte-identical while giving es_AR a translation.
+        """
+        allowed = self.env.company.allowed_document_type_ids
+        allowed_codes = set(allowed.mapped("code"))
         current_codes = {rec.document_type for rec in self if rec.document_type}
         keep = allowed_codes | current_codes
-        return [item for item in self._DOCUMENT_TYPE_SELECTION if item[0] in keep]
+        catalog = allowed
+        missing = current_codes - allowed_codes
+        if missing:
+            catalog |= self.env["collection.document.type"].search(
+                [("code", "in", list(missing))]
+            )
+        labels = {rec.code: rec.name for rec in catalog}
+        return [
+            (code, labels.get(code) or label)
+            for code, label in self._DOCUMENT_TYPE_SELECTION
+            if code in keep
+        ]
 
     @api.private
     def _apply_open_sheet_auto_assign(self, vals_list):

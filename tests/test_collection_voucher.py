@@ -1871,3 +1871,47 @@ class TestCollectionNewWorkHelper(TransactionCase):
         }
         self.assertNotIn("unsupported", empty_codes)
         self.assertIn("bank_transfer", empty_codes)
+
+    def test_document_type_selection_labels_come_from_the_catalog(self):
+        """Labels MUST read the translatable catalog `name`, not the constant.
+
+        A selection resolved by method never reaches `ir.model.fields.selection`,
+        so the constant's English would be what every language renders -- the
+        Conciliación board's `method` among them.
+        """
+        transfer = self.env.ref("collection.document_type_bank_transfer")
+        transfer.name = "Transferencia bancaria"
+        labels = dict(self.env["collection.voucher"]._selection_document_type())
+        self.assertEqual(labels["bank_transfer"], "Transferencia bancaria")
+
+    def test_document_type_selection_label_follows_a_dropped_current_type(self):
+        """A type kept only as a record's current value still gets its catalog label."""
+        unsupported = self.env.ref("collection.document_type_unsupported")
+        unsupported.name = "No soportado"
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        voucher = self._create_voucher(
+            customer_identification="CUST-NW-TYPE-LABEL",
+            seller_id=seller.id,
+            document_type="unsupported",
+        )
+        others = self.env.company.allowed_document_type_ids - unsupported
+        self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
+
+        labels = dict(voucher._selection_document_type())
+        self.assertEqual(labels["unsupported"], "No soportado")
+
+    def test_document_type_selection_falls_back_when_no_catalog_row(self):
+        """No catalog row for a current code: the constant label is the fallback."""
+        unsupported = self.env.ref("collection.document_type_unsupported")
+        seller = self._admin_seller()
+        self._enable_sellers(seller)
+        voucher = self._create_voucher(
+            customer_identification="CUST-NW-TYPE-GONE",
+            seller_id=seller.id,
+            document_type="unsupported",
+        )
+        unsupported.unlink()
+
+        labels = dict(voucher._selection_document_type())
+        self.assertEqual(labels["unsupported"], "Unsupported")
