@@ -19,6 +19,7 @@ SEVEN_TYPE_CODES = ALL_TYPE_CODES | {
     "retention_certificate",
 }
 EIGHT_TYPE_CODES = SEVEN_TYPE_CODES | {"seller_deposit"}
+NINE_TYPE_CODES = EIGHT_TYPE_CODES | {"seller_commission"}
 MIGRATE_PATH = (
     Path(__file__).resolve().parents[1]
     / "migrations"
@@ -194,12 +195,12 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_47_0(self):
+    def test_manifest_version_is_1_48_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.47.0"', manifest_text)
-        self.assertNotIn('"version": "19.0.1.46.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.48.0"', manifest_text)
+        self.assertNotIn('"version": "19.0.1.47.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
             "19.0.1.27.0",
@@ -216,6 +217,7 @@ class TestCollectionCompanyMigration(TransactionCase):
             "19.0.1.44.0",
             "19.0.1.45.0",
             "19.0.1.47.0",
+            "19.0.1.49.0",
         ):
             self.assertFalse(
                 (module_root / "migrations" / leftover).exists(),
@@ -228,6 +230,13 @@ class TestCollectionCompanyMigration(TransactionCase):
         text_146 = migrate_146.read_text(encoding="utf-8")
         self.assertIn("cash_on_hand", text_146)
         self.assertIn("add_to_compute", text_146)
+        migrate_148 = module_root / "migrations" / "19.0.1.48.0" / "post-migrate.py"
+        self.assertTrue(migrate_148.is_file(), "Need 19.0.1.48.0 allow-list union")
+        text_148 = migrate_148.read_text(encoding="utf-8")
+        self.assertIn("_collection_enable_all_document_types", text_148)
+        self.assertNotIn("_collection_seed_allowed_document_types", text_148)
+        self.assertNotIn("backfill", text_148.lower())
+        self.assertNotIn("commission_withheld", text_148)
         migrate_143 = module_root / "migrations" / "19.0.1.43.0" / "post-migrate.py"
         self.assertTrue(migrate_143.is_file(), "Need 19.0.1.43.0 allow-list union")
         text_143 = migrate_143.read_text(encoding="utf-8")
@@ -365,10 +374,11 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.47.0`", agents)
-        self.assertNotIn("Module metadata `19.0.1.46.0`", agents)
+        self.assertIn("Module metadata `19.0.1.48.0`", agents)
+        self.assertNotIn("Module metadata `19.0.1.47.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`migrations/19.0.1.43.0/`", agents)
+        self.assertIn("`migrations/19.0.1.48.0/`", agents)
         self.assertIn(
             "`open`/`submitted`/`proposal`/`closed`/`cancelled`",
             agents,
@@ -392,7 +402,16 @@ class TestCollectionCompanyMigration(TransactionCase):
             "Do **not** add `migrations/19.0.1.47.0/`",
             " ".join(agents.split()),
         )
+        self.assertIn(
+            "Do **not** add `migrations/19.0.1.49.0/`",
+            " ".join(agents.split()),
+        )
         self.assertIn("`migrations/19.0.1.46.0/`", agents)
+        self.assertIn("`CONFIRM_REVIEW_EXEMPT_TYPES`", agents)
+        self.assertIn("`CASH_REPLACEMENT_TYPES`", agents)
+        self.assertIn("`collection_seller_commission_mint`", agents)
+        self.assertIn("`seller_commission`", agents)
+        self.assertIn("`collection.partner_seller_commission`", agents)
         self.assertNotIn("dispatches connector `create_receipt`", agents)
         self.assertIn(
             "MUST NOT consult the connector",
@@ -442,6 +461,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("`closed`", description)
         self.assertIn("`cancelled`", description)
         self.assertIn("Allocations, Vouchers, and Debt", description)
+        self.assertIn("seller_commission", description)
         self.assertNotIn("(`open`/`closed`)", description)
         self.assertNotIn("Reassign Customers", description)
         self.assertNotIn("Reopen", description)
@@ -670,12 +690,12 @@ class TestCollectionCompanyMigration(TransactionCase):
         self._run_migrate()
         self.assertEqual(
             set(company_b.allowed_document_type_ids.mapped("code")),
-            EIGHT_TYPE_CODES,
+            NINE_TYPE_CODES,
         )
         self.assertIn(extra, self.env.company.allowed_document_type_ids)
         self.assertEqual(
             set(self.env.company.allowed_document_type_ids.mapped("code")),
-            EIGHT_TYPE_CODES | {"wire_mig"},
+            NINE_TYPE_CODES | {"wire_mig"},
         )
 
     def test_upgrade_140_unions_three_types_keeps_extras(self):
@@ -705,7 +725,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         module.migrate(self.env.cr, "19.0.1.39.0")
         self.env.invalidate_all()
         codes = set(company_b.allowed_document_type_ids.mapped("code"))
-        self.assertEqual(codes, EIGHT_TYPE_CODES | {"wire_140"})
+        self.assertEqual(codes, NINE_TYPE_CODES | {"wire_140"})
         self.assertIn(extra, company_b.allowed_document_type_ids)
 
     def test_upgrade_143_unions_seller_deposit_keeps_extras(self):
@@ -739,9 +759,44 @@ class TestCollectionCompanyMigration(TransactionCase):
         module.migrate(self.env.cr, "19.0.1.42.0")
         self.env.invalidate_all()
         codes = set(company_b.allowed_document_type_ids.mapped("code"))
-        self.assertEqual(codes, EIGHT_TYPE_CODES | {"wire_143"})
+        self.assertEqual(codes, NINE_TYPE_CODES | {"wire_143"})
         self.assertIn(extra, company_b.allowed_document_type_ids)
         self.assertIn("seller_deposit", codes)
+
+    def test_upgrade_148_unions_seller_commission_keeps_extras(self):
+        """1.48.0 MUST union seller_commission and keep extras. No 19.0.1.49.0/."""
+        module_root = Path(__file__).resolve().parents[1]
+        self.assertFalse(
+            (module_root / "migrations" / "19.0.1.49.0").exists(),
+            "leftover pin still forbids migrations/19.0.1.49.0/",
+        )
+        migrate_path = module_root / "migrations" / "19.0.1.48.0" / "post-migrate.py"
+        self.assertTrue(migrate_path.is_file(), "Need 19.0.1.48.0 allow-list union")
+        text = migrate_path.read_text(encoding="utf-8")
+        self.assertIn("_collection_enable_all_document_types", text)
+        self.assertNotIn("_collection_seed_allowed_document_types", text)
+        extra = self.env["collection.document.type"].create(
+            {"code": "wire_148", "name": "Wire 148"}
+        )
+        eight_ids = [
+            self.env.ref(f"collection.document_type_{code}").id
+            for code in EIGHT_TYPE_CODES
+        ]
+        company_b = self._create_company("Union Seller Commission Co B")
+        company_b.write({"allowed_document_type_ids": [(6, 0, eight_ids + [extra.id])]})
+        self.assertEqual(
+            set(company_b.allowed_document_type_ids.mapped("code")),
+            EIGHT_TYPE_CODES | {"wire_148"},
+        )
+        spec = spec_from_file_location("collection_148_post_migrate", migrate_path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.migrate(self.env.cr, "19.0.1.47.0")
+        self.env.invalidate_all()
+        codes = set(company_b.allowed_document_type_ids.mapped("code"))
+        self.assertEqual(codes, NINE_TYPE_CODES | {"wire_148"})
+        self.assertIn(extra, company_b.allowed_document_type_ids)
+        self.assertIn("seller_commission", codes)
 
     def test_migrate_binds_null_sequences_to_main_and_copies_others(self):
         main = self.env.ref("base.main_company")
@@ -856,7 +911,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertFalse(company.enabled_seller_ids)
         self.assertEqual(
             set(company.allowed_document_type_ids.mapped("code")),
-            EIGHT_TYPE_CODES,
+            NINE_TYPE_CODES,
         )
         for code, prefix in (
             ("collection.voucher", "COL"),

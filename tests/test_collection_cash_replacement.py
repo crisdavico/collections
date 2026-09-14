@@ -182,6 +182,82 @@ class TestCollectionCashReplacement(TransactionCase):
             }
         )
 
+    def _enable_seller_commission_type(self):
+        catalog = self.env.ref("collection.document_type_seller_commission")
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def _create_commission(self, sheet, amount):
+        self._enable_seller_commission_type()
+        return self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_commission",
+                "seller_id": sheet.seller_id.id,
+                "sheet_id": sheet.id,
+                "amount": amount,
+            }
+        )
+
+    def _funded_cash_invoice_receipt(self, cash_amount=100.0, applied=70.0):
+        partner = self._partner()
+        sheet = self._create_sheet()
+        cash = self.env["collection.voucher"].create(
+            {
+                "partner_id": partner.id,
+                "document_type": "cash",
+                "seller_id": sheet.seller_id.id,
+                "sheet_id": sheet.id,
+                "amount": cash_amount,
+            }
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "voucher_ids": [Command.set(cash.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-COMM",
+                            "invoice_number": "C-1",
+                            "issue_date": date(2026, 1, 1),
+                            "due_date": date(2026, 1, 31),
+                            "invoice_amount": cash_amount,
+                            "invoice_balance": cash_amount,
+                            "invoice_state": "open",
+                            "amount_applied": applied,
+                            "document_kind": "invoice",
+                        }
+                    )
+                ],
+            }
+        )
+        receipt = self.env["collection.receipt"].create(
+            {
+                "allocation_id": allocation.id,
+                "document_kind": "invoice",
+            }
+        )
+        cash_value = self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": cash.id,
+                "amount": cash_amount,
+            }
+        )
+        return receipt, cash, cash_value
+
+    def _mark_issued(self, receipt, external_id):
+        receipt.with_context(collection_receipt_issuing=True).write(
+            {
+                "state": "issued",
+                "external_receipt_id": external_id,
+            }
+        )
+        return receipt
+
     def _stamp_create_date(self, voucher, stamped):
         self.env.cr.execute(
             "UPDATE collection_voucher SET create_date = %s WHERE id = %s",
@@ -526,3 +602,205 @@ class TestCollectionCashReplacement(TransactionCase):
         self.assertAlmostEqual(old_value.amount, 10.0, places=2)
         self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
         self.assertAlmostEqual(receipt.total_values, 80.0, places=2)
+
+    def test_issued_receipt_skipped_not_aborted(self):
+        """Issued cash MUST stay put while draft cash is replaced, without raising."""
+        sheet = self._create_sheet()
+        issued, cash_issued, issued_value = self._cash_receipt(
+            sheet,
+            self._partner("ISSUED-CASH"),
+            50.0,
+            "invoice",
+            date(2026, 1, 1),
+            "ISS-EARLY",
+        )
+        draft, cash_draft, draft_value = self._cash_receipt(
+            sheet,
+            self._partner("DRAFT-CASH"),
+            40.0,
+            "invoice",
+            date(2026, 6, 1),
+            "DFT-LATE",
+        )
+        self._mark_issued(issued, "ERP-SKIP-ISSUED")
+        self.assertEqual(issued.state, "issued")
+        self.assertEqual(draft.state, "draft")
+        deposit = self._create_deposit(sheet, 40.0, number="SD-SKIP-ISS")
+        self._submit(sheet, cash_issued, cash_draft, deposit)
+        self._validate_collections(deposit)
+        self.assertEqual(deposit.state, "validated_collections")
+        rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", deposit.id)]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows.cash_voucher_id, cash_draft)
+        self.assertEqual(rows.receipt_id, draft)
+        self.assertAlmostEqual(rows.amount, 40.0, places=2)
+        self.assertEqual(issued.state, "issued")
+        self.assertTrue(issued_value.exists())
+        self.assertAlmostEqual(issued_value.amount, 50.0, places=2)
+        self.assertFalse(
+            issued.value_ids.filtered(lambda value: value.voucher_id == deposit)
+        )
+        self.assertAlmostEqual(cash_issued.replaced_amount, 0.0, places=2)
+        self.assertAlmostEqual(cash_draft.replaced_amount, 40.0, places=2)
+        self.assertFalse(draft_value.exists())
+        self.assertAlmostEqual(issued.total_values, 50.0, places=2)
+        self.assertAlmostEqual(draft.total_values, 40.0, places=2)
+
+    def test_issued_only_cash_is_silent_no_op(self):
+        """A sheet whose only cash sits on issued receipts MUST not raise or replace."""
+        sheet = self._create_sheet()
+        issued, cash_issued, issued_value = self._cash_receipt(
+            sheet,
+            self._partner("ISSUED-ONLY"),
+            50.0,
+            "invoice",
+            date(2026, 1, 15),
+            "ISS-ONLY",
+        )
+        self._mark_issued(issued, "ERP-SKIP-ONLY")
+        deposit = self._create_deposit(sheet, 50.0, number="SD-ISS-ONLY")
+        self._submit(sheet, cash_issued, deposit)
+        self._validate_collections(deposit)
+        self.assertEqual(deposit.state, "validated_collections")
+        self.assertFalse(
+            self.env["collection.cash.replacement"].search(
+                [("deposit_voucher_id", "=", deposit.id)]
+            )
+        )
+        self.assertEqual(issued.state, "issued")
+        self.assertTrue(issued_value.exists())
+        self.assertAlmostEqual(issued_value.amount, 50.0, places=2)
+        self.assertAlmostEqual(cash_issued.replaced_amount, 0.0, places=2)
+
+    def test_commission_replaces_cash_preserving_totals(self):
+        """Promoting seller_commission MUST replace cash FIFO and keep totals."""
+        receipt, cash, cash_value = self._funded_cash_invoice_receipt(
+            cash_amount=100.0, applied=70.0
+        )
+        line = receipt.allocation_id.line_ids
+        commission = self._create_commission(receipt.sheet_id, 30.0)
+        self._submit(receipt.sheet_id, cash, commission)
+        self._validate_collections(commission)
+        self.assertAlmostEqual(receipt.total_values, 100.0, places=2)
+        self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
+        self.assertAlmostEqual(line.amount_applied, 70.0, places=2)
+        self.assertAlmostEqual(cash_value.amount, 70.0, places=2)
+        rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", commission.id)]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows.direction, "replace")
+        self.assertEqual(rows.deposit_voucher_id, commission)
+        self.assertEqual(rows.deposit_voucher_id.document_type, "seller_commission")
+        self.assertEqual(rows.cash_voucher_id, cash)
+        self.assertEqual(rows.receipt_id, receipt)
+        self.assertAlmostEqual(rows.amount, 30.0, places=2)
+
+    def test_deposit_and_commission_share_one_cash_pool(self):
+        """A deposit and a commission MUST consume one cash pool, never twice."""
+        receipt, cash, deposit, cash_value = self._funded_invoice_receipt(
+            cash_amount=100.0, applied=70.0, deposit_amount=70.0
+        )
+        commission = self._create_commission(receipt.sheet_id, 30.0)
+        self._submit(receipt.sheet_id, cash, deposit, commission)
+        self._validate_collections(deposit | commission)
+        deposit_rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", deposit.id)]
+        )
+        commission_rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", commission.id)]
+        )
+        self.assertTrue(deposit_rows)
+        self.assertTrue(commission_rows)
+        replaced = sum(deposit_rows.mapped("amount")) + sum(
+            commission_rows.mapped("amount")
+        )
+        self.assertAlmostEqual(replaced, 100.0, places=2)
+        self.assertAlmostEqual(cash.replaced_amount, 100.0, places=2)
+        self.assertFalse(cash_value.exists())
+        self.assertEqual(
+            set(deposit_rows.cash_voucher_id.ids + commission_rows.cash_voucher_id.ids),
+            {cash.id},
+        )
+
+    def test_over_declared_commission_raises(self):
+        """A commission larger than replaceable cash MUST raise UserError."""
+        receipt, cash, _cash_value = self._funded_cash_invoice_receipt(
+            cash_amount=50.0, applied=50.0
+        )
+        commission = self._create_commission(receipt.sheet_id, 80.0)
+        self._submit(receipt.sheet_id, cash, commission)
+        with self.assertRaises(UserError) as ctx:
+            self._validate_collections(commission)
+        self.assertIn("commission", str(ctx.exception).lower())
+
+    def test_excess_deposit_still_silently_drops(self):
+        """An excess seller_deposit MUST still replace available cash and not raise."""
+        receipt, cash, deposit, cash_value = self._funded_invoice_receipt(
+            cash_amount=50.0, applied=50.0, deposit_amount=80.0
+        )
+        self._submit(receipt.sheet_id, cash, deposit)
+        self._validate_collections(deposit)
+        self.assertEqual(deposit.state, "validated_collections")
+        rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", deposit.id)]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows.amount, 50.0, places=2)
+        self.assertFalse(cash_value.exists())
+        self.assertAlmostEqual(cash.replaced_amount, 50.0, places=2)
+
+    def test_commission_voucher_cannot_unlink_once_referenced(self):
+        """A seller_commission named on a replace row MUST refuse unlink."""
+        receipt, cash, cash_value = self._funded_cash_invoice_receipt(
+            cash_amount=100.0, applied=70.0
+        )
+        commission = self._create_commission(receipt.sheet_id, 30.0)
+        self._submit(receipt.sheet_id, cash, commission)
+        self._validate_collections(commission)
+        rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", commission.id)]
+        )
+        self.assertTrue(rows)
+        self.assertEqual(
+            self.env["collection.cash.replacement"]
+            ._fields["deposit_voucher_id"]
+            .ondelete,
+            "restrict",
+        )
+        with self.assertRaises(UserError):
+            commission.unlink()
+        self.assertTrue(commission.exists())
+        self.assertTrue(rows.exists())
+        self.assertTrue(cash_value.exists())
+
+    def test_cash_replacer_helpers_use_replacement_types(self):
+        """Enter/run helpers MUST be the type-set names, not deposit-only."""
+        voucher_cls = type(self.env["collection.voucher"])
+        self.assertTrue(
+            hasattr(voucher_cls, "_cash_replacers_entering_validated_collections")
+        )
+        self.assertTrue(hasattr(voucher_cls, "_run_cash_replacement"))
+        self.assertFalse(
+            hasattr(voucher_cls, "_seller_deposits_entering_validated_collections")
+        )
+        self.assertFalse(hasattr(voucher_cls, "_run_seller_deposit_cash_replacement"))
+        write_source = inspect.getsource(voucher_cls.write)
+        self.assertIn("_cash_replacers_entering_validated_collections", write_source)
+        self.assertIn("_run_cash_replacement", write_source)
+        run_source = inspect.getsource(voucher_cls._run_cash_replacement)
+        self.assertIn("CASH_REPLACEMENT_TYPES", run_source)
+        enter_source = inspect.getsource(
+            voucher_cls._cash_replacers_entering_validated_collections
+        )
+        self.assertIn("CASH_REPLACEMENT_TYPES", enter_source)
+
+    def test_deposit_voucher_id_help_names_replacing_types(self):
+        """deposit_voucher_id MUST document both replacing voucher types."""
+        field = self.env["collection.cash.replacement"]._fields["deposit_voucher_id"]
+        help_text = field.help or ""
+        self.assertIn("replacing voucher", help_text.lower())
+        self.assertIn("seller_deposit", help_text)
+        self.assertIn("seller_commission", help_text)

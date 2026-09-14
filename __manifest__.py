@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 {
     "name": "Collections",
-    "version": "19.0.1.47.0",
+    "version": "19.0.1.48.0",
     "category": "Sales/CRM",
     "summary": "Manual payment vouchers for cobranzas",
     "author": "Seedian",
@@ -14,6 +14,7 @@
         "data/ir_sequence_data.xml",
         "data/collection_document_type_data.xml",
         "data/collection_seller_deposit_partner_data.xml",
+        "data/collection_seller_commission_partner_data.xml",
         "views/collection_views.xml",
         "views/collection_allocation_views.xml",
         "wizard/collection_allocation_debt_picker_views.xml",

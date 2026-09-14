@@ -1,6 +1,7 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import inspect
 from datetime import date
 from unittest.mock import patch
 
@@ -590,6 +591,234 @@ class TestCollectionSheet(TransactionCase):
         sheet.action_declare_cash(commission_withheld=0.0)
         sheet.action_confirm()
         self.assertEqual(sheet.state, "proposal")
+
+    def _enable_seller_commission_type(self):
+        return self._enable_document_type("seller_commission")
+
+    def _commission_vouchers(self, sheet):
+        return sheet.voucher_ids.filtered(
+            lambda voucher: voucher.document_type == "seller_commission"
+        )
+
+    def _funded_cash_on_sheet(self, sheet, amount=400.0, customer="CUST-SC-MINT"):
+        cash = self._create_voucher(
+            customer_identification=customer,
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=amount,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, cash, invoice_id=f"INV-{customer}"
+        )
+        receipt = self.env["collection.receipt"].create(
+            {
+                "allocation_id": allocation.id,
+                "document_kind": "invoice",
+            }
+        )
+        cash_value = self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": cash.id,
+                "amount": amount,
+            }
+        )
+        return cash, allocation, receipt, cash_value
+
+    def _submit_declared_cash(self, sheet, cash, withheld):
+        cash.action_validate_seller()
+        sheet.action_seller_close()
+        sheet.action_declare_cash(commission_withheld=withheld)
+        return sheet
+
+    def test_confirm_mints_one_seller_commission_and_replaces_cash(self):
+        """Confirm MUST mint one sc-<uuid> commission and replace that cash."""
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        cash, _allocation, receipt, cash_value = self._funded_cash_on_sheet(
+            sheet, amount=400.0, customer="CUST-SC-MINT-300"
+        )
+        self._submit_declared_cash(sheet, cash, 300.0)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        commissions = self._commission_vouchers(sheet)
+        self.assertEqual(len(commissions), 1)
+        commission = commissions
+        self.assertEqual(commission.state, "validated_collections")
+        self.assertAlmostEqual(commission.amount, 300.0, places=2)
+        self.assertRegex(commission.document_id, r"^sc-[0-9a-f]{32}$")
+        self.assertEqual(commission.seller_id, sheet.seller_id)
+        self.assertEqual(commission.sheet_id, sheet)
+        rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", commission.id)]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows.direction, "replace")
+        self.assertAlmostEqual(rows.amount, 300.0, places=2)
+        self.assertEqual(rows.cash_voucher_id, cash)
+        self.assertAlmostEqual(cash_value.amount, 100.0, places=2)
+        commission_value = receipt.value_ids.filtered(
+            lambda value: value.voucher_id == commission
+        )
+        self.assertEqual(len(commission_value), 1)
+        self.assertAlmostEqual(commission_value.amount, 300.0, places=2)
+        bodies = " ".join(sheet.message_ids.mapped("body") or [])
+        self.assertIn(commission.name, bodies)
+        self.assertIn("300", bodies)
+
+    def test_zero_commission_confirm_mints_nothing(self):
+        """Confirm MUST mint nothing when commission_withheld is zero."""
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        cash, _allocation, _receipt, _cash_value = self._funded_cash_on_sheet(
+            sheet, amount=400.0, customer="CUST-SC-MINT-ZERO"
+        )
+        self._submit_declared_cash(sheet, cash, 0.0)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertFalse(self._commission_vouchers(sheet))
+
+    def test_review_gate_refused_confirm_mints_nothing(self):
+        """A Confirm review-gate refusal MUST mint nothing and stay submitted."""
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        cash, _allocation, _receipt, _cash_value = self._funded_cash_on_sheet(
+            sheet, amount=400.0, customer="CUST-SC-MINT-REVIEW"
+        )
+        blocking = self._create_voucher(
+            customer_identification="CUST-SC-MINT-BLOCK",
+            sheet_id=sheet.id,
+            document_type="bank_transfer",
+            amount=10.0,
+        )
+        blocking.action_validate_seller()
+        self._submit_declared_cash(sheet, cash, 300.0)
+        with self.assertRaises(UserError):
+            sheet.action_confirm()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(self._commission_vouchers(sheet))
+        self.assertFalse(
+            self.env["collection.cash.replacement"].search(
+                [("sheet_id", "=", sheet.id)]
+            )
+        )
+
+    def test_undeclared_cash_gate_refused_confirm_mints_nothing(self):
+        """The Declare Cash gate MUST mint nothing and leave submitted."""
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        cash, _allocation, _receipt, _cash_value = self._funded_cash_on_sheet(
+            sheet, amount=400.0, customer="CUST-SC-MINT-UNDECL"
+        )
+        cash.action_validate_seller()
+        sheet.action_seller_close()
+        sheet.write({"commission_withheld": 300.0})
+        self.assertFalse(sheet.cash_declared_at)
+        with self.assertRaises(UserError):
+            sheet.action_confirm()
+        self.assertEqual(sheet.state, "submitted")
+        self.assertFalse(self._commission_vouchers(sheet))
+
+    def test_reconfirm_after_reinstate_mints_no_second_commission(self):
+        """Confirm → Cancel → Reinstate → Confirm MUST keep one voucher and row."""
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        cash, _allocation, _receipt, _cash_value = self._funded_cash_on_sheet(
+            sheet, amount=400.0, customer="CUST-SC-MINT-RECONF"
+        )
+        self._submit_declared_cash(sheet, cash, 300.0)
+        sheet.action_confirm()
+        commission = self._commission_vouchers(sheet)
+        self.assertEqual(len(commission), 1)
+        Replacement = self.env["collection.cash.replacement"]
+        first_rows = Replacement.search([("deposit_voucher_id", "=", commission.id)])
+        self.assertEqual(len(first_rows), 1)
+        first_ids = first_rows.ids
+        sheet.action_cancel()
+        sheet.action_reinstate()
+        self.assertEqual(sheet.state, "submitted")
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(self._commission_vouchers(sheet), commission)
+        leftover = Replacement.search([("deposit_voucher_id", "=", commission.id)])
+        self.assertEqual(leftover.ids, first_ids)
+        self.assertFalse(leftover.filtered(lambda row: row.direction == "reverse"))
+
+    def test_disabled_seller_confirm_still_mints_commission(self):
+        """Confirm MUST still mint after the seller leaves enabled_seller_ids."""
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        cash, _allocation, _receipt, _cash_value = self._funded_cash_on_sheet(
+            sheet, amount=400.0, customer="CUST-SC-MINT-OFF"
+        )
+        self._submit_declared_cash(sheet, cash, 300.0)
+        self._clear_enabled_sellers()
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        commissions = self._commission_vouchers(sheet)
+        self.assertEqual(len(commissions), 1)
+        self.assertEqual(commissions.state, "validated_collections")
+
+    def test_commission_mint_does_not_change_cash_on_hand_or_cash_banked(self):
+        """cash_on_hand and cash_banked MUST be identical before and after mint."""
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        cash, _allocation, _receipt, _cash_value = self._funded_cash_on_sheet(
+            sheet, amount=400.0, customer="CUST-SC-MINT-RECON"
+        )
+        self._submit_declared_cash(sheet, cash, 300.0)
+        before_hand = sheet.cash_on_hand
+        before_banked = sheet.cash_banked
+        self.assertAlmostEqual(before_hand, 100.0, places=2)
+        self.assertAlmostEqual(before_banked, 0.0, places=2)
+        sheet.action_confirm()
+        commissions = self._commission_vouchers(sheet)
+        self.assertEqual(len(commissions), 1)
+        self.assertAlmostEqual(sheet.cash_on_hand, before_hand, places=2)
+        self.assertAlmostEqual(sheet.cash_banked, before_banked, places=2)
+        self.assertAlmostEqual(sheet.cash_banked, 0.0, places=2)
+
+    def test_mint_bypass_does_not_widen_orm_or_mcp_create(self):
+        """The mint context key MUST NOT open ORM, UI, or MCP voucher create."""
+        seller = self._seller()
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        self._clear_enabled_sellers()
+        with self.assertRaises(UserError) as error:
+            self.env["collection.voucher"].create(
+                {
+                    "document_type": "seller_commission",
+                    "seller_id": seller.id,
+                    "sheet_id": sheet.id,
+                    "amount": 10.0,
+                }
+            )
+        self.assertIn("not enabled", str(error.exception).lower())
+        partner = dummy_customer_partner(self.env, customer="CUST-SC-BYPASS")
+        with self.assertRaises(UserError) as error:
+            self.env["collection.voucher"].with_context(
+                collection_seller_commission_mint=True
+            ).create(
+                {
+                    "document_type": "cash",
+                    "partner_id": partner.id,
+                    "seller_id": seller.id,
+                    "sheet_id": sheet.id,
+                    "amount": 10.0,
+                }
+            )
+        self.assertIn("not enabled", str(error.exception).lower())
+        from odoo.addons.collection.tools import collection_seller_deposit
+        from odoo.addons.collection.tools import collection_voucher as mcp_voucher
+
+        self.assertNotIn(
+            "collection_seller_commission_mint",
+            inspect.getsource(mcp_voucher),
+        )
+        self.assertNotIn(
+            "collection_seller_commission_mint",
+            inspect.getsource(collection_seller_deposit),
+        )
 
     def test_illegal_close_cancel_open_from_open_refused(self):
         """Close, Cancel, or Reinstate from open MUST refuse and leave state open."""

@@ -544,7 +544,9 @@ class TestCollectionSheetXlsx(TransactionCase):
 
         def _seller_close_and_declare():
             sheet.action_seller_close()
-            sheet.action_declare_cash(commission_withheld=1.25)
+            # Zero withheld: Confirm mint is a no-op so this walk stays a
+            # state/download check and does not require replaceable cash.
+            sheet.action_declare_cash(commission_withheld=0)
 
         advances = (
             ("open", lambda: None),

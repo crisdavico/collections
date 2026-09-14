@@ -54,8 +54,18 @@ class ResCompany(models.Model):
 
     @api.private
     def _assert_new_work(self, seller, document_type=None):
-        """Reject NEW work when seller or type is missing, empty, or not allowed."""
+        """Reject NEW work when seller or type is missing, empty, or not allowed.
+
+        Context ``collection_seller_commission_mint`` skips this gate only for
+        Confirm-time ``seller_commission`` creates. ORM, UI, and MCP callers
+        MUST omit the key; it MUST NOT ``sudo()``.
+        """
         self.ensure_one()
+        if (
+            self.env.context.get("collection_seller_commission_mint")
+            and document_type == "seller_commission"
+        ):
+            return
         seller_record = seller
         if seller and not isinstance(seller, models.Model):
             seller_record = self.env["res.users"].browse(seller)
@@ -385,6 +395,71 @@ class ResCompany(models.Model):
         self.env["ir.model.data"].create(
             {
                 "name": "partner_seller_deposit",
+                "module": "collection",
+                "model": "res.partner",
+                "res_id": partner.id,
+                "noupdate": True,
+            }
+        )
+        return True
+
+    @api.model
+    @api.private
+    def _seller_commission_partner(self):
+        """Return the seeded commission sentinel partner."""
+        return self.env.ref("collection.partner_seller_commission")
+
+    @api.model
+    def _collection_ensure_seller_commission_partner(self):
+        """Seed XMLID collection.partner_seller_commission (noupdate)."""
+        existing = self.env.ref(
+            "collection.partner_seller_commission", raise_if_not_found=False
+        )
+        if existing:
+            return True
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        vals = {"name": "Seller Commission", "company_id": False}
+        if "autopost_bills" in Partner._fields:
+            vals["autopost_bills"] = "ask"
+            partner = Partner.create(vals)
+        else:
+            self.env.cr.execute(
+                """
+                SELECT 1
+                  FROM information_schema.columns
+                 WHERE table_name = 'res_partner'
+                   AND column_name = 'autopost_bills'
+                """
+            )
+            if self.env.cr.fetchone():
+                self.env.cr.execute(
+                    """
+                    INSERT INTO res_partner (
+                        name, active, complete_name, type, is_company,
+                        company_id, autopost_bills, create_uid, write_uid,
+                        create_date, write_date
+                    )
+                    VALUES (
+                        %s, true, %s, 'contact', false, NULL, 'ask',
+                        1, 1,
+                        (now() AT TIME ZONE 'UTC'),
+                        (now() AT TIME ZONE 'UTC')
+                    )
+                    RETURNING id
+                    """,
+                    ("Seller Commission", "Seller Commission"),
+                )
+                partner = Partner.browse(self.env.cr.fetchone()[0])
+            else:
+                partner = Partner.create(vals)
+        self.env["ir.model.data"].create(
+            {
+                "name": "partner_seller_commission",
                 "module": "collection",
                 "model": "res.partner",
                 "res_id": partner.id,

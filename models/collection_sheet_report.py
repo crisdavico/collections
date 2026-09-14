@@ -79,6 +79,12 @@ class CollectionSheetReport(models.Model):
         compute="_compute_cash_banked_totals",
         currency_field="currency_id",
     )
+    residual_cash_value_total = fields.Monetary(
+        string="Residual Cash",
+        currency_field="currency_id",
+        compute="_compute_residual_cash_value_total",
+        store=False,
+    )
 
     _commission_percent_range = models.Constraint(
         "CHECK(commission_percent >= 0 AND commission_percent <= 100)",
@@ -238,6 +244,26 @@ class CollectionSheetReport(models.Model):
             )
             currency = sheet.currency_id
             sheet.cash_on_hand = currency.round(amount) if currency else amount
+
+    @api.depends(
+        "allocation_ids.receipt_ids.value_ids.amount",
+        "allocation_ids.receipt_ids.value_ids.voucher_id.document_type",
+    )
+    def _compute_residual_cash_value_total(self):
+        """Sum cash receipt values still on the sheet, including issued.
+
+        Residual cash is a warning only: it MUST NOT feed collected, tendered,
+        cash_on_hand, or recon, and MUST NOT block any transition.
+        """
+        for sheet in self:
+            total = 0.0
+            for value in sheet.allocation_ids.receipt_ids.value_ids:
+                if value.voucher_id.document_type == "cash":
+                    total += value.amount or 0.0
+            currency = sheet.currency_id
+            sheet.residual_cash_value_total = (
+                currency.round(total) if currency else total
+            )
 
     def _collection_report_data(self):
         """Build the shared Planilla de Cobranza payload (primitives + records)."""
@@ -425,7 +451,7 @@ class CollectionSheetReport(models.Model):
 
     @api.private
     def _collection_report_voucher_blocks(self, codes):
-        """Group vouchers by catalog code; skip remittance; remaining alpha."""
+        """Group vouchers by catalog code; skip remittance and commission."""
         self.ensure_one()
         labels = {
             row.code: row.name
@@ -434,7 +460,7 @@ class CollectionSheetReport(models.Model):
         grouped = {}
         for voucher in self.voucher_ids:
             code = voucher.document_type or ""
-            if code == "seller_deposit":
+            if code in ("seller_deposit", "seller_commission"):
                 continue
             partner = voucher.partner_id
             partner_code = codes.get(partner.id, "") or ""
@@ -524,6 +550,8 @@ class CollectionSheetReport(models.Model):
                 retentions += amount
             elif voucher.document_type == "seller_deposit":
                 seller_deposits += amount
+            elif voucher.document_type == "seller_commission":
+                continue
         cash = self.cash_on_hand or 0.0
         return {
             "cash": cash,

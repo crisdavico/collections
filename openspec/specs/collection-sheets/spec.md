@@ -662,16 +662,18 @@ when `open`.)
 
 Confirm MUST run only from `submitted`. The system MUST raise `UserError` and MUST NOT
 change sheet or allocation `state` unless every member voucher has `state`
-`validated_collections`, and the `UserError` MUST name the offending vouchers. Members
-whose `document_type` is in `CONFIRM_REVIEW_EXEMPT_TYPES` (today `cash` only) carry no
-designated proof, so Document Review can never reach them: `validated_seller` MUST be
-enough for those, while `draft` MUST still block. `seller_deposit` MUST NOT be exempt
-and MUST reach `validated_collections`. An empty member set MUST pass. Missing
-designated proof, Document Review OFF, or any non-exempt member not
-`validated_collections` MUST block Confirm. Confirm MUST set the sheet to `proposal` and
-MUST NOT confirm allocations. (Previously: every member, `cash` included, had to be
-`validated_collections`; the error did not name offenders. Before that: Confirm ran only
-from `open`.)
+`validated_collections`, except that members whose `document_type` is in
+`CONFIRM_REVIEW_EXEMPT_TYPES` MUST be accepted at `validated_seller` or
+`validated_collections`. That set MUST be exactly `cash` and `seller_commission`:
+neither carries a designated proof, so Document Review can never reach them and a gate
+on `validated_collections` would deadlock. `draft` MUST still block. `seller_deposit`
+MUST stay non-exempt because its remittance slip is reviewable, and MUST reach
+`validated_collections`. An empty member set MUST pass. Missing designated proof,
+Document Review OFF, or any non-exempt member not `validated_collections` MUST block
+Confirm. The `UserError` MUST name the offending vouchers. Confirm MUST set the sheet to
+`proposal` and MUST NOT confirm allocations. (Previously: The exempt set was `cash`
+alone. Before that: every member, `cash` included, had to be `validated_collections`;
+the error did not name offenders. Before that: Confirm ran only from `open`.)
 
 #### Scenario: All members validated_collections
 
@@ -713,6 +715,20 @@ from `open`.)
 - GIVEN a submitted sheet with a `seller_deposit` member in `validated_seller`
 - WHEN Confirm runs
 - THEN MUST raise `UserError` and `state` MUST remain `submitted`
+
+#### Scenario: Commission at validated_seller does not block Confirm
+
+- GIVEN a submitted sheet whose only non-`validated_collections` member is a
+  `seller_commission` at `validated_seller`
+- WHEN Confirm runs
+- THEN `state` MUST become `proposal`
+
+#### Scenario: Deposit still blocks Confirm
+
+- GIVEN a submitted sheet with a `seller_deposit` at `validated_seller`
+- WHEN Confirm runs
+- THEN MUST raise `UserError`
+- AND `state` MUST remain `submitted`
 
 ### Requirement: Four-state sheet editability
 
@@ -775,10 +791,10 @@ refuse and MUST NOT change sheet or allocation `state` if any member voucher is 
 the error MUST list those offenders. An empty member set MUST pass. Members in
 `validated_seller` or `validated_collections` MUST pass. Seller Close MUST NOT require
 an allocation and MUST NOT require every member to be `validated_collections`. Seller
-Close MUST NOT persist `commission_withheld` and MUST NOT stamp
-`cash_declared_at`. Close MUST NOT confirm allocations. A disabled seller MUST still be
-allowed to close an existing `open` sheet. (Previously: The same close write persisted
-seller-declared `cash_on_hand` and `commission_withheld`.)
+Close MUST NOT persist `commission_withheld` and MUST NOT stamp `cash_declared_at`.
+Close MUST NOT confirm allocations. A disabled seller MUST still be allowed to close an
+existing `open` sheet. (Previously: The same close write persisted seller-declared
+`cash_on_hand` and `commission_withheld`.)
 
 #### Scenario: Open sheet closes to submitted
 
@@ -883,9 +899,8 @@ withheld amount and MUST restamp declared-at/by. It MUST refuse `open`, `proposa
 `closed`, and `cancelled` with no persist. The stored field name MUST remain
 `cash_on_hand`. Declare Cash MUST NOT change sheet or allocation `state`. A disabled
 seller MUST still be allowed to declare on an existing `submitted` sheet. Any internal
-user MAY run Declare Cash.
-(Previously: Declare Cash took and persisted a seller-declared `cash_on_hand` alongside
-`commission_withheld`.)
+user MAY run Declare Cash. (Previously: Declare Cash took and persisted a
+seller-declared `cash_on_hand` alongside `commission_withheld`.)
 
 #### Scenario: Submitted sheet accepts Declare Cash
 
@@ -920,17 +935,20 @@ user MAY run Declare Cash.
 
 Confirm MUST refuse when the sheet's collected cash is greater than zero and
 `cash_declared_at` is unset. Confirm MUST NOT change sheet or allocation `state` in that
-case. When collected cash is zero, Confirm MUST NOT require Declare Cash. Member
-`validated_collections` rules in Confirm review gate MUST still apply.
+case, and MUST NOT mint a `seller_commission` voucher. When collected cash is zero,
+Confirm MUST NOT require Declare Cash. Member `validated_collections` rules in Confirm
+review gate MUST still apply, and MUST be evaluated before the commission mint.
+(Previously: Confirm had no mint, so the gate ordering was unobservable.)
 
-#### Scenario: Undeclared cash blocks Confirm
+#### Scenario: Undeclared cash blocks Confirm and the mint
 
-- GIVEN a submitted sheet with collected cash greater than zero and unset
+- GIVEN a submitted sheet with collected cash greater than zero, unset
   `cash_declared_at`, and every member `validated_collections`
 - WHEN Confirm runs
 - THEN MUST raise `UserError`
 - AND `state` MUST remain `submitted`
 - AND every allocation MUST remain `draft`
+- AND no `seller_commission` voucher MUST persist
 
 #### Scenario: Zero cash Confirm without declaration
 
@@ -954,10 +972,10 @@ The system MUST expose `declare_collection_cash` via `@mcp_tool` on `muk_mcp.mix
 Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require integer
 `seller_id` plus `commission_withheld` (decimal strings MUST be accepted; numbers MAY be
 accepted). The tool MUST NOT accept `cash_on_hand`, `sheet_id`, `model`, `domain`,
-`fields`, `context`, or `order`. The tool MUST resolve the seller's own
-`submitted` sheet on `env.company` and MUST run Declare Cash on that sheet. It MUST NOT
-resolve via the open-sheet helper and MUST NOT declare against an `open` sheet. Portal
-or public callers MUST receive `AccessError`. Errors MUST be raised, never returned as
+`fields`, `context`, or `order`. The tool MUST resolve the seller's own `submitted`
+sheet on `env.company` and MUST run Declare Cash on that sheet. It MUST NOT resolve via
+the open-sheet helper and MUST NOT declare against an `open` sheet. Portal or public
+callers MUST receive `AccessError`. Errors MUST be raised, never returned as
 `{"error":...}`. On success the body MUST include
 `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}}` with `state`
 `submitted` and MUST NOT include report bytes. Zero `submitted` sheets MUST raise
@@ -1022,3 +1040,81 @@ Freeze covered write and unlink, not create.)
 - GIVEN a proposal sheet
 - WHEN an allocation is created lawfully
 - THEN the create MUST persist
+
+### Requirement: Confirm mints the seller commission voucher
+
+`action_confirm` MUST mint the retained-commission instrument for each sheet it
+confirms. The mint MUST run after the Confirm review gate and the Confirm cash
+declaration gate have both passed, and MUST run before the `submitted → proposal` state
+write, so that a refused Confirm leaves no voucher behind and the sheet is still
+unfrozen when the voucher is created.
+
+The mint MUST be a no-op when `commission_withheld` is zero or unset, and MUST be a
+no-op when the sheet already carries a `seller_commission` member voucher. That
+idempotency guard MUST key on the existing member voucher, not on replacement ledger
+rows, because Cancel does not reverse replacements and
+`Confirm → Cancel → Reinstate → Confirm` is a reachable path.
+
+Otherwise the system MUST create exactly one `collection.voucher` with `document_type`
+`seller_commission`, `amount` equal to `commission_withheld`, `seller_id` and `sheet_id`
+of the sheet, a minted `document_id` matching `sc-<uuid4 hex>`, and `state`
+`validated_seller`; then MUST write `validated_collections` under
+`collection_audited_state` to trigger cash replacement. The mint MUST NOT `sudo()`. It
+MUST post a chatter note on the sheet naming the voucher and amount.
+
+Because the mint is system bookkeeping on an existing sheet rather than new seller work,
+it MUST bypass `_assert_new_work` through a narrow documented context key. Confirm MUST
+therefore stay usable on a historical sheet whose seller has since been removed from
+`enabled_seller_ids`. The bypass MUST NOT widen to ORM, UI, or MCP voucher create.
+
+`commission_withheld` is writable only while the sheet is `submitted`, and Confirm
+leaves `submitted`, so the voucher `amount` and the declaration MUST agree permanently
+and no reverse or adjustment path MUST exist.
+
+#### Scenario: Confirm mints one commission voucher
+
+- GIVEN a submitted sheet with `commission_withheld` 300, every member
+  `validated_collections`, and `cash_declared_at` set
+- WHEN Confirm runs
+- THEN exactly one `seller_commission` voucher of amount 300 MUST persist on that sheet
+- AND its `state` MUST be `validated_collections`
+- AND its `document_id` MUST match `sc-<uuid4 hex>`
+- AND `state` MUST become `proposal`
+
+#### Scenario: Zero commission mints nothing
+
+- GIVEN a submitted sheet with `commission_withheld` 0 and `cash_declared_at` set
+- WHEN Confirm runs
+- THEN no `seller_commission` voucher MUST persist
+- AND `state` MUST become `proposal`
+
+#### Scenario: Refused Confirm mints nothing
+
+- GIVEN a submitted sheet with `commission_withheld` 300 and a member voucher that
+  blocks the Confirm review gate
+- WHEN Confirm runs
+- THEN MUST raise `UserError`
+- AND no `seller_commission` voucher MUST persist
+- AND `state` MUST remain `submitted`
+
+#### Scenario: Re-Confirm after Reinstate mints no second voucher
+
+- GIVEN a sheet Confirmed with a `seller_commission`, then Cancelled, then Reinstated
+- WHEN Confirm runs again
+- THEN exactly one `seller_commission` voucher MUST exist on that sheet
+- AND no additional `replace` ledger row MUST be created
+
+#### Scenario: Disabled seller still allows Confirm
+
+- GIVEN a submitted sheet with `commission_withheld` 300 whose `seller_id` is no longer
+  in `enabled_seller_ids`
+- WHEN Confirm runs
+- THEN the `seller_commission` voucher MUST persist
+- AND MUST NOT raise "Seller is not enabled for this company"
+
+#### Scenario: Mint does not alter the cash arithmetic
+
+- GIVEN a submitted sheet with `commission_withheld` 300 and `cash_on_hand` X
+- WHEN Confirm mints and promotes the commission voucher
+- THEN `cash_on_hand` MUST still equal X
+- AND `cash_banked` MUST NOT include the commission amount

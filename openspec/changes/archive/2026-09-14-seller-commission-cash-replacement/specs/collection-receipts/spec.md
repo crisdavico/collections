@@ -13,11 +13,12 @@ shrink a value only when the slice equals that value amount or leaves at least o
 Cash, replacing voucher, and receipt currencies MUST agree; a mismatch MUST refuse with
 no persist.
 
-The candidate walk MUST exclude `issued` receipts. Bucket order MUST be `quotation` then
-`invoice`; within a kind, earliest application due date then invoice number; within a
-bucket, oldest-uploaded `cash` values first. Multiple replacing vouchers MUST consume
-remaining cash in that order, so a `seller_deposit` and a `seller_commission` on the
-same sheet MUST compete for one pool and MUST NOT double-consume a value.
+The candidate walk MUST exclude `issued` receipts before the kind buckets. Bucket order
+MUST be `quotation` then `invoice`; within a kind, earliest application due date then
+invoice number; within a bucket, oldest-uploaded `cash` values first. Multiple replacing
+vouchers MUST consume remaining cash in that order, so a `seller_deposit` and a
+`seller_commission` on the same sheet MUST compete for one pool and MUST NOT
+double-consume a value.
 
 When a `seller_deposit` cannot spend its whole amount because replaceable cash ran out,
 the remainder MUST be silently dropped as today. When a `seller_commission` cannot spend

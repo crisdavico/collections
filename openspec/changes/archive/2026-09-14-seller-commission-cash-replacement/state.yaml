@@ -3,9 +3,9 @@ change: seller-commission-cash-replacement
 artifact_store: openspec
 delivery_strategy: ask-on-risk
 chain_strategy: stacked-to-main
-phase: proposal
+phase: design
 apply_slice: pending
-updated: 2026-09-09
+updated: 2026-09-14
 review_budget_risk: med
 notes: |
   User-authorized decisions: mint the seller_commission voucher at Confirm (not at
@@ -23,3 +23,4 @@ artifacts:
   - specs/collection-receipts/spec.md
   - specs/collection-sheet-report/spec.md
   - tasks.md
+  - design.md

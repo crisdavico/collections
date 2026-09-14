@@ -32,5 +32,9 @@
         <field name="code">seller_deposit</field>
         <field name="name">Seller Deposit</field>
     </record>
+    <record id="document_type_seller_commission" model="collection.document.type">
+        <field name="code">seller_commission</field>
+        <field name="name">Seller Commission</field>
+    </record>
     <function model="res.company" name="_collection_seed_allowed_document_types" />
 </odoo>

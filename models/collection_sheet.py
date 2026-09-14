@@ -1,6 +1,8 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import uuid
+
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools import SQL
@@ -320,9 +322,55 @@ class CollectionSheet(models.Model):
                         "collected cash."
                     )
                 )
+            sheet._ensure_seller_commission_voucher()
         return self.with_context(collection_sheet_audited_state=True).write(
             {"state": "proposal"}
         )
+
+    @api.private
+    def _ensure_seller_commission_voucher(self):
+        """Mint at most one seller_commission from locked commission_withheld.
+
+        No-op when withheld is zero or the sheet already has a member. Create
+        stays ``validated_seller``; the audited write to ``validated_collections``
+        runs replacement while the sheet is still ``submitted``.
+        """
+        self.ensure_one()
+        withheld = self.commission_withheld or 0.0
+        currency = self.company_id.currency_id
+        if currency.compare_amounts(withheld, 0.0) <= 0:
+            return self.env["collection.voucher"]
+        existing = self.voucher_ids.filtered(
+            lambda voucher: voucher.document_type == "seller_commission"
+        )
+        if existing:
+            return existing[:1]
+        voucher = (
+            self.env["collection.voucher"]
+            .with_context(collection_seller_commission_mint=True)
+            .create(
+                {
+                    "document_type": "seller_commission",
+                    "seller_id": self.seller_id.id,
+                    "sheet_id": self.id,
+                    "company_id": self.company_id.id,
+                    "amount": withheld,
+                    "document_id": f"sc-{uuid.uuid4().hex}",
+                    "state": "validated_seller",
+                }
+            )
+        )
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        self.message_post(
+            body=_(
+                "Seller commission %(name)s minted for %(amount)s.",
+                name=voucher.name,
+                amount=withheld,
+            )
+        )
+        return voucher
 
     @api.private
     def _vouchers_blocking_confirm(self):

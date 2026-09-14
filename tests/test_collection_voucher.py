@@ -358,8 +358,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(check.check_type, "common")
         self.assertEqual(check.check_number, "CHK-COMMON")
 
-    def test_document_type_selection_includes_eight_codes(self):
-        """Voucher Selection MUST include seller_deposit as the eighth catalog code."""
+    def test_document_type_selection_includes_nine_codes(self):
+        """Voucher Selection MUST include seller_commission as ninth catalog code."""
         keys = {
             key
             for key, _label in self.env["collection.voucher"]._DOCUMENT_TYPE_SELECTION
@@ -375,7 +375,21 @@ class TestCollectionVoucher(TransactionCase):
                 "cash",
                 "retention_certificate",
                 "seller_deposit",
+                "seller_commission",
             },
+        )
+        self.assertEqual(len(keys), 9)
+        from odoo.addons.collection.models.collection_common import (
+            CASH_REPLACEMENT_TYPES,
+            CONFIRM_REVIEW_EXEMPT_TYPES,
+        )
+
+        self.assertEqual(
+            CONFIRM_REVIEW_EXEMPT_TYPES, frozenset({"cash", "seller_commission"})
+        )
+        self.assertEqual(
+            CASH_REPLACEMENT_TYPES,
+            frozenset({"seller_deposit", "seller_commission"}),
         )
         self.assertIn("retention_kind", self.env["collection.voucher"]._fields)
         kinds = {
@@ -509,6 +523,106 @@ class TestCollectionVoucher(TransactionCase):
                 voucher_date=date(2026, 9, 8),
             )
         self.assertEqual(set(Voucher.search([]).ids), before_ids)
+
+    def _enable_seller_commission_type(self):
+        catalog = self.env.ref("collection.document_type_seller_commission")
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def test_seller_commission_stamps_sentinel_partner(self):
+        """NEW seller_commission create MUST stamp its own sentinel, not deposit."""
+        self._enable_seller_commission_type()
+        seller = self._ensure_enabled_seller()
+        voucher = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_commission",
+                "seller_id": seller.id,
+                "amount": 300.0,
+            }
+        )
+        commission = self.env.ref("collection.partner_seller_commission")
+        deposit = self.env.ref("collection.partner_seller_deposit")
+        self.assertEqual(voucher.partner_id, commission)
+        self.assertNotEqual(commission, deposit)
+        self.assertEqual(voucher.document_type, "seller_commission")
+        self.assertAlmostEqual(voucher.amount, 300.0, places=2)
+
+    def test_seller_commission_refuses_customer_partner(self):
+        """ORM seller_commission MUST refuse a customer partner with no write."""
+        self._enable_seller_commission_type()
+        seller = self._ensure_enabled_seller()
+        customer = dummy_customer_partner(self.env, customer="CUST-SC-REFUSE")
+        Voucher = self.env["collection.voucher"]
+        before_ids = set(Voucher.search([]).ids)
+        with self.assertRaises(UserError) as ctx:
+            Voucher.create(
+                {
+                    "document_type": "seller_commission",
+                    "seller_id": seller.id,
+                    "partner_id": customer.id,
+                    "amount": 100.0,
+                }
+            )
+        self.assertIn("customer partner", str(ctx.exception).lower())
+        self.assertIn("commission", str(ctx.exception).lower())
+        self.assertEqual(set(Voucher.search([]).ids), before_ids)
+
+    def test_seller_commission_refuses_customer_identification(self):
+        """seller_commission MUST refuse a leftover customer_identification."""
+        self._enable_seller_commission_type()
+        seller = self._ensure_enabled_seller()
+        Voucher = self.env["collection.voucher"]
+        before_ids = set(Voucher.search([]).ids)
+        with self.assertRaises(UserError) as ctx:
+            Voucher.create(
+                {
+                    "document_type": "seller_commission",
+                    "seller_id": seller.id,
+                    "customer_identification": "20-11111111-1",
+                    "amount": 80.0,
+                }
+            )
+        self.assertIn("customer identification", str(ctx.exception).lower())
+        self.assertIn("commission", str(ctx.exception).lower())
+        self.assertEqual(set(Voucher.search([]).ids), before_ids)
+
+    def test_seller_commission_sentinel_seeding_is_idempotent(self):
+        """Re-running the commission seed MUST not duplicate the partner."""
+        Company = self.env["res.company"]
+        self.assertTrue(Company._collection_ensure_seller_commission_partner())
+        sentinel = Company._seller_commission_partner()
+        self.assertEqual(sentinel.name, "Seller Commission")
+        self.assertFalse(sentinel.company_id)
+        xmlids_before = self.env["ir.model.data"].search_count(
+            [
+                ("module", "=", "collection"),
+                ("name", "=", "partner_seller_commission"),
+            ]
+        )
+        partner_ids_before = set(
+            self.env["res.partner"].search([("name", "=", "Seller Commission")]).ids
+        )
+        self.assertEqual(xmlids_before, 1)
+        self.assertEqual(partner_ids_before, {sentinel.id})
+        self.assertTrue(Company._collection_ensure_seller_commission_partner())
+        self.assertEqual(Company._seller_commission_partner(), sentinel)
+        self.assertEqual(
+            self.env["ir.model.data"].search_count(
+                [
+                    ("module", "=", "collection"),
+                    ("name", "=", "partner_seller_commission"),
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            set(
+                self.env["res.partner"].search([("name", "=", "Seller Commission")]).ids
+            ),
+            partner_ids_before,
+        )
 
     def test_cash_persists_without_proof(self):
         """Triangulation: cash with amount and no designated proof MUST persist."""

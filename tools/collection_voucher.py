@@ -454,6 +454,13 @@ class CollectionMcpMixin(models.AbstractModel):
             ),
         )
         document_type = nest.get("document_type")
+        if document_type == "seller_commission":
+            raise UserError(
+                _(
+                    "Seller commission payments cannot be allocated (index %(index)s).",
+                    index=index,
+                )
+            )
         if document_type not in _DOCUMENT_TYPES:
             raise UserError(
                 _(

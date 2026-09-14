@@ -93,21 +93,19 @@ Cross-company document_id reject not replay.)
 
 ### Requirement: MCP optional payment attachment on create
 
-`create_collection_allocation` MAY accept one optional nested attachment per
-payment with required `name`, `mimetype`, and base64 `datas` when present.
-Declared `mimetype` MUST match content detection (`image/*` or PDF only);
-`image/jpg` MUST be treated as equivalent to `image/jpeg` (case-insensitive)
-when comparing declared vs detected MIME. Mismatch or bad base64 MUST raise
-`UserError` with no writes. Explicit JSON `null`, `false`, or empty attachment
-MUST be treated as omit. Seller-declared `cash` MUST succeed with attachment
-omitted or null. Create with attachments MUST persist all vouchers and files
-atomically under a savepoint by posting each nest onto the new voucher chatter
-via `message_post` (MUST NOT write Binary `attachment`). Exact same-company
-`document_id` reuse MUST NOT add, replace, or compare attachments (even when a
-voucher has none) and MUST continue to allocation. All-new and conflict rules
-MUST remain unchanged except as this change specifies for company, seller, and
-type gates.
-(Previously: Declared MIME had to equal detected MIME exactly; `image/jpg` vs
+`create_collection_allocation` MAY accept one optional nested attachment per payment
+with required `name`, `mimetype`, and base64 `datas` when present. Declared `mimetype`
+MUST match content detection (`image/*` or PDF only); `image/jpg` MUST be treated as
+equivalent to `image/jpeg` (case-insensitive) when comparing declared vs detected MIME.
+Mismatch or bad base64 MUST raise `UserError` with no writes. Explicit JSON `null`,
+`false`, or empty attachment MUST be treated as omit. Seller-declared `cash` MUST
+succeed with attachment omitted or null. Create with attachments MUST persist all
+vouchers and files atomically under a savepoint by posting each nest onto the new
+voucher chatter via `message_post` (MUST NOT write Binary `attachment`). Exact
+same-company `document_id` reuse MUST NOT add, replace, or compare attachments (even
+when a voucher has none) and MUST continue to allocation. All-new and conflict rules
+MUST remain unchanged except as this change specifies for company, seller, and type
+gates. (Previously: Declared MIME had to equal detected MIME exactly; `image/jpg` vs
 `image/jpeg` failed; cash-without-proof was not named.)
 
 #### Scenario: MCP create with nested attachment
@@ -133,8 +131,8 @@ type gates.
 
 #### Scenario: image/jpg aliases to jpeg
 
-- GIVEN JPEG bytes whose detected MIME is `image/jpeg` and declared
-  `mimetype` is `image/jpg`
+- GIVEN JPEG bytes whose detected MIME is `image/jpeg` and declared `mimetype` is
+  `image/jpg`
 - WHEN `create_collection_allocation` runs
 - THEN the nested proof MUST persist as designated proof
 - AND MUST NOT raise MIME mismatch
@@ -317,35 +315,34 @@ refused.)
 
 ### Requirement: Payment field contract
 
-Each voucher MUST persist `document_type` as one of `bank_transfer`, `check`,
-`echeck`, `cash_deposit`, `retention_certificate`, `cash`, `unsupported`, or
-`seller_deposit`, plus nullable payment fields (OCR validators NOT required): `amount`,
-`from_account`, `to_account`, `voucher_number`, `voucher_date`, `check_number`,
-`check_bank`, `check_issue_date`, `check_payment_date`, `check_type` Selection
-`common`/`deferred`, and `retention_kind` Selection
-`iva`/`ganancias`/`iibb`/`suss`/`other` (nullable). `unsupported` MUST persist
-without other payment fields. `cash` MUST persist with `amount` and optional
-`voucher_date` and MUST NOT require designated proof. `seller_deposit` MUST persist
-with `amount`, `voucher_number`, and `voucher_date`, MAY have designated proof, and
-MUST use the sentinel partner.
+Each voucher MUST persist `document_type` as one of `bank_transfer`, `check`, `echeck`,
+`cash_deposit`, `retention_certificate`, `cash`, `unsupported`, or `seller_deposit`,
+plus nullable payment fields (OCR validators NOT required): `amount`, `from_account`,
+`to_account`, `voucher_number`, `voucher_date`, `check_number`, `check_bank`,
+`check_issue_date`, `check_payment_date`, `check_type` Selection `common`/`deferred`,
+and `retention_kind` Selection `iva`/`ganancias`/`iibb`/`suss`/`other` (nullable).
+`unsupported` MUST persist without other payment fields. `cash` MUST persist with
+`amount` and optional `voucher_date` and MUST NOT require designated proof.
+`seller_deposit` MUST persist with `amount`, `voucher_number`, and `voucher_date`, MAY
+have designated proof, and MUST use the sentinel partner.
 
-| `document_type` | Type-owned fields |
-| --- | --- |
-| `bank_transfer` | `amount`, `from_account`, `to_account`, `voucher_number`, `voucher_date` |
-| `check` | `amount`, `check_number`, `check_bank`, `check_issue_date`, `check_payment_date`, `check_type` |
-| `echeck` | same as `check` |
-| `cash_deposit` | `amount`, `to_account`, `voucher_number`, `voucher_date` |
-| `retention_certificate` | `amount`, `voucher_number`, `voucher_date`, `retention_kind` |
-| `cash` | `amount`, `voucher_date`; no proof |
-| `unsupported` | discriminator only |
-| `seller_deposit` | `amount`, `voucher_number`, `voucher_date`; sentinel partner |
+| `document_type`         | Type-owned fields                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `bank_transfer`         | `amount`, `from_account`, `to_account`, `voucher_number`, `voucher_date`                       |
+| `check`                 | `amount`, `check_number`, `check_bank`, `check_issue_date`, `check_payment_date`, `check_type` |
+| `echeck`                | same as `check`                                                                                |
+| `cash_deposit`          | `amount`, `to_account`, `voucher_number`, `voucher_date`                                       |
+| `retention_certificate` | `amount`, `voucher_number`, `voucher_date`, `retention_kind`                                   |
+| `cash`                  | `amount`, `voucher_date`; no proof                                                             |
+| `unsupported`           | discriminator only                                                                             |
+| `seller_deposit`        | `amount`, `voucher_number`, `voucher_date`; sentinel partner                                   |
 
 (Previously: Seven types only; no `seller_deposit`.)
 
 #### Scenario: Persist type-specific fields
 
-- GIVEN `bank_transfer`, `check`, and `cash_deposit` vouchers with payment fields
-  filled (`check_type` `common` or `deferred`)
+- GIVEN `bank_transfer`, `check`, and `cash_deposit` vouchers with payment fields filled
+  (`check_type` `common` or `deferred`)
 - WHEN saved
 - THEN each voucher MUST persist those values
 
@@ -357,8 +354,8 @@ MUST use the sentinel partner.
 
 #### Scenario: Persist echeck cash and retention_certificate
 
-- GIVEN `echeck`, `cash`, and `retention_certificate` vouchers with their
-  type-owned fields filled (`retention_kind` one of the five kinds)
+- GIVEN `echeck`, `cash`, and `retention_certificate` vouchers with their type-owned
+  fields filled (`retention_kind` one of the five kinds)
 - WHEN saved
 - THEN each voucher MUST persist those values including `retention_kind` on the
   retention certificate
@@ -372,8 +369,8 @@ MUST use the sentinel partner.
 
 #### Scenario: Persist seller_deposit
 
-- GIVEN a `seller_deposit` voucher with `amount`, `voucher_number`, `voucher_date`,
-  and the sentinel partner
+- GIVEN a `seller_deposit` voucher with `amount`, `voucher_number`, `voucher_date`, and
+  the sentinel partner
 - WHEN saved
 - THEN the voucher MUST persist those values
 - AND `partner_id` MUST remain the sentinel
@@ -686,27 +683,24 @@ MUST NOT remain, and leftover `res_field=attachment` rows MUST NOT remain inacce
 
 ### Requirement: Typed provenance copies of payment fields
 
-Each voucher MUST persist typed raw-OCR and seller-confirmed copies of the
-payment review field set, including `retention_kind`. Current columns MUST
-remain the editable copy. Provenance MUST NOT include `document_id`,
-`partner_id`, customer identification, `seller_id`, attachment, or base64, and
-MUST NOT copy with the voucher. Cash-deposit MAY store `voucher_number` and
-`voucher_date` in all three layers even when UI hides them. Voucher write MUST
-reject provenance keys after create.
-(Previously: Review field set omitted `retention_kind`.)
+Each voucher MUST persist typed raw-OCR and seller-confirmed copies of the payment
+review field set, including `retention_kind`. Current columns MUST remain the editable
+copy. Provenance MUST NOT include `document_id`, `partner_id`, customer identification,
+`seller_id`, attachment, or base64, and MUST NOT copy with the voucher. Cash-deposit MAY
+store `voucher_number` and `voucher_date` in all three layers even when UI hides them.
+Voucher write MUST reject provenance keys after create. (Previously: Review field set
+omitted `retention_kind`.)
 
 #### Scenario: Identity and proof stay outside provenance
 
-- GIVEN an all-new MCP payment with `document_id`, customer, seller, and
-  attachment
+- GIVEN an all-new MCP payment with `document_id`, customer, seller, and attachment
 - WHEN create completes
 - THEN provenance MUST contain only payment review fields
 - AND MUST NOT contain `document_id`, customer, seller, attachment, or base64
 
 #### Scenario: Cash-deposit extra keys stored in all layers
 
-- GIVEN a cash-deposit payment whose nests include `voucher_number` and
-  `voucher_date`
+- GIVEN a cash-deposit payment whose nests include `voucher_number` and `voucher_date`
 - WHEN all-new create completes
 - THEN they MUST persist in all three layers
 - AND UI MAY hide them for `cash_deposit`
@@ -720,29 +714,27 @@ reject provenance keys after create.
 
 #### Scenario: retention_kind stamps all three layers
 
-- GIVEN an all-new `retention_certificate` payment whose nests include
-  `retention_kind`
+- GIVEN an all-new `retention_certificate` payment whose nests include `retention_kind`
 - WHEN create completes
-- THEN current, `seller_retention_kind`, and `ocr_retention_kind` (when
-  `raw_ocr` is present) MUST persist that kind
+- THEN current, `seller_retention_kind`, and `ocr_retention_kind` (when `raw_ocr` is
+  present) MUST persist that kind
 
 ### Requirement: MCP nested provenance on all-new create
 
-`create_collection_allocation` MUST require nested `seller_confirmed` and MAY
-accept nested `raw_ocr` with the same typed keys as current fields, including
-`retention_kind` and the seven `document_type` codes. Voucher fields MUST be
-derived from `seller_confirmed`. Amounts in those nests MUST accept decimal
-strings. Explicit JSON `null` or empty string on optional nest fields MUST be
-treated as omit. When `raw_ocr` is present, it MUST persist as submitted; when
-omitted or null, `ocr_*` MUST stay empty. Stamp `seller_*` always on all-new
-create. Reject `unsupported` and non-positive `seller_confirmed` amount.
-Seller-declared `cash` MUST succeed with `raw_ocr` omitted or null. UI/ORM
-create without nests MUST remain allowed. Malformed nests, raw without seller,
-or seller≠ derived current (minus `document_id`) MUST fail the batch with no
+`create_collection_allocation` MUST require nested `seller_confirmed` and MAY accept
+nested `raw_ocr` with the same typed keys as current fields, including `retention_kind`
+and the seven `document_type` codes. Voucher fields MUST be derived from
+`seller_confirmed`. Amounts in those nests MUST accept decimal strings. Explicit JSON
+`null` or empty string on optional nest fields MUST be treated as omit. When `raw_ocr`
+is present, it MUST persist as submitted; when omitted or null, `ocr_*` MUST stay empty.
+Stamp `seller_*` always on all-new create. Reject `unsupported` and non-positive
+`seller_confirmed` amount. Seller-declared `cash` MUST succeed with `raw_ocr` omitted or
+null. UI/ORM create without nests MUST remain allowed. Malformed nests, raw without
+seller, or seller≠ derived current (minus `document_id`) MUST fail the batch with no
 writes. Exact same-company `document_id` reuse MUST ignore those nests with no
-provenance mutation and MUST continue to allocation.
-(Previously: Four-type nests; `retention_kind` was an unknown key; cash-without-
-proof and decimal-string amounts were not named.)
+provenance mutation and MUST continue to allocation. (Previously: Four-type nests;
+`retention_kind` was an unknown key; cash-without- proof and decimal-string amounts were
+not named.)
 
 #### Scenario: Unchanged seller confirmation
 
@@ -780,19 +772,18 @@ proof and decimal-string amounts were not named.)
 
 #### Scenario: Exact replay ignores provenance nests
 
-- GIVEN every submitted `document_id` already exists in the same company, with
-  or without stored provenance
+- GIVEN every submitted `document_id` already exists in the same company, with or
+  without stored provenance
 - WHEN retried with different or omitted nests
 - THEN matching vouchers MUST return unchanged
 - AND provenance and snapshots MUST NOT be written, backfilled, or mutated
 
 #### Scenario: Cash dump without raw_ocr
 
-- GIVEN a `cash` `seller_confirmed` with decimal-string `amount` and
-  `raw_ocr` omitted or JSON `null`
+- GIVEN a `cash` `seller_confirmed` with decimal-string `amount` and `raw_ocr` omitted
+  or JSON `null`
 - WHEN all-new create runs
-- THEN `seller_*` MUST be stamped, `ocr_*` MUST stay empty, and the voucher
-  MUST persist
+- THEN `seller_*` MUST be stamped, `ocr_*` MUST stay empty, and the voucher MUST persist
 
 #### Scenario: Explicit null optional nest fields are omit
 
@@ -836,13 +827,12 @@ Upgrade MUST add nullable provenance with no backfill or fabricated snapshots.
 
 ### Requirement: Collection Settings persistence
 
-Each company MUST persist Collection Settings: enabled sellers,
-`auto_create_sheet` (default ON), and allowed document types (all eight catalog
-codes). Settings action and menu labels MUST be **Collection Settings**. An
-empty enabled-seller list MUST mean none for NEW work. All eight types MUST
-start enabled. Unsupported MUST remain independently configurable. Saving these
-fields MUST NOT clear `document_review_enabled`.
-(Previously: Defaults enabled seven catalog codes.)
+Each company MUST persist Collection Settings: enabled sellers, `auto_create_sheet`
+(default ON), and allowed document types (all eight catalog codes). Settings action and
+menu labels MUST be **Collection Settings**. An empty enabled-seller list MUST mean none
+for NEW work. All eight types MUST start enabled. Unsupported MUST remain independently
+configurable. Saving these fields MUST NOT clear `document_review_enabled`. (Previously:
+Defaults enabled seven catalog codes.)
 
 #### Scenario: Collection Settings labels
 
@@ -861,9 +851,8 @@ fields MUST NOT clear `document_review_enabled`.
 - GIVEN a fresh install or a company with no prior Collection Settings
 - WHEN settings are read
 - THEN `auto_create_sheet` MUST be ON
-- AND `bank_transfer`, `check`, `echeck`, `cash_deposit`,
-  `retention_certificate`, `cash`, `unsupported`, and `seller_deposit` MUST all be
-  enabled
+- AND `bank_transfer`, `check`, `echeck`, `cash_deposit`, `retention_certificate`,
+  `cash`, `unsupported`, and `seller_deposit` MUST all be enabled
 
 #### Scenario: Unsupported is configurable
 
@@ -1153,10 +1142,9 @@ MUST be writable while the sheet is `open` or `submitted` (or the voucher is
 unassigned). When the sheet is `proposal`, `closed`, or `cancelled`, those writes MUST
 raise `UserError` with no persist, including via form or RPC. The membership freeze
 `UserError` text MUST remain
-`Closed collection sheets cannot change membership. Reopen first.`
-Chatter MUST remain writable. Partner-allocation constrain MUST still apply.
-(Previously: Writable only while `open`; freeze while `proposal`, `closed`, or
-`cancelled`.)
+`Closed collection sheets cannot change membership. Reopen first.` Chatter MUST remain
+writable. Partner-allocation constrain MUST still apply. (Previously: Writable only
+while `open`; freeze while `proposal`, `closed`, or `cancelled`.)
 
 #### Scenario: Open membership and business fields writable
 
@@ -1190,34 +1178,43 @@ Chatter MUST remain writable. Partner-allocation constrain MUST still apply.
 
 ### Requirement: Catalog XMLIDs and 19.0.1.40.0 allow-list union
 
-The catalog MUST include exactly these eight codes, each with a stable XMLID:
+The catalog MUST include exactly these nine codes, each with a stable XMLID:
 
-| Code | XMLID |
-| --- | --- |
-| `bank_transfer` | `collection.document_type_bank_transfer` |
-| `check` | `collection.document_type_check` |
-| `cash_deposit` | `collection.document_type_cash_deposit` |
-| `unsupported` | `collection.document_type_unsupported` |
-| `echeck` | `collection.document_type_echeck` |
-| `cash` | `collection.document_type_cash` |
+| Code                    | XMLID                                            |
+| ----------------------- | ------------------------------------------------ |
+| `bank_transfer`         | `collection.document_type_bank_transfer`         |
+| `check`                 | `collection.document_type_check`                 |
+| `cash_deposit`          | `collection.document_type_cash_deposit`          |
+| `unsupported`           | `collection.document_type_unsupported`           |
+| `echeck`                | `collection.document_type_echeck`                |
+| `cash`                  | `collection.document_type_cash`                  |
 | `retention_certificate` | `collection.document_type_retention_certificate` |
-| `seller_deposit` | `collection.document_type_seller_deposit` |
+| `seller_deposit`        | `collection.document_type_seller_deposit`        |
+| `seller_commission`     | `collection.document_type_seller_commission`     |
 
 Voucher `document_type`, `ocr_document_type`, `seller_document_type`, and review
-snapshot type Selection MUST include the same eight codes. Upgrade to
+snapshot type Selection MUST include the same nine codes, sourced from the shared
+`DOCUMENT_TYPE_SELECTION` tuple. `COLLECTION_TYPE_CODES` MUST keep following
+`DOCUMENT_TYPE_CODES` so catalog unions cover every Selection code. Upgrade to
 `19.0.1.40.0` MUST union the then-seven codes onto every company’s
 `allowed_document_type_ids` and MUST NOT remove custom extra types. Upgrade to
 `19.0.1.43.0` MUST union all eight codes onto every company via
-`_collection_enable_all_document_types` and MUST NOT remove extras. Manifest MUST
-be `19.0.1.43.0`. `migrations/19.0.1.42.0/` MUST NOT exist. Empty-only seed MUST
-NOT be the upgrade path. New companies MUST start with all eight enabled.
-(Previously: Exactly seven catalog codes; last allow-list union was `19.0.1.40.0`.)
+`_collection_enable_all_document_types` and MUST NOT remove extras. Upgrade to
+`19.0.1.48.0` MUST union all nine codes onto every company via
+`_collection_enable_all_document_types` and MUST NOT remove extras. Manifest MUST be
+`19.0.1.48.0`. `migrations/19.0.1.42.0/` MUST NOT exist. `migrations/19.0.1.49.0/` MUST
+NOT exist. Empty-only seed MUST NOT be the upgrade path. New companies MUST start with
+all nine enabled. MCP write MUST still reject `unsupported`, and MUST NOT accept
+`seller_commission` from any caller: only Confirm mints it. (Previously: Eight rows,
+without `seller_commission`. Before that: Exactly seven catalog codes; last allow-list
+union was `19.0.1.40.0`.)
 
 #### Scenario: Seven catalog XMLIDs exist
 
 - GIVEN the module at `19.0.1.40.0`
 - WHEN catalog records are inspected
-- THEN the seven codes and XMLIDs above except `seller_deposit` MUST exist
+- THEN the seven codes and XMLIDs above except `seller_deposit` and `seller_commission`
+  MUST exist
 - AND `UNIQUE(code)` MUST still hold
 
 #### Scenario: Upgrade unions without dropping extras
@@ -1237,7 +1234,7 @@ NOT be the upgrade path. New companies MUST start with all eight enabled.
 
 - GIVEN the module at `19.0.1.43.0`
 - WHEN catalog records are inspected
-- THEN the eight codes and XMLIDs above MUST exist
+- THEN the eight codes and XMLIDs above except `seller_commission` MUST exist
 - AND `UNIQUE(code)` MUST still hold
 
 #### Scenario: Upgrade to 19.0.1.43.0 unions seller_deposit
@@ -1250,17 +1247,58 @@ NOT be the upgrade path. New companies MUST start with all eight enabled.
 
 #### Scenario: New company starts with eight types
 
-- GIVEN a company created after this change
-- WHEN `allowed_document_type_ids` is read
-- THEN all eight catalog codes MUST be enabled
+- GIVEN a company created after `19.0.1.43.0` and before `seller_commission`
+- WHEN `allowed_document_type_ids` is read at that version
+- THEN those eight catalog codes MUST be enabled
 
-### Requirement: Sentinel partner for seller_deposit
+#### Scenario: Nine catalog XMLIDs exist
 
-`seller_deposit` vouchers MUST point at a seeded non-customer sentinel `res.partner`.
-`partner_id` MUST remain required. The system MUST NOT make `partner_id` optional. The
-sentinel MUST be a data record (`noupdate`) resolvable per company. NEW `seller_deposit`
-create MUST stamp that sentinel and MUST NOT accept a customer identification.
-(Previously: Every voucher required a real customer partner; no remittance sentinel.)
+- GIVEN the module at `19.0.1.48.0`
+- WHEN catalog records are inspected
+- THEN the nine codes and XMLIDs above MUST exist
+- AND `UNIQUE(code)` MUST still hold
+
+#### Scenario: Ninth code present after upgrade
+
+- GIVEN a company whose allow-list predates this change
+- WHEN the module is upgraded
+- THEN `seller_commission` MUST be allowed for that company
+- AND every previously allowed code MUST remain allowed
+
+#### Scenario: Upgrade to 19.0.1.48.0 unions seller_commission
+
+- GIVEN a company whose allow-list has the eight prior types plus a custom extra
+- WHEN upgrade to `19.0.1.48.0` runs
+- THEN `seller_commission` MUST be linked
+- AND the custom extra MUST remain
+- AND `migrations/19.0.1.49.0/` MUST NOT exist
+
+#### Scenario: New company allows all nine
+
+- GIVEN a newly created company
+- WHEN its allow-list is read
+- THEN all nine catalog codes MUST be present
+
+#### Scenario: MCP callers cannot mint a commission
+
+- GIVEN an internal MCP caller
+- WHEN any write tool is called with `document_type` `seller_commission`
+- THEN MUST raise `UserError`
+- AND no voucher MUST persist
+
+### Requirement: Sentinel partner for customerless vouchers
+
+The system MUST seed two noupdate sentinel partners: XMLID
+`collection.partner_seller_deposit` (name `Seller Deposit`) and
+`collection.partner_seller_commission` (name `Seller Commission`), both with
+`company_id` unset, reachable through `_seller_deposit_partner()` and
+`_seller_commission_partner()`. Seeding MUST be idempotent. `partner_id` MUST remain
+required. Voucher create MUST stamp the sentinel matching `document_type` for every code
+in that type→sentinel map, MUST refuse a `customer_identification`, and MUST refuse a
+`partner_id` that is any partner other than that type's sentinel. Codes outside the map
+MUST keep requiring a real customer `partner_id`. (Previously: One sentinel for
+`seller_deposit`, stamped by a `seller_deposit`-only `_apply_seller_deposit_partner`.
+Before that: Every voucher required a real customer partner; no remittance sentinel.)
 
 #### Scenario: Deposit stamps sentinel
 
@@ -1275,14 +1313,33 @@ create MUST stamp that sentinel and MUST NOT accept a customer identification.
 - WHEN a customer identification or non-sentinel `partner_id` is supplied
 - THEN MUST refuse with no write
 
+#### Scenario: Commission stamps its own sentinel
+
+- GIVEN a `seller_commission` voucher created with no `partner_id`
+- WHEN create completes
+- THEN `partner_id` MUST be `collection.partner_seller_commission`
+- AND MUST NOT be the `seller_deposit` sentinel
+
+#### Scenario: Customer partner refused on a commission
+
+- GIVEN a `seller_commission` voucher created with a real customer `partner_id`
+- WHEN create runs
+- THEN MUST raise `UserError`
+- AND no voucher MUST persist
+
+#### Scenario: Sentinel seeding is idempotent
+
+- GIVEN both sentinels already exist
+- WHEN the seed functions run again
+- THEN no duplicate partner MUST be created
+
 ### Requirement: Receipt values reverse relation and replaced_amount
 
 Each voucher MUST expose `receipt_value_ids` as the inverse of
 `collection.receipt.value` and a `replaced_amount` equal to Σ replacement `replace`
 minus Σ `reverse` for that voucher as cash. Unassigned remittance MUST still satisfy
-`partner_id` required.
-(Previously: Core had no reverse receipt-value relation; `replaced_amount` did not
-exist.)
+`partner_id` required. (Previously: Core had no reverse receipt-value relation;
+`replaced_amount` did not exist.)
 
 #### Scenario: Reverse relation lists values
 
@@ -1296,15 +1353,17 @@ exist.)
 - WHEN `replaced_amount` is read
 - THEN it MUST equal 40
 
-### Requirement: Replacement trigger on validated_collections write
+### Requirement: Cash replacement trigger
 
-Writing voucher `state` to `validated_collections` MUST run cash replacement when the
-voucher is a `seller_deposit` on a sheet that still allows receipt-value writes. The
-trigger MUST be that write (including audited Document Review approve). It MUST NOT
-require `document_review_enabled`. It MUST NOT hook only `action_review_approve`.
-Companies with Document Review OFF MUST still replace. A second write that does not
-transition to `validated_collections` MUST NOT re-replace.
-(Previously: No replacement trigger.)
+Writing voucher `state` to `validated_collections` MUST run cash replacement when that
+voucher's `document_type` is in `CASH_REPLACEMENT_TYPES`, which MUST be exactly
+`seller_deposit` and `seller_commission`, and the sheet still allows receipt-value
+writes. The trigger MUST be that write (including audited Document Review approve and
+Confirm-time commission promotion). It MUST NOT require `document_review_enabled`. It
+MUST NOT hook only `action_review_approve`. Companies with Document Review OFF MUST
+still replace. Vouchers already at `validated_collections` MUST NOT re-trigger.
+Replacement MUST be skipped when the sheet is missing or frozen. Replacement MUST NOT
+run for any other code. (Previously: The trigger matched `seller_deposit` only.)
 
 #### Scenario: Deposit validation replaces cash
 
@@ -1327,6 +1386,20 @@ transition to `validated_collections` MUST NOT re-replace.
 - WHEN a later write does not change `state` into `validated_collections`
 - THEN no additional replacement row MUST be created
 
+#### Scenario: Commission promotion replaces cash
+
+- GIVEN a submitted sheet with replaceable `cash` receipt values and a
+  `seller_commission` at `validated_seller`
+- WHEN it is written to `validated_collections`
+- THEN cash MUST be replaced by that commission per Collection Receipts
+- AND `replace` ledger rows MUST name the commission as `deposit_voucher_id`
+
+#### Scenario: Re-write does not re-replace
+
+- GIVEN a `seller_commission` already at `validated_collections`
+- WHEN `validated_collections` is written again
+- THEN no additional replacement row MUST be created
+
 ### Requirement: MCP write create_seller_deposit
 
 The system MUST expose `create_seller_deposit` via `@mcp_tool` on `muk_mcp.mixin`
@@ -1343,10 +1416,9 @@ Document Review Approve. A deposit carrying designated proof MUST appear in
 `get_review_queue` for its sheet. Portal or public callers MUST receive `AccessError`.
 Errors MUST be raised, never `{"error":...}`. Zero or more than one `submitted` sheet
 MUST raise `UserError`. `create_collection_allocation` MUST remain customer-required and
-`open`-sheet-only.
-(Previously: the tool wrote `validated_collections` under `collection_audited_state`
-right after create, so the slip never reached the review queue. Before that: No MCP path
-could create a no-customer remittance voucher.)
+`open`-sheet-only. (Previously: the tool wrote `validated_collections` under
+`collection_audited_state` right after create, so the slip never reached the review
+queue. Before that: No MCP path could create a no-customer remittance voucher.)
 
 #### Scenario: Internal seller creates a deposit on submitted
 
@@ -1401,12 +1473,12 @@ could create a no-customer remittance voucher.)
 
 ### Requirement: Seller deposit form fields
 
-Payment Vouchers form MUST show `voucher_number` and `voucher_date` for
-`seller_deposit` on current, OCR, and seller-confirmed layers. Search MUST include a
-`seller_deposit` document-type filter. `partner_id` MUST appear exactly once per arch.
-The system MUST NOT add a second Customer field for remittance.
-(Previously: `voucher_number` / `voucher_date` were hidden for types other than
-transfer, check extras, cash deposit, and retention.)
+Payment Vouchers form MUST show `voucher_number` and `voucher_date` for `seller_deposit`
+on current, OCR, and seller-confirmed layers. Search MUST include a `seller_deposit`
+document-type filter. `partner_id` MUST appear exactly once per arch. The system MUST
+NOT add a second Customer field for remittance. (Previously: `voucher_number` /
+`voucher_date` were hidden for types other than transfer, check extras, cash deposit,
+and retention.)
 
 #### Scenario: Number and date visible for seller_deposit
 

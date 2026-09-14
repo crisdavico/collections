@@ -2271,3 +2271,44 @@ class TestCollectionUi(TransactionCase):
             page.xpath(".//tree"),
             "Receipts page must use <list>, not <tree>",
         )
+
+
+class TestCollectionResidualBanner(TransactionCase):
+    """Focused sheet-form residual banner (do not gate on TestCollectionUi)."""
+
+    def _arch_root(self, xmlid):
+        view = self.env.ref(xmlid)
+        return etree.fromstring(view.arch)
+
+    def test_sheet_form_residual_banner_outside_open_submitted(self):
+        """Banner MUST warn residual cash only outside open and submitted."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        fields = form_root.xpath('.//field[@name="residual_cash_value_total"]')
+        self.assertTrue(
+            fields, "sheet form must expose residual_cash_value_total for the banner"
+        )
+        alerts = form_root.xpath('.//*[@role="alert"]')
+        self.assertTrue(alerts, "sheet form must surface a residual-cash warning")
+        invisible = alerts[0].get("invisible") or ""
+        self.assertIn("open", invisible)
+        self.assertIn("submitted", invisible)
+        self.assertIn("residual_cash_value_total", invisible)
+        self.assertNotIn("attrs", alerts[0].attrib)
+        self.assertFalse(alerts[0].get("attrs"))
+        arch = etree.tostring(form_root, encoding="unicode")
+        self.assertNotIn("attrs=", arch.split("residual_cash_value_total", 1)[-1][:400])
+
+    def test_sheet_form_residual_banner_does_not_block_buttons(self):
+        """Residual warning MUST NOT disable Confirm or Close."""
+        form_root = self._arch_root("collection.view_collection_sheet_form")
+        confirm = form_root.xpath('.//header/button[@name="action_confirm"]')
+        close = form_root.xpath('.//header/button[@name="action_close"]')
+        self.assertTrue(confirm and close)
+        for button in (confirm[0], close[0]):
+            invisible = button.get("invisible") or ""
+            self.assertNotIn(
+                "residual_cash_value_total",
+                invisible,
+                f"{button.get('name')} must not key off residual cash",
+            )
+            self.assertNotEqual((button.get("disabled") or "").lower(), "1")

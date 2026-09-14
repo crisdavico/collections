@@ -1,16 +1,16 @@
 ## Manual payment vouchers for cobranzas
 
 Backend app to register one payment voucher per proof (bank transfer, check, echeck,
-cash deposit, retention certificate, cash, unsupported, or seller deposit). Each voucher
-owns sequence, chatter, optional image/PDF designated proof
+cash deposit, retention certificate, cash, unsupported, seller deposit, or seller
+commission). Each voucher owns sequence, chatter, optional image/PDF designated proof
 (`message_main_attachment_id` on chatter `ir.attachment`; no Binary `attachment` field),
 a required Customer (`partner_id` on `res.partner`; Char identification is gone;
-`seller_deposit` stamps a seeded sentinel partner), and a `draft` → `validated_seller` →
-`validated_collections` lifecycle (ORM/UI default `draft`; MCP stamps
-`validated_seller`; Collections only via Document Review Approve; no Reject). Collection
-sheets group a seller’s vouchers through `open` → Confirm → `proposal` → Close →
-`closed` (Proposal or Closed may Cancel to `cancelled`; Cancelled may Open back to
-`open`). Seller Close writes `submitted` (Submitted by Seller; PDF Rendida) on the
+`seller_deposit` and `seller_commission` stamp seeded sentinel partners), and a `draft`
+→ `validated_seller` → `validated_collections` lifecycle (ORM/UI default `draft`; MCP
+stamps `validated_seller`; Collections only via Document Review Approve; no Reject).
+Collection sheets group a seller’s vouchers through `open` → Confirm → `proposal` →
+Close → `closed` (Proposal or Closed may Cancel to `cancelled`; Cancelled may Open back
+to `open`). Seller Close writes `submitted` (Submitted by Seller; PDF Rendida) on the
 five-state statusbar. Sheets have their own chatter and activities. The sheet form
 notebook is Allocations, Vouchers, and Debt. Operators print a Planilla de Cobranza from
 a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, company letterhead) and header Export

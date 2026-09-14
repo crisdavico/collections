@@ -13,6 +13,7 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from odoo.addons.collection.tools.collection_voucher import _DOCUMENT_TYPES
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from .common_connector import (
@@ -1838,6 +1839,35 @@ class TestCollectionMcpAllocation(TransactionCase):
                 )
             ),
             before,
+        )
+
+    def test_seller_commission_seller_confirmed_rejected(self):
+        """MCP write MUST reject seller_commission; it MUST NOT join the nest enum."""
+        self.assertNotIn("seller_commission", _DOCUMENT_TYPES)
+        before = self._counts()
+        err = self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    [
+                        self._payment(
+                            10.0,
+                            seller_confirmed={
+                                "document_type": "seller_commission",
+                                "amount": 10.0,
+                            },
+                        )
+                    ],
+                    request_id="req-seller-commission",
+                )
+            ),
+            before,
+        )
+        self.assertIn("commission", str(err).lower())
+        self.assertEqual(
+            self.env["collection.voucher"].search_count(
+                [("document_type", "=", "seller_commission")]
+            ),
+            0,
         )
 
     def test_receipt_validation_uniqueness_and_unknown_document(self):

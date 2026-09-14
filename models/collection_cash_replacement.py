@@ -30,6 +30,7 @@ class CollectionCashReplacement(models.Model):
         required=True,
         ondelete="restrict",
         index=True,
+        help="The replacing voucher (`seller_deposit` or `seller_commission`).",
     )
     currency_id = fields.Many2one(
         related="receipt_id.currency_id",

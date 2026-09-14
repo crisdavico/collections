@@ -13,6 +13,7 @@ from odoo.tools.translate import _
 
 from .collection_common import (
     ADMIN_EDITABLE_SHEET_STATES,
+    CASH_REPLACEMENT_TYPES,
     CHECK_TYPE_SELECTION,
     DOCUMENT_TYPE_SELECTION,
     FROZEN_SHEET_STATES,
@@ -29,6 +30,10 @@ class CollectionVoucher(models.Model):
 
     _DOCUMENT_TYPE_SELECTION = DOCUMENT_TYPE_SELECTION
     _RETENTION_KIND_SELECTION = RETENTION_KIND_SELECTION
+    _SENTINEL_PARTNER_GETTERS = {
+        "seller_deposit": "_seller_deposit_partner",
+        "seller_commission": "_seller_commission_partner",
+    }
 
     name = fields.Char(
         string="Reference",
@@ -263,18 +268,28 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _apply_seller_deposit_partner(self, vals):
-        """Stamp the remittance sentinel; refuse a customer partner."""
-        if vals.get("document_type") != "seller_deposit":
+        """Stamp the type's sentinel partner; refuse a customer partner."""
+        document_type = vals.get("document_type")
+        getter_name = self._SENTINEL_PARTNER_GETTERS.get(document_type)
+        if not getter_name:
             return
         if vals.get("customer_identification"):
-            raise UserError(_("Seller deposits cannot use a customer identification."))
+            if document_type == "seller_deposit":
+                raise UserError(
+                    _("Seller deposits cannot use a customer identification.")
+                )
+            raise UserError(
+                _("Seller commissions cannot use a customer identification.")
+            )
         company = self.env["res.company"].browse(
             vals.get("company_id") or self.env.company.id
         )
-        sentinel = company._seller_deposit_partner()
+        sentinel = getattr(company, getter_name)()
         partner_id = record_id(vals.get("partner_id"))
         if partner_id and partner_id != sentinel.id:
-            raise UserError(_("Seller deposits cannot use a customer partner."))
+            if document_type == "seller_deposit":
+                raise UserError(_("Seller deposits cannot use a customer partner."))
+            raise UserError(_("Seller commissions cannot use a customer partner."))
         vals["partner_id"] = sentinel.id
 
     def _selection_document_type(self):
@@ -358,9 +373,9 @@ class CollectionVoucher(models.Model):
         intercepted = self._intercept_state_write(vals)
         if intercepted is not None:
             return intercepted
-        entering = self._seller_deposits_entering_validated_collections(vals)
+        entering = self._cash_replacers_entering_validated_collections(vals)
         result = super().write(vals)
-        entering._run_seller_deposit_cash_replacement()
+        entering._run_cash_replacement()
         return result
 
     def action_validate_seller(self):
@@ -412,36 +427,43 @@ class CollectionVoucher(models.Model):
         return vals, None
 
     @api.private
-    def _seller_deposits_entering_validated_collections(self, vals):
-        """Return seller_deposit rows whose write is entering validated_collections."""
+    def _cash_replacers_entering_validated_collections(self, vals):
+        """Return cash-replacing rows whose write is entering validated_collections."""
         if vals.get("state") != "validated_collections":
             return self.browse()
         return self.filtered(
-            lambda voucher: voucher.document_type == "seller_deposit"
+            lambda voucher: voucher.document_type in CASH_REPLACEMENT_TYPES
             and voucher.state != "validated_collections"
         )
 
     @api.private
-    def _run_seller_deposit_cash_replacement(self):
-        """Replace cash receipt values with this deposit using U5a primitives."""
+    def _run_cash_replacement(self):
+        """Replace cash receipt values with this deposit or commission."""
         Value = self.env["collection.receipt.value"]
-        for deposit in self.sorted("id"):
-            sheet = deposit.sheet_id
+        for replacer in self.sorted("id"):
+            if replacer.document_type not in CASH_REPLACEMENT_TYPES:
+                continue
+            sheet = replacer.sheet_id
             if not sheet or sheet.state in FROZEN_SHEET_STATES:
                 continue
-            currency = deposit.currency_id
-            remaining = currency.round(deposit.amount or 0.0)
-            for receipt, cash_value in deposit._iter_replaceable_cash_values():
+            currency = replacer.currency_id
+            remaining = currency.round(replacer.amount or 0.0)
+            for receipt, cash_value in replacer._iter_replaceable_cash_values():
                 if currency.compare_amounts(remaining, 0.0) <= 0:
                     break
                 if not cash_value.exists():
                     continue
                 slice_amount = min(remaining, cash_value.amount or 0.0)
                 row = Value._cash_replace(
-                    receipt, cash_value.voucher_id, deposit, slice_amount
+                    receipt, cash_value.voucher_id, replacer, slice_amount
                 )
                 if row:
                     remaining = currency.round(remaining - row.amount)
+            if (
+                replacer.document_type == "seller_commission"
+                and currency.compare_amounts(remaining, 0.0) != 0
+            ):
+                raise UserError(_("Seller commission exceeds replaceable cash."))
 
     @api.model
     @api.private
@@ -467,9 +489,11 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _iter_replaceable_cash_values(self):
-        """Yield (receipt, cash value): quotation then invoice, FIFO, oldest cash."""
+        """Yield replaceable cash: skip issued, then quotation then invoice, FIFO."""
         self.ensure_one()
-        receipts = self.sheet_id.allocation_ids.receipt_ids
+        receipts = self.sheet_id.allocation_ids.receipt_ids.filtered(
+            lambda receipt: receipt.state != "issued"
+        )
         for kind in ("quotation", "invoice"):
             kind_receipts = receipts.filtered(
                 lambda receipt, current=kind: receipt.document_kind == current

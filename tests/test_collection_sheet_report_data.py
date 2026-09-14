@@ -116,6 +116,31 @@ class TestCollectionSheetReportData(TransactionCase):
         )
         return catalog
 
+    def _enable_seller_commission_type(self, company=None):
+        catalog = self.env.ref("collection.document_type_seller_commission")
+        (company or self.env.company).write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        return catalog
+
+    def _funded_cash_receipt(self, allocation, cash, amount=None):
+        """Attach a replaceable cash receipt value covering Confirm commission mint."""
+        amount = cash.amount if amount is None else amount
+        receipt = self.env["collection.receipt"].create(
+            {
+                "allocation_id": allocation.id,
+                "document_kind": "invoice",
+            }
+        )
+        cash_value = self.env["collection.receipt.value"].create(
+            {
+                "receipt_id": receipt.id,
+                "voucher_id": cash.id,
+                "amount": amount,
+            }
+        )
+        return receipt, cash_value
+
     def _create_seller_deposit(self, sheet, amount=80.0, **extra):
         """Create an unallocated remittance voucher on ``sheet`` (sentinel partner)."""
         self._enable_seller_deposit_type(company=sheet.company_id)
@@ -132,6 +157,41 @@ class TestCollectionSheetReportData(TransactionCase):
         }
         vals.update(extra)
         return self.env["collection.voucher"].create(vals)
+
+    def _create_seller_commission(self, sheet, amount=30.0, **extra):
+        """Create an unallocated seller_commission voucher on ``sheet``."""
+        self._enable_seller_commission_type(company=sheet.company_id)
+        ensure_enabled_seller(self.env, sheet.seller_id, company=sheet.company_id)
+        vals = {
+            "document_type": "seller_commission",
+            "document_id": extra.pop("document_id", self._next_document_id("SC")),
+            "seller_id": sheet.seller_id.id,
+            "sheet_id": sheet.id,
+            "company_id": sheet.company_id.id,
+            "amount": amount,
+        }
+        vals.update(extra)
+        return self.env["collection.voucher"].create(vals)
+
+    def _commission_vouchers(self, sheet):
+        return sheet.voucher_ids.filtered(
+            lambda voucher: voucher.document_type == "seller_commission"
+        )
+
+    def _submit_declared_cash(self, sheet, withheld):
+        """Seller-close and declare withheld; members must already pass Confirm."""
+        sheet.action_seller_close()
+        sheet.action_declare_cash(commission_withheld=withheld)
+        return sheet
+
+    def _mark_issued(self, receipt, external_id):
+        receipt.with_context(collection_receipt_issuing=True).write(
+            {
+                "state": "issued",
+                "external_receipt_id": external_id,
+            }
+        )
+        return receipt
 
     def _line_vals(self, amount_applied=100.0, invoice_balance=100.0, **extra):
         vals = {
@@ -375,7 +435,7 @@ class TestCollectionSheetReportData(TransactionCase):
         allocation, _voucher, sheet, _partner = self._balanced()
         self._mark_validated_collections(sheet.voucher_ids)
         sheet.action_seller_close()
-        sheet.write({"commission_percent": 8.0, "commission_withheld": 3.0})
+        sheet.write({"commission_percent": 8.0, "commission_withheld": 0.0})
         sheet.action_confirm()
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
@@ -387,7 +447,7 @@ class TestCollectionSheetReportData(TransactionCase):
         _allocation, _voucher, sheet, _partner = self._balanced()
         self._mark_validated_collections(sheet.voucher_ids)
         sheet.action_seller_close()
-        sheet.write({"commission_percent": 8.0, "commission_withheld": 3.0})
+        sheet.write({"commission_percent": 8.0, "commission_withheld": 0.0})
         self._drive_sheet(sheet, "cancelled")
         self.assertEqual(sheet.state, "cancelled")
         self._assert_recon_write_refused(sheet)
@@ -442,9 +502,11 @@ class TestCollectionSheetReportData(TransactionCase):
 
     def test_open_from_cancelled_keeps_recon_values(self):
         """Confirm then Cancel then Reinstate MUST keep stored recon inputs."""
-        _allocation, _voucher, sheet, _partner = self._balanced(
+        allocation, voucher, sheet, _partner = self._balanced(
             amount=45.5, voucher_extra={"document_type": "cash"}
         )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        self._funded_cash_receipt(allocation, voucher)
         self._mark_validated_collections(sheet.voucher_ids)
         sheet.action_seller_close()
         sheet.write({"commission_percent": 12.5})
@@ -1288,3 +1350,199 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertNotIn("Balanced", recon["status_message"])
         self.assertNotIn("In favor", recon["status_message"])
         self.assertNotIn("Outstanding", recon["status_message"])
+
+    def test_commission_excluded_from_collected_and_tendered(self):
+        """seller_commission MUST stay out of collected_total, tendered, and blocks."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=500.0,
+            customer="RPT-SC-COLLECTED",
+            voucher_extra={"document_type": "cash"},
+        )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        self._funded_cash_receipt(allocation, cash)
+        self._mark_validated_collections(sheet.voucher_ids)
+        self._submit_declared_cash(sheet, 300.0)
+        sheet.action_confirm()
+        commissions = self._commission_vouchers(sheet)
+        self.assertEqual(len(commissions), 1)
+        self.assertAlmostEqual(commissions.amount, 300.0, places=2)
+        payload = sheet._collection_report_data()
+        codes = [block["code"] for block in payload["voucher_blocks"]]
+        self.assertGreater(len(payload["voucher_blocks"]), 0)
+        self.assertEqual(payload["collected_total"], 500.0)
+        self.assertNotIn("seller_commission", codes)
+        self.assertNotEqual(payload["collected_total"], 500.0 + commissions.amount)
+        self.assertAlmostEqual(payload["tendered"]["total"], 200.0, places=2)
+        self.assertNotEqual(
+            payload["tendered"]["total"],
+            200.0 + commissions.amount,
+        )
+        self.assertNotIn("seller_commission", payload["tendered"])
+        self.assertNotIn("seller_commissions", payload["tendered"])
+
+    def test_commission_excluded_from_collected_triangulation(self):
+        """A different cash/withheld pair MUST still drop the minted commission."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=100.0,
+            customer="RPT-SC-COLLECTED-TRI",
+            voucher_extra={"document_type": "cash"},
+        )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        self._funded_cash_receipt(allocation, cash)
+        self._mark_validated_collections(sheet.voucher_ids)
+        self._submit_declared_cash(sheet, 60.0)
+        sheet.action_confirm()
+        payload = sheet._collection_report_data()
+        codes = [block["code"] for block in payload["voucher_blocks"]]
+        self.assertEqual(payload["collected_total"], 100.0)
+        self.assertNotIn("seller_commission", codes)
+        self.assertAlmostEqual(payload["tendered"]["total"], 40.0, places=2)
+
+    def test_recon_unchanged_by_commission_mint(self):
+        """Minting seller_commission MUST leave recon keys, including -unsupported."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=500.0,
+            customer="RPT-SC-RECON-CASH",
+            voucher_extra={"document_type": "cash"},
+        )
+        unsupported = self._create_voucher(
+            dummy_customer_partner(self.env, customer="RPT-SC-RECON-UNSUP"),
+            sheet,
+            amount=40.0,
+            document_type="unsupported",
+        )
+        self._create_allocation(
+            sheet,
+            unsupported.partner_id,
+            vouchers=unsupported,
+            lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
+        )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        self._funded_cash_receipt(allocation, cash)
+        self._mark_validated_collections(sheet.voucher_ids)
+        self._submit_declared_cash(sheet, 300.0)
+        before = dict(sheet._collection_report_data()["recon"])
+        self.assertAlmostEqual(before["difference"], -40.0, places=2)
+        self.assertEqual(before["status"], "outstanding")
+        sheet.action_confirm()
+        self.assertEqual(len(self._commission_vouchers(sheet)), 1)
+        after = sheet._collection_report_data()["recon"]
+        self.assertEqual(set(after), set(before))
+        for key, value in before.items():
+            self.assertEqual(after[key], value, key)
+        self.assertAlmostEqual(after["difference"], -40.0, places=2)
+        self.assertAlmostEqual(after["difference"], -unsupported.amount, places=2)
+
+    def test_cash_banked_excludes_seller_commission(self):
+        """cash_banked MUST sum seller_deposit only, never seller_commission."""
+        sheet = self._create_sheet()
+        self._balanced(
+            amount=20.0,
+            sheet=sheet,
+            customer="RPT-BANK-SC",
+            voucher_extra={"document_type": "cash_deposit"},
+        )
+        remittance = self._create_seller_deposit(sheet, amount=80.0)
+        commission = self._create_seller_commission(sheet, amount=30.0)
+        payload = sheet._collection_report_data()
+        self.assertEqual(payload["cash_banked"], 80.0)
+        self.assertEqual(sheet.cash_banked, remittance.amount)
+        self.assertNotEqual(
+            payload["cash_banked"], remittance.amount + commission.amount
+        )
+        self.assertNotEqual(payload["cash_banked"], commission.amount)
+
+    def test_tendered_explicitly_excludes_seller_commission(self):
+        """tendered MUST name seller_commission so exclusion is not fall-through."""
+        sheet = self._create_sheet()
+        source = inspect.getsource(type(sheet)._collection_report_tendered)
+        self.assertIn("seller_commission", source)
+        blocks = inspect.getsource(type(sheet)._collection_report_voucher_blocks)
+        self.assertIn("seller_commission", blocks)
+
+    def test_residual_cash_value_total_from_cash_receipt_values(self):
+        """residual_cash_value_total MUST equal leftover cash receipt values."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=100.0,
+            customer="RPT-RESIDUAL-40",
+            voucher_extra={"document_type": "cash"},
+        )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        _receipt, cash_value = self._funded_cash_receipt(allocation, cash)
+        self._mark_validated_collections(sheet.voucher_ids)
+        self._submit_declared_cash(sheet, 60.0)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertAlmostEqual(cash_value.amount, 40.0, places=2)
+        self.assertAlmostEqual(sheet.residual_cash_value_total, 40.0, places=2)
+        self.assertNotEqual(sheet.residual_cash_value_total, 0.0)
+        self.assertNotEqual(sheet.residual_cash_value_total, 100.0)
+
+    def test_residual_includes_issued_cash_values(self):
+        """Issued cash receipt values MUST still count toward residual cash."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=40.0,
+            customer="RPT-RESIDUAL-ISSUED",
+            voucher_extra={"document_type": "cash"},
+        )
+        receipt, cash_value = self._funded_cash_receipt(allocation, cash)
+        self._mark_issued(receipt, "ERP-RESIDUAL-ISSUED")
+        self.assertEqual(receipt.state, "issued")
+        self.assertAlmostEqual(cash_value.amount, 40.0, places=2)
+        self.assertAlmostEqual(sheet.residual_cash_value_total, 40.0, places=2)
+
+    def test_residual_computes_while_submitted_but_is_not_enforced(self):
+        """Submitted residual MUST still compute; Confirm is not blocked by it."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=80.0,
+            customer="RPT-RESIDUAL-SUBMITTED",
+            voucher_extra={"document_type": "cash"},
+        )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        self._funded_cash_receipt(allocation, cash)
+        self._mark_validated_collections(sheet.voucher_ids)
+        self._submit_declared_cash(sheet, 25.0)
+        self.assertEqual(sheet.state, "submitted")
+        self.assertAlmostEqual(sheet.residual_cash_value_total, 80.0, places=2)
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertAlmostEqual(sheet.residual_cash_value_total, 55.0, places=2)
+
+    def test_residual_never_blocks_close(self):
+        """Non-zero residual_cash_value_total MUST NOT block Close."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=100.0,
+            customer="RPT-RESIDUAL-CLOSE",
+            voucher_extra={"document_type": "cash"},
+        )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        self._funded_cash_receipt(allocation, cash)
+        self._mark_validated_collections(sheet.voucher_ids)
+        self._submit_declared_cash(sheet, 60.0)
+        sheet.action_confirm()
+        self.assertGreater(sheet.residual_cash_value_total, 0.0)
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertAlmostEqual(sheet.residual_cash_value_total, 40.0, places=2)
+
+    def test_residual_is_outside_recon_algebra(self):
+        """residual_cash_value_total MUST NOT feed recon or tendered.total."""
+        allocation, cash, sheet, _partner = self._balanced(
+            amount=100.0,
+            customer="RPT-RESIDUAL-RECON",
+            voucher_extra={"document_type": "cash"},
+        )
+        self._enable_seller_commission_type(company=sheet.company_id)
+        self._funded_cash_receipt(allocation, cash)
+        self._mark_validated_collections(sheet.voucher_ids)
+        self._submit_declared_cash(sheet, 60.0)
+        before = sheet._collection_report_data()
+        before_tendered = before["tendered"]["total"]
+        before_recon = dict(before["recon"])
+        sheet.action_confirm()
+        self.assertGreater(sheet.residual_cash_value_total, 0.0)
+        payload = sheet._collection_report_data()
+        self.assertNotIn("residual_cash_value_total", payload)
+        self.assertNotIn("residual_cash_value_total", payload["recon"])
+        self.assertEqual(payload["tendered"]["total"], before_tendered)
+        self.assertEqual(payload["recon"], before_recon)

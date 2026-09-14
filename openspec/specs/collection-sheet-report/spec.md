@@ -12,22 +12,22 @@ identical Total Cobrado, Total Aplicado, Remanente, Total Comisión, and Diferen
 `collection.sheet` MUST persist `commission_percent` (Float, default 0) and
 `commission_withheld` (Monetary). Percent MUST be constrained 0–100 (Odoo 19
 `models.Constraint`, MUST NOT `_sql_constraints`). `cash_on_hand` (Monetary, form string
-Cash to Administration) MUST be a **stored computed** field equal to `cash_collected −
-cash_banked − commission_withheld` — the sum of `cash` voucher amounts on the sheet minus
-the sum of `seller_deposit` voucher amounts minus the withheld commission — recomputed
-whenever a member voucher's `document_type` or `amount` changes, a voucher joins or
-leaves the sheet, or `commission_withheld` changes. It MAY be negative when remittances
-plus withheld commission exceed the collected cash. `cash_on_hand` MUST remain the field
-name and MUST be `store=True` so it stays searchable and groupable. Passing `cash_on_hand`
-to `create` or `write` MUST raise `UserError` in every state, including `submitted`.
-Seller-declared `commission_withheld` MUST be writable only while `state` is `submitted`.
-`commission_percent` MUST be writable while `state` is not `closed` or `cancelled`.
-Closed and cancelled sheets MUST refuse writes of the two writable fields (`UserError`,
-no persist). Seller Close MUST NOT persist the seller declaration. After `open`, writes
-of `commission_withheld` MUST be refused while `commission_percent` MAY still persist.
-Reinstate from Cancelled MUST NOT reset stored values. The `cash_on_hand` form widget
-MUST be readonly in every state; the other two MUST be readonly when the corresponding
-write would be refused.
+Cash to Administration) MUST be a **stored computed** field equal to
+`cash_collected − cash_banked − commission_withheld` — the sum of `cash` voucher amounts
+on the sheet minus the sum of `seller_deposit` voucher amounts minus the withheld
+commission — recomputed whenever a member voucher's `document_type` or `amount` changes,
+a voucher joins or leaves the sheet, or `commission_withheld` changes. It MAY be
+negative when remittances plus withheld commission exceed the collected cash.
+`cash_on_hand` MUST remain the field name and MUST be `store=True` so it stays
+searchable and groupable. Passing `cash_on_hand` to `create` or `write` MUST raise
+`UserError` in every state, including `submitted`. Seller-declared `commission_withheld`
+MUST be writable only while `state` is `submitted`. `commission_percent` MUST be
+writable while `state` is not `closed` or `cancelled`. Closed and cancelled sheets MUST
+refuse writes of the two writable fields (`UserError`, no persist). Seller Close MUST
+NOT persist the seller declaration. After `open`, writes of `commission_withheld` MUST
+be refused while `commission_percent` MAY still persist. Reinstate from Cancelled MUST
+NOT reset stored values. The `cash_on_hand` form widget MUST be readonly in every state;
+the other two MUST be readonly when the corresponding write would be refused.
 (Previously: `cash_on_hand` was a seller-declared Monetary written by Declare Cash and
 writable while `submitted`.)
 
@@ -179,22 +179,32 @@ zero commission.
 ### Requirement: Voucher blocks and tendered
 
 Voucher blocks that feed `collected_total` MUST group member `voucher_ids` by
-`document_type` and MUST exclude `seller_deposit`. Labels MUST come from
-`collection.document.type` keyed by `code` (MUST NOT use company-dependent
-`_selection_document_type`). Order MUST be `bank_transfer`, `check`, `cash_deposit`,
-then remaining non-remittance codes alphabetically (`unsupported` last as Otros, only
+`document_type` and MUST exclude both `seller_deposit` and `seller_commission`. Labels
+MUST come from `collection.document.type` keyed by `code` (MUST NOT use
+company-dependent `_selection_document_type`). Order MUST be `bank_transfer`, `check`,
+`cash_deposit`, then remaining codes alphabetically (`unsupported` last as Otros, only
 when non-empty). Empty blocks MUST be dropped. `collected_total` MUST equal those
-voucher-block subtotals and MUST NOT include `seller_deposit`. `tendered` MUST include
-`cash_on_hand` plus `cash_deposit`, `check`, `bank_transfer`, `echeck`,
-`retention_certificate`, and `seller_deposit` (`cash_banked`). Recon algebra MUST remain
-`net_due = collected − withheld` and `difference = tendered − net_due`. Every existing
-`recon` key MUST remain. Because `cash_on_hand` is now derived as the remainder,
-`difference` MUST be 0 for any sheet without `unsupported` vouchers: the banner balances
-by construction and `in_favor` is unreachable from real sheet data. The `in_favor` branch
-MUST stay in `_collection_report_recon` and MUST still map a positive `difference`.
-(Previously: Every catalog code including remittance fed `collected_total`; `tendered`
-included only `cash_on_hand` plus deposits, checks, and transfers — no echeck,
-retention, or `seller_deposit`.)
+voucher-block subtotals and MUST NOT include `seller_deposit` or `seller_commission`.
+
+`tendered` MUST include `cash_on_hand` plus `cash_deposit`, `check`, `bank_transfer`,
+`echeck`, `retention_certificate`, and `seller_deposit` (`cash_banked`). `tendered` MUST
+NOT include `seller_commission`, and that exclusion MUST be explicit rather than an
+accident of the type dispatch falling through.
+
+Recon algebra MUST remain `net_due = collected − withheld` and
+`difference = tendered − net_due`. Every existing `recon` key MUST remain. Because
+`cash_on_hand` is now derived as the remainder, `difference` MUST be 0 for any sheet
+without `unsupported` vouchers: the banner balances by construction and `in_favor` is
+unreachable from real sheet data. The `in_favor` branch MUST stay in
+`_collection_report_recon` and MUST still map a positive `difference`. Because the
+commission amount is excluded from both `collected_total` and `tendered` while
+`commission_withheld` still carries it, `difference` MUST remain `−unsupported`: minting
+a `seller_commission` voucher MUST NOT change any `recon` value. Counting the commission
+in either total would deduct it twice and drive `cash_on_hand` negative by exactly the
+commission amount. (Previously: `seller_deposit` was the only excluded code, and
+`seller_commission` did not exist. Before that: Every catalog code including remittance
+fed `collected_total`; `tendered` included only `cash_on_hand` plus deposits, checks,
+and transfers — no echeck, retention, or `seller_deposit`.)
 
 #### Scenario: Catalog order and empty drop
 
@@ -227,6 +237,22 @@ retention, or `seller_deposit`.)
   `tendered.seller_deposits` and lowers the derived `cash_on_hand` by the same amount
 - AND PDF and XLSX MUST show the same tendered buckets
 
+#### Scenario: Commission excluded from collected and tendered
+
+- GIVEN a sheet with a `cash` voucher 500, `commission_withheld` 300, and a minted
+  `seller_commission` 300
+- WHEN the report payload is built
+- THEN `collected_total` MUST NOT include the 300
+- AND `tendered.total` MUST NOT include the 300
+- AND no voucher block of code `seller_commission` MUST be present
+
+#### Scenario: Recon unchanged by the mint
+
+- GIVEN a submitted sheet whose report `recon` is R
+- WHEN Confirm mints and promotes the `seller_commission` voucher
+- THEN every key of `recon` MUST still equal its value in R
+- AND `difference` MUST remain `−unsupported`
+
 ### Requirement: Reconciliation status and mismatch
 
 `recon` MUST set `collected`, `withheld`, `net_due`, `tendered`, `difference`, `status`,
@@ -234,9 +260,8 @@ and `status_message`. Status MUST be `currency.compare_amounts(difference, 0.0)`
 `balanced` / `in_favor` / `outstanding`. `mismatch` MUST be set when Σ allocation
 `total_vouchers` ≠ Σ printed collected voucher amounts (unallocated non-remittance sheet
 vouchers). `seller_deposit` MUST NOT set `mismatch` and MUST NOT inflate
-`collected_total`.
-(Previously: Any unallocated sheet voucher, including a future remittance, set
-`mismatch` and was included in `collected_total`.)
+`collected_total`. (Previously: Any unallocated sheet voucher, including a future
+remittance, set `mismatch` and was included in `collected_total`.)
 
 #### Scenario: Tri-state via compare_amounts
 
@@ -416,9 +441,9 @@ sheet. It MUST render the bound `collection.action_report_collection_sheet` and 
 where `content_base64` is the standard-base64 report body and `filename` is a slug
 ending `.pdf` carrying the sheet reference with `/` replaced. The tool MUST NOT create
 an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
-`collection.connector` or seller binding, and MUST NOT expose the XLSX.
-(Previously: Resolved only `open` via `_open_sheets_for_seller` and returned
-`{sheet: null}` when only `submitted` existed.)
+`collection.connector` or seller binding, and MUST NOT expose the XLSX. (Previously:
+Resolved only `open` via `_open_sheets_for_seller` and returned `{sheet: null}` when
+only `submitted` existed.)
 
 #### Scenario: Open sheet returns base64 PDF
 
@@ -448,8 +473,8 @@ an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
 
 #### Scenario: No printable sheet returns null
 
-- GIVEN an internal seller with no `open` or `submitted` sheet (none, or only
-  `proposal` / `closed` / `cancelled`)
+- GIVEN an internal seller with no `open` or `submitted` sheet (none, or only `proposal`
+  / `closed` / `cancelled`)
 - WHEN `get_collection_sheet_pdf` runs with that `seller_id`
 - THEN the response MUST be exactly `{ "sheet": null }`
 - AND the report MUST NOT be rendered
@@ -498,10 +523,14 @@ existing Spanish state labels MUST remain unchanged.
 ### Requirement: Remittance cash_banked
 
 `cash_banked` MUST equal the sum of member `seller_deposit` voucher amounts. It MUST NOT
-sum `cash_deposit`. It MUST NOT be derived from the cash-replacement ledger. Excess
+sum `cash_deposit` and MUST NOT sum `seller_commission`. It MUST NOT be derived from the
+cash-replacement ledger. `cash_on_hand` MUST stay
+`cash_collected − cash_banked − commission_withheld`; the commission MUST be deducted
+through `commission_withheld` only, never additionally through a voucher total. Excess
 `seller_deposit` beyond replaceable cash MUST be allowed and MUST surface through recon
 tendered totals. A submitted sheet with zero allocations MUST still report `cash_banked`
-from deposit vouchers.
+from deposit vouchers. (Previously: `seller_commission` did not exist, so the exclusion
+was unstated.)
 
 #### Scenario: cash_banked sums seller_deposit only
 
@@ -522,3 +551,51 @@ from deposit vouchers.
 - WHEN report payload is built
 - THEN `cash_banked` MUST equal that deposit amount
 - AND MUST NOT be zero merely because the ledger is empty
+
+#### Scenario: cash_banked excludes the commission
+
+- GIVEN a sheet with `seller_deposit` 80, `cash_deposit` 20, and `seller_commission` 30
+- WHEN the report payload is built
+- THEN `cash_banked` MUST equal 80
+
+### Requirement: Residual cash is reported, not enforced
+
+The sheet MUST expose a computed non-stored `residual_cash_value_total` equal to the sum
+of `collection.receipt.value.amount` on the sheet's receipts whose voucher
+`document_type` is `cash`. It represents cash still recorded as a claim on the seller's
+pocket after every remittance and commission instrument has been applied.
+
+The sheet form MUST surface a warning when `residual_cash_value_total` is non-zero and
+the sheet `state` is not `open` or `submitted`. It MUST stay silent in `open` and
+`submitted`, because the commission instrument is minted only at Confirm and the
+instrument ledger therefore lags `commission_withheld` legitimately throughout the
+seller's declaration phase.
+
+Residual cash MUST NOT block Confirm, Close, or any other transition. It MUST NOT feed
+`collected_total`, `tendered`, `cash_on_hand`, or `recon`.
+
+#### Scenario: Residual surfaces after Confirm
+
+- GIVEN a Confirmed sheet whose receipts still carry `cash` values totalling 40
+- WHEN the sheet form is read
+- THEN `residual_cash_value_total` MUST equal 40
+- AND the warning MUST be visible
+
+#### Scenario: Silent while submitted
+
+- GIVEN a submitted sheet with `cash` receipt values and `commission_withheld` set
+- WHEN the sheet form is read
+- THEN the warning MUST NOT be visible
+
+#### Scenario: Residual never blocks
+
+- GIVEN a Confirmed sheet with non-zero `residual_cash_value_total`
+- WHEN Close runs
+- THEN `state` MUST become `closed`
+
+#### Scenario: Residual is outside the recon algebra
+
+- GIVEN a sheet with non-zero `residual_cash_value_total`
+- WHEN the report payload is built
+- THEN `recon` MUST NOT reference it
+- AND `tendered.total` MUST NOT change
