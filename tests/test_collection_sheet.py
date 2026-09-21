@@ -366,6 +366,174 @@ class TestCollectionSheet(TransactionCase):
         sheet.action_confirm()
         self.assertEqual(sheet.state, "proposal")
 
+    def test_action_confirm_over_applied_allocation_blocks(self):
+        """Applied money exceeding what the vouchers collected MUST block Confirm."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CONF-OVER-APPLIED",
+            sheet_id=sheet.id,
+            amount=40.0,
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": voucher.partner_id.id,
+                "voucher_ids": [Command.set(voucher.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-CONF-OVER",
+                            "invoice_number": "INV-CONF-OVER",
+                            "invoice_balance": 100.0,
+                            "amount_applied": 60.0,
+                        }
+                    )
+                ],
+            }
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close()
+        with self.assertRaises(UserError) as error:
+            sheet.action_confirm()
+        self.assertIn(allocation.name, str(error.exception))
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(allocation.state, "draft")
+
+    def test_action_confirm_over_applied_multiple_allocations_all_named(self):
+        """Confirm MUST name every offending allocation, not just the first."""
+        sheet = self._create_sheet()
+        voucher_a = self._create_voucher(
+            customer_identification="CUST-CONF-OVER-A",
+            sheet_id=sheet.id,
+            amount=10.0,
+        )
+        voucher_b = self._create_voucher(
+            customer_identification="CUST-CONF-OVER-B",
+            sheet_id=sheet.id,
+            amount=20.0,
+        )
+        allocation_a = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": voucher_a.partner_id.id,
+                "voucher_ids": [Command.set(voucher_a.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-OVER-A",
+                            "invoice_number": "INV-OVER-A",
+                            "invoice_balance": 100.0,
+                            "amount_applied": 15.0,
+                        }
+                    )
+                ],
+            }
+        )
+        allocation_b = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": voucher_b.partner_id.id,
+                "voucher_ids": [Command.set(voucher_b.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-OVER-B",
+                            "invoice_number": "INV-OVER-B",
+                            "invoice_balance": 100.0,
+                            "amount_applied": 35.0,
+                        }
+                    )
+                ],
+            }
+        )
+        self._mark_validated_collections(voucher_a | voucher_b)
+        sheet.action_seller_close()
+        with self.assertRaises(UserError) as error:
+            sheet.action_confirm()
+        message = str(error.exception)
+        self.assertIn(allocation_a.name, message)
+        self.assertIn(allocation_b.name, message)
+        self.assertEqual(sheet.state, "submitted")
+
+    def test_action_confirm_empty_voucher_allocation_zero_applied_passes(self):
+        """An allocation with no vouchers and nothing applied MUST NOT block Confirm."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="CUST-CONF-EMPTY-ALLOC")
+        allocation = self.env["collection.allocation"].create(
+            {"sheet_id": sheet.id, "partner_id": partner.id}
+        )
+        sheet.action_seller_close()
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.total_vouchers, 0.0)
+        self.assertEqual(allocation.total_applied, 0.0)
+
+    def test_action_confirm_debt_over_applied_without_vouchers_still_blocks(self):
+        """Over-applying against DEBT with zero vouchers collected MUST still block.
+
+        Over-allocation against customer debt stays allowed on its own
+        (``residual`` may go negative), but this allocation also applied more
+        than the sheet actually collected (zero vouchers) -- that is the rule
+        this task enforces, and it fires regardless of the debt-side residual.
+        """
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(
+            self.env, customer="CUST-CONF-DEBT-NOVOUCHER"
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-CONF-DEBT",
+                            "invoice_number": "INV-CONF-DEBT",
+                            "invoice_balance": 40.0,
+                            "amount_applied": 80.0,
+                        }
+                    )
+                ],
+            }
+        )
+        self.assertEqual(allocation.residual, -40.0)
+        sheet.action_seller_close()
+        with self.assertRaises(UserError) as error:
+            sheet.action_confirm()
+        self.assertIn(allocation.name, str(error.exception))
+        self.assertEqual(sheet.state, "submitted")
+
+    def test_action_confirm_rounding_noise_within_currency_precision_passes(self):
+        """A sub-cent float difference MUST NOT block Confirm (currency rounding)."""
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CONF-ROUND",
+            sheet_id=sheet.id,
+            amount=10.1,
+        )
+        allocation = self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": voucher.partner_id.id,
+                "voucher_ids": [Command.set(voucher.ids)],
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": "INV-CONF-ROUND",
+                            "invoice_number": "INV-CONF-ROUND",
+                            "invoice_balance": 100.0,
+                            "amount_applied": 10.1 + 1e-9,
+                        }
+                    )
+                ],
+            }
+        )
+        self._mark_validated_collections(voucher)
+        sheet.action_seller_close()
+        sheet.action_confirm()
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
+
     def test_action_seller_close_empty_members_pass(self):
         """Empty member set MUST pass Seller Close to submitted."""
         sheet = self._create_sheet()
@@ -956,6 +1124,44 @@ class TestCollectionSheet(TransactionCase):
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")
         self.assertEqual(voucher.state, "validated_collections")
+
+    def test_action_close_over_applied_allocation_blocks(self):
+        """Applied money exceeding what the vouchers collected MUST block Close.
+
+        Membership is not frozen until the sheet is closed, so an allocation
+        can still become over-applied while the sheet sits in proposal; Close
+        MUST catch it even though Confirm already let the sheet through.
+        """
+        sheet = self._create_sheet()
+        voucher = self._create_voucher(
+            customer_identification="CUST-CLOSE-OVER-APPLIED",
+            sheet_id=sheet.id,
+            amount=40.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, voucher, invoice_id="INV-CLOSE-OVER"
+        )
+        self._mark_validated_collections(voucher)
+        confirm_sheet(sheet)
+        self.assertEqual(sheet.state, "proposal")
+        line = allocation.line_ids
+        allocation.write(
+            {
+                "line_ids": [
+                    Command.update(
+                        line.id,
+                        {"amount_applied": 60.0, "invoice_balance": 100.0},
+                    )
+                ]
+            }
+        )
+        self.assertEqual(allocation.total_applied, 60.0)
+        self.assertEqual(allocation.total_vouchers, 40.0)
+        with self.assertRaises(UserError) as error:
+            sheet.action_close()
+        self.assertIn(allocation.name, str(error.exception))
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(allocation.state, "draft")
 
     def test_action_close_rejected_when_already_closed(self):
         sheet = self._create_sheet()

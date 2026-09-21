@@ -161,6 +161,33 @@ class TestCollectionAllocationDebtPicker(TransactionCase):
         )
         return allocation, sheet, partner, seller
 
+    def _attach_covering_voucher(self, sheet, partner, seller, allocation, amount):
+        """Attach a validated bank_transfer voucher covering ``amount``.
+
+        Confirm now refuses an allocation whose ``total_applied`` exceeds the
+        money its vouchers actually collected (``allocation.total_vouchers``,
+        summed from vouchers whose ``allocation_id`` points at it). Only the
+        tests that Confirm (or Confirm+Close) a ``_partial_allocation`` sheet
+        need this; it is opt-in so the picker tests that never leave
+        ``draft``/``open`` stay untouched.
+        """
+        voucher = self.env["collection.voucher"].create(
+            {
+                "document_type": "bank_transfer",
+                "partner_id": partner.id,
+                "seller_id": seller.id,
+                "sheet_id": sheet.id,
+                "allocation_id": allocation.id,
+                "company_id": sheet.company_id.id,
+                "amount": amount,
+                "document_id": f"picker-cover-{sheet.id}",
+            }
+        )
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
+        return voucher
+
     def _open_picker(self, allocation):
         action = allocation.action_open_debt_picker()
         self.assertEqual(action["type"], "ir.actions.act_window")
@@ -259,7 +286,8 @@ class TestCollectionAllocationDebtPicker(TransactionCase):
 
     def test_cancelled_sheet_refuses_picker(self):
         """Cancelled draft allocations MUST refuse the picker."""
-        allocation, sheet, _partner, _seller = self._partial_allocation()
+        allocation, sheet, partner, seller = self._partial_allocation()
+        self._attach_covering_voucher(sheet, partner, seller, allocation, 40.0)
         confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
@@ -274,7 +302,8 @@ class TestCollectionAllocationDebtPicker(TransactionCase):
 
     def test_closed_allocation_refuses_picker(self):
         """Closed/confirmed allocations MUST refuse the picker."""
-        allocation, sheet, _partner, _seller = self._partial_allocation()
+        allocation, sheet, partner, seller = self._partial_allocation()
+        self._attach_covering_voucher(sheet, partner, seller, allocation, 40.0)
         confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(sheet.state, "closed")

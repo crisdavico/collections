@@ -323,6 +323,7 @@ class CollectionSheet(models.Model):
                     )
                 )
             sheet._ensure_seller_commission_voucher()
+            sheet._raise_if_allocations_over_applied()
         return self.with_context(collection_sheet_audited_state=True).write(
             {"state": "proposal"}
         )
@@ -388,9 +389,51 @@ class CollectionSheet(models.Model):
             else voucher.state != _VALIDATED_COLLECTIONS
         )
 
+    @api.private
+    def _allocations_over_applied(self):
+        """Return this sheet's allocations whose ``total_applied`` exceeds
+        ``total_vouchers``.
+
+        This is the collected-money gate: an allocation must not apply more
+        than its vouchers actually collected. It is independent of the
+        debt-side ``residual``, which stays negative-capable by design -- an
+        allocation with zero vouchers and zero applied money passes here even
+        though it carries no proof of collection at all, because that is not
+        an over-application.
+        """
+        self.ensure_one()
+        currency = self.company_id.currency_id
+        return self.allocation_ids.filtered(
+            lambda allocation: currency.compare_amounts(
+                allocation.total_applied, allocation.total_vouchers
+            )
+            > 0
+        )
+
+    @api.private
+    def _raise_if_allocations_over_applied(self):
+        self.ensure_one()
+        offending = self._allocations_over_applied()
+        if not offending:
+            return
+        details = ", ".join(
+            f"{allocation.name} (applied {allocation.total_applied} "
+            f"> collected {allocation.total_vouchers})"
+            for allocation in offending
+        )
+        raise UserError(
+            _(
+                "Applied amount cannot exceed the money the vouchers actually "
+                "collected: %s",
+                details,
+            )
+        )
+
     def action_close(self):
         if any(sheet.state != "proposal" for sheet in self):
             raise UserError(_("Only proposal sheets can be closed."))
+        for sheet in self:
+            sheet._raise_if_allocations_over_applied()
         self._mark_draft_receipts_closed()
         allocations = self.mapped("allocation_ids")
         if allocations:

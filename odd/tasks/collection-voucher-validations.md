@@ -153,7 +153,14 @@ so it slices into a stacked chain off `main`. Branch: `feat/voucher-validations`
   - Tests covering both the rejection and the `cash` exemption.
   - Route: same writer as T2 (same mechanism).
 
-- [ ] **T4 — Applied must not exceed collected**
+- [x] **T4 — Applied must not exceed collected** — DONE.
+  Verified `1 failed, 0 error(s) of 1040 tests`.
+  Six existing tests were confirming sheets that applied money to customer debt with
+  ZERO vouchers attached (`applied X > collected 0.0`). Their subjects were fine; the
+  fixtures simply never modelled the money side. That shape is exactly the production
+  bug this rule catches, so the fixtures were given covering vouchers rather than the
+  rule being relaxed. No assertion values changed.
+  Debt-side over-allocation remains allowed and untouched, as decided.
   - Block when an allocation's `total_applied` exceeds `total_vouchers`.
   - Enforced at `collection.sheet.action_confirm()` and `action_close()`.
   - Must NOT touch the debt-side residual, which stays negative-capable.

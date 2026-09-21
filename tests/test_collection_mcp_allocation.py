@@ -1700,6 +1700,20 @@ class TestCollectionMcpAllocation(TransactionCase):
                 ],
             }
         )
+        # Confirm now refuses an allocation whose total_applied exceeds the
+        # money its vouchers actually collected, so other_alloc needs a
+        # validated voucher covering its 50.0 applied before self.sheet can
+        # be confirmed. This voucher is unrelated to the reservation gate
+        # under test (the hidden proposal draft blocking a new open apply).
+        cover = self._create_vouchers(
+            [50.0],
+            partner=other_partner,
+            prefix="ALLOC-HIDDEN-COVER",
+            allocation_id=other_alloc.id,
+        )
+        cover.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
+        )
         confirm_sheet(self.sheet)
         self.assertEqual(self.sheet.state, "proposal")
         self.assertEqual(other_alloc.state, "draft")

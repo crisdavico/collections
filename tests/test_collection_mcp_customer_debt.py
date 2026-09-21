@@ -151,7 +151,15 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
         return ctx.exception
 
     def _reserve_open_invoice(self, amount_applied, *, close=False):
-        """Reserve inv-bound-open on a sheet, then Confirm (and optionally Close)."""
+        """Reserve inv-bound-open on a sheet, then Confirm (and optionally Close).
+
+        Confirm now refuses an allocation whose ``total_applied`` exceeds the
+        money its vouchers actually collected, so a ``bank_transfer`` voucher
+        covering ``amount_applied`` is attached and pushed straight to
+        ``validated_collections``. That voucher only exists to satisfy the
+        collected-money gate; it is unrelated to the debt-reservation /
+        allocatable-balance behaviour under test.
+        """
         partner = dummy_customer_partner(
             self.env, customer=f"DEBT-RESERVE-{amount_applied}-{int(close)}"
         )
@@ -175,6 +183,21 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
                     )
                 ],
             }
+        )
+        voucher = self.env["collection.voucher"].create(
+            {
+                "document_type": "bank_transfer",
+                "partner_id": partner.id,
+                "seller_id": self.seller.id,
+                "sheet_id": sheet.id,
+                "allocation_id": allocation.id,
+                "company_id": sheet.company_id.id,
+                "amount": amount_applied,
+                "document_id": f"debt-reserve-{amount_applied}-{int(close)}",
+            }
+        )
+        voucher.with_context(collection_audited_state=True).write(
+            {"state": "validated_collections"}
         )
         confirm_sheet(sheet)
         if close:
