@@ -2002,7 +2002,12 @@ class TestCollectionMcpAllocation(TransactionCase):
             return {
                 "document_type": document_type,
                 "amount": amount,
-                "check_number": "CHK-9",
+                # check/echeck share one duplicate-identity namespace
+                # (company_id, check_number); this helper is exercised for
+                # both types in the same test loop, so the number must
+                # differ per type or the second create collides with the
+                # first as a duplicate check.
+                "check_number": f"CHK-9-{document_type}",
                 "check_bank": "Banco Nacion",
                 "check_issue_date": "2026-01-10",
                 "check_payment_date": "2026-02-10",

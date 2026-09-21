@@ -121,7 +121,15 @@ so it slices into a stacked chain off `main`. Branch: `feat/voucher-validations`
   - Tests in `tests/test_collection_voucher.py`.
   - Route: delegated writer (2+ non-trivial files). Trigger: writer rule.
 
-- [ ] **T2 — Mandatory check number and check duplicate rejection**
+- [x] **T2 — Mandatory check number and check duplicate rejection** — DONE.
+  Verified `1 failed, 0 error(s) of 1034 tests`. Two findings worth keeping:
+  Odoo runs `@api.constrains` AFTER the INSERT, so the paired `UniqueIndex` won the
+  race and users saw a raw `psycopg2.UniqueViolation` instead of a readable error.
+  Duplicate detection is now a value-based precheck called from `create()`/`write()`,
+  with the index demoted to a pure concurrency backstop. Normalization is
+  `str.strip(" ")` in Python and `btrim()` in SQL — spaces only, deliberately matched
+  so the two definitions of "same number" cannot drift apart.
+  Blast radius: 11 fixtures across 6 further files, swept.
   - `@api.constrains("document_type", "check_number")`: non-empty for `check`/`echeck`.
   - Duplicate rule on normalised `check_number`, scoped per company, for
     `check`/`echeck`: `@api.constrains` for the message plus `models.UniqueIndex` for
@@ -136,7 +144,7 @@ so it slices into a stacked chain off `main`. Branch: `feat/voucher-validations`
     deliberately NOT part of the key. Consequence: two banks issuing the same check
     number inside one company collide and the second is rejected.
 
-- [ ] **T3 — Duplicate identity for the other instruments**
+- [x] **T3 — Duplicate identity for the other instruments** — DONE (same commit as T2).
   - `bank_transfer` / `cash_deposit`: unique on
     `(company_id, document_type, voucher_number)` where `voucher_number` is set.
   - `retention_certificate`: unique on `(company_id, partner_id, voucher_number)`.

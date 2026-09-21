@@ -211,6 +211,7 @@
                                 <field
                   name="check_number"
                   invisible="document_type != 'check'"
+                  required="document_type in ('check', 'echeck')"
                 />
                                 <field
                   name="check_bank"

@@ -6,6 +6,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from re import compile as re_compile
 from re import fullmatch
+from uuid import uuid4
 
 from odoo.tests import TransactionCase
 
@@ -175,6 +176,15 @@ class TestCollectionCompanyMigration(TransactionCase):
         vals["partner_id"] = partner.id
         if vals.get("document_type") != "unsupported" and "amount" not in vals:
             vals["amount"] = 100.0
+        if vals.get("document_type") in (
+            "check",
+            "echeck",
+        ) and "check_number" not in vals:
+            # check_number is mandatory at save for check/echeck
+            # (_check_check_number_required); a random default keeps
+            # existing fixtures unique enough to dodge
+            # _check_check_number_unique without spelling one out.
+            vals["check_number"] = f"CHK-{uuid4().hex[:10]}"
         if not vals.get("seller_id"):
             vals = dict(
                 vals,

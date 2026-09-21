@@ -229,6 +229,7 @@ class TestCollectionDocumentReviewFlag(TransactionCase):
                 ).id,
                 "document_type": "check",
                 "amount": 20.0,
+                "check_number": "CHK-FLAG-FORM-REJ",
                 "seller_id": ensure_enabled_seller(self.env).id,
             }
         )

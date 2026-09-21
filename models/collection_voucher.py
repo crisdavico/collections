@@ -34,6 +34,11 @@ class CollectionVoucher(models.Model):
         "seller_deposit": "_seller_deposit_partner",
         "seller_commission": "_seller_commission_partner",
     }
+    # Per-type duplicate-identity knowledge, kept as plain Python dicts/sets
+    # here rather than as catalog behaviour flags (follows the
+    # ``_TYPE_OWNED_FIELDS`` convention in ``tools/collection_voucher.py``).
+    _CHECK_DOCUMENT_TYPES = frozenset({"check", "echeck"})
+    _TRANSFER_DUPLICATE_TYPES = frozenset({"bank_transfer", "cash_deposit"})
 
     name = fields.Char(
         string="Reference",
@@ -222,6 +227,32 @@ class CollectionVoucher(models.Model):
         "CHECK(sheet_id IS NULL OR seller_id IS NOT NULL)",
         "A voucher assigned to a sheet must have a seller.",
     )
+    # Race-safety backstops for the duplicate-identity Python constraints
+    # below. ``btrim(...)`` (spaces only) mirrors ``_normalize_instrument_number``
+    # exactly so a Python "duplicate" and a database "duplicate" always agree.
+    # These apply via ``pool.post_constraint``: on a production DB that
+    # already has dirty duplicate data, adding the index only logs a warning
+    # instead of failing the upgrade; the Python constraints below are what
+    # protects every new record either way.
+    _check_number_uniq_idx = models.UniqueIndex(
+        "(company_id, btrim(check_number)) "
+        "WHERE document_type IN ('check', 'echeck') AND btrim(check_number) <> ''",
+        "Check number must be unique per company for check and echeck vouchers.",
+    )
+    _transfer_voucher_number_uniq_idx = models.UniqueIndex(
+        "(company_id, document_type, btrim(voucher_number)) "
+        "WHERE document_type IN ('bank_transfer', 'cash_deposit') "
+        "AND btrim(voucher_number) <> ''",
+        "Voucher number must be unique per company and document type for "
+        "bank transfer and cash deposit vouchers.",
+    )
+    _retention_voucher_number_uniq_idx = models.UniqueIndex(
+        "(company_id, partner_id, btrim(voucher_number)) "
+        "WHERE document_type = 'retention_certificate' "
+        "AND btrim(voucher_number) <> ''",
+        "Voucher number must be unique per company and customer for "
+        "retention certificate vouchers.",
+    )
 
     @api.depends("cash_replacement_ids.amount", "cash_replacement_ids.direction")
     def _compute_replaced_amount(self):
@@ -264,6 +295,7 @@ class CollectionVoucher(models.Model):
                 )
             if vals.get("sheet_id"):
                 self._ensure_sheet_membership_unlocked(vals["sheet_id"])
+        self._raise_if_duplicate_identity_in_batch(vals_list)
         return super().create(vals_list)
 
     @api.private
@@ -373,6 +405,14 @@ class CollectionVoucher(models.Model):
         intercepted = self._intercept_state_write(vals)
         if intercepted is not None:
             return intercepted
+        if {
+            "document_type",
+            "check_number",
+            "voucher_number",
+            "company_id",
+            "partner_id",
+        } & set(vals):
+            self._raise_if_duplicate_identity_on_write(vals)
         entering = self._cash_replacers_entering_validated_collections(vals)
         result = super().write(vals)
         entering._run_cash_replacement()
@@ -638,6 +678,256 @@ class CollectionVoucher(models.Model):
                 )
             if voucher.seller_id != voucher.sheet_id.seller_id:
                 raise ValidationError(_("Voucher seller must match the sheet seller."))
+
+    @api.model
+    @api.private
+    def _normalize_instrument_number(self, value):
+        """Trim leading/trailing spaces (only), matching the SQL ``btrim()``
+        used by the paired ``UniqueIndex``. Restricting this to plain spaces
+        (rather than ``str.strip()``'s broader whitespace class) keeps the
+        Python and SQL definitions of "same number" bit-for-bit identical.
+        """
+        return (value or "").strip(" ")
+
+    @api.constrains("document_type", "check_number")
+    def _check_check_number_required(self):
+        for voucher in self:
+            if voucher.document_type not in self._CHECK_DOCUMENT_TYPES:
+                continue
+            if not self._normalize_instrument_number(voucher.check_number):
+                raise ValidationError(
+                    _("Check number is required for check and echeck vouchers.")
+                )
+
+    # -- Duplicate-identity checks -------------------------------------
+    #
+    # Each rule below is enforced twice: once as a value-based helper that
+    # both an ``@api.constrains`` method and a proactive create()/write()
+    # precheck can call, and once as the paired ``models.UniqueIndex``
+    # above. Odoo always performs the physical INSERT/UPDATE *before*
+    # running ``@api.constrains`` (see ``_create``/``_validate_fields``),
+    # so a same-transaction sequential duplicate hits the SQL index first
+    # and would otherwise surface as a raw, unfriendly
+    # ``psycopg2.errors.UniqueViolation`` instead of our message. Calling
+    # the same helper proactively -- before ``super().create()`` /
+    # ``super().write()`` -- gives the ordinary (non-racing) path our
+    # friendly ``ValidationError``. The UniqueIndex remains the correctness
+    # backstop for a genuine concurrent race that a precheck's
+    # ``self.search()`` snapshot cannot see; the ``@api.constrains`` methods
+    # stay too, as defense in depth for any write that reaches the table
+    # without going through these overrides.
+
+    @api.private
+    def _raise_if_check_number_duplicate(
+        self, company_id, check_number, exclude_id=None
+    ):
+        normalized = self._normalize_instrument_number(check_number)
+        if not normalized:
+            return
+        domain = [
+            ("company_id", "=", company_id),
+            ("document_type", "in", list(self._CHECK_DOCUMENT_TYPES)),
+            ("check_number", "!=", False),
+        ]
+        if exclude_id:
+            domain.append(("id", "!=", exclude_id))
+        duplicate = self.search(domain).filtered(
+            lambda other: self._normalize_instrument_number(other.check_number)
+            == normalized
+        )
+        if duplicate:
+            raise ValidationError(
+                _(
+                    "Check number %(number)s is already registered on "
+                    "voucher %(name)s.",
+                    number=check_number,
+                    name=duplicate[0].name,
+                )
+            )
+
+    @api.private
+    def _raise_if_transfer_voucher_number_duplicate(
+        self, company_id, document_type, voucher_number, exclude_id=None
+    ):
+        normalized = self._normalize_instrument_number(voucher_number)
+        if not normalized:
+            return
+        domain = [
+            ("company_id", "=", company_id),
+            ("document_type", "=", document_type),
+            ("voucher_number", "!=", False),
+        ]
+        if exclude_id:
+            domain.append(("id", "!=", exclude_id))
+        duplicate = self.search(domain).filtered(
+            lambda other: self._normalize_instrument_number(other.voucher_number)
+            == normalized
+        )
+        if duplicate:
+            raise ValidationError(
+                _(
+                    "Voucher number %(number)s is already registered on "
+                    "voucher %(name)s.",
+                    number=voucher_number,
+                    name=duplicate[0].name,
+                )
+            )
+
+    @api.private
+    def _raise_if_retention_voucher_number_duplicate(
+        self, company_id, partner_id, voucher_number, exclude_id=None
+    ):
+        normalized = self._normalize_instrument_number(voucher_number)
+        if not normalized:
+            return
+        domain = [
+            ("company_id", "=", company_id),
+            ("partner_id", "=", partner_id),
+            ("document_type", "=", "retention_certificate"),
+            ("voucher_number", "!=", False),
+        ]
+        if exclude_id:
+            domain.append(("id", "!=", exclude_id))
+        duplicate = self.search(domain).filtered(
+            lambda other: self._normalize_instrument_number(other.voucher_number)
+            == normalized
+        )
+        if duplicate:
+            raise ValidationError(
+                _(
+                    "Retention certificate %(number)s is already "
+                    "registered on voucher %(name)s.",
+                    number=voucher_number,
+                    name=duplicate[0].name,
+                )
+            )
+
+    @api.constrains("company_id", "document_type", "check_number")
+    def _check_check_number_unique(self):
+        for voucher in self:
+            if voucher.document_type not in self._CHECK_DOCUMENT_TYPES:
+                continue
+            self._raise_if_check_number_duplicate(
+                voucher.company_id.id, voucher.check_number, exclude_id=voucher.id
+            )
+
+    @api.constrains("company_id", "document_type", "voucher_number")
+    def _check_transfer_voucher_number_unique(self):
+        for voucher in self:
+            if voucher.document_type not in self._TRANSFER_DUPLICATE_TYPES:
+                continue
+            self._raise_if_transfer_voucher_number_duplicate(
+                voucher.company_id.id,
+                voucher.document_type,
+                voucher.voucher_number,
+                exclude_id=voucher.id,
+            )
+
+    @api.constrains("company_id", "partner_id", "document_type", "voucher_number")
+    def _check_retention_certificate_voucher_number_unique(self):
+        for voucher in self:
+            if voucher.document_type != "retention_certificate":
+                continue
+            self._raise_if_retention_voucher_number_duplicate(
+                voucher.company_id.id,
+                voucher.partner_id.id,
+                voucher.voucher_number,
+                exclude_id=voucher.id,
+            )
+
+    @api.private
+    def _raise_if_duplicate_identity_in_batch(self, vals_list):
+        """Proactive precheck for create(): see the note above this section."""
+        seen_check = set()
+        seen_transfer = set()
+        seen_retention = set()
+        for vals in vals_list:
+            document_type = vals.get("document_type")
+            company_id = vals.get("company_id") or self.env.company.id
+            if document_type in self._CHECK_DOCUMENT_TYPES:
+                normalized = self._normalize_instrument_number(
+                    vals.get("check_number")
+                )
+                if normalized:
+                    key = (company_id, normalized)
+                    if key in seen_check:
+                        raise ValidationError(
+                            _(
+                                "Check number %(number)s is duplicated within "
+                                "this request.",
+                                number=vals.get("check_number"),
+                            )
+                        )
+                    seen_check.add(key)
+                    self._raise_if_check_number_duplicate(
+                        company_id, vals.get("check_number")
+                    )
+            if document_type in self._TRANSFER_DUPLICATE_TYPES:
+                normalized = self._normalize_instrument_number(
+                    vals.get("voucher_number")
+                )
+                if normalized:
+                    key = (company_id, document_type, normalized)
+                    if key in seen_transfer:
+                        raise ValidationError(
+                            _(
+                                "Voucher number %(number)s is duplicated "
+                                "within this request.",
+                                number=vals.get("voucher_number"),
+                            )
+                        )
+                    seen_transfer.add(key)
+                    self._raise_if_transfer_voucher_number_duplicate(
+                        company_id, document_type, vals.get("voucher_number")
+                    )
+            if document_type == "retention_certificate":
+                normalized = self._normalize_instrument_number(
+                    vals.get("voucher_number")
+                )
+                if normalized:
+                    partner_id = record_id(vals.get("partner_id"))
+                    key = (company_id, partner_id, normalized)
+                    if key in seen_retention:
+                        raise ValidationError(
+                            _(
+                                "Retention certificate %(number)s is "
+                                "duplicated within this request.",
+                                number=vals.get("voucher_number"),
+                            )
+                        )
+                    seen_retention.add(key)
+                    self._raise_if_retention_voucher_number_duplicate(
+                        company_id, partner_id, vals.get("voucher_number")
+                    )
+
+    @api.private
+    def _raise_if_duplicate_identity_on_write(self, vals):
+        """Proactive precheck for write(): see the note above this section."""
+        for voucher in self:
+            document_type = vals.get("document_type", voucher.document_type)
+            company_id = vals.get("company_id", voucher.company_id.id) or (
+                self.env.company.id
+            )
+            if document_type in self._CHECK_DOCUMENT_TYPES:
+                check_number = vals.get("check_number", voucher.check_number)
+                self._raise_if_check_number_duplicate(
+                    company_id, check_number, exclude_id=voucher.id
+                )
+            if document_type in self._TRANSFER_DUPLICATE_TYPES:
+                voucher_number = vals.get("voucher_number", voucher.voucher_number)
+                self._raise_if_transfer_voucher_number_duplicate(
+                    company_id, document_type, voucher_number, exclude_id=voucher.id
+                )
+            if document_type == "retention_certificate":
+                voucher_number = vals.get("voucher_number", voucher.voucher_number)
+                partner_id = (
+                    record_id(vals.get("partner_id"))
+                    if "partner_id" in vals
+                    else voucher.partner_id.id
+                )
+                self._raise_if_retention_voucher_number_duplicate(
+                    company_id, partner_id, voucher_number, exclude_id=voucher.id
+                )
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_draft(self):

@@ -5,6 +5,7 @@ from base64 import b64decode
 from datetime import date
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from uuid import uuid4
 
 from psycopg2 import IntegrityError
 
@@ -59,6 +60,12 @@ class TestCollectionVoucher(TransactionCase):
             # needs a sensible default so it does not have to spell out an
             # amount just to satisfy `_check_amount_positive`.
             vals["amount"] = 100.0
+        if document_type in ("check", "echeck") and "check_number" not in extra:
+            # check_number is mandatory at save for check/echeck
+            # (_check_check_number_required); a random default keeps
+            # existing fixtures unique enough to dodge
+            # _check_check_number_unique without spelling one out.
+            vals["check_number"] = f"CHK-{uuid4().hex[:10]}"
         if "seller_id" not in extra:
             vals["seller_id"] = self._ensure_enabled_seller().id
         elif extra.get("seller_id"):
@@ -1741,6 +1748,304 @@ class TestCollectionVoucher(TransactionCase):
             check_payment_date=today,
         )
         self.assertEqual(ok.check_issue_date, today)
+
+    # --- T2: check_number mandatory + duplicate rejection ---
+
+    def _partner_has_autopost_bills_column(self):
+        self.env.cr.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_name = 'res_partner'
+               AND column_name = 'autopost_bills'
+            """
+        )
+        return bool(self.env.cr.fetchone())
+
+    def _create_company(self, name):
+        """Persist a second company; satisfy partner.autopost_bills when present."""
+        Partner = self.env["res.partner"].with_context(
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_notrack=True,
+            mail_create_nosubscribe=True,
+        )
+        partner_vals = {"name": name, "is_company": True}
+        if "autopost_bills" in Partner._fields:
+            partner_vals["autopost_bills"] = "ask"
+            partner = Partner.create(partner_vals)
+        elif self._partner_has_autopost_bills_column():
+            # Column left by account install but field not in this registry view.
+            self.env.cr.execute(
+                """
+                INSERT INTO res_partner (
+                    name, email, active, complete_name, type, is_company,
+                    autopost_bills, create_uid, write_uid, create_date, write_date
+                )
+                VALUES (
+                    %s, %s, true, %s, 'contact', true, 'ask',
+                    1, 1,
+                    (now() AT TIME ZONE 'UTC'),
+                    (now() AT TIME ZONE 'UTC')
+                )
+                RETURNING id
+                """,
+                (name, f"{name}@example.com", name),
+            )
+            partner = Partner.browse(self.env.cr.fetchone()[0])
+        else:
+            partner = Partner.create(partner_vals)
+        return self.env["res.company"].create(
+            {
+                "name": name,
+                "partner_id": partner.id,
+            }
+        )
+
+    def test_check_number_required_for_check_rejected(self):
+        """check without check_number MUST be rejected with no write."""
+        Voucher = self.env["collection.voucher"]
+        before_ids = set(Voucher.search([]).ids)
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-NO-NUMBER",
+                document_type="check",
+                check_number=False,
+            )
+        self.assertEqual(set(Voucher.search([]).ids), before_ids)
+
+    def test_check_number_required_for_echeck_rejected(self):
+        """Triangulation: echeck without check_number MUST also be rejected."""
+        Voucher = self.env["collection.voucher"]
+        before_ids = set(Voucher.search([]).ids)
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="ECHK-NO-NUMBER",
+                document_type="echeck",
+                check_number=False,
+            )
+        self.assertEqual(set(Voucher.search([]).ids), before_ids)
+
+    def test_check_number_whitespace_only_rejected(self):
+        """A whitespace-only check_number MUST be treated as empty."""
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-BLANK",
+                document_type="check",
+                check_number="   ",
+            )
+
+    def test_check_number_write_to_blank_rejected(self):
+        """Writing check_number to blank on an existing check MUST be rejected."""
+        voucher = self._create_voucher(
+            customer_identification="CHK-CLEAR",
+            document_type="check",
+            check_number="CHK-CLEAR-1",
+        )
+        with self.assertRaises(ValidationError):
+            voucher.write({"check_number": False})
+        voucher.invalidate_recordset()
+        self.assertEqual(voucher.check_number, "CHK-CLEAR-1")
+
+    def test_check_number_not_required_for_other_types(self):
+        """Regression guard: non-check types stay creatable without check_number."""
+        transfer = self._create_voucher(
+            customer_identification="CHK-NOT-REQ-TRF",
+            document_type="bank_transfer",
+        )
+        cash = self._create_voucher(
+            customer_identification="CHK-NOT-REQ-CASH",
+            document_type="cash",
+        )
+        self.assertFalse(transfer.check_number)
+        self.assertFalse(cash.check_number)
+
+    def test_duplicate_check_number_same_company_rejected(self):
+        """Second check with the same check_number in one company MUST be
+        rejected, naming the conflicting voucher."""
+        first = self._create_voucher(
+            customer_identification="CHK-DUP-A",
+            document_type="check",
+            check_number="CHK-DUP-1",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            self._create_voucher(
+                customer_identification="CHK-DUP-B",
+                document_type="check",
+                check_number="CHK-DUP-1",
+            )
+        self.assertIn("CHK-DUP-1", str(ctx.exception))
+        self.assertIn(first.name, str(ctx.exception))
+
+    def test_duplicate_check_number_across_check_and_echeck_rejected(self):
+        """Identity is (company_id, check_number): check and echeck share it."""
+        self._create_voucher(
+            customer_identification="CHK-CROSS-A",
+            document_type="check",
+            check_number="CHK-CROSS-1",
+        )
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-CROSS-B",
+                document_type="echeck",
+                check_number="CHK-CROSS-1",
+            )
+
+    def test_duplicate_check_number_ignores_surrounding_whitespace(self):
+        """Triangulation: ' CHK-2 ' and 'CHK-2' MUST be treated as the same
+        number (whitespace-trimmed normalization)."""
+        self._create_voucher(
+            customer_identification="CHK-WS-A",
+            document_type="check",
+            check_number=" CHK-WS-1 ",
+        )
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-WS-B",
+                document_type="check",
+                check_number="CHK-WS-1",
+            )
+
+    def test_duplicate_check_number_different_company_allowed(self):
+        """The same check_number in a different company MUST NOT collide."""
+        company_b = self._create_company("Check Dup Co B")
+        # New companies start with an empty enabled-seller list (AGENTS.md);
+        # enable the seller on company_b as well before creating there.
+        seller = ensure_enabled_seller(self.env, company=company_b)
+        self._create_voucher(
+            customer_identification="CHK-COMP-A",
+            document_type="check",
+            check_number="CHK-COMP-1",
+        )
+        other = self._create_voucher(
+            customer_identification="CHK-COMP-B",
+            document_type="check",
+            check_number="CHK-COMP-1",
+            company_id=company_b.id,
+            seller_id=seller.id,
+        )
+        self.assertEqual(other.check_number, "CHK-COMP-1")
+        self.assertEqual(other.company_id, company_b)
+
+    # --- T3: duplicate identity for the other instruments ---
+
+    def test_duplicate_bank_transfer_voucher_number_rejected(self):
+        first = self._create_voucher(
+            customer_identification="TRF-DUP-A",
+            document_type="bank_transfer",
+            voucher_number="TRF-DUP-1",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            self._create_voucher(
+                customer_identification="TRF-DUP-B",
+                document_type="bank_transfer",
+                voucher_number="TRF-DUP-1",
+            )
+        self.assertIn("TRF-DUP-1", str(ctx.exception))
+        self.assertIn(first.name, str(ctx.exception))
+
+    def test_duplicate_cash_deposit_voucher_number_rejected(self):
+        self._create_voucher(
+            customer_identification="DEP-DUP-A",
+            document_type="cash_deposit",
+            voucher_number="DEP-DUP-1",
+        )
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="DEP-DUP-B",
+                document_type="cash_deposit",
+                voucher_number="DEP-DUP-1",
+            )
+
+    def test_bank_transfer_and_cash_deposit_same_number_do_not_collide(self):
+        """Identity includes document_type: transfers and deposits are
+        separate namespaces even with the same voucher_number."""
+        transfer = self._create_voucher(
+            customer_identification="MIX-TRF",
+            document_type="bank_transfer",
+            voucher_number="MIX-1",
+        )
+        deposit = self._create_voucher(
+            customer_identification="MIX-DEP",
+            document_type="cash_deposit",
+            voucher_number="MIX-1",
+        )
+        self.assertEqual(transfer.voucher_number, "MIX-1")
+        self.assertEqual(deposit.voucher_number, "MIX-1")
+
+    def test_duplicate_retention_certificate_same_partner_rejected(self):
+        partner = dummy_customer_partner(self.env, customer="RET-DUP-PARTNER")
+        first = self._create_voucher(
+            partner_id=partner.id,
+            document_type="retention_certificate",
+            voucher_number="RET-DUP-1",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            self._create_voucher(
+                partner_id=partner.id,
+                document_type="retention_certificate",
+                voucher_number="RET-DUP-1",
+            )
+        self.assertIn("RET-DUP-1", str(ctx.exception))
+        self.assertIn(first.name, str(ctx.exception))
+
+    def test_retention_certificate_same_number_different_partner_allowed(self):
+        """Identity includes partner_id: different customers may share a
+        retention certificate number."""
+        partner_a = dummy_customer_partner(self.env, customer="RET-PARTNER-A")
+        partner_b = dummy_customer_partner(self.env, customer="RET-PARTNER-B")
+        first = self._create_voucher(
+            partner_id=partner_a.id,
+            document_type="retention_certificate",
+            voucher_number="RET-SAME-1",
+        )
+        second = self._create_voucher(
+            partner_id=partner_b.id,
+            document_type="retention_certificate",
+            voucher_number="RET-SAME-1",
+        )
+        self.assertEqual(first.voucher_number, "RET-SAME-1")
+        self.assertEqual(second.voucher_number, "RET-SAME-1")
+
+    def test_cash_repeated_identical_vouchers_allowed(self):
+        """cash MUST keep no duplicate rule: identical repeats are legitimate."""
+        partner = dummy_customer_partner(self.env, customer="CASH-REPEAT")
+        first = self._create_voucher(
+            partner_id=partner.id,
+            document_type="cash",
+            amount=500.0,
+            voucher_date=date(2026, 9, 1),
+        )
+        second = self._create_voucher(
+            partner_id=partner.id,
+            document_type="cash",
+            amount=500.0,
+            voucher_date=date(2026, 9, 1),
+        )
+        self.assertNotEqual(first.id, second.id)
+        self.assertEqual(first.amount, second.amount)
+
+    def test_unsupported_exempt_from_duplicate_rules(self):
+        """unsupported MUST remain creatable with no instrument identity."""
+        first = self._create_voucher(
+            customer_identification="UNSUP-DUP-A",
+            document_type="unsupported",
+        )
+        second = self._create_voucher(
+            customer_identification="UNSUP-DUP-B",
+            document_type="unsupported",
+        )
+        self.assertNotEqual(first.id, second.id)
+
+    def test_duplicate_identity_unique_indexes_exist(self):
+        """The three race-safety UniqueIndex objects MUST be materialized."""
+        self.env.cr.execute(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'collection_voucher'"
+        )
+        names = {row[0] for row in self.env.cr.fetchall()}
+        self.assertIn("collection_voucher_check_number_uniq_idx", names)
+        self.assertIn("collection_voucher_transfer_voucher_number_uniq_idx", names)
+        self.assertIn("collection_voucher_retention_voucher_number_uniq_idx", names)
 
 
 def _load_collection_migrate(filename):

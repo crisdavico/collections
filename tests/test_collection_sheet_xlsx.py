@@ -5,6 +5,7 @@ import zipfile
 from datetime import date
 from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
 from lxml import etree
 from openpyxl import load_workbook
@@ -127,6 +128,15 @@ class TestCollectionSheetXlsx(TransactionCase):
             "amount": amount,
         }
         vals.update(extra)
+        if vals.get("document_type") in (
+            "check",
+            "echeck",
+        ) and "check_number" not in extra:
+            # check_number is mandatory at save for check/echeck
+            # (_check_check_number_required); a random default keeps
+            # existing fixtures unique enough to dodge
+            # _check_check_number_unique without spelling one out.
+            vals["check_number"] = f"CHK-{uuid4().hex[:10]}"
         return self.env["collection.voucher"].create(vals)
 
     def _enable_seller_deposit_type(self, company=None):

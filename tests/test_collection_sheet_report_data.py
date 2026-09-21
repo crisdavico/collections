@@ -4,6 +4,7 @@
 import inspect
 from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
 from psycopg2 import IntegrityError
 
@@ -107,6 +108,15 @@ class TestCollectionSheetReportData(TransactionCase):
             "amount": amount,
         }
         vals.update(extra)
+        if vals.get("document_type") in (
+            "check",
+            "echeck",
+        ) and "check_number" not in extra:
+            # check_number is mandatory at save for check/echeck
+            # (_check_check_number_required); a random default keeps
+            # existing fixtures unique enough to dodge
+            # _check_check_number_unique without spelling one out.
+            vals["check_number"] = f"CHK-{uuid4().hex[:10]}"
         return self.env["collection.voucher"].create(vals)
 
     def _enable_seller_deposit_type(self, company=None):
@@ -1308,7 +1318,17 @@ class TestCollectionSheetReportData(TransactionCase):
             sheet,
             amount=5.0,
             document_type="check",
+            check_number="CHK-PRE-BLANK",
         )
+        # Blank check_number can no longer be created through the ORM
+        # (_check_check_number_required); simulate a legacy/pre-existing
+        # record with no check_number so the report's blank-rendering path
+        # (still reachable for old data) stays covered.
+        self.env.cr.execute(
+            "UPDATE collection_voucher SET check_number = '' WHERE id = %s",
+            (blank_check.id,),
+        )
+        self.env.invalidate_all()
         self._create_allocation(
             sheet,
             partner,

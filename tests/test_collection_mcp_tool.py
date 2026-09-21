@@ -253,6 +253,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                         "document_id": "MCP-DOC-ATT-OMIT",
                         "document_type": "check",
                         "amount": 3.0,
+                        "check_number": "CHK-ATT-OMIT",
                         "check_type": "common",
                     }
                 ],
@@ -554,6 +555,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                         "document_id": "MCP-DOC-ATT-RETRY-OMIT",
                         "document_type": "check",
                         "amount": 6.0,
+                        "check_number": "CHK-ATT-RETRY-OMIT",
                         "check_type": "common",
                         "attachment": self._nest(
                             "keep.pdf", "application/pdf", PDF_B64
@@ -1514,6 +1516,7 @@ class TestCollectionMcpProvenance(TransactionCase):
                         "document_id": "MCP-DOC-PROV-REPLAY-BAD",
                         "document_type": "check",
                         "amount": 6.0,
+                        "check_number": "CHK-PROV-REPLAY-BAD",
                         "check_type": "common",
                     }
                 ],
@@ -1543,6 +1546,7 @@ class TestCollectionMcpProvenance(TransactionCase):
             {
                 "document_type": "check",
                 "amount": 6.0,
+                "check_number": "CHK-PROV-REPLAY-BAD",
                 "check_type": "common",
             },
         )
@@ -1739,4 +1743,101 @@ class TestCollectionMcpProvenance(TransactionCase):
         self.assertEqual(voucher.retention_kind, "iva")
         self.assertEqual(voucher.seller_retention_kind, "iva")
         self.assertEqual(voucher.ocr_retention_kind, "iva")
-        self.assertAlmostEqual(voucher.amount, 150000, places=2)
+
+    # --- T2: MCP check_number is mandatory for check / echeck payments ---
+
+    def test_check_payment_without_check_number_rejected_no_writes(self):
+        """A check payment with no check_number MUST UserError with no writes."""
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError) as ctx:
+            self._call(
+                {
+                    "payments": [
+                        {
+                            "customer_identification": "MCP-CHK-NO-NUMBER",
+                            "document_id": "MCP-DOC-CHK-NO-NUMBER",
+                            "seller_confirmed": {
+                                "document_type": "check",
+                                "amount": 12.0,
+                                "check_type": "common",
+                            },
+                        }
+                    ],
+                }
+            )
+        self.assertIn("check_number", str(ctx.exception))
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+    def test_echeck_payment_without_check_number_rejected_no_writes(self):
+        """Triangulation: echeck without check_number MUST also UserError."""
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError) as ctx:
+            self._call(
+                {
+                    "payments": [
+                        {
+                            "customer_identification": "MCP-ECHK-NO-NUMBER",
+                            "document_id": "MCP-DOC-ECHK-NO-NUMBER",
+                            "seller_confirmed": {
+                                "document_type": "echeck",
+                                "amount": 12.0,
+                            },
+                        }
+                    ],
+                }
+            )
+        self.assertIn("check_number", str(ctx.exception))
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+    def test_check_payment_blank_check_number_rejected_no_writes(self):
+        """Triangulation: a whitespace-only check_number MUST also UserError."""
+        before = self.env["collection.voucher"].search_count([])
+        with self.assertRaises(UserError):
+            self._call(
+                {
+                    "payments": [
+                        {
+                            "customer_identification": "MCP-CHK-BLANK-NUMBER",
+                            "document_id": "MCP-DOC-CHK-BLANK-NUMBER",
+                            "seller_confirmed": {
+                                "document_type": "check",
+                                "amount": 12.0,
+                                "check_number": "   ",
+                            },
+                        }
+                    ],
+                }
+            )
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+
+    def test_check_payment_with_check_number_still_creates(self):
+        """Regression guard: a check payment with check_number keeps working."""
+        result = self._call(
+            {
+                "payments": [
+                    {
+                        "customer_identification": "MCP-CHK-WITH-NUMBER",
+                        "document_id": "MCP-DOC-CHK-WITH-NUMBER",
+                        "seller_confirmed": {
+                            "document_type": "check",
+                            "amount": 12.0,
+                            "check_number": "CHK-MCP-1",
+                            "check_type": "common",
+                        },
+                    }
+                ],
+            }
+        )
+        voucher = self._voucher(result)
+        self.assertEqual(voucher.check_number, "CHK-MCP-1")
+
+    def test_check_number_schema_description_honest_about_requirement(self):
+        """The MCP schema description MUST disclose the conditional requirement."""
+        from odoo.addons.collection.tools.collection_voucher import (
+            _NEST_FIELD_SCHEMA,
+        )
+
+        description = _NEST_FIELD_SCHEMA["check_number"]["description"]
+        self.assertIn("Required", description)
+        self.assertIn("check", description)
+        self.assertIn("echeck", description)

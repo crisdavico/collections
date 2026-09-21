@@ -138,7 +138,13 @@ class TestCollectionMail(TransactionCase):
             document_type="bank_transfer",
         )
         sheet = self._create_sheet(seller_id=voucher.seller_id.id)
-        voucher.write({"sheet_id": sheet.id, "document_type": "check"})
+        voucher.write(
+            {
+                "sheet_id": sheet.id,
+                "document_type": "check",
+                "check_number": "CHK-MAIL-SHEET-TYPE",
+            }
+        )
         self._flush_tracking()
         tracking = voucher.message_ids.sudo().mapped("tracking_value_ids")
         tracked = set(tracking.mapped("field_id.name"))

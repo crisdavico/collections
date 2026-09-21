@@ -26,6 +26,7 @@ _DOCUMENT_TYPES = (
     "unsupported",
 )
 _CHECK_TYPES = ("common", "deferred")
+_CHECK_DOCUMENT_TYPES = frozenset({"check", "echeck"})
 _RETENTION_KINDS = ("iva", "ganancias", "iibb", "suss", "other")
 _OMIT_VALUES = (None, False, "")
 _ISO_DATE = re.compile(r"\A\d{4}-\d{2}-\d{2}\Z")
@@ -118,7 +119,10 @@ _NEST_FIELD_SCHEMA = {
     "check_number": {
         "type": "string",
         "nullable": True,
-        "description": "Check number.",
+        "description": (
+            "Check number. Required (non-empty) when document_type is check "
+            "or echeck; rejected as a type-foreign key for every other type."
+        ),
     },
     "check_bank": {
         "type": "string",
@@ -317,6 +321,16 @@ class CollectionMcpMixin(models.AbstractModel):
                 raise UserError(
                     _(
                         "Unsupported payments cannot be allocated (index %(index)s).",
+                        index=index,
+                    )
+                )
+            if document_type in _CHECK_DOCUMENT_TYPES and not (
+                parsed.get("check_number") or ""
+            ).strip():
+                raise UserError(
+                    _(
+                        "seller_confirmed check_number is required for check "
+                        "and echeck payments (index %(index)s).",
                         index=index,
                     )
                 )
