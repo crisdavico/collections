@@ -201,6 +201,16 @@
                   invisible="document_type != 'bank_transfer'"
                 />
                                 <field
+                  name="to_account_bank_id"
+                  domain="[('partner_id', '=', company_partner_id)]"
+                  invisible="document_type not in ('bank_transfer', 'cash_deposit')"
+                />
+                                <field
+                  name="to_account_mismatch"
+                  readonly="1"
+                  invisible="not to_account_mismatch"
+                />
+                                <field
                   name="voucher_number"
                   invisible="document_type != 'bank_transfer' and document_type != 'seller_deposit'"
                 />

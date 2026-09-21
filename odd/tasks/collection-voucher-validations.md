@@ -167,7 +167,25 @@ so it slices into a stacked chain off `main`. Branch: `feat/voucher-validations`
   - Tests in `tests/test_collection_allocation.py` or `tests/test_collection_sheet.py`.
   - Route: delegated writer.
 
-- [ ] **T5 — Company bank accounts and destination matching**
+- [x] **T5 — Company bank accounts and destination matching** — DONE.
+  Verified `1 failed, 0 error(s) of 1054 tests`.
+  Company accounts are core `res.partner.bank` rows surfaced through
+  `res.company.bank_ids` in the Collections settings; no new field on `res.company`.
+  `l10n_ar` already types `acc_number` as a CBU.
+
+  **Design changed mid-task by user decision.** The destination match was first built
+  as a hard block at save. With a real company account registered in `devel`, that
+  failed 12 tests across 5 files — and the same rule in production would stop a seller
+  recording a payment whenever OCR misread one digit of a 22-digit CBU. A mismatch is
+  now a computed stored flag `to_account_mismatch`, surfaced as a badge in Document
+  Review and read-only on the voucher form. It never blocks a save. All 12 tests then
+  passed unmodified.
+
+  Still blocking, correctly: `to_account_bank_id` must belong to the voucher's own
+  company. That is a user-picked value, not OCR text.
+
+  The flag stays False when the company has no registered accounts, so the whole
+  feature is opt-in by configuration and inert until an account is entered.
   - Surface `res.company.bank_ids` in the Collections settings block
     (`views/res_config_settings_views.xml` + `models/res_config_settings.py`).
   - Add `to_account_bank_id` M2O `res.partner.bank` on `collection.voucher`, domain

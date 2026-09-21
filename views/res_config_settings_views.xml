@@ -66,6 +66,18 @@
             >
                             <field name="collection_connector_id" />
                         </setting>
+                        <setting
+              string="Company bank accounts"
+              help="The company's own bank accounts. Used to match transfer and cash deposit destinations."
+              id="bank_ids_setting"
+            >
+                            <field name="bank_ids">
+                                <list editable="bottom">
+                                    <field name="acc_number" />
+                                    <field name="bank_id" />
+                                </list>
+                            </field>
+                        </setting>
                     </block>
                     <block title="Document Review" name="document_review">
                         <setting

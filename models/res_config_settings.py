@@ -20,6 +20,10 @@ class ResConfigSettings(models.TransientModel):
         related="company_id.auto_create_sheet",
         readonly=False,
     )
+    bank_ids = fields.One2many(
+        related="company_id.bank_ids",
+        readonly=False,
+    )
     allowed_document_type_ids = fields.Many2many(
         related="company_id.allowed_document_type_ids",
         readonly=False,

@@ -2047,6 +2047,152 @@ class TestCollectionVoucher(TransactionCase):
         self.assertIn("collection_voucher_transfer_voucher_number_uniq_idx", names)
         self.assertIn("collection_voucher_retention_voucher_number_uniq_idx", names)
 
+    # --- T5: company bank accounts and destination matching ---
+
+    def _create_company_bank(self, company=None, acc_number="0000-1234-5"):
+        company = company or self.env.company
+        return self.env["res.partner.bank"].create(
+            {
+                "acc_number": acc_number,
+                "partner_id": company.partner_id.id,
+            }
+        )
+
+    def test_to_account_no_registered_accounts_is_noop(self):
+        """CRITICAL: unconfigured company MUST NOT flag any to_account.
+
+        Every existing transfer voucher, in production and in this suite,
+        has an arbitrary free-text to_account and no registered company
+        bank account. The matching rule must be a complete no-op until an
+        admin actually registers at least one account. Uses a fresh
+        company (guaranteed empty bank_ids) rather than the ambient test
+        company, which may already carry manually-configured bank data.
+        """
+        company_b = self._create_company("Bank Noop Co B")
+        self.assertFalse(company_b.bank_ids)
+        seller = ensure_enabled_seller(self.env, company=company_b)
+        voucher = self._create_voucher(
+            customer_identification="BANK-NOOP",
+            document_type="bank_transfer",
+            to_account="ANY-ARBITRARY-ACCOUNT-TEXT",
+            company_id=company_b.id,
+            seller_id=seller.id,
+        )
+        self.assertEqual(voucher.to_account, "ANY-ARBITRARY-ACCOUNT-TEXT")
+        self.assertEqual(voucher.company_id, company_b)
+        self.assertFalse(voucher.to_account_mismatch)
+
+    def test_to_account_matches_registered_account_leaves_flag_false(self):
+        self._create_company_bank(acc_number="0000-1234-5")
+        voucher = self._create_voucher(
+            customer_identification="BANK-MATCH",
+            document_type="bank_transfer",
+            to_account="0000-1234-5",
+        )
+        self.assertEqual(voucher.to_account, "0000-1234-5")
+        self.assertFalse(voucher.to_account_mismatch)
+
+    def test_to_account_matches_ignoring_formatting(self):
+        """Sanitized comparison: dashes/spaces MUST NOT cause a false mismatch."""
+        self._create_company_bank(acc_number="0000-1234-5")
+        voucher = self._create_voucher(
+            customer_identification="BANK-MATCH-FMT",
+            document_type="bank_transfer",
+            to_account="0000 1234 5",
+        )
+        self.assertEqual(voucher.to_account, "0000 1234 5")
+        self.assertFalse(voucher.to_account_mismatch)
+
+    def test_to_account_mismatch_sets_flag_and_still_saves(self):
+        """A mismatch MUST NOT block the save: OCR text can misread a digit.
+
+        The mismatch is surfaced to Document Review instead, where a human
+        already checks these documents.
+        """
+        self._create_company_bank(acc_number="0000-1234-5")
+        voucher = self._create_voucher(
+            customer_identification="BANK-MISMATCH",
+            document_type="bank_transfer",
+            to_account="9999-0000-0",
+        )
+        self.assertEqual(voucher.to_account, "9999-0000-0")
+        self.assertTrue(voucher.to_account_mismatch)
+
+    def test_to_account_matching_applies_to_cash_deposit(self):
+        self._create_company_bank(acc_number="0000-1234-5")
+        mismatched = self._create_voucher(
+            customer_identification="BANK-CASH-MISMATCH",
+            document_type="cash_deposit",
+            to_account="9999-0000-0",
+        )
+        self.assertTrue(mismatched.to_account_mismatch)
+        accepted = self._create_voucher(
+            customer_identification="BANK-CASH-MATCH",
+            document_type="cash_deposit",
+            to_account="0000-1234-5",
+        )
+        self.assertEqual(accepted.to_account, "0000-1234-5")
+        self.assertFalse(accepted.to_account_mismatch)
+
+    def test_to_account_matching_exempt_for_other_types(self):
+        """Registering accounts MUST NOT start flagging unrelated types."""
+        self._create_company_bank(acc_number="0000-1234-5")
+        voucher = self._create_voucher(
+            customer_identification="BANK-EXEMPT-CHECK",
+            document_type="check",
+            check_number="CHK-BANK-EXEMPT",
+        )
+        self.assertEqual(voucher.document_type, "check")
+        self.assertFalse(voucher.to_account_mismatch)
+
+    def test_to_account_matching_scoped_per_company(self):
+        """A different company's registered account MUST NOT satisfy this one."""
+        self._create_company_bank(acc_number="1111-1111-1")
+        company_b = self._create_company("Bank Match Co B")
+        self._create_company_bank(company=company_b, acc_number="0000-1234-5")
+        voucher = self._create_voucher(
+            customer_identification="BANK-COMPANY-SCOPE",
+            document_type="bank_transfer",
+            to_account="0000-1234-5",
+        )
+        self.assertTrue(voucher.to_account_mismatch)
+
+    def test_to_account_bank_id_accepts_company_account(self):
+        bank = self._create_company_bank(acc_number="0000-5555-5")
+        voucher = self._create_voucher(
+            customer_identification="BANK-ID-OWN",
+            document_type="bank_transfer",
+            to_account_bank_id=bank.id,
+        )
+        self.assertEqual(voucher.to_account_bank_id, bank)
+
+    def test_to_account_bank_id_rejects_foreign_partner_account(self):
+        """The Many2one MUST be restricted to the voucher's own company."""
+        # Reuses _create_company (handles the environment's autopost_bills
+        # NOT NULL quirk) rather than creating a bare partner directly.
+        other_company = self._create_company("Foreign Bank Owner Co")
+        foreign_bank = self.env["res.partner.bank"].create(
+            {"acc_number": "1111-2222-3", "partner_id": other_company.partner_id.id}
+        )
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="BANK-ID-FOREIGN",
+                document_type="bank_transfer",
+                to_account_bank_id=foreign_bank.id,
+            )
+
+    def test_to_account_bank_id_does_not_replace_free_text_to_account(self):
+        """to_account_bank_id is additive; OCR free-text to_account still works."""
+        bank = self._create_company_bank(acc_number="0000-1234-5")
+        voucher = self._create_voucher(
+            customer_identification="BANK-ID-PLUS-TEXT",
+            document_type="bank_transfer",
+            to_account="0000-1234-5",
+            to_account_bank_id=bank.id,
+        )
+        self.assertEqual(voucher.to_account, "0000-1234-5")
+        self.assertEqual(voucher.to_account_bank_id, bank)
+
 
 def _load_collection_migrate(filename):
     path = Path(__file__).resolve().parents[1] / "migrations" / "19.0.1.13.0" / filename
@@ -2259,7 +2405,6 @@ class TestCollectionVoucherProvenance(TransactionCase):
             ),
             0,
         )
-
 
 class TestCollectionNewWorkHelper(TransactionCase):
     """NEW-work helper: enabled seller + allowed type; historical stays operable."""

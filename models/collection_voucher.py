@@ -6,6 +6,7 @@ from base64 import b64decode
 from datetime import date
 
 from odoo import api, fields, models
+from odoo.addons.base.models.res_bank import sanitize_account_number
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare
 from odoo.tools.mimetypes import guess_mimetype
@@ -115,6 +116,14 @@ class CollectionVoucher(models.Model):
         index=True,
         default=lambda self: self.env.company,
     )
+    # Non-stored: only exists so `to_account_bank_id`'s view domain can
+    # restrict picks to the company's own partner without a raw dotted
+    # `company_id.partner_id.id` domain expression (unsupported/fragile).
+    company_partner_id = fields.Many2one(
+        comodel_name="res.partner",
+        related="company_id.partner_id",
+        string="Company Partner",
+    )
     document_id = fields.Char(string="Document ID", index=True)
     document_type = fields.Selection(
         selection="_selection_document_type",
@@ -124,6 +133,27 @@ class CollectionVoucher(models.Model):
     amount = fields.Monetary(tracking=True)
     from_account = fields.Char()
     to_account = fields.Char()
+    to_account_bank_id = fields.Many2one(
+        comodel_name="res.partner.bank",
+        string="Destination Bank Account",
+        help=(
+            "One of the company's own registered bank accounts. Optional; "
+            "does not replace the free-text To Account field, which OCR "
+            "keeps writing to."
+        ),
+    )
+    to_account_mismatch = fields.Boolean(
+        string="Destination Account Mismatch",
+        compute="_compute_to_account_mismatch",
+        store=True,
+        help=(
+            "True when the OCR-captured To Account does not match any of "
+            "the company's registered bank accounts. Informational only: "
+            "it does not block saving, because a single misread CBU digit "
+            "must not stop a seller from recording a real payment. Surfaced "
+            "to Document Review so a human can check it."
+        ),
+    )
     voucher_number = fields.Char()
     voucher_date = fields.Date()
     check_number = fields.Char()
@@ -268,6 +298,40 @@ class CollectionVoucher(models.Model):
             voucher.replaced_amount = (
                 voucher.currency_id.round(net) if voucher.currency_id else net
             )
+
+    @api.depends(
+        "to_account",
+        "document_type",
+        "company_id",
+        "company_id.bank_ids.sanitized_acc_number",
+    )
+    def _compute_to_account_mismatch(self):
+        """Flag (never block) a `to_account` that misses every registered account.
+
+        Opt-in by configuration, exactly like the constraint this replaces:
+        while the company has no `res.partner.bank` rows of its own, the flag
+        stays False for every voucher -- otherwise every existing transfer/
+        deposit voucher would light up the moment this feature ships.
+        Comparison uses `sanitized_acc_number` so formatting differences
+        (spaces, dashes) never cause a false mismatch.
+        """
+        for voucher in self:
+            mismatch = False
+            if voucher.document_type in self._TRANSFER_DUPLICATE_TYPES:
+                to_account = (voucher.to_account or "").strip()
+                if to_account:
+                    company_numbers = {
+                        number
+                        for number in voucher.company_id.bank_ids.mapped(
+                            "sanitized_acc_number"
+                        )
+                        if number
+                    }
+                    if company_numbers:
+                        mismatch = (
+                            sanitize_account_number(to_account) not in company_numbers
+                        )
+            voucher.to_account_mismatch = mismatch
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -697,6 +761,20 @@ class CollectionVoucher(models.Model):
             if not self._normalize_instrument_number(voucher.check_number):
                 raise ValidationError(
                     _("Check number is required for check and echeck vouchers.")
+                )
+
+    @api.constrains("to_account_bank_id", "company_id")
+    def _check_to_account_bank_id_belongs_to_company(self):
+        for voucher in self:
+            bank = voucher.to_account_bank_id
+            if not bank:
+                continue
+            if bank.partner_id != voucher.company_id.partner_id:
+                raise ValidationError(
+                    _(
+                        "Destination bank account must be one of the "
+                        "company's own registered bank accounts."
+                    )
                 )
 
     # -- Duplicate-identity checks -------------------------------------
@@ -1230,6 +1308,7 @@ class CollectionVoucher(models.Model):
             "mimetype": attachment.mimetype,
             "attachment_url": self._attachment_content_url(),
             "attachment_rotation": self.attachment_rotation,
+            "to_account_mismatch": self.to_account_mismatch,
         }
         for name in self._REVIEW_EDITABLE_FIELD_ORDER:
             payload[name] = self[name]

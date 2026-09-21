@@ -599,6 +599,36 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(payload["total"], 1)
         self._assert_payload_from_ir_attachment(payload, eligible)
 
+    def test_queue_includes_to_account_mismatch_flag(self):
+        """T5: the review payload exposes to_account_mismatch for a reviewer.
+
+        The rule that used to block saving a mismatched to_account is gone
+        (OCR misreads a CBU digit; blocking would stop a real payment from
+        being recorded). Document Review is where a human now checks it, so
+        the flag must reach the queue payload.
+        """
+        self._neutralize_preexisting_queue()
+        self.env["res.partner.bank"].create(
+            {
+                "acc_number": "0000-9999-9",
+                "partner_id": self.env.company.partner_id.id,
+            }
+        )
+        mismatched = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-MISMATCH",
+            document_id="DOC-REV-MISMATCH",
+            to_account="1111-0000-0",
+        )
+        matched = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-MATCH",
+            document_id="DOC-REV-MATCH",
+            to_account="0000-9999-9",
+        )
+        queue = self.env["collection.voucher"].get_review_queue(self.review_sheet.id)
+        payloads = {item["id"]: item for item in queue}
+        self.assertTrue(payloads[mismatched.id]["to_account_mismatch"])
+        self.assertFalse(payloads[matched.id]["to_account_mismatch"])
+
     def test_queue_empty_when_no_eligible_vouchers(self):
         """Triangulation: ineligible-only setup yields an empty queue."""
         self._neutralize_preexisting_queue()

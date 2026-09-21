@@ -236,3 +236,62 @@ class TestCollectionCompanySettings(TransactionCase):
         settings.execute()
         self.assertEqual(self.env.company.collection_connector_id, connector_a)
         self.assertEqual(company_b.collection_connector_id, connector_b)
+
+    # --- T5: company bank accounts settings ---
+
+    def test_settings_bank_ids_is_related_writable(self):
+        """Collection Settings MUST expose a writable related bank_ids."""
+        field = self.env["res.config.settings"]._fields["bank_ids"]
+        self.assertEqual(field.related, "company_id.bank_ids")
+        self.assertFalse(field.readonly)
+
+    def test_company_a_saves_bank_account_via_settings(self):
+        """Company A MUST persist a new bank account from Collection Settings.
+
+        Does not assume ``env.company.bank_ids`` starts empty: only asserts
+        on the newly-added row, so a company that already has bank accounts
+        configured (e.g. an environment restored from a real dump) does not
+        make this test flaky.
+        """
+        before_ids = set(self.env.company.bank_ids.ids)
+        settings = self.env["res.config.settings"].create(
+            {
+                "bank_ids": [
+                    (0, 0, {"acc_number": "0000-1234-5"}),
+                ]
+            }
+        )
+        settings.execute()
+        new_banks = self.env.company.bank_ids.filtered(
+            lambda bank: bank.id not in before_ids
+        )
+        self.assertEqual(len(new_banks), 1)
+        bank = new_banks
+        self.assertEqual(bank.acc_number, "0000-1234-5")
+        self.assertEqual(bank.partner_id, self.env.company.partner_id)
+        self.assertTrue(bank.sanitized_acc_number)
+
+    def test_company_b_keeps_bank_accounts_when_a_saves(self):
+        """Triangulation: saving A's bank account MUST NOT touch company B's."""
+        company_b = self._create_company("Bank Isolation Co B")
+        bank_b = self.env["res.partner.bank"].create(
+            {
+                "acc_number": "9999-0000-0",
+                "partner_id": company_b.partner_id.id,
+            }
+        )
+        before_ids = set(self.env.company.bank_ids.ids)
+        settings = self.env["res.config.settings"].create(
+            {
+                "bank_ids": [
+                    (0, 0, {"acc_number": "0000-1234-5"}),
+                ]
+            }
+        )
+        settings.execute()
+        new_banks = self.env.company.bank_ids.filtered(
+            lambda bank: bank.id not in before_ids
+        )
+        self.assertEqual(len(new_banks), 1)
+        self.assertEqual(new_banks.acc_number, "0000-1234-5")
+        self.assertEqual(company_b.bank_ids, bank_b)

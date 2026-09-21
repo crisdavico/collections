@@ -257,6 +257,14 @@
                                         <label for="collection_review_to_account">
                                             Cuenta destino
                                         </label>
+                                        <span
+                      t-if="current.to_account_mismatch"
+                      class="clay tag warn to-account-mismatch"
+                      role="status"
+                    >
+                                            No coincide con ninguna cuenta
+                                            registrada
+                                        </span>
                                     </div>
                                     <div class="slot">
                                         <input
