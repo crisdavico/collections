@@ -578,6 +578,46 @@ class CollectionVoucher(models.Model):
                 )
             )
 
+    @api.constrains("amount", "document_type")
+    def _check_amount_positive(self):
+        for voucher in self:
+            if voucher.document_type == "unsupported":
+                continue
+            if voucher.currency_id.compare_amounts(voucher.amount or 0.0, 0.0) <= 0:
+                raise ValidationError(_("Amount must be greater than zero."))
+
+    @api.constrains(
+        "document_type", "check_type", "check_issue_date", "check_payment_date"
+    )
+    def _check_check_dates_coherent(self):
+        for voucher in self:
+            if voucher.document_type not in ("check", "echeck"):
+                continue
+            issue = voucher.check_issue_date
+            payment = voucher.check_payment_date
+            if issue and payment and issue > payment:
+                raise ValidationError(
+                    _("Check issue date cannot be after the check payment date.")
+                )
+            if voucher.check_type == "deferred" and (
+                not issue or not payment or payment <= issue
+            ):
+                raise ValidationError(
+                    _(
+                        "A deferred check must have a payment date strictly "
+                        "after the issue date."
+                    )
+                )
+
+    @api.constrains("voucher_date", "check_issue_date")
+    def _check_dates_not_in_future(self):
+        for voucher in self:
+            today = fields.Date.context_today(voucher)
+            if voucher.voucher_date and voucher.voucher_date > today:
+                raise ValidationError(_("Voucher date cannot be in the future."))
+            if voucher.check_issue_date and voucher.check_issue_date > today:
+                raise ValidationError(_("Check issue date cannot be in the future."))
+
     @api.constrains("partner_id", "allocation_id")
     def _check_voucher_allocation_partner(self):
         for voucher in self:

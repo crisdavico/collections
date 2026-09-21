@@ -552,6 +552,7 @@ class TestCollectionUi(TransactionCase):
                 ).id,
                 "document_type": "cash_deposit",
                 "seller_id": ensure_enabled_seller(self.env).id,
+                "amount": 100.0,
             }
         )
         self.assertEqual(voucher.state, "draft")
@@ -927,6 +928,7 @@ class TestCollectionUi(TransactionCase):
                 ).id,
                 "document_type": "cash_deposit",
                 "seller_id": ensure_enabled_seller(self.env).id,
+                "amount": 100.0,
             }
         )
         self.assertEqual(voucher.document_type, "cash_deposit")

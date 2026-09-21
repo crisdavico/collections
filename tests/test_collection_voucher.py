@@ -53,6 +53,12 @@ class TestCollectionVoucher(TransactionCase):
             "partner_id": partner.id,
             "document_type": "bank_transfer",
         }
+        document_type = extra.get("document_type", vals["document_type"])
+        if document_type != "unsupported" and "amount" not in extra:
+            # Positive-amount rule exempts `unsupported`; every other fixture
+            # needs a sensible default so it does not have to spell out an
+            # amount just to satisfy `_check_amount_positive`.
+            vals["amount"] = 100.0
         if "seller_id" not in extra:
             vals["seller_id"] = self._ensure_enabled_seller().id
         elif extra.get("seller_id"):
@@ -334,6 +340,7 @@ class TestCollectionVoucher(TransactionCase):
         partial = self._create_voucher(
             customer_identification="CUST-PARTIAL",
             document_type="bank_transfer",
+            amount=75.0,
             from_account="ONLY-FROM",
         )
 
@@ -345,7 +352,10 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(partial.document_type, "bank_transfer")
         self.assertEqual(partial.from_account, "ONLY-FROM")
         self.assertFalse(partial.to_account)
-        self.assertFalse(partial.amount)
+        # amount is unrelated to the partial-instrument-fields concern this
+        # test exercises, but it is mandatory for every non-unsupported type
+        # (`_check_amount_positive`), so it must be a real positive value here.
+        self.assertAlmostEqual(partial.amount, 75.0, places=2)
 
     def test_check_type_common_persists(self):
         """Triangulation: check_type common is a distinct selection path."""
@@ -1540,6 +1550,198 @@ class TestCollectionVoucher(TransactionCase):
         self.assertIn(closed_note, voucher.message_ids)
         self.assertIn("Operator note on closed voucher", closed_note.body)
 
+    # --- T1: positive amount and voucher/check date coherence ---
+
+    def test_amount_must_be_positive_for_owned_types(self):
+        """amount <= 0 MUST be rejected for every type except unsupported."""
+        partner = dummy_customer_partner(self.env, customer="AMT-POS")
+        seller = self._ensure_enabled_seller()
+        with self.assertRaises(ValidationError):
+            self.env["collection.voucher"].create(
+                {
+                    "partner_id": partner.id,
+                    "document_type": "bank_transfer",
+                    "seller_id": seller.id,
+                    "amount": 0.0,
+                    "document_id": "AMT-POS-ZERO",
+                }
+            )
+        with self.assertRaises(ValidationError):
+            self.env["collection.voucher"].create(
+                {
+                    "partner_id": partner.id,
+                    "document_type": "bank_transfer",
+                    "seller_id": seller.id,
+                    "amount": -5.0,
+                    "document_id": "AMT-POS-NEG",
+                }
+            )
+        ok = self.env["collection.voucher"].create(
+            {
+                "partner_id": partner.id,
+                "document_type": "bank_transfer",
+                "seller_id": seller.id,
+                "amount": 5.0,
+                "document_id": "AMT-POS-OK",
+            }
+        )
+        self.assertAlmostEqual(ok.amount, 5.0, places=2)
+
+    def test_amount_write_zero_rejected(self):
+        """Triangulation: writing amount down to 0 MUST also be rejected."""
+        voucher = self._create_voucher(
+            customer_identification="AMT-WRITE-ZERO", amount=10.0
+        )
+        with self.assertRaises(ValidationError):
+            voucher.write({"amount": 0.0})
+        voucher.invalidate_recordset()
+        self.assertAlmostEqual(voucher.amount, 10.0, places=2)
+
+    def test_unsupported_amount_zero_stays_exempt(self):
+        """unsupported keeps zero amount; it owns no instrument fields."""
+        voucher = self._create_voucher(
+            customer_identification="AMT-UNSUP",
+            document_type="unsupported",
+        )
+        self.assertFalse(voucher.amount)
+        voucher.write({"amount": 0.0})
+        self.assertFalse(voucher.amount)
+
+    def test_check_date_issue_after_payment_rejected(self):
+        """check_issue_date after check_payment_date MUST be rejected."""
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-ISSUE-AFTER",
+                document_type="check",
+                amount=10.0,
+                check_number="CHK-ISSUE-AFTER",
+                check_type="common",
+                check_issue_date=date(2026, 2, 10),
+                check_payment_date=date(2026, 1, 10),
+            )
+
+    def test_check_type_deferred_requires_strictly_later_payment(self):
+        """deferred check MUST require check_payment_date strictly after issue."""
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-DEF-SAME",
+                document_type="check",
+                amount=10.0,
+                check_number="CHK-DEF-SAME",
+                check_type="deferred",
+                check_issue_date=date(2026, 1, 10),
+                check_payment_date=date(2026, 1, 10),
+            )
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-DEF-MISSING",
+                document_type="check",
+                amount=10.0,
+                check_number="CHK-DEF-MISSING",
+                check_type="deferred",
+                check_issue_date=date(2026, 1, 10),
+            )
+        ok = self._create_voucher(
+            customer_identification="CHK-DEF-OK",
+            document_type="check",
+            amount=10.0,
+            check_number="CHK-DEF-OK",
+            check_type="deferred",
+            check_issue_date=date(2026, 1, 10),
+            check_payment_date=date(2026, 1, 11),
+        )
+        self.assertEqual(ok.check_type, "deferred")
+
+    def test_check_type_common_accepts_later_payment_date(self):
+        """common (on-sight) check MAY carry a later payment date.
+
+        A common check legitimately records the date it is actually cashed,
+        which is often later than the date it was issued. Only issue-after-
+        payment (any check_type) and a deferred check with a same/earlier
+        payment date are rejected; a later payment date on a common check is
+        normal business data and MUST be accepted.
+        """
+        ok = self._create_voucher(
+            customer_identification="CHK-COMMON-LATER",
+            document_type="check",
+            amount=10.0,
+            check_number="CHK-COMMON-LATER",
+            check_type="common",
+            check_issue_date=date(2026, 1, 10),
+            check_payment_date=date(2026, 1, 20),
+        )
+        self.assertEqual(ok.check_type, "common")
+        self.assertEqual(ok.check_issue_date, date(2026, 1, 10))
+        self.assertEqual(ok.check_payment_date, date(2026, 1, 20))
+
+        same_day = self._create_voucher(
+            customer_identification="CHK-COMMON-SAME-DAY",
+            document_type="check",
+            amount=10.0,
+            check_number="CHK-COMMON-SAME-DAY",
+            check_type="common",
+            check_issue_date=date(2026, 1, 10),
+            check_payment_date=date(2026, 1, 10),
+        )
+        self.assertEqual(same_day.check_type, "common")
+
+    def test_echeck_date_coherence_also_enforced(self):
+        """Triangulation: echeck MUST follow the same check-date coherence."""
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="ECHK-DEF-SAME",
+                document_type="echeck",
+                amount=10.0,
+                check_number="ECHK-DEF-SAME",
+                check_type="deferred",
+                check_issue_date=date(2026, 1, 10),
+                check_payment_date=date(2026, 1, 10),
+            )
+
+    def test_voucher_date_in_future_rejected(self):
+        """voucher_date after today MUST be rejected."""
+        today = fields.Date.context_today(self.env["collection.voucher"])
+        tomorrow = fields.Date.add(today, days=1)
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="VDATE-FUTURE",
+                document_type="bank_transfer",
+                amount=10.0,
+                voucher_date=tomorrow,
+            )
+        ok = self._create_voucher(
+            customer_identification="VDATE-TODAY",
+            document_type="bank_transfer",
+            amount=10.0,
+            voucher_date=today,
+        )
+        self.assertEqual(ok.voucher_date, today)
+
+    def test_check_issue_date_in_future_rejected(self):
+        """check_issue_date after today MUST be rejected."""
+        today = fields.Date.context_today(self.env["collection.voucher"])
+        tomorrow = fields.Date.add(today, days=1)
+        with self.assertRaises(ValidationError):
+            self._create_voucher(
+                customer_identification="CHK-ISSUE-FUTURE",
+                document_type="check",
+                amount=10.0,
+                check_number="CHK-ISSUE-FUTURE",
+                check_type="common",
+                check_issue_date=tomorrow,
+                check_payment_date=tomorrow,
+            )
+        ok = self._create_voucher(
+            customer_identification="CHK-ISSUE-TODAY",
+            document_type="check",
+            amount=10.0,
+            check_number="CHK-ISSUE-TODAY",
+            check_type="common",
+            check_issue_date=today,
+            check_payment_date=today,
+        )
+        self.assertEqual(ok.check_issue_date, today)
+
 
 def _load_collection_migrate(filename):
     path = Path(__file__).resolve().parents[1] / "migrations" / "19.0.1.13.0" / filename
@@ -1613,6 +1815,7 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
                 ).id,
                 "document_type": "bank_transfer",
                 "seller_id": ensure_enabled_seller(self.env).id,
+                "amount": 100.0,
             }
         )
         attachment = self._insert_field_attachment(
@@ -1647,6 +1850,7 @@ class TestCollectionVoucherAttachmentMigrate(TransactionCase):
                 ).id,
                 "document_type": "cash_deposit",
                 "seller_id": ensure_enabled_seller(self.env).id,
+                "amount": 100.0,
             }
         )
         attachment = self._insert_field_attachment(
@@ -1829,10 +2033,13 @@ class TestCollectionNewWorkHelper(TransactionCase):
         partner = dummy_customer_partner(
             self.env, customer=customer, extra=extra, default="CUST-NEW-WORK"
         )
+        document_type = extra.pop("document_type", "bank_transfer")
         vals = {
             "partner_id": partner.id,
-            "document_type": extra.pop("document_type", "bank_transfer"),
+            "document_type": document_type,
         }
+        if document_type != "unsupported" and "amount" not in extra:
+            vals["amount"] = 100.0
         vals.update(extra)
         return vals
 

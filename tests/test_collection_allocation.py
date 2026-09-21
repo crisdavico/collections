@@ -322,7 +322,7 @@ class TestCollectionAllocation(TransactionCase):
     def test_delete_command_unassigns_without_destroying_voucher(self):
         partner = self._partner("ALLOC-DELCMD")
         sheet = self._create_sheet()
-        voucher = self._create_voucher(partner, sheet, amount=0.0)
+        voucher = self._create_voucher(partner, sheet, amount=10.0)
         allocation = self._create_allocation(sheet, partner, vouchers=voucher)
         allocation.write({"voucher_ids": [Command.delete(voucher.id)]})
         self.assertTrue(voucher.exists())

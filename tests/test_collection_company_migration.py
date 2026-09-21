@@ -173,6 +173,8 @@ class TestCollectionCompanyMigration(TransactionCase):
         vals = dict(vals)
         partner = dummy_customer_partner(self.env, extra=vals, default="MIG-CUST")
         vals["partner_id"] = partner.id
+        if vals.get("document_type") != "unsupported" and "amount" not in vals:
+            vals["amount"] = 100.0
         if not vals.get("seller_id"):
             vals = dict(
                 vals,
