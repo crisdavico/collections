@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from datetime import date
+from html import escape
 from pathlib import Path
 from unittest.mock import patch
 
@@ -346,12 +347,17 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn(sheet_a.name, html)
         self.assertIn(sheet_b.name, html)
 
-    def test_qweb_arch_uses_external_layout_and_t_out(self):
-        """Report arch MUST call web.external_layout and MUST NOT use t-esc."""
+    def test_qweb_arch_has_no_company_layout_and_uses_t_out(self):
+        """Report arch MUST NOT call company layouts and MUST NOT use t-esc."""
         wrapper = self.env.ref(WRAPPER_XMLID)
         document = self.env.ref(DOCUMENT_XMLID)
         combined = f"{wrapper.arch}{document.arch}"
-        self.assertIn("web.external_layout", combined)
+        self.assertNotIn("web.external_layout", combined)
+        self.assertNotIn("web.internal_layout", combined)
+        self.assertNotIn("layout_document_title", combined)
+        self.assertNotIn("printed_on", combined)
+        self.assertNotIn("Impreso el", combined)
+        self.assertIn('class="article"', document.arch)
         self.assertIn("web.html_container", wrapper.arch)
         self.assertNotIn("t-esc", combined)
         self.assertIn("t-out", combined)
@@ -365,10 +371,22 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn("Saldo", document.arch)
         self.assertIn("o_cs_header_info", document.arch)
         self.assertIn("o_cs_date", document.arch)
-        self.assertIn("layout_document_title", document.arch)
+        self.assertIn("o_cs_title", document.arch)
         self.assertIn("table-layout: fixed", document.arch)
         self.assertIn("Total Comisión", document.arch)
-        self.assertNotIn("<h2>", document.arch)
+
+    def test_html_has_title_but_no_company_header_or_printed_date(self):
+        """HTML MUST show the Planilla title, not the company header nor Impreso."""
+        sheet, _partner = self._populated_sheet()
+        html = self._render_html(sheet)
+        self.assertIn("o_cs_title", html)
+        self.assertIn(f"Planilla de Cobranza — {sheet.name}", html)
+        self.assertNotIn("Impreso el", html)
+        company_name = sheet.company_id.name
+        self.assertNotIn(company_name, html)
+        self.assertNotIn(escape(company_name), html)
+        self.assertNotIn('class="header"', html)
+        self.assertNotIn('class="footer', html)
 
     def test_html_prints_currency_saldo_and_comprobante_fields(self):
         """HTML MUST include Moneda, Facturas saldo, voucher/check numbers."""

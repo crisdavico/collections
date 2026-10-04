@@ -28,11 +28,6 @@ msgid "'Planilla de Cobranza - %s' % (object.name)"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "<span>Planilla de Cobranza — </span>"
-msgstr ""
-
-#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet_report.py:0
 msgid "A favor del vendedor"
@@ -1730,11 +1725,6 @@ msgid "Importe"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Impreso el"
-msgstr ""
-
-#. module: collection
 #. odoo-python
 #: code:addons/collection/tools/collection_voucher.py:0
 msgid "Invalid %(field_name)s in %(nest_name)s for payment index %(index)s."
@@ -2404,6 +2394,11 @@ msgstr "Selector"
 #. module: collection
 #: model:ir.actions.report,name:collection.action_report_collection_sheet
 msgid "Planilla de Cobranza"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Planilla de Cobranza —"
 msgstr ""
 
 #. module: collection

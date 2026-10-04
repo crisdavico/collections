@@ -78,15 +78,7 @@ def _formats(workbook):
     thin = {"border": 1, "border_color": "#D0D0D0"}
     return {
         "title": fmt(bold=True, font_size=18, font_color=NAVY_DARK, valign="vcenter"),
-        "subtitle": fmt(
-            bold=True,
-            font_size=12,
-            font_color=NAVY,
-            align="right",
-            valign="vcenter",
-        ),
         "muted": fmt(font_size=9, font_color="#808080"),
-        "muted_right": fmt(font_size=9, font_color="#808080", align="right"),
         "bar": fmt(bg_color=NAVY),
         "section": fmt(
             bold=True,
@@ -262,16 +254,13 @@ def _customer_detail_ranges(payload, customer_start):
 
 
 def _write_membrete(ws, fmt, payload):
-    _merge(ws, 1, 0, 4, payload.get("company") or "", fmt["title"])
-    _merge(ws, 1, 5, 7, "Planilla de Cobranza", fmt["subtitle"])
+    _merge(ws, 1, 0, 7, "Planilla de Cobranza", fmt["title"])
     ws.set_row(0, 26)
-    _merge(ws, 2, 0, 4, "", fmt["muted"])
-    _merge(ws, 2, 5, 7, payload.get("reference") or "", fmt["muted_right"])
+    _merge(ws, 2, 0, 7, payload.get("reference") or "", fmt["muted"])
     ws.set_row(1, 14)
     _merge(ws, 3, 0, 7, "", fmt["bar"])
     ws.set_row(2, 4)
-    printed = _text(payload.get("printed_on"))
-    _merge(ws, 4, 0, 7, printed, fmt["muted_right"])
+    _merge(ws, 4, 0, 7, "", fmt["muted"])
     ws.set_row(3, 14)
     ws.set_row(4, 8)
 
@@ -314,17 +303,8 @@ def _write_resumen(
         fmt["value"],
         fmt["value"],
     )
-    _write_field_row(
-        ws,
-        fmt,
-        8,
-        "Vendedor",
-        payload.get("seller_name") or "",
-        "Impreso el",
-        _text(payload.get("printed_on")),
-        fmt["value"],
-        fmt["value"],
-    )
+    _merge(ws, 8, 0, 1, "Vendedor", fmt["label"])
+    _merge(ws, 8, 2, 3, payload.get("seller_name") or "", fmt["value"])
     _write_field_row(
         ws,
         fmt,

@@ -24,10 +24,8 @@ from .test_collection_payment import (
 XLSX_MODEL = "collection.sheet.xlsx"
 XLSX_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 HEADER_MERGES = {
-    "A1:E1",
-    "F1:H1",
-    "A2:E2",
-    "F2:H2",
+    "A1:H1",
+    "A2:H2",
     "A3:H3",
     "A4:H4",
     "A6:H6",
@@ -351,6 +349,29 @@ class TestCollectionSheetXlsx(TransactionCase):
         title_rows = (worksheet.print_title_rows or "").replace("$", "")
         self.assertEqual(title_rows, "1:4")
         self.assertEqual(worksheet.column_dimensions["B"].width, 32)
+
+    def test_xlsx_header_has_title_but_no_company_nor_printed_date(self):
+        """Header MUST show the Planilla title and reference, no company, no Impreso."""
+        sheet, _partner = self._populated_sheet()
+        content, payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        self.assertEqual(worksheet["A1"].value, "Planilla de Cobranza")
+        self.assertEqual(worksheet["A2"].value, payload["reference"])
+        self.assertFalse(worksheet["A4"].value)
+        company_name = sheet.company_id.name
+        values = [
+            str(cell.value)
+            for row in worksheet.iter_rows()
+            for cell in row
+            if cell.value is not None
+        ]
+        self.assertNotIn("Impreso el", values)
+        self.assertNotIn(company_name, values)
+        self.assertFalse(
+            any("Impreso" in value for value in values),
+            "printed date label must not render",
+        )
+        self.assertIn("Vendedor", values)
 
     def test_xlsx_merges_and_number_formats(self):
         """Header merges and money/percent formats MUST match the template."""

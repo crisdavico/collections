@@ -10,7 +10,7 @@ class CollectionSheetReportRender(models.AbstractModel):
 
     @api.model
     def _get_report_values(self, docids, data=None):
-        """Return one Planilla payload per sheet; set `o` for external_layout."""
+        """Return one Planilla payload per sheet; `o` seeds the `.article` wrapper."""
         sheets = self.env["collection.sheet"].browse(docids)
         sheets.check_access("read")
         payloads = [sheet._collection_report_data() for sheet in sheets]

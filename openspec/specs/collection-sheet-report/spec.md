@@ -317,11 +317,12 @@ The system MUST bind `ir.actions.report` `qweb-pdf` on `collection.sheet`
 (`binding_type` report) so Print → Planilla de Cobranza appears on form and list.
 Paperformat MUST be A4 portrait with compact header room (`margin_top` 20mm,
 `header_spacing` 5mm, `margin_bottom` 8mm, `margin_left`/`margin_right` 6mm) so the
-company letterhead does not leave a large blank band above Resumen and the tables span
-the usable width. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST call
-`web.html_container` plus `web.external_layout` (PDF membrete is company letterhead, not
-workbook rows 1–4). Body MUST NOT repeat the Planilla title already set on
-`layout_document_title`. HTML render (MUST NOT spawn wkhtmltopdf in tests) MUST contain
+tables span the usable width. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
+call `web.html_container` and MUST NOT call `web.external_layout` (no company header or
+footer, so no page numbers either); the document renders its own `.article` wrapper.
+The Planilla title MUST render once as an `<h2 class="o_cs_title">` at the top of the
+page. PDF and XLSX MUST NOT render `printed_on` ("Impreso el") nor the company name (the
+payload keeps both keys). HTML render (MUST NOT spawn wkhtmltopdf in tests) MUST contain
 the sheet reference, seller name, every partner name, applied document numbers, and the
 recon banner.
 
@@ -333,8 +334,8 @@ recon banner.
   that model, with the collection-sheet paperformat
 - AND paperformat orientation MUST be `Portrait`, `margin_top` 20, `header_spacing` 5,
   `margin_bottom` 8, `margin_left`/`margin_right` 6
-- AND the document arch MUST set `layout_document_title` and MUST NOT contain a body
-  `<h2>`
+- AND the document arch MUST contain the `o_cs_title` `<h2>` and MUST NOT set
+  `layout_document_title`
 
 #### Scenario: HTML contains names numbers banner
 
@@ -342,14 +343,17 @@ recon banner.
 - WHEN `_render_qweb_html` runs
 - THEN HTML MUST contain the reference, seller, partner names, document numbers, and
   banner text
-- AND the arch MUST reference `web.external_layout`
+- AND the arch MUST NOT reference `web.external_layout`
+- AND the HTML MUST NOT contain "Impreso el" nor the company name
 
 ### Requirement: XLSX workbook and percent scale
 
 XLSX MUST be built from the same payload. Bytes MUST start `PK` and the zip MUST contain
 `xl/workbook.xml`. Worksheet MUST freeze `A6`, landscape, paper size 9, fit-to-width 1.
 Aggregation cells MUST use formulas with cached SUM values (`data_only` MUST read
-non-None totals equal to the payload). Clientes **Saldo Total** and **Aplicado** MUST be
+non-None totals equal to the payload). Header rows 1–4 MUST show the title "Planilla de
+Cobranza" (row 1) and the sheet reference (row 2), with no company name and no printed
+date; Resumen MUST NOT contain "Impreso el" (row numbers stay unchanged). Clientes **Saldo Total** and **Aplicado** MUST be
 `SUMIF` of Facturas/Presupuestos Saldo/Aplicado by customer name, **Cobrado** MUST be
 `SUMIF` of comprobante Importe, and **Remanente** MUST be `Saldo Total − Aplicado`
 (cached payload values). Resumen Remanente MUST reference the Clientes remanente total

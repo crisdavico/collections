@@ -10,16 +10,17 @@
     </template>
 
     <template id="report_collection_sheet_document">
-        <t t-call="web.external_layout">
-            <t t-set="layout_document_title">
-                <span>Planilla de Cobranza — </span>
-                <span t-out="payload['reference']" />
-            </t>
+        <!-- No company header/footer: web.html_container (wrapper) already provides
+             the HTML shell, so only the `.article` wrapper basic_layout adds is kept. -->
+        <div
+      class="article"
+      t-att-data-oe-model="o and o._name"
+      t-att-data-oe-id="o and o.id"
+    >
             <div class="page">
                 <style>
                     .article { padding-top: 0 !important; margin-top: 0 !important; }
-                    .article &gt; .oe_structure { display: none; }
-                    .article &gt; h2 {
+                    .o_cs_title {
                         font-size: 15px; font-weight: bold; margin: 0 0 5px;
                         color: #1f4e79; line-height: 1.2;
                     }
@@ -93,6 +94,9 @@
                     .o_cs_banner_outstanding { background: #ffc7ce; padding: 7px 7px; margin-top: 6px; }
                     .o_cs_mismatch { background: #fff2cc; padding: 7px 7px; margin-top: 6px; }
                 </style>
+                <h2 class="o_cs_title">Planilla de Cobranza — <t
+            t-out="payload['reference']"
+          /></h2>
                 <div class="o_cs_sheet">
                     <h3>Resumen</h3>
                     <table class="o_cs_header_info">
@@ -105,13 +109,6 @@
                             <td t-out="payload['seller_name']" />
                         </tr>
                         <tr>
-                            <th>Impreso el</th>
-                            <td class="o_cs_date">
-                                <t
-                  t-if="payload['printed_on']"
-                  t-out="payload['printed_on'].strftime('%d/%m/%Y')"
-                />
-                            </td>
                             <th>Desde</th>
                             <td class="o_cs_date">
                                 <t
@@ -126,6 +123,8 @@
                   t-out="payload['date_to'].strftime('%d/%m/%Y')"
                 />
                             </td>
+                            <th class="o_cs_blank" />
+                            <td class="o_cs_blank" />
                         </tr>
                         <tr>
                             <th>Clientes</th>
@@ -488,6 +487,6 @@
                     </div>
                 </div>
             </div>
-        </t>
+        </div>
     </template>
 </odoo>

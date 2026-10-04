@@ -109,11 +109,11 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `views/collection_views.xml`                      | List/search/form + menus/actions; no stages kanban; three-page notebook; `<delete>` reassign kanban; XLSX last before `state`                                                                       |
 | `views/collection_allocation_views.xml`           | Allocation list/form/search; Customer Debt Add Debt + `create="false"`; Receipts page; parent-arch `document_kind`; menu sequence 30                                                                |
 | `views/collection_receipt_views.xml`              | Read-mostly receipt `<list>`/`form`/`search`; Values + Applied Debt pages; issuance readonly; menu sequence 40                                                                                      |
-| `report/collection_sheet_report_render.py`        | AbstractModel QWeb `_get_report_values`; `web.external_layout`; `t-out`                                                                                                                             |
+| `report/collection_sheet_report_render.py`        | AbstractModel QWeb `_get_report_values`; no `web.external_layout`; `t-out`                                                                                                                          |
 | `report/collection_sheet_xlsx.py`                 | xlsxwriter workbook from payload; cached SUM; percent/100                                                                                                                                           |
 | `report/report_paperformat.xml`                   | A4 portrait paperformat for Planilla de Cobranza                                                                                                                                                    |
 | `report/collection_sheet_report.xml`              | Bound `qweb-pdf` Print → Planilla de Cobranza                                                                                                                                                       |
-| `report/collection_sheet_templates.xml`           | QWeb templates (`t-out`, `web.html_container` + `web.external_layout`)                                                                                                                              |
+| `report/collection_sheet_templates.xml`           | QWeb templates (`t-out`, `web.html_container`, own `.article` wrapper; no company header, no printed date)                                                                                          |
 | `views/res_config_settings_views.xml`             | Collection Settings UI; XMLID `action_collection_config_settings`                                                                                                                                   |
 | `data/ir_sequence_data.xml`                       | Per-company seq XMLIDs on `base.main_company` (`COL/` + `CS/` + `CA/`)                                                                                                                              |
 | `data/collection_document_type_data.xml`          | Nine catalog XMLID rows (`bank_transfer`, `check`, `echeck`, `cash_deposit`, `retention_certificate`, `cash`, `unsupported`, `seller_deposit`, `seller_commission`); seed empty company allow-lists |
@@ -535,8 +535,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   Confirm/Close/Cancel/Open by state; Document Review Open-only. Document Review OWL
   shows one editable control per field prefilled from OCR (current fallback); Approve
   rewrites current only. `reviewed_by` / `reviewed_at` stay on the model and leave the
-  form. Print → Planilla de Cobranza is bound `qweb-pdf` (`web.external_layout`,
-  `t-out`). Header **Export XLSX** is last object button before `state`
+  form. Print → Planilla de Cobranza is bound `qweb-pdf` (`web.html_container`
+  only: no company header/footer, no "Impreso el"; `t-out`). Header **Export XLSX** is last object button before `state`
   (`action_print_xlsx` → `/web/content/{id}?download=true`). Recon fields sit in a
   second inner `<group>` on the Allocations page. Shared `_collection_report_data()`
   feeds both writers in every sheet state; print includes draft allocations/vouchers;
