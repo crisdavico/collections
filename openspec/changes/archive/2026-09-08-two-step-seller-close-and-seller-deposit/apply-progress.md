@@ -693,8 +693,8 @@ extra planning artifacts. No core `collection` production files in this slice.
 
 # Apply Progress: two-step-seller-close-and-seller-deposit (U5b)
 
-**Work unit**: U5b — Ordering engine + `validated_collections` write-hook + `cash_banked`
-**Mode**: Strict TDD **Attempt token**:
+**Work unit**: U5b — Ordering engine + `validated_collections` write-hook +
+`cash_banked` **Mode**: Strict TDD **Attempt token**:
 `sha256:337ff77e76aab7a5dc4c63432e0b9df81bf01d69bcc00dc6206df51f33960f91` (provided; not
 acquired — no attempt store in this executor; do not settle/reset)
 
@@ -705,11 +705,10 @@ U1–U6 evidence above is unchanged. This section appends U5b only. No
 
 - [x] 7.1 RED: Deposit validation replaces cash; Review-off still replace;
       Non-transition does not re-replace; No allocations no-op; Cancel does not reverse
-- [x] 7.2 GREEN: Write-hook on `collection_voucher.py` entering
-      `validated_collections` for `seller_deposit` only (audited write, not
-      `action_review_approve`)
-- [x] 7.3 RED: Quotation before invoice; within kind `_proposal_fifo_key`; within
-      bucket oldest cash `create_date`
+- [x] 7.2 GREEN: Write-hook on `collection_voucher.py` entering `validated_collections`
+      for `seller_deposit` only (audited write, not `action_review_approve`)
+- [x] 7.3 RED: Quotation before invoice; within kind `_proposal_fifo_key`; within bucket
+      oldest cash `create_date`
 - [x] 7.4 GREEN: Ordering engine calling U5a `_cash_replace` on the same receipt;
       `amount_applied` unchanged
 - [x] 7.5 RED: `cash_banked` sums `seller_deposit` only; excess still banks; no
@@ -722,15 +721,15 @@ U5c remains unchecked.
 
 ## TDD Cycle Evidence
 
-| Task | Test File                                          | Layer       | Safety Net                         | RED                                              | GREEN                                              | TRIANGULATE                                                                 | REFACTOR                                      |
-| ---- | -------------------------------------------------- | ----------- | ---------------------------------- | ------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------- |
-| 7.1  | `tests/test_collection_cash_replacement.py`        | Integration | ✅ 9/9 U5a primitives              | ✅ 4 fail of 5 (0 replacement rows)              | ✅ After 7.2                                       | Validate; review-off; non-transition; no-op; Cancel+Reinstate               | ➖ Helpers `_submit` / `_validate_collections` |
-| 7.2  | `models/collection_voucher.py`                     | Integration | Intercept still requires audited   | (7.1)                                            | ✅ 14/14 including U5a                             | Hook only on entering `validated_collections`                               | ➖ Not on `action_review_approve`              |
-| 7.3  | same                                               | Integration | Invoice-only path still 40         | ✅ 3/3 fail (id order: invoice/later/newer first) | ✅ After 7.4                                       | Quotation first; earlier due_date; oldest `create_date`                     | ➖ Remainder 10 keeps value                    |
-| 7.4  | same                                               | Integration | Totals / `amount_applied` kept     | (7.3)                                            | ✅ 17/17                                           | Same-receipt grow; FIFO key min of applications                             | ✅ Cash upload key wrap                        |
-| 7.5  | `tests/test_collection_sheet_report_data.py`       | Integration | Remittance collected/tendered kept | ✅ 3 error + 1 fail (`cash_banked` missing)      | ✅ After 7.6                                       | 80 vs cash_deposit 20; excess 80 vs cash 50; no allocations                 | ➖ PAYLOAD_KEYS                                |
-| 7.6  | `models/collection_sheet_report.py`                | Integration | `_cash_collected_total` Confirm    | (7.5)                                            | ✅ 5/5 payload + banked                            | Field + payload; `_cash_collected_total` reads compute                      | ➖ Helper delegates to `cash_collected`        |
-| 7.7  | collection addon                                   | Integration | See below                          | n/a                                              | collection 914/914; pre-commit pass; `-u` upgrade  | n/a                                                                         | n/a                                           |
+| Task | Test File                                    | Layer       | Safety Net                         | RED                                               | GREEN                                             | TRIANGULATE                                                   | REFACTOR                                       |
+| ---- | -------------------------------------------- | ----------- | ---------------------------------- | ------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------- |
+| 7.1  | `tests/test_collection_cash_replacement.py`  | Integration | ✅ 9/9 U5a primitives              | ✅ 4 fail of 5 (0 replacement rows)               | ✅ After 7.2                                      | Validate; review-off; non-transition; no-op; Cancel+Reinstate | ➖ Helpers `_submit` / `_validate_collections` |
+| 7.2  | `models/collection_voucher.py`               | Integration | Intercept still requires audited   | (7.1)                                             | ✅ 14/14 including U5a                            | Hook only on entering `validated_collections`                 | ➖ Not on `action_review_approve`              |
+| 7.3  | same                                         | Integration | Invoice-only path still 40         | ✅ 3/3 fail (id order: invoice/later/newer first) | ✅ After 7.4                                      | Quotation first; earlier due_date; oldest `create_date`       | ➖ Remainder 10 keeps value                    |
+| 7.4  | same                                         | Integration | Totals / `amount_applied` kept     | (7.3)                                             | ✅ 17/17                                          | Same-receipt grow; FIFO key min of applications               | ✅ Cash upload key wrap                        |
+| 7.5  | `tests/test_collection_sheet_report_data.py` | Integration | Remittance collected/tendered kept | ✅ 3 error + 1 fail (`cash_banked` missing)       | ✅ After 7.6                                      | 80 vs cash_deposit 20; excess 80 vs cash 50; no allocations   | ➖ PAYLOAD_KEYS                                |
+| 7.6  | `models/collection_sheet_report.py`          | Integration | `_cash_collected_total` Confirm    | (7.5)                                             | ✅ 5/5 payload + banked                           | Field + payload; `_cash_collected_total` reads compute        | ➖ Helper delegates to `cash_collected`        |
+| 7.7  | collection addon                             | Integration | See below                          | n/a                                               | collection 914/914; pre-commit pass; `-u` upgrade | n/a                                                           | n/a                                            |
 
 ### Test Summary
 
@@ -749,40 +748,39 @@ U5c remains unchecked.
 
 ## Work Unit Evidence
 
-| Evidence              | Result                                                                                                                                                                                                                                                                     |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Focused 7.1 RED       | `--test-tags` five trigger tests → **4 failed of 5** (`0 != 1` rows); no-op already empty                                                                                                                 |
-| Focused 7.2 GREEN     | `--test-tags /collection:TestCollectionCashReplacement` → **0 failed, 0 error(s) of 14 tests**                                                                                                            |
-| Focused 7.3 RED       | three ordering tags → **3 failed of 3** (quotation value kept; later due consumed first; newer cash consumed first)                                                                                       |
-| Focused 7.4 GREEN     | same class → **0 failed, 0 error(s) of 17 tests**                                                                                                                                                         |
-| Focused 7.5 RED       | three banked + payload keys → **3 error + 1 fail** (`KeyError: cash_banked`)                                                                                                                              |
-| Focused 7.6 GREEN     | three banked + payload keys + five-state → **0 failed, 0 error(s) of 5 tests**                                                                                                                             |
+| Evidence              | Result                                                                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focused 7.1 RED       | `--test-tags` five trigger tests → **4 failed of 5** (`0 != 1` rows); no-op already empty                                                                                                                     |
+| Focused 7.2 GREEN     | `--test-tags /collection:TestCollectionCashReplacement` → **0 failed, 0 error(s) of 14 tests**                                                                                                                |
+| Focused 7.3 RED       | three ordering tags → **3 failed of 3** (quotation value kept; later due consumed first; newer cash consumed first)                                                                                           |
+| Focused 7.4 GREEN     | same class → **0 failed, 0 error(s) of 17 tests**                                                                                                                                                             |
+| Focused 7.5 RED       | three banked + payload keys → **3 error + 1 fail** (`KeyError: cash_banked`)                                                                                                                                  |
+| Focused 7.6 GREEN     | three banked + payload keys + five-state → **0 failed, 0 error(s) of 5 tests**                                                                                                                                |
 | Full collection suite | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --http-port=18069 --gevent-port=18072 --test-enable --stop-after-init --workers=0 --test-tags /collection` → **0 failed, 0 error(s) of 914 tests** |
-| Runtime harness       | Same command upgraded `collection` (write-hook + computed fields)                                                                                                                                         |
-| Pre-commit            | `pre-commit run --files` on U5b collection files — **Passed** (after wrapping six E501 docstrings)                                                                                                        |
-| Rollback boundary     | Voucher write-hook + ordering iterator; `cash_banked` / `cash_collected` compute; payload `cash_banked`. Do **not** revert U1–U6. Do **not** implement `create_seller_deposit` (U5c).                     |
+| Runtime harness       | Same command upgraded `collection` (write-hook + computed fields)                                                                                                                                             |
+| Pre-commit            | `pre-commit run --files` on U5b collection files — **Passed** (after wrapping six E501 docstrings)                                                                                                            |
+| Rollback boundary     | Voucher write-hook + ordering iterator; `cash_banked` / `cash_collected` compute; payload `cash_banked`. Do **not** revert U1–U6. Do **not** implement `create_seller_deposit` (U5c).                         |
 
 ## Files Changed
 
-| File                                         | Action   | What Was Done                                                                                         |
-| -------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `models/collection_voucher.py`               | Modified | Audited `validated_collections` write-hook; quotation→invoice FIFO; oldest cash; U5a `_cash_replace`  |
-| `models/collection_sheet_report.py`          | Modified | Computed `cash_collected` / `cash_banked` from vouchers; payload `cash_banked`                        |
-| `models/collection_sheet.py`                 | Modified | `_cash_collected_total` delegates to `cash_collected`                                                 |
-| `tests/test_collection_cash_replacement.py`  | Modified | Trigger, Cancel, ordering tests                                                                       |
-| `tests/test_collection_sheet_report_data.py` | Modified | `cash_banked` scenarios; `PAYLOAD_KEYS`                                                               |
-| `openspec/changes/.../tasks.md`              | Modified | U5b tasks `[x]`                                                                                       |
-| `openspec/changes/.../apply-progress.md`     | Modified | This U5b append                                                                                       |
+| File                                         | Action   | What Was Done                                                                                        |
+| -------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `models/collection_voucher.py`               | Modified | Audited `validated_collections` write-hook; quotation→invoice FIFO; oldest cash; U5a `_cash_replace` |
+| `models/collection_sheet_report.py`          | Modified | Computed `cash_collected` / `cash_banked` from vouchers; payload `cash_banked`                       |
+| `models/collection_sheet.py`                 | Modified | `_cash_collected_total` delegates to `cash_collected`                                                |
+| `tests/test_collection_cash_replacement.py`  | Modified | Trigger, Cancel, ordering tests                                                                      |
+| `tests/test_collection_sheet_report_data.py` | Modified | `cash_banked` scenarios; `PAYLOAD_KEYS`                                                              |
+| `openspec/changes/.../tasks.md`              | Modified | U5b tasks `[x]`                                                                                      |
+| `openspec/changes/.../apply-progress.md`     | Modified | This U5b append                                                                                      |
 
 ## Deviations from Design
 
 None — implementation matches design U5b. The write-hook lives on `write()` after
 `super()`, keyed on entering `validated_collections` for `seller_deposit` only, so
 Document Review `_write_review_decision` (audited write) runs it and
-`action_review_approve` is untouched. FIFO key is `_replacement_fifo_key` with the
-same `(due_date or date.max, invoice_number or "")` shape as satellite
-`_proposal_fifo_key`. `cash_banked` is voucher SUM of `seller_deposit`, not ledger
-rows.
+`action_review_approve` is untouched. FIFO key is `_replacement_fifo_key` with the same
+`(due_date or date.max, invoice_number or "")` shape as satellite `_proposal_fifo_key`.
+`cash_banked` is voucher SUM of `seller_deposit`, not ledger rows.
 
 ## Issues Found
 
@@ -829,14 +827,14 @@ U1–U5b evidence above is unchanged. This section appends U5c only. All 61 task
 
 ## TDD Cycle Evidence
 
-| Task | Test File                                    | Layer       | Safety Net                                  | RED                                              | GREEN                                              | TRIANGULATE                                                                 | REFACTOR                                      |
-| ---- | -------------------------------------------- | ----------- | ------------------------------------------- | ------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------- |
-| 8.1  | `tests/test_collection_mcp_seller_deposit.py` | Integration | Allocation `_DOCUMENT_TYPES` already 7-wide | ✅ 2 fail + 6 error of 10 (`Tool not found`)     | ✅ After 8.2                                       | Submitted create; open refused; disabled type; portal/public; extra keys    | ➖ Shared amount/date/unknown-key helpers      |
-| 8.2  | `tools/collection_seller_deposit.py`          | Integration | U5b write-hook still audited-only           | (8.1)                                            | ✅ 0 failed, 0 error(s) of 10                      | Sentinel; `sd-` hex; explicit `sheet_id`; proof before collections write    | ➖ Description trim for line budget            |
-| 8.3  | `tests/test_collection_ui.py`                 | Integration | `test_form_cash_deposit_keys_present_*`     | ✅ 2 fail of 3 (visibility + search)             | ✅ After 8.4                                       | Current + OCR + Seller Confirmed; search filter; single `partner_id`        | ➖ Reused `CASH_DEPOSIT_KEYS` / layers         |
-| 8.4  | `views/collection_views.xml`                  | Integration | `" and document_type !="` kept              | (8.3)                                            | ✅ 0 failed of 4 including cash_deposit keys       | `bank_transfer` still visible; no second `partner_id`                       | ➖ Filter after unsupported                    |
-| 8.5  | `AGENTS.md`                                   | Docs        | Five-state / catalog tests                  | ➖ Approval (docs)                               | ✅ suite includes `test_agents_md_five_state_*`    | Integrations list; repo map; MCP contract; testing table                    | ➖ Compact contract to stay near 500           |
-| 8.6  | collection addon                              | Integration | See below                                   | n/a                                              | collection 925/925; pre-commit pass; `-u` upgrade  | n/a                                                                         | n/a                                           |
+| Task | Test File                                     | Layer       | Safety Net                                  | RED                                          | GREEN                                             | TRIANGULATE                                                              | REFACTOR                                  |
+| ---- | --------------------------------------------- | ----------- | ------------------------------------------- | -------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------- |
+| 8.1  | `tests/test_collection_mcp_seller_deposit.py` | Integration | Allocation `_DOCUMENT_TYPES` already 7-wide | ✅ 2 fail + 6 error of 10 (`Tool not found`) | ✅ After 8.2                                      | Submitted create; open refused; disabled type; portal/public; extra keys | ➖ Shared amount/date/unknown-key helpers |
+| 8.2  | `tools/collection_seller_deposit.py`          | Integration | U5b write-hook still audited-only           | (8.1)                                        | ✅ 0 failed, 0 error(s) of 10                     | Sentinel; `sd-` hex; explicit `sheet_id`; proof before collections write | ➖ Description trim for line budget       |
+| 8.3  | `tests/test_collection_ui.py`                 | Integration | `test_form_cash_deposit_keys_present_*`     | ✅ 2 fail of 3 (visibility + search)         | ✅ After 8.4                                      | Current + OCR + Seller Confirmed; search filter; single `partner_id`     | ➖ Reused `CASH_DEPOSIT_KEYS` / layers    |
+| 8.4  | `views/collection_views.xml`                  | Integration | `" and document_type !="` kept              | (8.3)                                        | ✅ 0 failed of 4 including cash_deposit keys      | `bank_transfer` still visible; no second `partner_id`                    | ➖ Filter after unsupported               |
+| 8.5  | `AGENTS.md`                                   | Docs        | Five-state / catalog tests                  | ➖ Approval (docs)                           | ✅ suite includes `test_agents_md_five_state_*`   | Integrations list; repo map; MCP contract; testing table                 | ➖ Compact contract to stay near 500      |
+| 8.6  | collection addon                              | Integration | See below                                   | n/a                                          | collection 925/925; pre-commit pass; `-u` upgrade | n/a                                                                      | n/a                                       |
 
 ### Test Summary
 
@@ -849,58 +847,58 @@ U1–U5b evidence above is unchanged. This section appends U5c only. All 61 task
   `test_sheet_id_and_customer_identification_are_rejected`,
   `test_allocation_write_still_requires_a_customer`,
   `test_tool_source_never_sudoes_or_returns_error_dict`,
-  `test_form_seller_deposit_number_and_date_visible`) plus `DOCUMENT_TYPE_FILTERS`
-  now includes `seller_deposit`
+  `test_form_seller_deposit_number_and_date_visible`) plus `DOCUMENT_TYPE_FILTERS` now
+  includes `seller_deposit`
 - **Layers used**: Integration (Odoo TransactionCase)
 - **Approval tests**: full `collection` suite 925
 - **Pure functions created**: 0 (reused voucher MCP helpers)
 
 ## Work Unit Evidence
 
-| Evidence              | Result                                                                                                                                                                                                                                                                     |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Focused 8.1 RED       | `--test-tags /collection:TestCollectionMcpSellerDeposit` → **2 failed + 6 error(s) of 10** (`Tool not found: create_seller_deposit`); allocation-customer already passed as approval                                                                                                                                                     |
-| Focused 8.2 GREEN     | same tag → **0 failed, 0 error(s) of 10 tests**                                                                                                                                                                                                                            |
-| Focused 8.3 RED       | visibility + search + partner_id → **2 failed of 3** (partner_id already single)                                                                                                                                                                                           |
-| Focused 8.4 GREEN     | UI tags including cash_deposit keys → **0 failed, 0 error(s) of 4 tests** after `-u collection`                                                                                                                                                                            |
-| Full collection suite | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --http-port=18069 --gevent-port=18072 --test-enable --stop-after-init --workers=0 --test-tags /collection` → **0 failed, 0 error(s) of 925 tests** (invoke `--mode=update` equivalent; 8069 already bound)         |
-| Runtime harness       | Same command upgraded `collection` (MCP mixin + views)                                                                                                                                                                                                                     |
-| Pre-commit            | `pre-commit run --files` on U5c collection files — **Passed** (after wrapping two E501 docstrings)                                                                                                                                                                         |
-| Leftover scanner      | New tool uses `_submitted_sheets_for_seller` and `_lock_open_sheet_for_seller`; source test asserts no `_open_sheets_for_seller` and no `sudo(`. No new `.state == "open"` / domain `"open"` gates in `tools/`                                                             |
-| Rollback boundary     | MCP `create_seller_deposit` + form `invisible=` / search filter + AGENTS contract. Do **not** revert U1–U5b/U6. Do **not** add `seller_deposit` to allocation `_DOCUMENT_TYPES`.                                                                                           |
+| Evidence              | Result                                                                                                                                                                                                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focused 8.1 RED       | `--test-tags /collection:TestCollectionMcpSellerDeposit` → **2 failed + 6 error(s) of 10** (`Tool not found: create_seller_deposit`); allocation-customer already passed as approval                                                                                  |
+| Focused 8.2 GREEN     | same tag → **0 failed, 0 error(s) of 10 tests**                                                                                                                                                                                                                       |
+| Focused 8.3 RED       | visibility + search + partner_id → **2 failed of 3** (partner_id already single)                                                                                                                                                                                      |
+| Focused 8.4 GREEN     | UI tags including cash_deposit keys → **0 failed, 0 error(s) of 4 tests** after `-u collection`                                                                                                                                                                       |
+| Full collection suite | `docker exec -i seedian-odoo-1 odoo -d devel -u collection --http-port=18069 --gevent-port=18072 --test-enable --stop-after-init --workers=0 --test-tags /collection` → **0 failed, 0 error(s) of 925 tests** (invoke `--mode=update` equivalent; 8069 already bound) |
+| Runtime harness       | Same command upgraded `collection` (MCP mixin + views)                                                                                                                                                                                                                |
+| Pre-commit            | `pre-commit run --files` on U5c collection files — **Passed** (after wrapping two E501 docstrings)                                                                                                                                                                    |
+| Leftover scanner      | New tool uses `_submitted_sheets_for_seller` and `_lock_open_sheet_for_seller`; source test asserts no `_open_sheets_for_seller` and no `sudo(`. No new `.state == "open"` / domain `"open"` gates in `tools/`                                                        |
+| Rollback boundary     | MCP `create_seller_deposit` + form `invisible=` / search filter + AGENTS contract. Do **not** revert U1–U5b/U6. Do **not** add `seller_deposit` to allocation `_DOCUMENT_TYPES`.                                                                                      |
 
 ## Files Changed
 
-| File                                         | Action   | What Was Done                                                                                         |
-| -------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `tests/test_collection_mcp_seller_deposit.py` | Created  | Discovery, submitted-only write, sentinel, audited validate, allocation still customer-required      |
-| `tools/collection_seller_deposit.py`          | Created  | `@mcp_tool create_seller_deposit`; mint `sd-`; sentinel; explicit `sheet_id`; audited collections    |
-| `tests/__init__.py`                           | Modified | Import the new MCP test module                                                                        |
-| `tools/__init__.py`                           | Modified | Import the new MCP mixin                                                                              |
-| `tests/test_collection_ui.py`                 | Modified | `DOCUMENT_TYPE_FILTERS` + `test_form_seller_deposit_number_and_date_visible`                          |
-| `views/collection_views.xml`                  | Modified | Search filter; widen number/date `invisible=` on Current + OCR + Seller Confirmed                     |
-| `AGENTS.md`                                   | Modified | Integrations write list, repo map, MCP contract, testing table                                        |
-| `openspec/changes/.../tasks.md`               | Modified | U5c tasks `[x]`; all 61 `[x]`                                                                         |
-| `openspec/changes/.../apply-progress.md`      | Modified | This U5c append                                                                                       |
+| File                                          | Action   | What Was Done                                                                                     |
+| --------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `tests/test_collection_mcp_seller_deposit.py` | Created  | Discovery, submitted-only write, sentinel, audited validate, allocation still customer-required   |
+| `tools/collection_seller_deposit.py`          | Created  | `@mcp_tool create_seller_deposit`; mint `sd-`; sentinel; explicit `sheet_id`; audited collections |
+| `tests/__init__.py`                           | Modified | Import the new MCP test module                                                                    |
+| `tools/__init__.py`                           | Modified | Import the new MCP mixin                                                                          |
+| `tests/test_collection_ui.py`                 | Modified | `DOCUMENT_TYPE_FILTERS` + `test_form_seller_deposit_number_and_date_visible`                      |
+| `views/collection_views.xml`                  | Modified | Search filter; widen number/date `invisible=` on Current + OCR + Seller Confirmed                 |
+| `AGENTS.md`                                   | Modified | Integrations write list, repo map, MCP contract, testing table                                    |
+| `openspec/changes/.../tasks.md`               | Modified | U5c tasks `[x]`; all 61 `[x]`                                                                     |
+| `openspec/changes/.../apply-progress.md`      | Modified | This U5c append                                                                                   |
 
 ## Deviations from Design
 
-MCP success leaves the voucher in `validated_collections` (task 8.2 / design U5c /
-U5b in-process hook), not `validated_seller`. The delta spec scenario still says
+MCP success leaves the voucher in `validated_collections` (task 8.2 / design U5c / U5b
+in-process hook), not `validated_seller`. The delta spec scenario still says
 `validated_seller`; follow design/task. UI/ORM form deposits stay `validated_seller`
-until Document Review. `_apply_open_sheet_auto_assign` is not used; `sheet_id` is
-passed explicitly because that helper only resolves **open** sheets. `submitted` ∈
+until Document Review. `_apply_open_sheet_auto_assign` is not used; `sheet_id` is passed
+explicitly because that helper only resolves **open** sheets. `submitted` ∈
 `ADMIN_EDITABLE_SHEET_STATES` so membership write is allowed.
 
 ## Issues Found
 
 - `docker exec` against `seedian-odoo-1` still needs `--http-port` other than 8069.
-- Nested `collection` git still has U1–U6 uncommitted, so mixed-file `git diff`
-  includes prior units.
+- Nested `collection` git still has U1–U6 uncommitted, so mixed-file `git diff` includes
+  prior units.
 - Spec vs design state wording (`validated_seller` vs `validated_collections`) is
   unchanged in the delta spec; verify should treat design/task as the coded contract.
-- Parent attempt token was supplied; this executor did **not** acquire blindly and
-  did **not** settle.
+- Parent attempt token was supplied; this executor did **not** acquire blindly and did
+  **not** settle.
 
 ## Changed-line estimate
 
@@ -924,47 +922,48 @@ AGENTS ~22). Slightly over the 500-line U5c bound; no settle. OpenSpec `tasks.md
 Strict TDD (fixture-only GREEN of existing RED covering tests) **Attempt token**:
 `sha256:f56f123e0dbbac0f0f17bce8640e3551a001f378b052d6e0d681607aac8e201e`
 
-U1–U5c evidence above is unchanged. Completed tasks stay `[x]`. This section appends
-the post-verify fixture remediations only. Production replacement / U5b write-hook
+U1–U5c evidence above is unchanged. Completed tasks stay `[x]`. This section appends the
+post-verify fixture remediations only. Production replacement / U5b write-hook
 untouched.
 
 ## Completed Tasks
 
-U6 board covering tests already `[x]` (6.1–6.6). Fixture ordering after U5b was
-wrong; tests themselves were not rewritten beyond `_replaced_cash_setup`.
+U6 board covering tests already `[x]` (6.1–6.6). Fixture ordering after U5b was wrong;
+tests themselves were not rewritten beyond `_replaced_cash_setup`.
 
 ## TDD Cycle Evidence
 
-| Task | Test File                                                                 | Layer       | Safety Net                                                                                         | RED                                                                                          | GREEN                                                                                  | TRIANGULATE                                                                                  | REFACTOR                                      |
-| ---- | ------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| U6fx | `collection_receipt_proposal/tests/test_receipt_proposal_board.py`        | Integration | Verify FAIL: remainder empty after `_confirm` fully replaced 100 cash before `_cash_replace(40)` | ✅ Existing `test_partial_replace_remains_only_for_the_free_remainder` (fixture, not new)     | ✅ 0 failed of 2 named tests after deposit=`replace_amount` and no post-confirm replace | ✅ Full replace `test_replaced_cash_leaves_the_pool` + remittance/owner U6 tags still green | ✅ Comment on why deposit equals replace amount |
+| Task | Test File                                                          | Layer       | Safety Net                                                                                       | RED                                                                                       | GREEN                                                                                   | TRIANGULATE                                                                                 | REFACTOR                                        |
+| ---- | ------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| U6fx | `collection_receipt_proposal/tests/test_receipt_proposal_board.py` | Integration | Verify FAIL: remainder empty after `_confirm` fully replaced 100 cash before `_cash_replace(40)` | ✅ Existing `test_partial_replace_remains_only_for_the_free_remainder` (fixture, not new) | ✅ 0 failed of 2 named tests after deposit=`replace_amount` and no post-confirm replace | ✅ Full replace `test_replaced_cash_leaves_the_pool` + remittance/owner U6 tags still green | ✅ Comment on why deposit equals replace amount |
 
 ### Test Summary
 
 - **Total tests written**: 0 new (existing U6 covering tests)
-- **Total tests passing (this slice)**: 2/2 named + 4/4 remittance/owner + board class 21/22 (only pre-existing company-rule FAIL)
+- **Total tests passing (this slice)**: 2/2 named + 4/4 remittance/owner + board class
+  21/22 (only pre-existing company-rule FAIL)
 - **Layers used**: Integration (Odoo TransactionCase)
 - **Approval tests**: remittance-not-in-pool and full-replace stayed green
 - **Pure functions created**: 0
 
 ## Work Unit Evidence
 
-| Evidence              | Result                                                                                                                                                                                                                                                                                                                                                          |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Focused named tests   | `--test-tags /collection_receipt_proposal:TestReceiptProposalBoard.test_partial_replace_remains_only_for_the_free_remainder,/collection_receipt_proposal:TestReceiptProposalBoard.test_replaced_cash_leaves_the_pool` → **0 failed, 0 error(s) of 2 tests**                                                                                                    |
-| Board class           | `--test-tags /collection_receipt_proposal:TestReceiptProposalBoard` → **1 failed, 0 error(s) of 22 tests** — only pre-existing `test_sheet_company_rule_still_guards_the_board`. Partial/full replace and `test_excess_deposit_is_not_a_pool_card` passed                                                                                                       |
-| Remittance/owner U6   | `--test-tags` excess-deposit + `test_remittance_is_not_pool_draggable` + `test_replaced_cash_keeps_allocation_id` + `test_remittance_does_not_receive_allocation_id_from_owner_sync` → **0 failed, 0 error(s) of 4 tests**                                                                                                                                       |
-| Collection suite      | N/A this slice — no collection production or collection tests edited                                                                                                                                                                                                                                                                                            |
-| Runtime harness       | Board RPC via `get_proposal_board` on `proposal` sheets created by `_confirm` (U5b hook ran). Ports `--http-port=18069 --gevent-port=18072`                                                                                                                                                                                                                     |
-| Pre-commit            | `pre-commit run --files odoo/custom/src/private/collection_receipt_proposal/tests/test_receipt_proposal_board.py` — **Passed** (W8138 except-pass on pre-existing company-rule test)                                                                                                                                                                            |
-| Rollback boundary     | Sibling `_replaced_cash_setup` only: deposit amount = `replace_amount`; drop post-confirm `_cash_replace`. Partial test still unlinks remaining cash values for assigned=0 / free 60. Do **not** revert U5b hook or U6 formula.                                                                                                                                |
+| Evidence            | Result                                                                                                                                                                                                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focused named tests | `--test-tags /collection_receipt_proposal:TestReceiptProposalBoard.test_partial_replace_remains_only_for_the_free_remainder,/collection_receipt_proposal:TestReceiptProposalBoard.test_replaced_cash_leaves_the_pool` → **0 failed, 0 error(s) of 2 tests** |
+| Board class         | `--test-tags /collection_receipt_proposal:TestReceiptProposalBoard` → **1 failed, 0 error(s) of 22 tests** — only pre-existing `test_sheet_company_rule_still_guards_the_board`. Partial/full replace and `test_excess_deposit_is_not_a_pool_card` passed   |
+| Remittance/owner U6 | `--test-tags` excess-deposit + `test_remittance_is_not_pool_draggable` + `test_replaced_cash_keeps_allocation_id` + `test_remittance_does_not_receive_allocation_id_from_owner_sync` → **0 failed, 0 error(s) of 4 tests**                                  |
+| Collection suite    | N/A this slice — no collection production or collection tests edited                                                                                                                                                                                        |
+| Runtime harness     | Board RPC via `get_proposal_board` on `proposal` sheets created by `_confirm` (U5b hook ran). Ports `--http-port=18069 --gevent-port=18072`                                                                                                                 |
+| Pre-commit          | `pre-commit run --files odoo/custom/src/private/collection_receipt_proposal/tests/test_receipt_proposal_board.py` — **Passed** (W8138 except-pass on pre-existing company-rule test)                                                                        |
+| Rollback boundary   | Sibling `_replaced_cash_setup` only: deposit amount = `replace_amount`; drop post-confirm `_cash_replace`. Partial test still unlinks remaining cash values for assigned=0 / free 60. Do **not** revert U5b hook or U6 formula.                             |
 
 ## Files Changed
 
-| File                                                             | Action   | What Was Done                                                                                          |
-| ---------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| File                                                               | Action   | What Was Done                                                                                                     |
+| ------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------- |
 | `collection_receipt_proposal/tests/test_receipt_proposal_board.py` | Modified | `_replaced_cash_setup`: deposit sized to `replace_amount`; confirm hook performs replace; no late `_cash_replace` |
-| `openspec/changes/.../apply-progress.md`                           | Modified | This U6-fixture-fix append                                                                             |
+| `openspec/changes/.../apply-progress.md`                           | Modified | This U6-fixture-fix append                                                                                        |
 
 ## Deviations from Design
 
@@ -975,7 +974,8 @@ replace, matching the orchestrator required fix. Board still requires `proposal`
 
 ## Issues Found
 
-- `test_sheet_company_rule_still_guards_the_board` still fails (pre-existing; other-company RPC does not refuse). Not this fixture.
+- `test_sheet_company_rule_still_guards_the_board` still fails (pre-existing;
+  other-company RPC does not refuse). Not this fixture.
 - Did **not** settle. Did **not** reset. Did **not** acquire (HEAD already this token).
 
 ## Changed-line estimate

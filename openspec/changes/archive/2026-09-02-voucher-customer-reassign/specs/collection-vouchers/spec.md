@@ -4,23 +4,23 @@
 
 ### Requirement: Partner write follows allocation
 
-When `partner_id` changes, the system MUST compute `allocation_id` before persist
-and MUST write `partner_id` and `allocation_id` in the same vals (per record when
-outcomes differ). MUST NOT `sudo()`. While the sheet is `open`, any voucher state
-MAY change Customer. Same-value `partner_id` MUST NOT recompute allocation.
+When `partner_id` changes, the system MUST compute `allocation_id` before persist and
+MUST write `partner_id` and `allocation_id` in the same vals (per record when outcomes
+differ). MUST NOT `sudo()`. While the sheet is `open`, any voucher state MAY change
+Customer. Same-value `partner_id` MUST NOT recompute allocation.
 
-Non-`confirmed` current allocation MUST refuse the move with no field change.
-Confirmed source with projected residual (current residual minus voucher amount,
-currency compare) `< 0` MUST refuse with no field change.
+Non-`confirmed` current allocation MUST refuse the move with no field change. Confirmed
+source with projected residual (current residual minus voucher amount, currency compare)
+`< 0` MUST refuse with no field change.
 
 MUST attach the unique confirmed same-sheet allocation for the new partner when
-projected residual satisfies residual rules; otherwise MUST leave unallocated and
-MUST post chatter for that outcome.
+projected residual satisfies residual rules; otherwise MUST leave unallocated and MUST
+post chatter for that outcome.
 
 #### Scenario: Same-write partner and allocation
 
-- GIVEN an open-sheet voucher on confirmed allocation A (partner P) and unique
-  confirmed same-sheet allocation B (partner Q) with attachable residual
+- GIVEN an open-sheet voucher on confirmed allocation A (partner P) and unique confirmed
+  same-sheet allocation B (partner Q) with attachable residual
 - WHEN `partner_id` is written to Q
 - THEN `partner_id` MUST be Q and `allocation_id` MUST be B
 - AND both fields MUST persist in one write
@@ -34,15 +34,15 @@ MUST post chatter for that outcome.
 
 #### Scenario: Target attaches when residual holds
 
-- GIVEN an open-sheet unallocated voucher and unique confirmed same-sheet
-  allocation for Q with attachable residual
+- GIVEN an open-sheet unallocated voucher and unique confirmed same-sheet allocation for
+  Q with attachable residual
 - WHEN `partner_id` is written to Q
 - THEN `allocation_id` MUST become that allocation
 
 #### Scenario: Target left unallocated when residual does not hold
 
-- GIVEN an open-sheet voucher and no unique confirmed same-sheet allocation for Q
-  that satisfies residual rules (including empty allocation, residual 0, no
+- GIVEN an open-sheet voucher and no unique confirmed same-sheet allocation for Q that
+  satisfies residual rules (including empty allocation, residual 0, no
   `residual_reason`)
 - WHEN `partner_id` is written to Q
 - THEN `partner_id` MUST be Q and `allocation_id` MUST be unset
@@ -65,8 +65,8 @@ MUST post chatter for that outcome.
 ### Requirement: Voucher partner-allocation constrain
 
 When `allocation_id` is set, voucher `partner_id` MUST equal that allocation's
-`partner_id` after any write of `partner_id` or `allocation_id`. A mismatch MUST
-raise `UserError` with no persist.
+`partner_id` after any write of `partner_id` or `allocation_id`. A mismatch MUST raise
+`UserError` with no persist.
 
 #### Scenario: Constrain mismatch refused
 
@@ -77,12 +77,11 @@ raise `UserError` with no persist.
 
 ### Requirement: Context-gated partner group_expand
 
-`partner_id` MUST use a `group_expand` method (MUST NOT be boolean `True`). When
-context `collection_reassign_sheet_id` is missing, invalid, or unreadable, expand
-MUST return the identity groups. When that context names a readable sheet, expand
-MUST return that sheet's allocation customers union member-voucher customers
-(including empty allocation columns and stray voucher customers), ordered as
-`res.partner` default order.
+`partner_id` MUST use a `group_expand` method (MUST NOT be boolean `True`). When context
+`collection_reassign_sheet_id` is missing, invalid, or unreadable, expand MUST return
+the identity groups. When that context names a readable sheet, expand MUST return that
+sheet's allocation customers union member-voucher customers (including empty allocation
+columns and stray voucher customers), ordered as `res.partner` default order.
 
 #### Scenario: Identity expand without context
 
@@ -94,14 +93,13 @@ MUST return that sheet's allocation customers union member-voucher customers
 
 #### Scenario: Empty allocation columns
 
-- GIVEN reassign context for a readable sheet that has an allocation with no
-  vouchers
+- GIVEN reassign context for a readable sheet that has an allocation with no vouchers
 - WHEN group expand runs
 - THEN that allocation's customer MUST appear as a column
 
 #### Scenario: Stray extra columns
 
-- GIVEN reassign context for a readable sheet with a member voucher whose
-  customer has no allocation on that sheet
+- GIVEN reassign context for a readable sheet with a member voucher whose customer has
+  no allocation on that sheet
 - WHEN group expand runs
 - THEN that voucher's customer MUST appear as a column

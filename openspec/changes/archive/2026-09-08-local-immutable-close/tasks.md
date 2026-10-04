@@ -80,8 +80,8 @@ Strict TDD. Threat matrix N/A.
 
 - [x] 6.1 `invoke test -m collection --mode=update`
 - [x] 6.2 `-u collection` then
-      `invoke test -m collection_receipt_proposal --mode=update`
-      (ran: 3 failed, 1 error of 140; pre-existing satellite drift, not Close)
+      `invoke test -m collection_receipt_proposal --mode=update` (ran: 3 failed, 1 error
+      of 140; pre-existing satellite drift, not Close)
 - [x] 6.3 `pre-commit run --files odoo/custom/src/private/collection/**`
 
 ## Remediation: AGENTS wrap pin
@@ -89,6 +89,6 @@ Strict TDD. Threat matrix N/A.
 Failed verify `sha256:59ddea388282fc0317c1d2ae434b8d2866c4a589b51b2e0ba57d0130c984de82`.
 
 - [x] R.1 Wrap-tolerant `MUST NOT consult the connector` and
-      `MUST NOT call create_receipt` pins in
-      `test_agents_md_five_state_workflow` via `" ".join(agents.split())`. Do not
-      unwrap AGENTS.md. Do not change Close production.
+      `MUST NOT call create_receipt` pins in `test_agents_md_five_state_workflow` via
+      `" ".join(agents.split())`. Do not unwrap AGENTS.md. Do not change Close
+      production.

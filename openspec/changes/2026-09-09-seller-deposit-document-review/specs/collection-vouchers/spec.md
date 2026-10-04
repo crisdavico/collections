@@ -18,10 +18,9 @@ Document Review Approve. A deposit carrying designated proof MUST appear in
 `get_review_queue` for its sheet. Portal or public callers MUST receive `AccessError`.
 Errors MUST be raised, never `{"error":...}`. Zero or more than one `submitted` sheet
 MUST raise `UserError`. `create_collection_allocation` MUST remain customer-required and
-`open`-sheet-only.
-(Previously: the tool wrote `validated_collections` under `collection_audited_state`
-right after create, so the slip never reached the review queue. Before that: No MCP path
-could create a no-customer remittance voucher.)
+`open`-sheet-only. (Previously: the tool wrote `validated_collections` under
+`collection_audited_state` right after create, so the slip never reached the review
+queue. Before that: No MCP path could create a no-customer remittance voucher.)
 
 #### Scenario: Internal seller creates a deposit on submitted
 

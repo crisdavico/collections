@@ -8,9 +8,8 @@ Voucher membership (`sheet_id` add, remove, or reassign) and voucher business fi
 MUST be writable only while the sheet is `open` (or the voucher is unassigned). When the
 sheet is `proposal`, `closed`, or `cancelled`, those writes MUST raise `UserError` with
 no persist, including via form or RPC. Chatter MUST remain writable. Partner-allocation
-constrain MUST still apply.
-(Previously: Membership freeze was closed-only; business fields had no sheet-state
-guard.)
+constrain MUST still apply. (Previously: Membership freeze was closed-only; business
+fields had no sheet-state guard.)
 
 #### Scenario: Open membership and business fields writable
 
@@ -50,11 +49,11 @@ have no bound-partner domain. Clearing `sheet_id` on an open member MUST unlink;
 non-open-sheet membership writes MUST be rejected. MUST NOT expose sheet-form member
 list or Payment Lines.
 
-| Surface | MUST |
-| --- | --- |
-| List visible | `name`, `create_date`, `sheet_id`, `seller_id`, `document_type`, `amount`, `state` |
-| List hide | `partner_id`, `company_id`, `document_id` optional hide; `currency_id` column-invisible |
-| Search | one filter per state; one per `document_type`; Created On `date="create_date"`; keep name/customer/seller/sheet |
+| Surface      | MUST                                                                                                            |
+| ------------ | --------------------------------------------------------------------------------------------------------------- |
+| List visible | `name`, `create_date`, `sheet_id`, `seller_id`, `document_type`, `amount`, `state`                              |
+| List hide    | `partner_id`, `company_id`, `document_id` optional hide; `currency_id` column-invisible                         |
+| Search       | one filter per state; one per `document_type`; Created On `date="create_date"`; keep name/customer/seller/sheet |
 
 (Previously: MUST keep Reassign Customers kanban; closed-sheet membership writes
 rejected.)
@@ -133,9 +132,9 @@ When `partner_id` changes, the system MUST NOT auto-compute or auto-write
 `partner_id` write while `allocation_id` is set MUST raise `UserError` with no persist.
 MUST NOT `sudo()`. Same-value `partner_id` MUST NOT recompute allocation. `confirmed`
 current allocation MUST refuse the move with no field change. While the sheet is `open`
-and the voucher is unassigned, any voucher state MAY change Customer.
-(Previously: Customer change auto-attached the unique draft same-sheet allocation or
-left the voucher unallocated with chatter.)
+and the voucher is unassigned, any voucher state MAY change Customer. (Previously:
+Customer change auto-attached the unique draft same-sheet allocation or left the voucher
+unallocated with chatter.)
 
 #### Scenario: Allocated customer change refused
 
@@ -180,7 +179,6 @@ left the voucher unallocated with chatter.)
 ### Requirement: Context-gated partner group_expand
 
 (Reason: Reassign Customers kanban is removed; `group_expand` existed only to populate
-empty Customer columns on that kanban.)
-(Migration: Remove `_read_group_partner_ids`, reassign context
-`collection_reassign_sheet_id`, and tests that assert expand columns. Payment Vouchers
-grouped-by-Customer MUST use identity groups.)
+empty Customer columns on that kanban.) (Migration: Remove `_read_group_partner_ids`,
+reassign context `collection_reassign_sheet_id`, and tests that assert expand columns.
+Payment Vouchers grouped-by-Customer MUST use identity groups.)

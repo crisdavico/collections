@@ -1,33 +1,31 @@
 # Archive Report: document-review-ocr-only
 
-**Archived**: 2026-09-04
-**Change**: `document-review-ocr-only`
-**Store**: openspec (filesystem only; Engram namespace unavailable — `mem_save` not called)
-**Status**: success
-**reviewGate**: absent (no review discovered; archive proceeded under ordinary repository
-policy)
+**Archived**: 2026-09-04 **Change**: `document-review-ocr-only` **Store**: openspec
+(filesystem only; Engram namespace unavailable — `mem_save` not called) **Status**:
+success **reviewGate**: absent (no review discovered; archive proceeded under ordinary
+repository policy)
 
 ## Final state at close
 
 These facts outrank intermediate `apply-progress` / `verify-report` snapshots. Launch
 final-state facts outrank those snapshots when they disagree.
 
-| Fact | Value | Authority |
-| ---- | ----- | --------- |
-| Implementation tasks | 15/15 `[x]` (1.1–4.3); `allComplete` true | persisted `tasks.md` + launch structured status |
-| applyState | `all_done` | launch structured status |
-| Verify verdict | `pass_with_warnings` | launch final-state (matches verify-report envelope at verification time) |
-| Delta requirements / scenarios | 4/4 COMPLIANT, 11/11 COMPLIANT | launch final-state |
-| CRITICAL findings | 0 | launch final-state |
-| Blockers | 0 | launch final-state |
-| Tests at close | `invoke test -m collection --mode=update` exit 0; 0 failed of 749 | launch final-state |
-| Manifest at close | `19.0.1.36.0`; no `migrations/19.0.1.36.0/` | launch final-state |
-| Warnings at close (still true, not fixed later) | no browser sheet URL; Phase 1 TDD safety-net N/A on rewritten test file; optional pylint C8101 | launch final-state |
-| apply-progress "16/16" vs tasks.md 15/15 | `tasks.md` is authority (15 implementation tasks) | launch final-state; do not treat 16/16 as current |
+| Fact                                            | Value                                                                                          | Authority                                                                |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Implementation tasks                            | 15/15 `[x]` (1.1–4.3); `allComplete` true                                                      | persisted `tasks.md` + launch structured status                          |
+| applyState                                      | `all_done`                                                                                     | launch structured status                                                 |
+| Verify verdict                                  | `pass_with_warnings`                                                                           | launch final-state (matches verify-report envelope at verification time) |
+| Delta requirements / scenarios                  | 4/4 COMPLIANT, 11/11 COMPLIANT                                                                 | launch final-state                                                       |
+| CRITICAL findings                               | 0                                                                                              | launch final-state                                                       |
+| Blockers                                        | 0                                                                                              | launch final-state                                                       |
+| Tests at close                                  | `invoke test -m collection --mode=update` exit 0; 0 failed of 749                              | launch final-state                                                       |
+| Manifest at close                               | `19.0.1.36.0`; no `migrations/19.0.1.36.0/`                                                    | launch final-state                                                       |
+| Warnings at close (still true, not fixed later) | no browser sheet URL; Phase 1 TDD safety-net N/A on rewritten test file; optional pylint C8101 | launch final-state                                                       |
+| apply-progress "16/16" vs tasks.md 15/15        | `tasks.md` is authority (15 implementation tasks)                                              | launch final-state; do not treat 16/16 as current                        |
 
 CRITICAL findings: none. Archive was not blocked. Versions were not bumped at archive.
-`state.yaml` was left as the pre-archive audit trail (`phase: verify`; notes that archive
-had not run). Close is recorded here, not by rewriting `state.yaml`.
+`state.yaml` was left as the pre-archive audit trail (`phase: verify`; notes that
+archive had not run). Close is recorded here, not by rewriting `state.yaml`.
 
 ## Task Completion Gate
 
@@ -76,8 +74,8 @@ not named in the delta were preserved. MODIFIED blocks were replaced in full by 
 ADDED `Queue payload includes seller_changed_fields` was appended after
 `Review snapshots isolated by company`.
 
-| Domain | Action | Details |
-| ------ | ------ | ------- |
+| Domain          | Action  | Details                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | document-review | Updated | ADDED 1 (`Queue payload includes seller_changed_fields`); MODIFIED 3 (`OWL client loads real ORM data`, `Approve and reject without mocks`, `Three-way raw, seller, and current comparison`); REMOVED 0; RENAMED 0. Preserved 12 unnamed requirements (`Eligible review queue`, `Authenticated binary attachment viewer`, `Viewer fit and cursor-anchored zoom`, `Viewer rotation`, `Document Review authorization`, `Per-company Document Review flag`, `Document Review menu and RPCs when flag is off`, `Sheet identifier required on review operations`, `Queue payload includes readonly provenance`, `Document Review decisions append immutable snapshots`, `Repeated Document Review appends another revision`, `Review snapshots isolated by company`). Count 16 requirements / 46 scenarios. |
 
 Main spec path:

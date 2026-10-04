@@ -192,8 +192,8 @@ Must land before U5b. Sibling grant required.
 - [x] 7.2 GREEN: Write-hook on `collection_voucher.py` when `state` transitions to
       `validated_collections` for `seller_deposit` only (covers
       `collection_audited_state`). Not `action_review_approve`.
-- [x] 7.3 RED: Quotation before invoice; within kind `_proposal_fifo_key`; within
-      bucket oldest cash `create_date`.
+- [x] 7.3 RED: Quotation before invoice; within kind `_proposal_fifo_key`; within bucket
+      oldest cash `create_date`.
 - [x] 7.4 GREEN: Ordering engine calling U5a primitives on the same receipt
       (value-preserving; `amount_applied` unchanged).
 - [x] 7.5 RED: `cash_banked` sums seller_deposit only; Excess deposit still banks; No

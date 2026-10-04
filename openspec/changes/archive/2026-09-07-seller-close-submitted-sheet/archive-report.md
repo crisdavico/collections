@@ -1,30 +1,28 @@
 # Archive Report: seller-close-submitted-sheet
 
-**Archived**: 2026-09-07
-**Change**: `seller-close-submitted-sheet`
-**Store**: openspec (filesystem only; Engram not used)
-**Status**: success
-**reviewGate**: absent (kill switch off / no review started; archive proceeded under ordinary repository policy)
+**Archived**: 2026-09-07 **Change**: `seller-close-submitted-sheet` **Store**: openspec
+(filesystem only; Engram not used) **Status**: success **reviewGate**: absent (kill
+switch off / no review started; archive proceeded under ordinary repository policy)
 
 ## Final state at close
 
 These facts outrank intermediate `apply-progress` / `verify-report` / `state.yaml`
 snapshots.
 
-| Fact | Value | Authority |
-| ---- | ----- | --------- |
-| Implementation tasks | 17/17 `[x]` (1.1–6.4); pending 0 | persisted archived `tasks.md` + structured status |
-| applyState | `all_done` | structured status at archive |
-| Verify verdict | `pass_with_warnings` (admitted) | native settle + archived verify-report envelope |
-| Delta requirements / scenarios | 24/24, 124/124 (envelope); 6 PARTIAL warnings remain | admitted verify-report at close |
-| CRITICAL findings / blockers | 0 | admitted verify-report at close |
-| Module tests at close | 0 failed, 0 error(s) of 846; test exit 0 | this remediating verify run |
-| Image / module build at close | `invoke img-build` exit 0 | this remediating verify run |
-| Shipped manifest | `19.0.1.42.0` (no `migrations/19.0.1.42.0/`) | tree at close |
-| Fifth sheet state | `submitted` (“Submitted by Seller”; PDF “Rendida”) | tree at close |
-| Seller Close | `open` → `submitted`; MCP `close_collection_sheet` | tree at close |
-| Confirm | `submitted` only; sibling `_confirm()` close-then-confirm | tree at close |
-| Reinstate | cancelled → `submitted`; no one-open lock | tree at close |
+| Fact                           | Value                                                     | Authority                                         |
+| ------------------------------ | --------------------------------------------------------- | ------------------------------------------------- |
+| Implementation tasks           | 17/17 `[x]` (1.1–6.4); pending 0                          | persisted archived `tasks.md` + structured status |
+| applyState                     | `all_done`                                                | structured status at archive                      |
+| Verify verdict                 | `pass_with_warnings` (admitted)                           | native settle + archived verify-report envelope   |
+| Delta requirements / scenarios | 24/24, 124/124 (envelope); 6 PARTIAL warnings remain      | admitted verify-report at close                   |
+| CRITICAL findings / blockers   | 0                                                         | admitted verify-report at close                   |
+| Module tests at close          | 0 failed, 0 error(s) of 846; test exit 0                  | this remediating verify run                       |
+| Image / module build at close  | `invoke img-build` exit 0                                 | this remediating verify run                       |
+| Shipped manifest               | `19.0.1.42.0` (no `migrations/19.0.1.42.0/`)              | tree at close                                     |
+| Fifth sheet state              | `submitted` (“Submitted by Seller”; PDF “Rendida”)        | tree at close                                     |
+| Seller Close                   | `open` → `submitted`; MCP `close_collection_sheet`        | tree at close                                     |
+| Confirm                        | `submitted` only; sibling `_confirm()` close-then-confirm | tree at close                                     |
+| Reinstate                      | cancelled → `submitted`; no one-open lock                 | tree at close                                     |
 
 CRITICAL findings: none. Archive was not blocked.
 
@@ -69,17 +67,17 @@ Behavioral expansions now in main specs (not section deletions):
 ## Specs synced to source of truth
 
 Main specs **already existed**. Deltas were **merged** by requirement name (not created,
-not blindly overwritten). Requirements not named in a delta were preserved.
-MODIFIED blocks were replaced with the delta’s full requirement text (byte-identical
-to the delta section after rstrip). ADDED blocks were appended.
+not blindly overwritten). Requirements not named in a delta were preserved. MODIFIED
+blocks were replaced with the delta’s full requirement text (byte-identical to the delta
+section after rstrip). ADDED blocks were appended.
 
-| Domain | Action | Details |
-| ------ | ------ | ------- |
-| collection-sheets | Updated | 2 added (Seller Close; MCP `close_collection_sheet`); 12 modified |
-| collection-sheet-report | Updated | 1 added (Rendida label); 3 modified |
-| collection-vouchers | Updated | 0 added; 2 modified |
-| collection-allocations | Updated | 0 added; 3 modified |
-| document-review | Updated | 0 added; 1 modified |
+| Domain                  | Action  | Details                                                           |
+| ----------------------- | ------- | ----------------------------------------------------------------- |
+| collection-sheets       | Updated | 2 added (Seller Close; MCP `close_collection_sheet`); 12 modified |
+| collection-sheet-report | Updated | 1 added (Rendida label); 3 modified                               |
+| collection-vouchers     | Updated | 0 added; 2 modified                                               |
+| collection-allocations  | Updated | 0 added; 3 modified                                               |
+| document-review         | Updated | 0 added; 1 modified                                               |
 
 ## Mechanical archive move
 

@@ -45,10 +45,9 @@ fields (`UserError`, no persist). Seller Close MUST NOT persist the two seller
 declarations. After `open`, writes of the two seller declarations MUST be refused while
 `commission_percent` MAY still persist. Reinstate from Cancelled MUST NOT reset stored
 values. Form widgets for the three fields MUST be readonly when the corresponding write
-would be refused.
-(Previously: Seller declarations writable only while `open`; a combined Seller Close
-write persisted them because the guard evaluated the pre-write `open` state; after
-`submitted`, further declaration writes were refused.)
+would be refused. (Previously: Seller declarations writable only while `open`; a
+combined Seller Close write persisted them because the guard evaluated the pre-write
+`open` state; after `submitted`, further declaration writes were refused.)
 
 #### Scenario: Percent range
 
@@ -110,10 +109,9 @@ voucher-block subtotals and MUST NOT include `seller_deposit`. `tendered` MUST i
 `cash_on_hand` plus `cash_deposit`, `check`, `bank_transfer`, `echeck`,
 `retention_certificate`, and `seller_deposit` (`cash_banked`). Recon algebra MUST remain
 `net_due = collected − withheld` and `difference = tendered − net_due`. Every existing
-`recon` key MUST remain.
-(Previously: Every catalog code including remittance fed `collected_total`; `tendered`
-included only `cash_on_hand` plus deposits, checks, and transfers — no echeck,
-retention, or `seller_deposit`.)
+`recon` key MUST remain. (Previously: Every catalog code including remittance fed
+`collected_total`; `tendered` included only `cash_on_hand` plus deposits, checks, and
+transfers — no echeck, retention, or `seller_deposit`.)
 
 #### Scenario: Catalog order and empty drop
 
@@ -150,9 +148,8 @@ and `status_message`. Status MUST be `currency.compare_amounts(difference, 0.0)`
 `balanced` / `in_favor` / `outstanding`. `mismatch` MUST be set when Σ allocation
 `total_vouchers` ≠ Σ printed collected voucher amounts (unallocated non-remittance sheet
 vouchers). `seller_deposit` MUST NOT set `mismatch` and MUST NOT inflate
-`collected_total`.
-(Previously: Any unallocated sheet voucher, including a future remittance, set
-`mismatch` and was included in `collected_total`.)
+`collected_total`. (Previously: Any unallocated sheet voucher, including a future
+remittance, set `mismatch` and was included in `collected_total`.)
 
 #### Scenario: Tri-state via compare_amounts
 
@@ -192,9 +189,9 @@ sheet. It MUST render the bound `collection.action_report_collection_sheet` and 
 where `content_base64` is the standard-base64 report body and `filename` is a slug
 ending `.pdf` carrying the sheet reference with `/` replaced. The tool MUST NOT create
 an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
-`collection.connector` or seller binding, and MUST NOT expose the XLSX.
-(Previously: Resolved only `open` via `_open_sheets_for_seller` and returned
-`{sheet: null}` when only `submitted` existed.)
+`collection.connector` or seller binding, and MUST NOT expose the XLSX. (Previously:
+Resolved only `open` via `_open_sheets_for_seller` and returned `{sheet: null}` when
+only `submitted` existed.)
 
 #### Scenario: Open sheet returns base64 PDF
 
@@ -224,8 +221,8 @@ an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
 
 #### Scenario: No printable sheet returns null
 
-- GIVEN an internal seller with no `open` or `submitted` sheet (none, or only
-  `proposal` / `closed` / `cancelled`)
+- GIVEN an internal seller with no `open` or `submitted` sheet (none, or only `proposal`
+  / `closed` / `cancelled`)
 - WHEN `get_collection_sheet_pdf` runs with that `seller_id`
 - THEN the response MUST be exactly `{ "sheet": null }`
 - AND the report MUST NOT be rendered

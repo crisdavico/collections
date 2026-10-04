@@ -5,19 +5,17 @@
 ### Requirement: MCP get_collection_allocation
 
 MUST expose `get_collection_allocation` via `@mcp_tool` on `muk_mcp.mixin`
-(`category=read`, `registry=mcp`), method-discovered; MUST NOT add a
-`muk_mcp.tool` row. Input MUST be `{seller_id, customer_identification}`.
-Portal/public MUST receive `AccessError`. Internal callers MUST pass Enabled
-Seller plus active-connector seller-binding gates. Open sheet MUST be resolved
-via `_open_sheets_for_seller` and MUST NOT use
-`_resolve_open_sheet_id_for_create`. Unbound identification, no open sheet, or
-no allocation MUST return `{allocation: null}` and MUST NOT create partner,
-binding, or sheet. Found MUST return residual_reason plus `vouchers` and
-`invoices` as lists (even empty); MUST NEVER include attachments or base64.
-More than one open sheet MUST raise the existing multi-open `UserError`.
-Errors MUST be raised, NEVER `{"error":...}` bodies. Every branch MUST write
-zero rows. `validated` allocations MUST be returned with that `state`. MUST
-NOT `sudo()`.
+(`category=read`, `registry=mcp`), method-discovered; MUST NOT add a `muk_mcp.tool` row.
+Input MUST be `{seller_id, customer_identification}`. Portal/public MUST receive
+`AccessError`. Internal callers MUST pass Enabled Seller plus active-connector
+seller-binding gates. Open sheet MUST be resolved via `_open_sheets_for_seller` and MUST
+NOT use `_resolve_open_sheet_id_for_create`. Unbound identification, no open sheet, or
+no allocation MUST return `{allocation: null}` and MUST NOT create partner, binding, or
+sheet. Found MUST return residual_reason plus `vouchers` and `invoices` as lists (even
+empty); MUST NEVER include attachments or base64. More than one open sheet MUST raise
+the existing multi-open `UserError`. Errors MUST be raised, NEVER `{"error":...}`
+bodies. Every branch MUST write zero rows. `validated` allocations MUST be returned with
+that `state`. MUST NOT `sudo()`.
 
 #### Scenario: Registered read tool
 
@@ -28,8 +26,8 @@ NOT `sudo()`.
 
 #### Scenario: Unbound or missing returns null
 
-- GIVEN an enabled seller and an unbound identification, or no open sheet, or
-  an open sheet with no allocation
+- GIVEN an enabled seller and an unbound identification, or no open sheet, or an open
+  sheet with no allocation
 - WHEN `get_collection_allocation` runs
 - THEN the body MUST be `{allocation: null}`
 - AND MUST NOT create partner, binding, or sheet
@@ -38,8 +36,8 @@ NOT `sudo()`.
 
 - GIVEN one open sheet and an allocation (including `validated`)
 - WHEN `get_collection_allocation` runs
-- THEN payload MUST include residual_reason and list `vouchers` and `invoices`
-  (even empty), never attachments or base64
+- THEN payload MUST include residual_reason and list `vouchers` and `invoices` (even
+  empty), never attachments or base64
 - AND `state` MUST be the stored allocation state with zero writes
 
 #### Scenario: Multi-open sheet and auth fail closed
@@ -53,44 +51,41 @@ NOT `sudo()`.
 
 ### Requirement: MCP create_collection_allocation
 
-MUST expose MCP write `create_collection_allocation` for Enabled Seller
-internal callers (`category=write`, `registry=mcp`, method-discovered; MUST
-NOT add a `muk_mcp.tool` row). Input MUST be:
+MUST expose MCP write `create_collection_allocation` for Enabled Seller internal callers
+(`category=write`, `registry=mcp`, method-discovered; MUST NOT add a `muk_mcp.tool`
+row). Input MUST be:
 
-| Key | Rule |
-| --- | --- |
-| seller_id | int > 0 |
+| Key                     | Rule                                                       |
+| ----------------------- | ---------------------------------------------------------- |
+| seller_id               | int > 0                                                    |
 | customer_identification | stripped string; top-level only; MUST NOT on payment items |
-| request_id | required |
-| payments[] | minItems 1; payment shape without customer_identification |
-| invoices[] | REQUIRED; MAY be empty |
-| residual_reason | nullable |
-| total_debt | MAY be present; MUST be ignored |
+| request_id              | required                                                   |
+| payments[]              | minItems 1; payment shape without customer_identification  |
+| invoices[]              | REQUIRED; MAY be empty                                     |
+| residual_reason         | nullable                                                   |
+| total_debt              | MAY be present; MUST be ignored                            |
 
-Success output MUST be exactly `{sheet_id, vouchers, allocation}`:
-`vouchers[]` one `{id,name,state,document_id}` row per submitted payment IN
-SEND ORDER; `allocation` exactly seven keys
-`{id,name,state,revision,total_vouchers,total_applied,residual}` with
-`revision` a JSON int (MUST NOT be bool, float, or str). Persist `confirmed`
-revision-1; `UNIQUE(sheet_id, partner_id)`. Unbound identification MUST
-lazy-resolve via `resolve_customer_partner` on this write. When
-`company.auto_create_sheet` is False, MUST raise a named `UserError` and
-write zero rows. Exact same-company `document_id` set MUST reuse rows and
-continue to allocation (MUST NOT voucher-style early-return). Partial overlap
-or other-company hit MUST raise generic conflict with no writes. Revalidation
-failure MUST roll back vouchers and allocation. Errors MUST be raised, NEVER
-`{"error":...}` bodies. MUST NOT `sudo()`.
-(Previously: Input used `vouchers` document_id strings and optional invoices;
-output was `{allocation:{...}}` only; partner was binding-only; exact
-document_id reuse was voucher-tool early-return.)
+Success output MUST be exactly `{sheet_id, vouchers, allocation}`: `vouchers[]` one
+`{id,name,state,document_id}` row per submitted payment IN SEND ORDER; `allocation`
+exactly seven keys `{id,name,state,revision,total_vouchers,total_applied,residual}` with
+`revision` a JSON int (MUST NOT be bool, float, or str). Persist `confirmed` revision-1;
+`UNIQUE(sheet_id, partner_id)`. Unbound identification MUST lazy-resolve via
+`resolve_customer_partner` on this write. When `company.auto_create_sheet` is False,
+MUST raise a named `UserError` and write zero rows. Exact same-company `document_id` set
+MUST reuse rows and continue to allocation (MUST NOT voucher-style early-return).
+Partial overlap or other-company hit MUST raise generic conflict with no writes.
+Revalidation failure MUST roll back vouchers and allocation. Errors MUST be raised,
+NEVER `{"error":...}` bodies. MUST NOT `sudo()`. (Previously: Input used `vouchers`
+document_id strings and optional invoices; output was `{allocation:{...}}` only; partner
+was binding-only; exact document_id reuse was voucher-tool early-return.)
 
 #### Scenario: First create
 
-- GIVEN valid enabled-seller payload with inline `payments` and required
-  `invoices` (MAY be `[]`)
+- GIVEN valid enabled-seller payload with inline `payments` and required `invoices` (MAY
+  be `[]`)
 - WHEN create with a new `request_id`
-- THEN `confirmed`, `revision` 1 (int), matching totals, `sheet_id`, and
-  `vouchers[]` in send order
+- THEN `confirmed`, `revision` 1 (int), matching totals, `sheet_id`, and `vouchers[]` in
+  send order
 - AND a second header for same (sheet, partner) MUST be unique-rejected
 
 #### Scenario: Authorization denied
@@ -115,8 +110,7 @@ document_id reuse was voucher-tool early-return.)
 
 #### Scenario: Partial overlap or other-company conflict
 
-- GIVEN a partial same-company `document_id` overlap, or a hit only in another
-  company
+- GIVEN a partial same-company `document_id` overlap, or a hit only in another company
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise generic conflict with no writes and no ids disclosed
 
@@ -129,21 +123,20 @@ document_id reuse was voucher-tool early-return.)
 
 ### Requirement: Input and sheet gates
 
-Vouchers MUST be caller-company, amount > 0, not `rejected`, one partner, one
-caller seller, one sheet. Those single-customer and single-sheet gates MUST
-remain and MUST be reachable via `document_id` reuse. Customer MUST resolve
-via `resolve_customer_partner` on this write (MAY create partner/binding);
-MUST match voucher partner after resolve. Sheet MUST be `open` and same
-company. When `auto_create_sheet` is False, MUST raise a named `UserError`
-(company requires a sheet chosen in Odoo) with zero writes.
-(Previously: Customer MUST resolve via existing binding only and MUST NOT
-create partner/binding; auto_create_sheet False was not fail-closed here.)
+Vouchers MUST be caller-company, amount > 0, not `rejected`, one partner, one caller
+seller, one sheet. Those single-customer and single-sheet gates MUST remain and MUST be
+reachable via `document_id` reuse. Customer MUST resolve via `resolve_customer_partner`
+on this write (MAY create partner/binding); MUST match voucher partner after resolve.
+Sheet MUST be `open` and same company. When `auto_create_sheet` is False, MUST raise a
+named `UserError` (company requires a sheet chosen in Odoo) with zero writes.
+(Previously: Customer MUST resolve via existing binding only and MUST NOT create
+partner/binding; auto_create_sheet False was not fail-closed here.)
 
 #### Scenario: Ineligible input rejected
 
 - GIVEN amount null/≤0, `rejected`, other company, other sheet, mixed
-  partner/seller/sheet via reused `document_id`, partner mismatch after
-  resolve, closed sheet, or other company sheet
+  partner/seller/sheet via reused `document_id`, partner mismatch after resolve, closed
+  sheet, or other company sheet
 - WHEN allocated
 - THEN MUST error
 - AND mixed-reuse and mismatch MUST NOT create a partner or binding
@@ -165,22 +158,19 @@ create partner/binding; auto_create_sheet False was not fail-closed here.)
 ### Requirement: Idempotency and amend
 
 MUST replay identical `request_id` (zero writes) with the full
-`{sheet_id, vouchers[], allocation}` payload, `vouchers[]` in submitted
-order. Matching `content_hash` (new `request_id`, no extra revision) MUST
-include `residual_reason` so a reason-only retry is not a silent no-op.
-Amend MUST be voucher SUPERSET (`revision`+1). MUST reject subset/partial
-overlap and `state != confirmed` (`validated`/`rejected` refuse amend).
-`UniqueViolation` MUST invalidate then replay or generic-conflict with no
-ids.
-(Previously: Replay returned only `{allocation:{...}}`; `content_hash`
-omitted `residual_reason`.)
+`{sheet_id, vouchers[], allocation}` payload, `vouchers[]` in submitted order. Matching
+`content_hash` (new `request_id`, no extra revision) MUST include `residual_reason` so a
+reason-only retry is not a silent no-op. Amend MUST be voucher SUPERSET (`revision`+1).
+MUST reject subset/partial overlap and `state != confirmed` (`validated`/`rejected`
+refuse amend). `UniqueViolation` MUST invalidate then replay or generic-conflict with no
+ids. (Previously: Replay returned only `{allocation:{...}}`; `content_hash` omitted
+`residual_reason`.)
 
 #### Scenario: Replay by request_id, content_hash, or UniqueViolation
 
 - GIVEN a prior create or concurrent `UNIQUE(request_id)` insert
 - WHEN identical `request_id`, same content with a new `request_id`, or race
-- THEN zero writes, no extra revision, or invalidate-replay/generic-conflict
-  with no ids
+- THEN zero writes, no extra revision, or invalidate-replay/generic-conflict with no ids
 - AND `request_id` replay MUST return `sheet_id` plus ordered `vouchers[]`
 
 #### Scenario: Amend voucher superset or overlap

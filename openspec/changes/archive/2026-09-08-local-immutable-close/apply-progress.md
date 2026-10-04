@@ -1,14 +1,14 @@
 # Apply progress: local-immutable-close
 
-**Change**: local-immutable-close **Mode**: Strict TDD **Work unit**: Remediate
-AGENTS wrap pin **Delivery**: auto-chain / stacked-to-main / PR 3 slice **GREEN**:
-Manifest `19.0.1.44.0`; AGENTS.md local Close; no `migrations/19.0.1.44.0/`. Phase 6.1
-**passed** (`0 failed, 0 error(s) of 950 tests`). Phase 6.3 **passed**. Phase 6.2
-**failed** — satellite not edited. Remediation R.1 **passed**: wrap-tolerant AGENTS
-Close pins; focused pin **0 failed, 0 error(s) of 1 tests**; `invoke test -m
-collection --mode=update` **exit 0** (`0 failed, 0 error(s) of 950 tests`). Did
-**not** settle (parent settles with `--remediates-evidence-revision
-sha256:59ddea388282fc0317c1d2ae434b8d2866c4a589b51b2e0ba57d0130c984de82`).
+**Change**: local-immutable-close **Mode**: Strict TDD **Work unit**: Remediate AGENTS
+wrap pin **Delivery**: auto-chain / stacked-to-main / PR 3 slice **GREEN**: Manifest
+`19.0.1.44.0`; AGENTS.md local Close; no `migrations/19.0.1.44.0/`. Phase 6.1 **passed**
+(`0 failed, 0 error(s) of 950 tests`). Phase 6.3 **passed**. Phase 6.2 **failed** —
+satellite not edited. Remediation R.1 **passed**: wrap-tolerant AGENTS Close pins;
+focused pin **0 failed, 0 error(s) of 1 tests**;
+`invoke test -m collection --mode=update` **exit 0**
+(`0 failed, 0 error(s) of 950 tests`). Did **not** settle (parent settles with
+`--remediates-evidence-revision sha256:59ddea388282fc0317c1d2ae434b8d2866c4a589b51b2e0ba57d0130c984de82`).
 
 ## Completed Tasks
 
@@ -46,10 +46,10 @@ sha256:59ddea388282fc0317c1d2ae434b8d2866c4a589b51b2e0ba57d0130c984de82`).
       folder.
 - [x] 6.1 `invoke test -m collection --mode=update`
 - [x] 6.3 scoped `pre-commit run --files` on modified collection files
-- [x] R.1 Wrap-tolerant AGENTS Close pins in
-      `test_agents_md_five_state_workflow` (`" ".join(agents.split())` for
-      `MUST NOT consult the connector` and `MUST NOT call create_receipt`).
-      AGENTS.md wrap left as-is. Close production unchanged.
+- [x] R.1 Wrap-tolerant AGENTS Close pins in `test_agents_md_five_state_workflow`
+      (`" ".join(agents.split())` for `MUST NOT consult the connector` and
+      `MUST NOT call create_receipt`). AGENTS.md wrap left as-is. Close production
+      unchanged.
 
 ## Files Changed
 
@@ -70,10 +70,10 @@ sha256:59ddea388282fc0317c1d2ae434b8d2866c4a589b51b2e0ba57d0130c984de82`).
 | `models/collection_receipt_value.py`              | Modified | Phase 4: freeze create via helper; shared frozen-value message                                                                                                                                                        |
 | `models/collection_cash_replacement.py`           | Modified | Phase 4: freeze create via helper after replacement gate                                                                                                                                                              |
 | `openspec/changes/local-immutable-close/tasks.md` | Modified | Marked 1.1–1.5, 2.1–2.2, 3.1–3.2, 4.1–4.3, 5.1–5.2, 6.1, and 6.3 `[x]`. 6.2 left `[ ]`.                                                                                                                               |
-| `tests/test_collection_mcp_tool.py`               | Modified | Phase 6 allowed unblock: nest UserError assertion also accepts `base64` (English msgid + Spanish msgstr). Tests only. Did not edit `i18n/` or MCP production.                                                          |
+| `tests/test_collection_mcp_tool.py`               | Modified | Phase 6 allowed unblock: nest UserError assertion also accepts `base64` (English msgid + Spanish msgstr). Tests only. Did not edit `i18n/` or MCP production.                                                         |
 | `__manifest__.py`                                 | Modified | Phase 5: version `19.0.1.44.0`                                                                                                                                                                                        |
 | `AGENTS.md`                                       | Modified | Phase 5: local Close (no connector/`create_receipt`); receipt `draft`/`closed`/`issued`; freeze create; Cancel reopens local `closed` receipts; MCP Seller Close unchanged; leftover pin no `migrations/19.0.1.44.0/` |
-| `tests/test_collection_company_migration.py`      | Modified | Phase 5: pin `19.0.1.44.0`; leftover forbids `migrations/19.0.1.44.0/`; AGENTS local Close contract. R.1: wrap-tolerant Close pins (`" ".join(agents.split())`)                                                                                                                   |
+| `tests/test_collection_company_migration.py`      | Modified | Phase 5: pin `19.0.1.44.0`; leftover forbids `migrations/19.0.1.44.0/`; AGENTS local Close contract. R.1: wrap-tolerant Close pins (`" ".join(agents.split())`)                                                       |
 
 Did **not** add `migrations/19.0.1.44.0/`. Did **not** edit MCP Seller Close in
 `AGENTS.md`. Did **not** edit MCP production tools. Did **not** edit `i18n/`. Did
@@ -99,10 +99,10 @@ modified from other work; this Phase 6 slice did not change them.
 | 4.3  | `tests/test_collection_{allocation,voucher,receipt}.py`                                                        | Integration (TransactionCase)          | ✅ 6/6 then GREEN 7/7 plus triangulation 9/9                                                                                                                                                                                              | ✅ Reconfirmed **`4 failed, 0 error(s) of 4 tests`**                                                                                                                                                        | ✅ **`0 failed, 0 error(s) of 7 tests`** (1.4–1.5 + receipt/value/replacement create)                                                                          | ✅ 9 write/create-allow paths still green                                                                                                                                                               | ✅ helper + shared frozen messages                                                                                                                 |
 | 5.2  | `tests/test_collection_company_migration.py`                                                                   | Integration (TransactionCase file-pin) | ✅ 2/2 (`test_manifest_version_is_1_43_0` + `test_agents_md_five_state_workflow`)                                                                                                                                                         | ✅ Written + executed. **`2 failed, 0 error(s) of 2 tests`**: `'19.0.1.44.0' not found` in manifest; `'Module metadata \`19.0.1.44.0\`' not found` in AGENTS.md                                             | ✅ Phase 5 Passed after 5.1                                                                                                                                    | ✅ leftover forbids `migrations/19.0.1.44.0/`; 1.43.0 migrate still required; AGENTS local Close + receipt `closed` + freeze create; MCP `close_collection_sheet` / `action_seller_close` still present | ➖ None needed (pin + docs)                                                                                                                        |
 | 5.1  | `__manifest__.py`, `AGENTS.md`                                                                                 | Structural (version + ops contract)    | included in 5.2 2/2                                                                                                                                                                                                                       | ✅ 5.2 RED first                                                                                                                                                                                            | ✅ **`0 failed, 0 error(s) of 2 tests`**. Manifest `19.0.1.44.0`; no `migrations/19.0.1.44.0/`                                                                 | ➖ Single (one version string; leftover absence is the edge in 5.2)                                                                                                                                     | ✅ unwrapped `MUST NOT consult the connector` so the pin matches; tests still **`0 failed, 0 error(s) of 2 tests`**                                |
-| 6.1  | `tests/test_collection_mcp_tool.py` + full module                                                              | Integration (TransactionCase suite)    | prior 6.1: **`1 failed, 0 error(s) of 950 tests`** (nest substring)                                                                                                                                                                       | ✅ Spanish UserError has `base64`/`adjunto`, not `datas`/`attachment`. English msgid also contains `base64`.                                                                                                 | ✅ **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**. Odoo `collection: 1030 tests 65.34s 92472 queries`.                                             | ➖ Single shared token `base64` in both msgid and msgstr; no-writes already on the same method                                                                                                           | ➖ None needed (assertion pin; no production edit)                                                                                                 |
+| 6.1  | `tests/test_collection_mcp_tool.py` + full module                                                              | Integration (TransactionCase suite)    | prior 6.1: **`1 failed, 0 error(s) of 950 tests`** (nest substring)                                                                                                                                                                       | ✅ Spanish UserError has `base64`/`adjunto`, not `datas`/`attachment`. English msgid also contains `base64`.                                                                                                | ✅ **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**. Odoo `collection: 1030 tests 65.34s 92472 queries`.                                             | ➖ Single shared token `base64` in both msgid and msgstr; no-writes already on the same method                                                                                                          | ➖ None needed (assertion pin; no production edit)                                                                                                 |
 | 6.2  | `invoke test -m collection_receipt_proposal --mode=update`                                                     | Integration (satellite)                | 6.1 `-u collection` already applied                                                                                                                                                                                                       | ➖ Verify-only                                                                                                                                                                                              | ❌ **`3 failed, 1 error(s) of 140 tests`**, invoke **exit 1**. Satellite not edited.                                                                           | ➖                                                                                                                                                                                                      | ➖ None (forbidden to edit satellite)                                                                                                              |
-| 6.3  | scoped `pre-commit run --files`                                                                                | Quality                                | N/A (hooks)                                                                                                                                                                                                                               | ➖ Verify-only                                                                                                                                                                                              | ✅ **PRECOMMIT_EXIT:0** on actual modified collection files (seedian-relative paths)                                                                          | ➖                                                                                                                                                                                                      | ➖ None                                                                                                                                            |
-| R.1  | `tests/test_collection_company_migration.py`                                                                   | Integration (TransactionCase file-pin) | ✅ existing pin RED: **`1 failed, 0 error(s) of 1 tests`** (`'MUST NOT consult the connector' not found` because AGENTS.md wraps after `consult the`)                                                                                      | ✅ Existing verify FAIL is the RED (exact substring vs prettier wrap). Did not add a new pin.                                                                                                               | ✅ Focused: **`0 failed, 0 error(s) of 1 tests`**. Full: **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**                                           | ✅ second pin `MUST NOT call create_receipt` also wrap-tolerant (same wrap risk)                                                                             | ➖ None needed (same `" ".join(agents.split())` pattern as leftover migrate pins; did not unwrap AGENTS.md)                                        |
+| 6.3  | scoped `pre-commit run --files`                                                                                | Quality                                | N/A (hooks)                                                                                                                                                                                                                               | ➖ Verify-only                                                                                                                                                                                              | ✅ **PRECOMMIT_EXIT:0** on actual modified collection files (seedian-relative paths)                                                                           | ➖                                                                                                                                                                                                      | ➖ None                                                                                                                                            |
+| R.1  | `tests/test_collection_company_migration.py`                                                                   | Integration (TransactionCase file-pin) | ✅ existing pin RED: **`1 failed, 0 error(s) of 1 tests`** (`'MUST NOT consult the connector' not found` because AGENTS.md wraps after `consult the`)                                                                                     | ✅ Existing verify FAIL is the RED (exact substring vs prettier wrap). Did not add a new pin.                                                                                                               | ✅ Focused: **`0 failed, 0 error(s) of 1 tests`**. Full: **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**                                            | ✅ second pin `MUST NOT call create_receipt` also wrap-tolerant (same wrap risk)                                                                                                                        | ➖ None needed (same `" ".join(agents.split())` pattern as leftover migrate pins; did not unwrap AGENTS.md)                                        |
 
 ### Test Summary (Phase 1, retained)
 
@@ -160,20 +160,21 @@ modified from other work; this Phase 6 slice did not change them.
 ### Test Summary (Phase 6)
 
 - **6.1 command**: from `/home/crisd/projects/seedian/seedian`,
-  `invoke test -m collection --mode=update` (default `DB_FILTER=^devel$`; not `-d
-  devel`).
+  `invoke test -m collection --mode=update` (default `DB_FILTER=^devel$`; not
+  `-d devel`).
 - **6.1 RED (prior attempt)**: **`1 failed, 0 error(s) of 950 tests`**, invoke exit 1 —
   `test_create_incomplete_nest_rejects_no_writes` English `"datas"`/`"attachment"` vs
   Spanish `base64`.
 - **6.1 GREEN**: **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**. Odoo
   `collection: 1030 tests 65.34s 92472 queries`.
 - **6.2**: **`3 failed, 1 error(s) of 140 tests`**, invoke **exit 1**. Failures:
-  `TestReceiptProposalBoard.test_sheet_company_rule_still_guards_the_board` (other-company
-  RPC did not refuse); `TestReceiptProposalOrder.test_document_numbers_string_follows_the_same_order`
+  `TestReceiptProposalBoard.test_sheet_company_rule_still_guards_the_board`
+  (other-company RPC did not refuse);
+  `TestReceiptProposalOrder.test_document_numbers_string_follows_the_same_order`
   (`collection.receipt` has no `document_numbers`);
   `TestReceiptProposalOrder.test_fifo_key_matches_receipt_line_ids_order` and
-  `test_same_due_date_empty_number_matches_compute_line_ids` (FIFO ids ≠ `line_ids.ids`).
-  Satellite not edited.
+  `test_same_due_date_empty_number_matches_compute_line_ids` (FIFO ids ≠
+  `line_ids.ids`). Satellite not edited.
 - **6.3**: scoped `pre-commit run --files` on actual modified collection files.
   **PRECOMMIT_EXIT:0**.
 - **Layers used**: Integration/TransactionCase (full collection + satellite), Quality
@@ -224,19 +225,19 @@ modified from other work; this Phase 6 slice did not change them.
 
 ### Phase 6
 
-| Evidence                                          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Evidence                                          | Value                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Focused test command and exact result             | From `/home/crisd/projects/seedian/seedian`: (1) assertion pin then `invoke test -m collection --mode=update` → **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**. (2) `invoke test -m collection_receipt_proposal --mode=update` → **`3 failed, 1 error(s) of 140 tests`**, invoke **exit 1**. (3) scoped `pre-commit run --files` on actual modified collection files → **PRECOMMIT_EXIT:0**. |
-| Runtime harness command/scenario and exact result | Same `invoke test --mode=update` commands are the runtime harness (containerized Odoo on `devel`). Collection suite green. Satellite board suite red. |
-| Rollback boundary                                 | Revert the one-line `base64` pin in `tests/test_collection_mcp_tool.py` and the 6.1/6.3 checkboxes. Do not revert Phases 1–5 production Close/freeze. Do not revert `i18n/`. Satellite was not edited. |
+| Runtime harness command/scenario and exact result | Same `invoke test --mode=update` commands are the runtime harness (containerized Odoo on `devel`). Collection suite green. Satellite board suite red.                                                                                                                                                                                                                                                    |
+| Rollback boundary                                 | Revert the one-line `base64` pin in `tests/test_collection_mcp_tool.py` and the 6.1/6.3 checkboxes. Do not revert Phases 1–5 production Close/freeze. Do not revert `i18n/`. Satellite was not edited.                                                                                                                                                                                                   |
 
 ### Remediation R.1 (AGENTS wrap pin)
 
-| Evidence                                          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Evidence                                          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Focused test command and exact result             | From `/home/crisd/projects/seedian/seedian`: `docker exec -i seedian-odoo-1 odoo -d devel --http-port=18069 --gevent-port=18072 --test-enable --stop-after-init --workers=0 --test-tags /collection:TestCollectionCompanyMigration.test_agents_md_five_state_workflow`. RED (before pin change): **`1 failed, 0 error(s) of 1 tests`**, `'MUST NOT consult the connector' not found`. GREEN (after wrap-tolerant pin): **`0 failed, 0 error(s) of 1 tests`**, exit 0. |
-| Runtime harness command/scenario and exact result | From `/home/crisd/projects/seedian/seedian`: `invoke test -m collection --mode=update`. First run exit 255: unrelated `test_migrate_binds_null_sequences_to_main_and_copies_others` (`79611 != 79608`) plus `could not serialize access due to concurrent update` while `seedian-odoo-1` was live. Retry: **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**. Odoo `collection: 1030 tests 68.18s 92472 queries`. |
-| Rollback boundary                                 | Revert the wrap-tolerant `assertIn(..., " ".join(agents.split()))` for `MUST NOT consult the connector` and `MUST NOT call create_receipt` in `tests/test_collection_company_migration.py` and the R.1 checkbox. Do not revert Close production, `AGENTS.md`, or Phases 1–6. |
+| Runtime harness command/scenario and exact result | From `/home/crisd/projects/seedian/seedian`: `invoke test -m collection --mode=update`. First run exit 255: unrelated `test_migrate_binds_null_sequences_to_main_and_copies_others` (`79611 != 79608`) plus `could not serialize access due to concurrent update` while `seedian-odoo-1` was live. Retry: **`0 failed, 0 error(s) of 950 tests`**, invoke **exit 0**. Odoo `collection: 1030 tests 68.18s 92472 queries`.                                             |
+| Rollback boundary                                 | Revert the wrap-tolerant `assertIn(..., " ".join(agents.split()))` for `MUST NOT consult the connector` and `MUST NOT call create_receipt` in `tests/test_collection_company_migration.py` and the R.1 checkbox. Do not revert Close production, `AGENTS.md`, or Phases 1–6.                                                                                                                                                                                          |
 
 ### RED assertions resolved in Phase 3
 
@@ -277,10 +278,10 @@ unchanged. No `migrations/19.0.1.44.0/`.
   unchanged. Re-run: **`0 failed, 0 error(s) of 950 tests`**.
 - **Phase 6.2 FAIL (satellite, not edited):** `3 failed, 1 error(s) of 140 tests`.
   `test_sheet_company_rule_still_guards_the_board` expected other-company board RPC to
-  refuse. `test_document_numbers_string_follows_the_same_order` —
-  `collection.receipt` has no `document_numbers`. Two FIFO order tests: fifo ids ≠
-  `receipt.line_ids.ids`. These live in `collection_receipt_proposal`; this apply must
-  not edit the satellite. Next apply needs expanded edit roots or a satellite change.
+  refuse. `test_document_numbers_string_follows_the_same_order` — `collection.receipt`
+  has no `document_numbers`. Two FIFO order tests: fifo ids ≠ `receipt.line_ids.ids`.
+  These live in `collection_receipt_proposal`; this apply must not edit the satellite.
+  Next apply needs expanded edit roots or a satellite change.
 - **R.1 wrap pin (resolved this slice):** `test_agents_md_five_state_workflow` failed
   exact substring `MUST NOT consult the connector` because prettier wraps after
   `consult the`. Pins now use `" ".join(agents.split())`. AGENTS.md wrap left as-is.
@@ -288,30 +289,29 @@ unchanged. No `migrations/19.0.1.44.0/`.
 
 ## Remaining Tasks
 
-- [x] 6.2 executed. Satellite `3 failed, 1 error(s) of 140 tests` are pre-existing
-      board drift (`document_numbers` never on `collection.receipt`; FIFO vs
-      `line_ids`; company-rule RPC). Not a local-Close regression. Satellite not
-      edited. Orchestrator waived 6.2 as a Close-blocker so final verify can run
-      this change's collection specs.
+- [x] 6.2 executed. Satellite `3 failed, 1 error(s) of 140 tests` are pre-existing board
+      drift (`document_numbers` never on `collection.receipt`; FIFO vs `line_ids`;
+      company-rule RPC). Not a local-Close regression. Satellite not edited.
+      Orchestrator waived 6.2 as a Close-blocker so final verify can run this change's
+      collection specs.
 - [x] R.1 wrap-tolerant AGENTS Close pins. Parent verify + settle remaining.
 
 ## Workload / PR Boundary
 
 - Mode: chained PR slice (stacked-to-main)
 - Current work unit: Remediate AGENTS wrap pin
-- Boundary: wrap-tolerant pins only in `tests/test_collection_company_migration.py`.
-  No AGENTS.md unwrap. No Close production edit.
+- Boundary: wrap-tolerant pins only in `tests/test_collection_company_migration.py`. No
+  AGENTS.md unwrap. No Close production edit.
 - Estimated review budget impact: +8 assertion lines (two wrap-tolerant `assertIn`
   blocks)
 
 ## Status
 
-17/17 tasks complete plus R.1 wrap-pin remediation. Satellite board suite
-is red for pre-existing reasons outside this Close contract. Ready for
-sdd-verify (collection `test_command`). Parent must settle this attempt with
-`--remediates-evidence-revision
-sha256:59ddea388282fc0317c1d2ae434b8d2866c4a589b51b2e0ba57d0130c984de82` and a
-**new** evidence hash.
+17/17 tasks complete plus R.1 wrap-pin remediation. Satellite board suite is red for
+pre-existing reasons outside this Close contract. Ready for sdd-verify (collection
+`test_command`). Parent must settle this attempt with
+`--remediates-evidence-revision sha256:59ddea388282fc0317c1d2ae434b8d2866c4a589b51b2e0ba57d0130c984de82`
+and a **new** evidence hash.
 
 ```json
 {

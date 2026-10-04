@@ -600,8 +600,8 @@ When the sheet is `closed` or `cancelled`, writes to allocation `line_ids` (incl
 `amount_applied`), `voucher_ids`, `receipt_ids`, `partner_id`, and `sheet_id` MUST be
 refused even if the allocation is `draft`. Direct line `write` or `unlink` MUST be
 refused. When the sheet is `open`, `submitted`, or `proposal`, draft allocations MUST
-remain writable subject to other rules. MUST NOT `sudo()`.
-(Previously: Draft allocations writable when the sheet is `open` or `proposal`.)
+remain writable subject to other rules. MUST NOT `sudo()`. (Previously: Draft
+allocations writable when the sheet is `open` or `proposal`.)
 
 #### Scenario: Cancelled draft line write refused
 
@@ -639,8 +639,8 @@ remain writable subject to other rules. MUST NOT `sudo()`.
 `create_collection_allocation` and `get_collection_allocation` MUST resolve sheets only
 where `state` is `open`. A sheet in `submitted`, `proposal`, `closed`, or `cancelled`
 MUST NOT satisfy lookup or auto-assign. A seller MAY obtain a new `open` sheet while
-another sheet is `submitted` or `proposal`. MUST NOT `sudo()`.
-(Previously: Non-open list omitted `submitted`.)
+another sheet is `submitted` or `proposal`. MUST NOT `sudo()`. (Previously: Non-open
+list omitted `submitted`.)
 
 #### Scenario: Proposal does not occupy MCP open
 

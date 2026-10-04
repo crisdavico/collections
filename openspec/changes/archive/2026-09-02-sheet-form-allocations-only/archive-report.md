@@ -1,12 +1,8 @@
 # Archive Report: sheet-form-allocations-only
 
-**Change**: `sheet-form-allocations-only`
-**Archived**: 2026-09-02
-**Artifact store**: openspec
-**Skill resolution**: paths-injected
-**Engram**: skipped by orchestrator instruction (`openspec` mode; do not call
-`mem_save`)
-**Work unit**: `archive-close`
+**Change**: `sheet-form-allocations-only` **Archived**: 2026-09-02 **Artifact store**:
+openspec **Skill resolution**: paths-injected **Engram**: skipped by orchestrator
+instruction (`openspec` mode; do not call `mem_save`) **Work unit**: `archive-close`
 
 ## Final-state authority
 
@@ -22,42 +18,42 @@ Ranked sources at close (most authoritative first):
    envelope requirements 2/2, scenarios 11/11, `test_exit_code` 0, 509/509 tests.
    Implementation on disk (uncommitted): `AGENTS.md`, `models/collection_sheet.py`,
    `views/collection_views.xml`, `tests/test_collection_ui.py`,
-   `tests/test_collection_sheet.py`, plus this change folder. Orchestrator will
-   commit after archive. No CRITICAL findings.
+   `tests/test_collection_sheet.py`, plus this change folder. Orchestrator will commit
+   after archive. No CRITICAL findings.
 4. **`verify-report.md` (verification-time snapshot)**: verdict `pass`; blockers 0;
    `critical_findings: 0`; requirements 2/2; scenarios 11/11; collection suite 509
-   passed. Used as historical evidence of the passing envelope; final numbers match
-   the orchestrator close facts, so they are restated as current.
+   passed. Used as historical evidence of the passing envelope; final numbers match the
+   orchestrator close facts, so they are restated as current.
 
 ## Gates
 
-| Gate | Result |
-|------|--------|
-| Native Review Receipt | Absent — proceed under ordinary policy |
-| Task Completion | Pass — 12/12 `[x]` |
-| CRITICAL in verify-report | Pass — 0 CRITICAL |
-| `rules.archive` destructive-delta warning | Recorded below — do not stop |
+| Gate                                      | Result                                 |
+| ----------------------------------------- | -------------------------------------- |
+| Native Review Receipt                     | Absent — proceed under ordinary policy |
+| Task Completion                           | Pass — 12/12 `[x]`                     |
+| CRITICAL in verify-report                 | Pass — 0 CRITICAL                      |
+| `rules.archive` destructive-delta warning | Recorded below — do not stop           |
 
 ## Spec merge (before folder move)
 
 Deltas merged into existing main specs. Requirements not named in the delta were
-preserved. MODIFIED blocks replaced the matching named requirement entirely,
-including all scenarios. No ADDED, REMOVED, or RENAMED sections.
+preserved. MODIFIED blocks replaced the matching named requirement entirely, including
+all scenarios. No ADDED, REMOVED, or RENAMED sections.
 
-`(Previously: …)` lines from the deltas were **kept** in main specs. Project
-convention from archived merges (`customer-partner-binding`,
-`collection-allocations`) retains those lines as requirement history.
+`(Previously: …)` lines from the deltas were **kept** in main specs. Project convention
+from archived merges (`customer-partner-binding`, `collection-allocations`) retains
+those lines as requirement history.
 
 ### collection-sheets
 
-| Action | Requirement |
-|--------|-------------|
+| Action   | Requirement                                                                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | MODIFIED | Sheet form notebook — allocations-only page with Customer; no `voucher_ids`; counted Vouchers action for saved sheets; unsaved hide/refuse; unlink via voucher `sheet_id` |
 
 ### collection-vouchers
 
-| Action | Requirement |
-|--------|-------------|
+| Action   | Requirement                                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | MODIFIED | Payment Vouchers UI — list/form/search expose `sheet_id`; kanban does not; clear `sheet_id` unlinks open membership; closed-sheet writes rejected; no sheet-form voucher member list |
 
 ### `rules.archive` destructive / backward-incompatible warning
@@ -65,8 +61,8 @@ convention from archived merges (`customer-partner-binding`,
 This merge is **requirement replacement**, not a large deletion. UI contract change:
 
 - Sheet form no longer notebooks `voucher_ids`; membership is voucher `sheet_id`.
-- Payment Vouchers list/form/search gain `sheet_id`; sheet member list is not a
-  voucher UI surface.
+- Payment Vouchers list/form/search gain `sheet_id`; sheet member list is not a voucher
+  UI surface.
 
 Archive proceeded without asking the orchestrator to stop (launch prompt: proceed).
 
@@ -102,8 +98,8 @@ DIFF_R_END status=0
 
 ## Shipped behavior at close
 
-Allocations-only sheet form plus counted Vouchers stat button; voucher `sheet_id`
-on list/form/search. Verify **PASS**. 12/12 tasks complete. Main specs synced.
+Allocations-only sheet form plus counted Vouchers stat button; voucher `sheet_id` on
+list/form/search. Verify **PASS**. 12/12 tasks complete. Main specs synced.
 
 ## Source of truth after close
 

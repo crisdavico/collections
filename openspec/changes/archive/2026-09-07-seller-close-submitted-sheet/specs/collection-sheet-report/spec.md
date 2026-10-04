@@ -20,17 +20,17 @@ existing Spanish state labels MUST remain unchanged.
 `collection.sheet` MUST persist `commission_percent` (Float, default 0), `cash_on_hand`,
 and `commission_withheld` (Monetary). Percent MUST be constrained 0–100 (Odoo 19
 `models.Constraint`, MUST NOT `_sql_constraints`). Seller-declared `cash_on_hand` and
-`commission_withheld` MUST be writable only while `state` is `open`. `commission_percent`
-MUST be writable while `state` is not `closed` or `cancelled`. Closed and cancelled
-sheets MUST refuse writes of those three fields (`UserError`, no persist). A single
-audited write that sets `state` to `submitted` together with the two seller declarations
-MUST be accepted because the guard MUST evaluate the pre-write `open` state. After
-`submitted`, further writes of the two seller declarations MUST be refused while
-`commission_percent` MAY still persist. Reinstate from Cancelled MUST NOT reset stored
-values. Form widgets for the three fields MUST be readonly when the corresponding write
-would be refused.
-(Previously: All three fields editable on `open` and `proposal`; Closed and Cancelled
-refused all three; Open from Cancelled kept values.)
+`commission_withheld` MUST be writable only while `state` is `open`.
+`commission_percent` MUST be writable while `state` is not `closed` or `cancelled`.
+Closed and cancelled sheets MUST refuse writes of those three fields (`UserError`, no
+persist). A single audited write that sets `state` to `submitted` together with the two
+seller declarations MUST be accepted because the guard MUST evaluate the pre-write
+`open` state. After `submitted`, further writes of the two seller declarations MUST be
+refused while `commission_percent` MAY still persist. Reinstate from Cancelled MUST NOT
+reset stored values. Form widgets for the three fields MUST be readonly when the
+corresponding write would be refused. (Previously: All three fields editable on `open`
+and `proposal`; Closed and Cancelled refused all three; Open from Cancelled kept
+values.)
 
 #### Scenario: Percent range
 
@@ -118,8 +118,8 @@ seller's own `open` sheet on `env.company` through
 where `content_base64` is the standard-base64 report body and `filename` is a slug
 ending `.pdf` carrying the sheet reference with `/` replaced. The tool MUST NOT create
 an `ir.attachment`, MUST NOT write any record, MUST NOT require an active
-`collection.connector` or seller binding, and MUST NOT expose the XLSX.
-(Previously: Non-open list omitted `submitted`.)
+`collection.connector` or seller binding, and MUST NOT expose the XLSX. (Previously:
+Non-open list omitted `submitted`.)
 
 #### Scenario: Open sheet returns base64 PDF
 

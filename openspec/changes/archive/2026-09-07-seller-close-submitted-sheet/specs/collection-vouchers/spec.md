@@ -81,10 +81,9 @@ MUST be writable while the sheet is `open` or `submitted` (or the voucher is
 unassigned). When the sheet is `proposal`, `closed`, or `cancelled`, those writes MUST
 raise `UserError` with no persist, including via form or RPC. The membership freeze
 `UserError` text MUST remain
-`Closed collection sheets cannot change membership. Reopen first.`
-Chatter MUST remain writable. Partner-allocation constrain MUST still apply.
-(Previously: Writable only while `open`; freeze while `proposal`, `closed`, or
-`cancelled`.)
+`Closed collection sheets cannot change membership. Reopen first.` Chatter MUST remain
+writable. Partner-allocation constrain MUST still apply. (Previously: Writable only
+while `open`; freeze while `proposal`, `closed`, or `cancelled`.)
 
 #### Scenario: Open membership and business fields writable
 

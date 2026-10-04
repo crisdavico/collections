@@ -71,9 +71,8 @@ the sheet is `closed`. MCP and ORM create MUST persist `draft` and revision 1 on
 persist. Confirm MUST NOT change allocation `state`. Close MUST confirm every allocation
 then close the sheet. Cancel MUST return every allocation to `draft` (no-op if already
 `draft`). Open from Cancelled MUST leave allocations `draft`. Raw allocation `state`
-write MUST be refused except audited Close, Cancel, or Open transitions.
-(Previously: `draft` iff sheet `open`; `confirmed` iff sheet `closed`; Reopen drafted
-after open.)
+write MUST be refused except audited Close, Cancel, or Open transitions. (Previously:
+`draft` iff sheet `open`; `confirmed` iff sheet `closed`; Reopen drafted after open.)
 
 #### Scenario: Create defaults to draft
 
@@ -99,8 +98,8 @@ after open.)
 
 #### Scenario: Open from cancelled leaves draft
 
-- GIVEN a cancelled sheet with draft allocations and no other open sheet for that
-  seller in that company
+- GIVEN a cancelled sheet with draft allocations and no other open sheet for that seller
+  in that company
 - WHEN Open runs
 - THEN the sheet MUST be `open`
 - AND every allocation MUST be `draft`

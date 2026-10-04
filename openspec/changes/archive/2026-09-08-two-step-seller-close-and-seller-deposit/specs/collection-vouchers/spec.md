@@ -28,9 +28,8 @@ create MUST stamp that sentinel and MUST NOT accept a customer identification.
 Each voucher MUST expose `receipt_value_ids` as the inverse of
 `collection.receipt.value` and a `replaced_amount` equal to Σ replacement `replace`
 minus Σ `reverse` for that voucher as cash. Unassigned remittance MUST still satisfy
-`partner_id` required.
-(Previously: Core had no reverse receipt-value relation; `replaced_amount` did not
-exist.)
+`partner_id` required. (Previously: Core had no reverse receipt-value relation;
+`replaced_amount` did not exist.)
 
 #### Scenario: Reverse relation lists values
 
@@ -51,8 +50,8 @@ voucher is a `seller_deposit` on a sheet that still allows receipt-value writes.
 trigger MUST be that write (including audited Document Review approve). It MUST NOT
 require `document_review_enabled`. It MUST NOT hook only `action_review_approve`.
 Companies with Document Review OFF MUST still replace. A second write that does not
-transition to `validated_collections` MUST NOT re-replace.
-(Previously: No replacement trigger.)
+transition to `validated_collections` MUST NOT re-replace. (Previously: No replacement
+trigger.)
 
 #### Scenario: Deposit validation replaces cash
 
@@ -86,8 +85,8 @@ caller. It MUST resolve the seller's own `submitted` sheet, stamp the sentinel p
 and `document_type` `seller_deposit`, stamp `validated_seller`, pass that `sheet_id`
 explicitly, and require new-work for that seller and `seller_deposit`. Portal or public
 callers MUST receive `AccessError`. Errors MUST be raised, never `{"error":...}`. Zero
-or more than one `submitted` sheet MUST raise `UserError`. `create_collection_allocation`
-MUST remain customer-required and `open`-sheet-only.
+or more than one `submitted` sheet MUST raise `UserError`.
+`create_collection_allocation` MUST remain customer-required and `open`-sheet-only.
 (Previously: No MCP path could create a no-customer remittance voucher.)
 
 #### Scenario: Internal seller creates a deposit on submitted
@@ -129,12 +128,12 @@ MUST remain customer-required and `open`-sheet-only.
 
 ### Requirement: Seller deposit form fields
 
-Payment Vouchers form MUST show `voucher_number` and `voucher_date` for
-`seller_deposit` on current, OCR, and seller-confirmed layers. Search MUST include a
-`seller_deposit` document-type filter. `partner_id` MUST appear exactly once per arch.
-The system MUST NOT add a second Customer field for remittance.
-(Previously: `voucher_number` / `voucher_date` were hidden for types other than
-transfer, check extras, cash deposit, and retention.)
+Payment Vouchers form MUST show `voucher_number` and `voucher_date` for `seller_deposit`
+on current, OCR, and seller-confirmed layers. Search MUST include a `seller_deposit`
+document-type filter. `partner_id` MUST appear exactly once per arch. The system MUST
+NOT add a second Customer field for remittance. (Previously: `voucher_number` /
+`voucher_date` were hidden for types other than transfer, check extras, cash deposit,
+and retention.)
 
 #### Scenario: Number and date visible for seller_deposit
 
@@ -159,35 +158,34 @@ transfer, check extras, cash deposit, and retention.)
 
 ### Requirement: Payment field contract
 
-Each voucher MUST persist `document_type` as one of `bank_transfer`, `check`,
-`echeck`, `cash_deposit`, `retention_certificate`, `cash`, `unsupported`, or
-`seller_deposit`, plus nullable payment fields (OCR validators NOT required): `amount`,
-`from_account`, `to_account`, `voucher_number`, `voucher_date`, `check_number`,
-`check_bank`, `check_issue_date`, `check_payment_date`, `check_type` Selection
-`common`/`deferred`, and `retention_kind` Selection
-`iva`/`ganancias`/`iibb`/`suss`/`other` (nullable). `unsupported` MUST persist
-without other payment fields. `cash` MUST persist with `amount` and optional
-`voucher_date` and MUST NOT require designated proof. `seller_deposit` MUST persist
-with `amount`, `voucher_number`, and `voucher_date`, MAY have designated proof, and
-MUST use the sentinel partner.
+Each voucher MUST persist `document_type` as one of `bank_transfer`, `check`, `echeck`,
+`cash_deposit`, `retention_certificate`, `cash`, `unsupported`, or `seller_deposit`,
+plus nullable payment fields (OCR validators NOT required): `amount`, `from_account`,
+`to_account`, `voucher_number`, `voucher_date`, `check_number`, `check_bank`,
+`check_issue_date`, `check_payment_date`, `check_type` Selection `common`/`deferred`,
+and `retention_kind` Selection `iva`/`ganancias`/`iibb`/`suss`/`other` (nullable).
+`unsupported` MUST persist without other payment fields. `cash` MUST persist with
+`amount` and optional `voucher_date` and MUST NOT require designated proof.
+`seller_deposit` MUST persist with `amount`, `voucher_number`, and `voucher_date`, MAY
+have designated proof, and MUST use the sentinel partner.
 
-| `document_type` | Type-owned fields |
-| --- | --- |
-| `bank_transfer` | `amount`, `from_account`, `to_account`, `voucher_number`, `voucher_date` |
-| `check` | `amount`, `check_number`, `check_bank`, `check_issue_date`, `check_payment_date`, `check_type` |
-| `echeck` | same as `check` |
-| `cash_deposit` | `amount`, `to_account`, `voucher_number`, `voucher_date` |
-| `retention_certificate` | `amount`, `voucher_number`, `voucher_date`, `retention_kind` |
-| `cash` | `amount`, `voucher_date`; no proof |
-| `unsupported` | discriminator only |
-| `seller_deposit` | `amount`, `voucher_number`, `voucher_date`; sentinel partner |
+| `document_type`         | Type-owned fields                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `bank_transfer`         | `amount`, `from_account`, `to_account`, `voucher_number`, `voucher_date`                       |
+| `check`                 | `amount`, `check_number`, `check_bank`, `check_issue_date`, `check_payment_date`, `check_type` |
+| `echeck`                | same as `check`                                                                                |
+| `cash_deposit`          | `amount`, `to_account`, `voucher_number`, `voucher_date`                                       |
+| `retention_certificate` | `amount`, `voucher_number`, `voucher_date`, `retention_kind`                                   |
+| `cash`                  | `amount`, `voucher_date`; no proof                                                             |
+| `unsupported`           | discriminator only                                                                             |
+| `seller_deposit`        | `amount`, `voucher_number`, `voucher_date`; sentinel partner                                   |
 
 (Previously: Seven types only; no `seller_deposit`.)
 
 #### Scenario: Persist type-specific fields
 
-- GIVEN `bank_transfer`, `check`, and `cash_deposit` vouchers with payment fields
-  filled (`check_type` `common` or `deferred`)
+- GIVEN `bank_transfer`, `check`, and `cash_deposit` vouchers with payment fields filled
+  (`check_type` `common` or `deferred`)
 - WHEN saved
 - THEN each voucher MUST persist those values
 
@@ -199,8 +197,8 @@ MUST use the sentinel partner.
 
 #### Scenario: Persist echeck cash and retention_certificate
 
-- GIVEN `echeck`, `cash`, and `retention_certificate` vouchers with their
-  type-owned fields filled (`retention_kind` one of the five kinds)
+- GIVEN `echeck`, `cash`, and `retention_certificate` vouchers with their type-owned
+  fields filled (`retention_kind` one of the five kinds)
 - WHEN saved
 - THEN each voucher MUST persist those values including `retention_kind` on the
   retention certificate
@@ -214,21 +212,20 @@ MUST use the sentinel partner.
 
 #### Scenario: Persist seller_deposit
 
-- GIVEN a `seller_deposit` voucher with `amount`, `voucher_number`, `voucher_date`,
-  and the sentinel partner
+- GIVEN a `seller_deposit` voucher with `amount`, `voucher_number`, `voucher_date`, and
+  the sentinel partner
 - WHEN saved
 - THEN the voucher MUST persist those values
 - AND `partner_id` MUST remain the sentinel
 
 ### Requirement: Collection Settings persistence
 
-Each company MUST persist Collection Settings: enabled sellers,
-`auto_create_sheet` (default ON), and allowed document types (all eight catalog
-codes). Settings action and menu labels MUST be **Collection Settings**. An
-empty enabled-seller list MUST mean none for NEW work. All eight types MUST
-start enabled. Unsupported MUST remain independently configurable. Saving these
-fields MUST NOT clear `document_review_enabled`.
-(Previously: Defaults enabled seven catalog codes.)
+Each company MUST persist Collection Settings: enabled sellers, `auto_create_sheet`
+(default ON), and allowed document types (all eight catalog codes). Settings action and
+menu labels MUST be **Collection Settings**. An empty enabled-seller list MUST mean none
+for NEW work. All eight types MUST start enabled. Unsupported MUST remain independently
+configurable. Saving these fields MUST NOT clear `document_review_enabled`. (Previously:
+Defaults enabled seven catalog codes.)
 
 #### Scenario: Collection Settings labels
 
@@ -247,9 +244,8 @@ fields MUST NOT clear `document_review_enabled`.
 - GIVEN a fresh install or a company with no prior Collection Settings
 - WHEN settings are read
 - THEN `auto_create_sheet` MUST be ON
-- AND `bank_transfer`, `check`, `echeck`, `cash_deposit`,
-  `retention_certificate`, `cash`, `unsupported`, and `seller_deposit` MUST all be
-  enabled
+- AND `bank_transfer`, `check`, `echeck`, `cash_deposit`, `retention_certificate`,
+  `cash`, `unsupported`, and `seller_deposit` MUST all be enabled
 
 #### Scenario: Unsupported is configurable
 
@@ -262,25 +258,24 @@ fields MUST NOT clear `document_review_enabled`.
 
 The catalog MUST include exactly these eight codes, each with a stable XMLID:
 
-| Code | XMLID |
-| --- | --- |
-| `bank_transfer` | `collection.document_type_bank_transfer` |
-| `check` | `collection.document_type_check` |
-| `cash_deposit` | `collection.document_type_cash_deposit` |
-| `unsupported` | `collection.document_type_unsupported` |
-| `echeck` | `collection.document_type_echeck` |
-| `cash` | `collection.document_type_cash` |
+| Code                    | XMLID                                            |
+| ----------------------- | ------------------------------------------------ |
+| `bank_transfer`         | `collection.document_type_bank_transfer`         |
+| `check`                 | `collection.document_type_check`                 |
+| `cash_deposit`          | `collection.document_type_cash_deposit`          |
+| `unsupported`           | `collection.document_type_unsupported`           |
+| `echeck`                | `collection.document_type_echeck`                |
+| `cash`                  | `collection.document_type_cash`                  |
 | `retention_certificate` | `collection.document_type_retention_certificate` |
-| `seller_deposit` | `collection.document_type_seller_deposit` |
+| `seller_deposit`        | `collection.document_type_seller_deposit`        |
 
 Voucher `document_type`, `ocr_document_type`, `seller_document_type`, and review
-snapshot type Selection MUST include the same eight codes. Upgrade to
-`19.0.1.40.0` MUST union the then-seven codes onto every company’s
-`allowed_document_type_ids` and MUST NOT remove custom extra types. Upgrade to
-`19.0.1.43.0` MUST union all eight codes onto every company via
-`_collection_enable_all_document_types` and MUST NOT remove extras. Manifest MUST
-be `19.0.1.43.0`. `migrations/19.0.1.42.0/` MUST NOT exist. Empty-only seed MUST
-NOT be the upgrade path. New companies MUST start with all eight enabled.
+snapshot type Selection MUST include the same eight codes. Upgrade to `19.0.1.40.0` MUST
+union the then-seven codes onto every company’s `allowed_document_type_ids` and MUST NOT
+remove custom extra types. Upgrade to `19.0.1.43.0` MUST union all eight codes onto
+every company via `_collection_enable_all_document_types` and MUST NOT remove extras.
+Manifest MUST be `19.0.1.43.0`. `migrations/19.0.1.42.0/` MUST NOT exist. Empty-only
+seed MUST NOT be the upgrade path. New companies MUST start with all eight enabled.
 (Previously: Exactly seven catalog codes; last allow-list union was `19.0.1.40.0`.)
 
 #### Scenario: Seven catalog XMLIDs exist

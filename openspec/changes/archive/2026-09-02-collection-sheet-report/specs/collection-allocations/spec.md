@@ -4,16 +4,14 @@
 
 ### Requirement: Allocation line document_kind
 
-Each `collection.allocation.line` MUST have required Selection
-`document_kind` with values `invoice` and `quotation` only, default
-`invoice`. Existing rows MUST backfill via `_init_column` (MUST NOT add a
-`migrations/` folder). Operators MUST set `quotation` on a draft line.
-The allocation form line list MUST inject `document_kind` immediately
+Each `collection.allocation.line` MUST have required Selection `document_kind` with
+values `invoice` and `quotation` only, default `invoice`. Existing rows MUST backfill
+via `_init_column` (MUST NOT add a `migrations/` folder). Operators MUST set `quotation`
+on a draft line. The allocation form line list MUST inject `document_kind` immediately
 before `invoice_number` via an inherited view (MUST NOT edit
-`collection_allocation_views.xml`). That list MUST use `<list>` (MUST NOT
-`<tree>`). MCP `create_collection_allocation` MUST stay unchanged: payload
-and response MUST NOT gain `document_kind`; omitted kind MUST persist the
-default `invoice`.
+`collection_allocation_views.xml`). That list MUST use `<list>` (MUST NOT `<tree>`). MCP
+`create_collection_allocation` MUST stay unchanged: payload and response MUST NOT gain
+`document_kind`; omitted kind MUST persist the default `invoice`.
 
 #### Scenario: Default invoice
 

@@ -4,15 +4,14 @@
 
 ### Requirement: Internal collection payment helpers
 
-Internal `_collection_*` helpers on `muk_mcp.mixin` MUST remain (parse payment
-vals, attachment nest, provenance nests, create vouchers, submit-order
-payload, classify/replay/conflict, require internal seller). They MUST NOT be
-registered as MCP tools. `create_collection_allocation` MUST reuse them.
-Payment items MUST omit `customer_identification`; helpers MUST take
-top-level identification and replicate it per payment. Exact same-company
-`document_id` set MUST be reusable by allocation (continue; MUST NOT
-voucher-only early-return). Partial overlap and other-company hits MUST stay
-generic conflict with no writes. Optional nested `attachment` and
+Internal `_collection_*` helpers on `muk_mcp.mixin` MUST remain (parse payment vals,
+attachment nest, provenance nests, create vouchers, submit-order payload,
+classify/replay/conflict, require internal seller). They MUST NOT be registered as MCP
+tools. `create_collection_allocation` MUST reuse them. Payment items MUST omit
+`customer_identification`; helpers MUST take top-level identification and replicate it
+per payment. Exact same-company `document_id` set MUST be reusable by allocation
+(continue; MUST NOT voucher-only early-return). Partial overlap and other-company hits
+MUST stay generic conflict with no writes. Optional nested `attachment` and
 `raw_ocr`/`seller_confirmed` parse rules MUST still apply on the fused write.
 
 #### Scenario: Helpers not discovered as MCP tools
@@ -33,17 +32,16 @@ generic conflict with no writes. Optional nested `attachment` and
 
 ### Requirement: MCP optional payment attachment on create
 
-`create_collection_allocation` MAY accept one optional nested attachment per
-payment with required `name`, `mimetype`, and base64 `datas` when present.
-Declared `mimetype` MUST match content detection (`image/*` or PDF only);
-mismatch or bad base64 MUST raise `UserError` with no writes. Create with
-attachments MUST persist all vouchers and files atomically under a savepoint
-by posting each nest onto the new voucher chatter via `message_post` (MUST
-NOT write Binary `attachment`). Exact same-company `document_id` reuse MUST
-NOT add, replace, or compare attachments (even when a voucher has none) and
-MUST continue to allocation. All-new and conflict rules MUST remain unchanged
-except as this change specifies for company, seller, and type gates.
-(Previously: Nested attachments were accepted by MCP `create_collection_vouchers`.)
+`create_collection_allocation` MAY accept one optional nested attachment per payment
+with required `name`, `mimetype`, and base64 `datas` when present. Declared `mimetype`
+MUST match content detection (`image/*` or PDF only); mismatch or bad base64 MUST raise
+`UserError` with no writes. Create with attachments MUST persist all vouchers and files
+atomically under a savepoint by posting each nest onto the new voucher chatter via
+`message_post` (MUST NOT write Binary `attachment`). Exact same-company `document_id`
+reuse MUST NOT add, replace, or compare attachments (even when a voucher has none) and
+MUST continue to allocation. All-new and conflict rules MUST remain unchanged except as
+this change specifies for company, seller, and type gates. (Previously: Nested
+attachments were accepted by MCP `create_collection_vouchers`.)
 
 #### Scenario: MCP create with nested attachment
 
@@ -68,15 +66,14 @@ except as this change specifies for company, seller, and type gates.
 
 ### Requirement: MCP nested provenance on all-new create
 
-`create_collection_allocation` MAY accept nested `raw_ocr` and
-`seller_confirmed` with the same typed keys as current fields. When both
-nests are present, seller-confirmed MUST equal top-level fields; current MUST
-initialize from seller-confirmed; raw MUST persist as submitted. Omitting
-both nests MUST leave empty provenance; UI/ORM create MUST remain allowed.
-Malformed, one-sided, or mismatched nests MUST fail the batch with no writes.
-Exact same-company `document_id` reuse MUST ignore those nests with no
-provenance mutation and MUST continue to allocation.
-(Previously: Nested provenance was accepted by MCP `create_collection_vouchers`.)
+`create_collection_allocation` MAY accept nested `raw_ocr` and `seller_confirmed` with
+the same typed keys as current fields. When both nests are present, seller-confirmed
+MUST equal top-level fields; current MUST initialize from seller-confirmed; raw MUST
+persist as submitted. Omitting both nests MUST leave empty provenance; UI/ORM create
+MUST remain allowed. Malformed, one-sided, or mismatched nests MUST fail the batch with
+no writes. Exact same-company `document_id` reuse MUST ignore those nests with no
+provenance mutation and MUST continue to allocation. (Previously: Nested provenance was
+accepted by MCP `create_collection_vouchers`.)
 
 #### Scenario: Unchanged seller confirmation
 
@@ -86,8 +83,7 @@ provenance mutation and MUST continue to allocation.
 
 #### Scenario: Seller correction
 
-- GIVEN raw nest differs from seller-confirmed, and seller-confirmed equals
-  top-level
+- GIVEN raw nest differs from seller-confirmed, and seller-confirmed equals top-level
 - WHEN all-new create runs
 - THEN raw MUST persist unchanged
 - AND seller-confirmed and current MUST contain the correction
@@ -107,20 +103,20 @@ provenance mutation and MUST continue to allocation.
 
 #### Scenario: Exact replay ignores provenance nests
 
-- GIVEN every submitted `document_id` already exists in the same company, with
-  or without stored provenance
+- GIVEN every submitted `document_id` already exists in the same company, with or
+  without stored provenance
 - WHEN retried with different or omitted nests
 - THEN matching vouchers MUST return unchanged
 - AND provenance and snapshots MUST NOT be written, backfilled, or mutated
 
 ### Requirement: Cross-company document_id reject not replay
 
-`document_id` uniqueness MUST remain global among non-null values. When a new
-write collides with another company's `document_id`, the system MUST reject
-it (MUST NOT replay) and MUST NOT disclose that voucher's id or name. A user
-who can read both companies MUST NOT receive the other company's voucher as
-an MCP replay via `create_collection_allocation`.
-(Previously: Multi-company MCP replay named `create_collection_vouchers`.)
+`document_id` uniqueness MUST remain global among non-null values. When a new write
+collides with another company's `document_id`, the system MUST reject it (MUST NOT
+replay) and MUST NOT disclose that voucher's id or name. A user who can read both
+companies MUST NOT receive the other company's voucher as an MCP replay via
+`create_collection_allocation`. (Previously: Multi-company MCP replay named
+`create_collection_vouchers`.)
 
 #### Scenario: Global uniqueness still holds
 
@@ -146,11 +142,10 @@ an MCP replay via `create_collection_allocation`.
 
 ### Requirement: MCP tool create_collection_vouchers
 
-(Reason: Fused confirm is `create_collection_allocation` with inline
-`payments[]`; a second write tool would drift from the Nebula contract and
-split partner/sheet/idempotency paths.)
-(Migration: Retire the `@mcp_tool` in work unit 3 (after/with Nebula deploy).
-Keep `_collection_*` helpers internal and reuse them from allocation.
-Re-point attachment, provenance, partner-resolve, and remaining MCP tests to
-`create_collection_allocation`. Delete create/replay/ACL tests that only
-covered the retired tool. Do not add a `muk_mcp.tool` row.)
+(Reason: Fused confirm is `create_collection_allocation` with inline `payments[]`; a
+second write tool would drift from the Nebula contract and split
+partner/sheet/idempotency paths.) (Migration: Retire the `@mcp_tool` in work unit 3
+(after/with Nebula deploy). Keep `_collection_*` helpers internal and reuse them from
+allocation. Re-point attachment, provenance, partner-resolve, and remaining MCP tests to
+`create_collection_allocation`. Delete create/replay/ACL tests that only covered the
+retired tool. Do not add a `muk_mcp.tool` row.)

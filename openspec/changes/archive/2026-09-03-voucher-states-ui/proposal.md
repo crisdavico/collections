@@ -5,8 +5,8 @@ Closed plan used instead of a question round.
 ## Intent
 
 Operators mix voucher pending/approved/rejected with allocation Validate/Reject; stages
-kanban can skip Document Review. Replace with Draft → Validated by Seller → Validated
-by Collections. **No Reject.** Review is the only Collections path. Odoo-only.
+kanban can skip Document Review. Replace with Draft → Validated by Seller → Validated by
+Collections. **No Reject.** Review is the only Collections path. Odoo-only.
 
 ## Scope
 
@@ -35,10 +35,10 @@ by Collections. **No Reject.** Review is the only Collections path. Odoo-only.
 
 ### Modified Capabilities
 
-- `collection-vouchers`: lifecycle, defaults, unlink, attachment reopen, UI, MCP
-  stamp, chatter tracking
-- `document-review`: queue `validated_seller`; Approve → `validated_collections`;
-  remove Reject; drop History tab; snapshots stay `decision=approved|rejected`
+- `collection-vouchers`: lifecycle, defaults, unlink, attachment reopen, UI, MCP stamp,
+  chatter tracking
+- `document-review`: queue `validated_seller`; Approve → `validated_collections`; remove
+  Reject; drop History tab; snapshots stay `decision=approved|rejected`
 - `collection-allocations`: drop not-`rejected` gate
 - `collection-sheet-report`: print-includes voucher key names only
 
@@ -54,14 +54,16 @@ clickable; drop `group_expand` on `state`.
 ## Affected Areas
 
 - Modified: voucher model; snapshot `decision` stays `approved`/`rejected`; MCP stamp;
-  allocation rejected gate; views; OWL; tests; four specs above; leftover `AGENTS.md` keys
+  allocation rejected gate; views; OWL; tests; four specs above; leftover `AGENTS.md`
+  keys
 - New: `migrations/19.0.1.31.0/post-migrate.py` (1.28.0 SQL pattern)
 - Manifest: `19.0.1.30.0` → `19.0.1.31.0`
 
 ## Risks
 
 - High: leftover old keys crash Selection browse → SQL remap before ORM
-- High: coupled state/decision write → voucher `validated_collections`, snapshot `approved`
+- High: coupled state/decision write → voucher `validated_collections`, snapshot
+  `approved`
 - Med: leftover stages kanban view → `<delete>` + `view_mode` `list,form`
 - Med: MCP state consumers → Nebula out of scope
 - High: 400-line review budget → `sdd-tasks` chained-PR forecast
@@ -69,8 +71,8 @@ clickable; drop `group_expand` on `state`.
 ## Rollback Plan
 
 Revert addon to `19.0.1.30.0`. Restore Reject, stages kanban, History, coupled snapshot
-writes. Reverse SQL: `validated_collections`→`approved`; `validated_seller` and
-migrated `draft`→`pending`. Migrated rejects stay `draft`.
+writes. Reverse SQL: `validated_collections`→`approved`; `validated_seller` and migrated
+`draft`→`pending`. Migrated rejects stay `draft`.
 
 ## Dependencies
 
@@ -82,5 +84,6 @@ migrated `draft`→`pending`. Migrated rejects stay `draft`.
       only via Review Approve; no Reject
 - [ ] Review queues `validated_seller` + proof; Approve snapshots `decision="approved"`
 - [ ] Upgrade remaps keys; stages kanban gone; Reassign kanban kept; menu sequence 10
-- [ ] All states may allocate; unlink only `draft`; attachment reopen → `validated_seller`;
-      extra chatter tracking; History tab gone; tests and scoped pre-commit pass
+- [ ] All states may allocate; unlink only `draft`; attachment reopen →
+      `validated_seller`; extra chatter tracking; History tab gone; tests and scoped
+      pre-commit pass

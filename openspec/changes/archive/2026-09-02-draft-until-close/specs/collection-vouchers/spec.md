@@ -13,9 +13,9 @@ and MUST NOT auto-edit invoice lines. Any user-driven change from `pending` to
 `approved` or `rejected` (including kanban drag) MUST record reviewer and review time
 the same as Approve/Reject. Approve/Reject on Payment Vouchers MUST remain available
 whether Document Review is ON or OFF. Review queue RPCs remain governed by
-`document-review`. Confidence, per-field stamps, and reviewer-note persistence MUST
-NOT be required.
-(Previously: Delete allowed for any pending voucher; allocated unlink was refused.)
+`document-review`. Confidence, per-field stamps, and reviewer-note persistence MUST NOT
+be required. (Previously: Delete allowed for any pending voucher; allocated unlink was
+refused.)
 
 #### Scenario: Approve from pending
 
@@ -39,8 +39,8 @@ NOT be required.
 
 #### Scenario: Delete from pending
 
-- GIVEN a voucher in `pending` with allocation unset or `draft` and projected
-  residual ≥ 0
+- GIVEN a voucher in `pending` with allocation unset or `draft` and projected residual ≥
+  0
 - WHEN deleted
 - THEN the system MUST allow the delete
 
@@ -59,8 +59,7 @@ NOT be required.
 
 #### Scenario: Delete pending on draft with negative residual refused
 
-- GIVEN a pending voucher on a draft allocation whose residual would become
-  `< 0`
+- GIVEN a pending voucher on a draft allocation whose residual would become `< 0`
 - WHEN deleted
 - THEN the system MUST refuse the delete
 - AND invoice lines MUST NOT be auto-edited
@@ -86,16 +85,14 @@ NOT be required.
 
 ### Requirement: Voucher allocation membership
 
-Each voucher MAY have `allocation_id`. Write of `allocation_id` MUST be refused
-unless current and target (if set) are both `draft` or unset. Unlink MUST be
-allowed when `state` is `pending` and `allocation_id` is unset or `draft`,
-subject to residual projection. Unlink MUST be refused when allocation is
-`confirmed`. Removing a voucher from a draft allocation MUST project residual
-as current residual minus that voucher's amount (currency compare). If
-projected residual is `< 0`, unlink MUST be refused; invoice lines MUST NOT be
-auto-edited.
-(Previously: Write required current and target confirmed or unset; unlink
-refused while allocated.)
+Each voucher MAY have `allocation_id`. Write of `allocation_id` MUST be refused unless
+current and target (if set) are both `draft` or unset. Unlink MUST be allowed when
+`state` is `pending` and `allocation_id` is unset or `draft`, subject to residual
+projection. Unlink MUST be refused when allocation is `confirmed`. Removing a voucher
+from a draft allocation MUST project residual as current residual minus that voucher's
+amount (currency compare). If projected residual is `< 0`, unlink MUST be refused;
+invoice lines MUST NOT be auto-edited. (Previously: Write required current and target
+confirmed or unset; unlink refused while allocated.)
 
 #### Scenario: allocation_id write on draft or unset
 
@@ -112,40 +109,37 @@ refused while allocated.)
 
 #### Scenario: Pending unlink on draft or unset
 
-- GIVEN a pending voucher with allocation unset or `draft` and projected
-  residual ≥ 0
+- GIVEN a pending voucher with allocation unset or `draft` and projected residual ≥ 0
 - WHEN deleted
 - THEN the system MUST allow the delete
 
 #### Scenario: Draft residual underflow refuses unlink
 
-- GIVEN a pending voucher on a draft allocation whose residual would become
-  `< 0`
+- GIVEN a pending voucher on a draft allocation whose residual would become `< 0`
 - WHEN the voucher is deleted
 - THEN unlink MUST be refused
 - AND invoice lines MUST NOT be auto-edited
 
 ### Requirement: Partner write follows allocation
 
-When `partner_id` changes, the system MUST compute `allocation_id` before persist
-and MUST write `partner_id` and `allocation_id` in the same vals (per record when
-outcomes differ). MUST NOT `sudo()`. While the sheet is `open`, any voucher state
-MAY change Customer. Same-value `partner_id` MUST NOT recompute allocation.
+When `partner_id` changes, the system MUST compute `allocation_id` before persist and
+MUST write `partner_id` and `allocation_id` in the same vals (per record when outcomes
+differ). MUST NOT `sudo()`. While the sheet is `open`, any voucher state MAY change
+Customer. Same-value `partner_id` MUST NOT recompute allocation.
 
-`confirmed` current allocation MUST refuse the move with no field change.
-Draft source with projected residual (current residual minus voucher amount,
-currency compare) `< 0` MUST refuse with no field change.
+`confirmed` current allocation MUST refuse the move with no field change. Draft source
+with projected residual (current residual minus voucher amount, currency compare) `< 0`
+MUST refuse with no field change.
 
-MUST attach the unique draft same-sheet allocation for the new partner when
-projected residual satisfies residual rules; otherwise MUST leave unallocated and
-MUST post chatter for that outcome.
-(Previously: Attach/detach used confirmed allocations; non-confirmed
-`validated`/`rejected` sources refused the move.)
+MUST attach the unique draft same-sheet allocation for the new partner when projected
+residual satisfies residual rules; otherwise MUST leave unallocated and MUST post
+chatter for that outcome. (Previously: Attach/detach used confirmed allocations;
+non-confirmed `validated`/`rejected` sources refused the move.)
 
 #### Scenario: Same-write partner and allocation
 
-- GIVEN an open-sheet voucher on draft allocation A (partner P) and unique
-  draft same-sheet allocation B (partner Q) with attachable residual
+- GIVEN an open-sheet voucher on draft allocation A (partner P) and unique draft
+  same-sheet allocation B (partner Q) with attachable residual
 - WHEN `partner_id` is written to Q
 - THEN `partner_id` MUST be Q and `allocation_id` MUST be B
 - AND both fields MUST persist in one write
@@ -159,15 +153,15 @@ MUST post chatter for that outcome.
 
 #### Scenario: Target attaches when residual holds
 
-- GIVEN an open-sheet unallocated voucher and unique draft same-sheet
-  allocation for Q with attachable residual
+- GIVEN an open-sheet unallocated voucher and unique draft same-sheet allocation for Q
+  with attachable residual
 - WHEN `partner_id` is written to Q
 - THEN `allocation_id` MUST become that allocation
 
 #### Scenario: Target left unallocated when residual does not hold
 
-- GIVEN an open-sheet voucher and no unique draft same-sheet allocation for Q
-  that satisfies residual rules (including empty allocation, residual 0, no
+- GIVEN an open-sheet voucher and no unique draft same-sheet allocation for Q that
+  satisfies residual rules (including empty allocation, residual 0, no
   `residual_reason`)
 - WHEN `partner_id` is written to Q
 - THEN `partner_id` MUST be Q and `allocation_id` MUST be unset

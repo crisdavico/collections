@@ -9,8 +9,8 @@ require a validated sheet identifier and MUST operate only on that sheet. The id
 sheet MUST be `open`. Direct or global review MUST NOT succeed. Missing, invalid, or
 non-open identifiers MUST be refused (not empty-queue success). Mutations MUST refuse
 non-members of that sheet. OWL MUST pass the identifier on queue, approve, and rotation.
-Reject MUST NOT be an operation.
-(Previously: Required a validated sheet identifier with no Open-only gate.)
+Reject MUST NOT be an operation. (Previously: Required a validated sheet identifier with
+no Open-only gate.)
 
 #### Scenario: Required sheet context
 

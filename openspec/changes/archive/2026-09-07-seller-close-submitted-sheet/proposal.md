@@ -36,10 +36,9 @@ None
 ### Modified Capabilities
 
 - `collection-sheets`: fifth state; close/reinstate; membership/Confirm/unlink/UI;
-  **ADDED** MCP write `close_collection_sheet` (`seller_id` only). `seller-lookup`
-  stays read-only `get_seller_id`.
-- `collection-sheet-report`: recon split; Rendida label; PDF MCP stays
-  open-only.
+  **ADDED** MCP write `close_collection_sheet` (`seller_id` only). `seller-lookup` stays
+  read-only `get_seller_id`.
+- `collection-sheet-report`: recon split; Rendida label; PDF MCP stays open-only.
 - `collection-vouchers`: `_sheet_is_frozen` / membership unlock widens to submitted.
 - `document-review`: review allowed on submitted.
 - `collection-allocations`: draft legal on submitted; `DRAFT_SHEET_STATES` copy; MCP
@@ -61,7 +60,8 @@ close 0-open → `UserError`; no `sudo()`; no nebula-agent implementation.
 ## Affected Areas
 
 Sheet/voucher/allocation/report models; MCP lockout; views; tests; docs. New:
-`tools/collection_sheet_close.py`. Odoo stays in `collection/` except sibling `_confirm()`.
+`tools/collection_sheet_close.py`. Odoo stays in `collection/` except sibling
+`_confirm()`.
 
 ## Risks
 
@@ -73,8 +73,8 @@ Sheet/voucher/allocation/report models; MCP lockout; views; tests; docs. New:
 
 ## Rollback Plan
 
-Revert stacked PRs newest-first. No SQL remap; `open` rows stay.
-Drop the close-tool import.
+Revert stacked PRs newest-first. No SQL remap; `open` rows stay. Drop the close-tool
+import.
 
 ## Dependencies
 
@@ -82,7 +82,8 @@ PR 5 sibling `_confirm()` needs edit-authority consent.
 
 ## Success Criteria
 
-- [ ] Seller Close → `submitted`; MCP write refused; next allocation on a new `open` sheet
+- [ ] Seller Close → `submitted`; MCP write refused; next allocation on a new `open`
+      sheet
 - [ ] Admin membership, Document Review, draft allocations, `commission_percent` on
       `submitted`; seller declarations frozen; Confirm only from `submitted`
 - [ ] MCP close is `seller_id`-only, no sudo; PDF stays open-only;

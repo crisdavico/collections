@@ -16,13 +16,12 @@ Sheet form MUST expose vouchers and allocations in a notebook.
 
 ### Requirement: Membership, dates, and deletion
 
-A voucher MUST belong to at most one sheet. Membership MUST be editable only
-while `open` and frozen while `closed`. Empty sheets MUST be allowed.
-`date_from`/`date_to` MUST be UTC min/max of member `create_date` (empty if no
-members); MUST NOT use `received_date`. Unlink with no allocations MUST
-unassign members and MUST NOT delete vouchers. Unlink MUST fail when
-allocations exist (restrict).
-(Previously: Deleting any sheet unassigned members regardless of allocations.)
+A voucher MUST belong to at most one sheet. Membership MUST be editable only while
+`open` and frozen while `closed`. Empty sheets MUST be allowed. `date_from`/`date_to`
+MUST be UTC min/max of member `create_date` (empty if no members); MUST NOT use
+`received_date`. Unlink with no allocations MUST unassign members and MUST NOT delete
+vouchers. Unlink MUST fail when allocations exist (restrict). (Previously: Deleting any
+sheet unassigned members regardless of allocations.)
 
 #### Scenario: Assign and reassign
 

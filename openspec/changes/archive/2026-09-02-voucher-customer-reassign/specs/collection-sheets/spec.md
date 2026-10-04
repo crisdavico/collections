@@ -4,17 +4,16 @@
 
 ### Requirement: Reassign header action and kanban
 
-A saved `open` sheet MUST expose a header action (after Document Review; hidden
-when unsaved or not `open`) that opens that sheet's members in a dedicated
-customer-grouped kanban. The action MUST `ensure_one`, MUST refuse unsaved
-sheets, and MUST refuse when `state != open`. The action `views` list MUST be
-the reassign kanban then form and MUST NOT open the Payment Vouchers state
-kanban.
+A saved `open` sheet MUST expose a header action (after Document Review; hidden when
+unsaved or not `open`) that opens that sheet's members in a dedicated customer-grouped
+kanban. The action MUST `ensure_one`, MUST refuse unsaved sheets, and MUST refuse when
+`state != open`. The action `views` list MUST be the reassign kanban then form and MUST
+NOT open the Payment Vouchers state kanban.
 
-The reassign kanban MUST group by `partner_id`, MUST allow record drag, and
-MUST disable create, quick create, group create, group delete, group edit, and
-group drag. `partner_id` MUST be present and MUST NOT be readonly. The Payment
-Vouchers state-grouped kanban MUST remain unchanged.
+The reassign kanban MUST group by `partner_id`, MUST allow record drag, and MUST disable
+create, quick create, group create, group delete, group edit, and group drag.
+`partner_id` MUST be present and MUST NOT be readonly. The Payment Vouchers
+state-grouped kanban MUST remain unchanged.
 
 #### Scenario: Open saved sheet opens customer kanban
 
@@ -62,11 +61,11 @@ Vouchers state-grouped kanban MUST remain unchanged.
 
 ### Requirement: Closed sheet membership freeze
 
-While a sheet is `closed`, membership MUST NOT be added, removed, or
-reassigned via sheet members or voucher `sheet_id`, and voucher `partner_id`
-MUST NOT change. Operators MUST Reopen first. Freeze applies while the sheet
-exists; sheet delete is not a membership edit. Closed `partner_id` writes MUST
-raise the same membership `UserError` as closed `sheet_id` membership writes.
+While a sheet is `closed`, membership MUST NOT be added, removed, or reassigned via
+sheet members or voucher `sheet_id`, and voucher `partner_id` MUST NOT change. Operators
+MUST Reopen first. Freeze applies while the sheet exists; sheet delete is not a
+membership edit. Closed `partner_id` writes MUST raise the same membership `UserError`
+as closed `sheet_id` membership writes.
 
 (Previously: Freeze applied only to membership / `sheet_id`, not Customer.)
 

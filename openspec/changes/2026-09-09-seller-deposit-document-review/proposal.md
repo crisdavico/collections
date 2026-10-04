@@ -20,8 +20,8 @@ promote it.
 - Tool `description` and docstring stop advertising the auto-validate
 - Delta + live `collection-vouchers` spec: the tool MUST NOT stamp
   `validated_collections`
-- `tests/test_collection_mcp_seller_deposit.py`: `validated_seller` outcome, review-queue
-  membership, approve promotes and replaces cash
+- `tests/test_collection_mcp_seller_deposit.py`: `validated_seller` outcome,
+  review-queue membership, approve promotes and replaces cash
 - Manifest `19.0.1.47.0` (no stored fields / no migrate)
 
 ### Out of Scope
@@ -59,11 +59,11 @@ write into `validated_collections`, which now happens at Review Approve.
 
 ## Risks
 
-| Risk                                        | Likelihood | Mitigation                          |
-| ------------------------------------------- | ---------- | ----------------------------------- |
-| Deposit without a slip blocks Confirm       | Med        | Intended; slip attachable in chatter |
-| Review OFF leaves the deposit unpromotable  | Low        | Same as every other non-cash type   |
-| Cash replacement never runs                 | Low        | Approve-path replacement test       |
+| Risk                                       | Likelihood | Mitigation                           |
+| ------------------------------------------ | ---------- | ------------------------------------ |
+| Deposit without a slip blocks Confirm      | Med        | Intended; slip attachable in chatter |
+| Review OFF leaves the deposit unpromotable | Low        | Same as every other non-cash type    |
+| Cash replacement never runs                | Low        | Approve-path replacement test        |
 
 ## Rollback Plan
 

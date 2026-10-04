@@ -15,8 +15,7 @@ except when a draft allocation parent-unlink cascades receipts. Internal users
 (`base.group_user`) MUST have ACL `1,0,1,0`. Allowed-company `ir.rule`
 `[('company_id', 'in', company_ids)]` MUST apply. Dedicated groups MUST NOT be added.
 Calls MUST NOT `sudo()`. Cancel MUST NOT write `reverse` rows. Reinstate MUST NOT
-re-replace.
-(Previously: No replacement ledger.)
+re-replace. (Previously: No replacement ledger.)
 
 #### Scenario: Replace row persists
 
@@ -64,8 +63,8 @@ refuse with no persist. Bucket order MUST be `quotation` then `invoice`; within 
 earliest application due date then invoice number; within a bucket, oldest-uploaded
 `cash` values first. Multiple deposits MUST consume remaining cash in that order. When
 the sheet has no allocations or no cash values, replacement MUST be a silent no-op.
-`create_receipt` serialization is out of scope.
-(Previously: No cash-to-deposit replacement.)
+`create_receipt` serialization is out of scope. (Previously: No cash-to-deposit
+replacement.)
 
 #### Scenario: Same-receipt totals unchanged
 
@@ -111,9 +110,8 @@ voucher's sheet equals the receipt's sheet. Sum of ALL value amounts of the vouc
 (MUST NOT filter by allocation) MUST be compared to the voucher amount with
 `currency.compare_amounts` and MUST be `<=` the voucher amount. Same-sheet
 cross-customer values MUST persist. Values whose voucher and receipt belong to different
-sheets MUST be refused.
-(Previously: Cap summed only that allocation's receipts; voucher `allocation_id` MUST
-equal receipt `allocation_id`.)
+sheets MUST be refused. (Previously: Cap summed only that allocation's receipts; voucher
+`allocation_id` MUST equal receipt `allocation_id`.)
 
 #### Scenario: Split across two receipts
 
@@ -138,8 +136,7 @@ equal receipt `allocation_id`.)
 #### Scenario: Over-split on one allocation refused
 
 - GIVEN voucher V amount 100 on A
-- WHEN values summing > 100 on A's receipts, or amount `<=` 0, or duplicate
-  (receipt, V)
+- WHEN values summing > 100 on A's receipts, or amount `<=` 0, or duplicate (receipt, V)
 - THEN MUST refuse
 
 #### Scenario: Over-cap across customers refused
@@ -160,10 +157,9 @@ Each receipt MUST expose `total_values` (sum of value amounts), `total_applied` 
 derived application amounts), and `amount_on_account` = `total_values − total_applied`.
 `total_values >= total_applied` MUST be allowed. The system MUST NOT require equality.
 Totals MUST recompute when stored allocation-line `amount_applied` changes. Recompute
-MUST NOT raise because derived applications are a non-stored Many2many.
-(Previously: Totals depended on the non-stored `line_ids` inverse, which raised Cannot
-convert collection.receipt.line_ids to SQL when an existing `amount_applied` was
-written.)
+MUST NOT raise because derived applications are a non-stored Many2many. (Previously:
+Totals depended on the non-stored `line_ids` inverse, which raised Cannot convert
+collection.receipt.line_ids to SQL when an existing `amount_applied` was written.)
 
 #### Scenario: Surplus on account
 

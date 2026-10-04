@@ -1,7 +1,8 @@
 # Apply Progress: voucher-states-ui (Phase 1 + Phase 2 + Phase 3 + Phase 4)
 
 **Change**: voucher-states-ui **Mode**: Strict TDD **Work unit**: 4 — Leftover AGENTS.md
-+ readme **Tasks**: 1.1–4.2 complete. All implementation work units finished.
+
+- readme **Tasks**: 1.1–4.2 complete. All implementation work units finished.
 
 ## Completed Tasks
 
@@ -41,11 +42,11 @@
       voucher keys.
 - [x] 3.5 Verify: `invoke install -m collection`; ui/mail/report tests; scoped
       pre-commit.
-- [x] 4.1 Replace leftover pending/approved/rejected voucher-state keys in
-      `AGENTS.md` and `readme/DESCRIPTION.md`; lock migrate-folder rules to
-      `19.0.1.31.0` (forbid adding 1.26–1.30; do not add a second 1.31 later).
-- [x] 4.2 Verify: scoped pre-commit on those docs files from Seedian root. Harness
-      N/A (docs-only).
+- [x] 4.1 Replace leftover pending/approved/rejected voucher-state keys in `AGENTS.md`
+      and `readme/DESCRIPTION.md`; lock migrate-folder rules to `19.0.1.31.0` (forbid
+      adding 1.26–1.30; do not add a second 1.31 later).
+- [x] 4.2 Verify: scoped pre-commit on those docs files from Seedian root. Harness N/A
+      (docs-only).
 
 ## TDD Cycle Evidence
 
@@ -82,10 +83,10 @@
 
 ### Phase 4
 
-| Task | Test File                                                          | Layer     | Safety Net                                    | RED                                                         | GREEN                                                                                                                            | TRIANGULATE                                                                                                                   | REFACTOR                         |
-| ---- | ------------------------------------------------------------------ | --------- | --------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| 4.1  | `AGENTS.md`, `readme/DESCRIPTION.md`                               | Docs      | N/A (docs-only; no production test file)      | ✅ Grep showed leftover voucher keys (`pending`/`approved`/`rejected` lifecycle, unlink pending, Approve/Reject, manifest 1.30.0) | ✅ Domain/UI/MCP/migrate prose remapped to `draft`/`validated_seller`/`validated_collections`; snapshot `decision` left `approved`/`rejected` | ➖ Skipped: docs-only prose remap; one intended wording; no branching or executable behavior | ✅ Prettier wrap on tables/prose |
-| 4.2  | scoped pre-commit on the two docs files                            | Docs      | n/a                                           | n/a                                                         | ✅ `pre-commit run --files odoo/custom/src/private/collection/AGENTS.md odoo/custom/src/private/collection/readme/DESCRIPTION.md` → exit 0 (prettier, trailing whitespace, EOF, OCA README gen) | ➖ Verify task                                                                                                                | ➖ None needed                   |
+| Task | Test File                               | Layer | Safety Net                               | RED                                                                                                                               | GREEN                                                                                                                                                                                           | TRIANGULATE                                                                                  | REFACTOR                         |
+| ---- | --------------------------------------- | ----- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------- |
+| 4.1  | `AGENTS.md`, `readme/DESCRIPTION.md`    | Docs  | N/A (docs-only; no production test file) | ✅ Grep showed leftover voucher keys (`pending`/`approved`/`rejected` lifecycle, unlink pending, Approve/Reject, manifest 1.30.0) | ✅ Domain/UI/MCP/migrate prose remapped to `draft`/`validated_seller`/`validated_collections`; snapshot `decision` left `approved`/`rejected`                                                   | ➖ Skipped: docs-only prose remap; one intended wording; no branching or executable behavior | ✅ Prettier wrap on tables/prose |
+| 4.2  | scoped pre-commit on the two docs files | Docs  | n/a                                      | n/a                                                                                                                               | ✅ `pre-commit run --files odoo/custom/src/private/collection/AGENTS.md odoo/custom/src/private/collection/readme/DESCRIPTION.md` → exit 0 (prettier, trailing whitespace, EOF, OCA README gen) | ➖ Verify task                                                                               | ➖ None needed                   |
 
 ### Test Summary
 
@@ -127,11 +128,11 @@
 
 ### Phase 4
 
-| Evidence                                          | Value                                                                                                                                                                                                                                      |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Evidence                                          | Value                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Focused test command and exact result             | `pre-commit run --files odoo/custom/src/private/collection/AGENTS.md odoo/custom/src/private/collection/readme/DESCRIPTION.md` from `/home/crisd/projects/seedian/seedian` → exit 0. prettier + plugin-xml Passed; trim trailing whitespace Passed; fix end of files Passed; Generate addons README files from fragments Passed. |
-| Runtime harness command/scenario and exact result | N/A — docs-only per tasks.md Unit 4 (`Runtime harness: N/A docs-only`). No module install or Odoo test run for this slice.                                                                                                                |
-| Rollback boundary                                 | Revert `AGENTS.md`, `readme/DESCRIPTION.md`, and generated `README.rst` (oca-gen-addon-readme from the DESCRIPTION fragment). Does not revert Phase 1–3 application code, tests, or views.                                                 |
+| Runtime harness command/scenario and exact result | N/A — docs-only per tasks.md Unit 4 (`Runtime harness: N/A docs-only`). No module install or Odoo test run for this slice.                                                                                                                                                                                                       |
+| Rollback boundary                                 | Revert `AGENTS.md`, `readme/DESCRIPTION.md`, and generated `README.rst` (oca-gen-addon-readme from the DESCRIPTION fragment). Does not revert Phase 1–3 application code, tests, or views.                                                                                                                                       |
 
 ## Files Changed
 
@@ -188,13 +189,13 @@
 
 ### Phase 4
 
-| File                                                   | Action   | What Was Done                                                                                          |
-| ------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------ |
-| `AGENTS.md`                                            | Modified | Leftover voucher-state keys → `draft`/`validated_seller`/`validated_collections`; migrate lock 1.31.0  |
-| `readme/DESCRIPTION.md`                                | Modified | Lifecycle sentence remapped; no Reject; MCP stamp `validated_seller`                                   |
-| `README.rst`                                           | Modified | Regenerated by oca-gen-addon-readme from DESCRIPTION (generated; not application code)                 |
-| `openspec/changes/voucher-states-ui/tasks.md`          | Modified | 4.1–4.2 `[x]`; all 18 tasks complete                                                                   |
-| `openspec/changes/voucher-states-ui/apply-progress.md` | Modified | MERGE Phase 1 + Phase 2 + Phase 3 + Phase 4 evidence                                                   |
+| File                                                   | Action   | What Was Done                                                                                         |
+| ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------- |
+| `AGENTS.md`                                            | Modified | Leftover voucher-state keys → `draft`/`validated_seller`/`validated_collections`; migrate lock 1.31.0 |
+| `readme/DESCRIPTION.md`                                | Modified | Lifecycle sentence remapped; no Reject; MCP stamp `validated_seller`                                  |
+| `README.rst`                                           | Modified | Regenerated by oca-gen-addon-readme from DESCRIPTION (generated; not application code)                |
+| `openspec/changes/voucher-states-ui/tasks.md`          | Modified | 4.1–4.2 `[x]`; all 18 tasks complete                                                                  |
+| `openspec/changes/voucher-states-ui/apply-progress.md` | Modified | MERGE Phase 1 + Phase 2 + Phase 3 + Phase 4 evidence                                                  |
 
 ## Deviations from Design
 
@@ -273,27 +274,28 @@ None. All 18 tasks in `tasks.md` are `[x]`. All implementation work units finish
 
 ## Post-verify coexistence (sibling `allocation-customer-debt`)
 
-Verify FAIL named six tests. Sibling Phase 4 still owns `collection_voucher.py`
-detach (`_projected_residual` / leftover-voucher residual). This slice did **not**
-edit allocation models, MCP tools, `19.0.1.32.0`, or that detach GREEN.
+Verify FAIL named six tests. Sibling Phase 4 still owns `collection_voucher.py` detach
+(`_projected_residual` / leftover-voucher residual). This slice did **not** edit
+allocation models, MCP tools, `19.0.1.32.0`, or that detach GREEN.
 
-- List: `reviewed_by` / `reviewed_at` as `optional="hide"` so Document Review Flag
-  views still expose audit columns without changing visible column order.
-- Voucher residual fixtures: seed `line_ids` so residual is debt−applied (50 / 100 /
-  80) while leftover detach still subtracts voucher amount.
+- List: `reviewed_by` / `reviewed_at` as `optional="hide"` so Document Review Flag views
+  still expose audit columns without changing visible column order.
+- Voucher residual fixtures: seed `line_ids` so residual is debt−applied (50 / 100 / 80)
+  while leftover detach still subtracts voucher amount.
 
 Focused one-off (`docker compose run --rm … --test-tags` those six methods +
-`TestCollectionUi.test_list_hides_optional_and_currency_columns`): `0 failed, 0
-error(s) of 7 tests`. Did not re-run full verify while sibling Phase 4 is open.
+`TestCollectionUi.test_list_hides_optional_and_currency_columns`):
+`0 failed, 0 error(s) of 7 tests`. Did not re-run full verify while sibling Phase 4 is
+open.
 
 ## Post-verify remediations (leftover residual + sqlite)
 
 Sibling `allocation-customer-debt` is archived. Production leftover residual is
-`debt − applied` with no `_projected_residual`. Refresh verify FAIL was sqlite
-leftover `customer_identification` / `pending` plus three stale refuse scenarios
-in this change's delta.
+`debt − applied` with no `_projected_residual`. Refresh verify FAIL was sqlite leftover
+`customer_identification` / `pending` plus three stale refuse scenarios in this change's
+delta.
 
-- Delta `collection-vouchers`: leftover residual aligned with main spec (unlink
-  and partner-write MUST NOT refuse leftover residual 0 / underflow).
-- `collection_connector_sqlite` rollback test: ORM create uses `partner_id` +
-  `draft`; retired `create_collection_vouchers` MCP is asserted absent.
+- Delta `collection-vouchers`: leftover residual aligned with main spec (unlink and
+  partner-write MUST NOT refuse leftover residual 0 / underflow).
+- `collection_connector_sqlite` rollback test: ORM create uses `partner_id` + `draft`;
+  retired `create_collection_vouchers` MCP is asserted absent.

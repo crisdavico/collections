@@ -4,8 +4,8 @@
 
 ### Requirement: Confirm review gate
 
-Confirm MUST run only from `open`. The system MUST raise `UserError` and MUST NOT
-change sheet or allocation `state` unless every member voucher has `state`
+Confirm MUST run only from `open`. The system MUST raise `UserError` and MUST NOT change
+sheet or allocation `state` unless every member voucher has `state`
 `validated_collections`. An empty member set MUST pass. Missing designated proof,
 Document Review OFF, or any member not `validated_collections` MUST block Confirm.
 Confirm MUST set the sheet to `proposal` and MUST NOT confirm allocations.
@@ -31,10 +31,10 @@ Confirm MUST set the sheet to `proposal` and MUST NOT confirm allocations.
 
 ### Requirement: Four-state sheet editability
 
-Allocations, debt `amount_applied`, and reconciliation inputs MUST be editable when
-the sheet is `open` or `proposal`. Voucher membership and voucher business fields MUST
-be editable only when `open`. When `closed` or `cancelled`, those records MUST be
-read-only except chatter and PDF/XLSX. Confirm MUST NOT confirm allocations.
+Allocations, debt `amount_applied`, and reconciliation inputs MUST be editable when the
+sheet is `open` or `proposal`. Voucher membership and voucher business fields MUST be
+editable only when `open`. When `closed` or `cancelled`, those records MUST be read-only
+except chatter and PDF/XLSX. Confirm MUST NOT confirm allocations.
 
 #### Scenario: Proposal keeps allocation and debt editable
 
@@ -84,8 +84,8 @@ allowed. `date_from`/`date_to` MUST be UTC min/max of member `create_date` (empt
 members); MUST NOT use `received_date`. Unlink of an `open` sheet MUST unlink its draft
 allocations first (vouchers MUST persist unassigned; MUST NOT be destroyed), then delete
 the sheet. Unlink of a `proposal`, `closed`, or `cancelled` sheet MUST be refused even
-when the sheet has no allocations or members.
-(Previously: Membership frozen only while closed; unlink refused only for closed.)
+when the sheet has no allocations or members. (Previously: Membership frozen only while
+closed; unlink refused only for closed.)
 
 #### Scenario: Assign and reassign
 
@@ -147,9 +147,8 @@ composer, and the three-page notebook. Header MUST show Document Review and Conf
 saved and `open`; Close and Cancel when `proposal`; Cancel when `closed`; Open when
 `cancelled`. Reopen MUST NOT exist. Export XLSX MUST remain available in every state.
 Membership MUST be editable only when `open`. List/search MUST show name, seller, dates,
-and `state`.
-(Previously: Statusbar `open,closed`; Close when open; Reopen when closed; Document
-Review including closed.)
+and `state`. (Previously: Statusbar `open,closed`; Close when open; Reopen when closed;
+Document Review including closed.)
 
 #### Scenario: Menu and form behaviors
 
@@ -179,8 +178,7 @@ Review including closed.)
 
 `collection.sheet` MUST inherit `mail.thread` and `mail.activity.mixin`. Operators MAY
 post messages and schedule activities on a sheet. Confirm, Close, Cancel, and Open
-SHOULD be tracked in chatter.
-(Previously: Close and Reopen SHOULD be tracked.)
+SHOULD be tracked in chatter. (Previously: Close and Reopen SHOULD be tracked.)
 
 #### Scenario: Message persists on sheet
 
@@ -217,8 +215,8 @@ SHOULD be tracked in chatter.
 A saved `open` collection sheet MUST expose a header action that opens Document Review
 with that sheet's mandatory identifier. The action MUST be available when the current
 company's flag is ON and `state` is `open`, MUST be hidden and refused when the flag is
-OFF or `state` is not `open`, and MUST NOT open from an unsaved sheet.
-(Previously: Available on saved sheets including closed when the company flag is ON.)
+OFF or `state` is not `open`, and MUST NOT open from an unsaved sheet. (Previously:
+Available on saved sheets including closed when the company flag is ON.)
 
 #### Scenario: Header action available when flag is on
 
@@ -265,9 +263,9 @@ to `draft`. Open MUST succeed from `cancelled` if that seller has no other open 
 that company, and MUST leave allocations `draft`. Confirm MUST NOT confirm allocations.
 Any internal user MAY run those audited actions. Write of raw `state` MUST be rejected
 except via Confirm, Close, Cancel, or Open. Open of a historical cancelled sheet MUST
-remain allowed even if the seller is later disabled. Reopen MUST NOT exist.
-(Previously: Two states; Close from open confirmed allocations; Reopen from closed
-drafted allocations.)
+remain allowed even if the seller is later disabled. Reopen MUST NOT exist. (Previously:
+Two states; Close from open confirmed allocations; Reopen from closed drafted
+allocations.)
 
 #### Scenario: Default open on create
 
@@ -332,9 +330,8 @@ with no new open sheet (MUST NOT pick one). Sheets in `proposal`, `closed`, or
 `cancelled` MUST NOT count toward that limit. Two companies MAY each have one open sheet
 for the same seller. Confirm of extras MUST still succeed. Explicit sheet create MUST
 remain available when `auto_create_sheet` is OFF. The system MUST NOT add a UNIQUE SQL
-constraint.
-(Previously: Counted Reopen as an open-creating operation; did not exclude Proposal from
-the open count.)
+constraint. (Previously: Counted Reopen as an open-creating operation; did not exclude
+Proposal from the open count.)
 
 #### Scenario: Create second open rejected
 
@@ -388,8 +385,7 @@ removed, or reassigned via sheet members or voucher `sheet_id`, and voucher `par
 MUST NOT change. Operators MUST Open from Cancelled before membership edits. Freeze
 applies while the sheet exists. Unlink of those states MUST be refused even when empty.
 `partner_id` writes MUST raise the same membership `UserError` as `sheet_id` membership
-writes.
-(Previously: Freeze applied only while closed; operators Reopen first.)
+writes. (Previously: Freeze applied only while closed; operators Reopen first.)
 
 #### Scenario: Freeze add, remove, and reassign
 
@@ -415,13 +411,13 @@ writes.
 
 Existing sheets MUST stay visible and operable if their seller is later disabled. The
 system MUST NOT hide or delete them for that reason. Confirm from `open` MUST still
-succeed when the Confirm gate is met.
-(Previously: Close MUST still succeed from open.)
+succeed when the Confirm gate is met. (Previously: Close MUST still succeed from open.)
 
 #### Scenario: Disabled-seller sheet stays visible and confirmable
 
 - GIVEN an open sheet whose seller is later removed from the enabled list
-- WHEN an allowed-company user opens Collection Sheets and Confirms it (members eligible)
+- WHEN an allowed-company user opens Collection Sheets and Confirms it (members
+  eligible)
 - THEN the sheet MUST still be listed
 - AND `state` MUST become `proposal`
 - AND the sheet MUST NOT be deleted
@@ -433,8 +429,8 @@ hide them). Allocations MUST list Reference (`name`), Customer (`partner_id`),
 `total_debt`, `total_vouchers`, and Residual, and MUST NOT list `state` or
 `total_applied`. Draft allocations MUST be addable, editable, and deletable when `open`
 or `proposal`, opening the allocation form. Vouchers MUST show all `voucher_ids`;
-operators MAY open existing members only when `open`; the tab MUST NOT create, remove, or
-delete vouchers. Debt MUST list all allocation invoice/debt lines for the sheet; only
+operators MAY open existing members only when `open`; the tab MUST NOT create, remove,
+or delete vouchers. Debt MUST list all allocation invoice/debt lines for the sheet; only
 `amount_applied` MUST be editable when `open` or `proposal`; create and delete MUST be
 disabled. Unlink of membership MUST remain via voucher `sheet_id` while `open`.
 (Previously: Allocations-only notebook; `voucher_ids` hidden; counted Vouchers stat

@@ -41,20 +41,21 @@ None
   drops amounts, returns `cash.collected`; **ADDED** `declare_collection_cash`.
 - `collection-sheet-report`: `submitted` declarations; remittance totals; `cash_banked`;
   PDF `open|submitted` at call site only.
-- `collection-receipts`: sheet-boundary + sheet-wide cap; totals `depends=`;
-  replacement primitives + ledger ACL `1,0,1,0`.
+- `collection-receipts`: sheet-boundary + sheet-wide cap; totals `depends=`; replacement
+  primitives + ledger ACL `1,0,1,0`.
 - `collection-vouchers`: eight catalog XMLIDs + sentinel; `receipt_value_ids` /
   `replaced_amount`; write-hook; deposit MCP + form fields.
-- `receipt-proposal-splits`: REMOVE same-sheet/cap (now core); ADD U6 board lock.
-  Keep largest-share owner in satellite.
+- `receipt-proposal-splits`: REMOVE same-sheet/cap (now core); ADD U6 board lock. Keep
+  largest-share owner in satellite.
 
 ## Approach
 
 Strict TDD. `auto-chain` / `stacked-to-main`; ~400 LOC/unit. No new capability folder:
-deposit and ledger fold into voucher/receipt/sheet/report.
-**U1 → U2 → U3 → U4 → U5a → U6 → U5b → U5c** (U6 before U5b): lift invariants; catalog
-+ `19.0.1.43.0`; remittance totals; split close; ledger; board lock; replacement
-engine; deposit MCP on submitted (`sheet_id` explicit).
+deposit and ledger fold into voucher/receipt/sheet/report. **U1 → U2 → U3 → U4 → U5a →
+U6 → U5b → U5c** (U6 before U5b): lift invariants; catalog
+
+- `19.0.1.43.0`; remittance totals; split close; ledger; board lock; replacement engine;
+  deposit MCP on submitted (`sheet_id` explicit).
 
 **User impact:** seller freezes, banks cash, declares two numbers; Planilla Cuadrada;
 board cannot reassign replaced cash.
@@ -90,8 +91,8 @@ edit-authority. Nebula is not a code dependency.
 
 ## Success Criteria
 
-- [ ] Close freezes with no amounts; declare re-runnable on `submitted`; Confirm
-      refuses undeclared cash when `cash_collected > 0`
+- [ ] Close freezes with no amounts; declare re-runnable on `submitted`; Confirm refuses
+      undeclared cash when `cash_collected > 0`
 - [ ] `seller_deposit` on sentinel; remittance totals correct; ledger on
       `validated_collections`; U6 keeps replaced cash out of the pool
 - [ ] MCP close amount-free + `cash.collected`; PDF serves `submitted`; no `sudo()`;

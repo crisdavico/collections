@@ -24,9 +24,9 @@ Float 0–100, default `0.0`, with an Odoo Constraint. The rate MUST NOT live on
 ### Requirement: Readonly commission UI
 
 The connector form MUST show a Seller Bindings notebook with readonly
-`external_seller_id`, `user_id`, and `commission_percent`. Collection Settings MUST
-show a related readonly One2many of the active connector `seller_binding_ids` with
-user and `commission_percent`, and MUST hide that list when no connector is set.
+`external_seller_id`, `user_id`, and `commission_percent`. Collection Settings MUST show
+a related readonly One2many of the active connector `seller_binding_ids` with user and
+`commission_percent`, and MUST hide that list when no connector is set.
 
 #### Scenario: Connector notebook
 
@@ -79,8 +79,8 @@ active rates on bindings.
 Success MUST return normalized sellers with source metadata, `odoo_seller_id` when bound
 else unbound, and `commission_percent` as a float 0–100, and MUST exclude inactive
 external sellers. A missing `commission_percent` key from the adapter MUST coerce to
-`0.0`.
-(Previously: success rows had no `commission_percent`; extra adapter keys were dropped.)
+`0.0`. (Previously: success rows had no `commission_percent`; extra adapter keys were
+dropped.)
 
 #### Scenario: List shape
 
@@ -169,9 +169,9 @@ were not a fail-closed Import case.)
 SQLite MUST be read-only against fixed `sellers` (`id`, `name`, `mobile`, `active`,
 `commission_percent`) with `commission_percent` REAL 0–100 CHECK. Admins MUST run a
 connection-test against that same schema. Missing, unreadable, or invalid schema
-(including a missing `commission_percent` column) MUST raise `UserError` with no path
-or SQL. The file MUST NOT be written.
-(Previously: four columns `id`, `name`, `mobile`, `active`.)
+(including a missing `commission_percent` column) MUST raise `UserError` with no path or
+SQL. The file MUST NOT be written. (Previously: four columns `id`, `name`, `mobile`,
+`active`.)
 
 #### Scenario: Sqlite success
 
@@ -200,8 +200,7 @@ SQLite MUST be read-only against fixed `customers` and `invoices` (`id`, `custom
 the dispatched external seller id and identification with parameterized SQL. Missing,
 unreadable, or invalid `invoices` schema MUST raise `UserError` with no path or SQL.
 Seller listing, connection-test, and customer listing MUST remain compatible. The file
-MUST NOT be written.
-(Previously: froze database.sql.)
+MUST NOT be written. (Previously: froze database.sql.)
 
 #### Scenario: Sqlite seller-scoped debt
 

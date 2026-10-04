@@ -16,5 +16,5 @@
 
 - [x] 3.1 `_editable_review_vals` + apply before `_write_review_decision`.
 - [x] 3.2 Manifest `19.0.1.38.0`; AGENTS + company-migration tests; no migrate folder.
-- [x] 3.3 `invoke test -m collection --mode=update`; scoped pre-commit;
-      module already upgraded during tests; `invoke start` to restore the stack.
+- [x] 3.3 `invoke test -m collection --mode=update`; scoped pre-commit; module already
+      upgraded during tests; `invoke start` to restore the stack.

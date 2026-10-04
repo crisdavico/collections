@@ -4,12 +4,11 @@
 
 ### Requirement: Draft default and confirm-on-close invariant
 
-Allocation `state` MUST be `draft` or `confirmed` only. Default MUST be
-`draft`. `draft` MUST hold iff the sheet is `open`. `confirmed` MUST hold
-iff the sheet is `closed`. MCP and ORM create MUST persist `draft` and
-revision 1 on first persist. Close MUST confirm every allocation then close
-the sheet. Reopen MUST open the sheet then return every allocation to
-`draft`. Raw allocation `state` write MUST be refused except Close/Reopen
+Allocation `state` MUST be `draft` or `confirmed` only. Default MUST be `draft`. `draft`
+MUST hold iff the sheet is `open`. `confirmed` MUST hold iff the sheet is `closed`. MCP
+and ORM create MUST persist `draft` and revision 1 on first persist. Close MUST confirm
+every allocation then close the sheet. Reopen MUST open the sheet then return every
+allocation to `draft`. Raw allocation `state` write MUST be refused except Close/Reopen
 audited transitions.
 
 #### Scenario: Create defaults to draft
@@ -28,28 +27,27 @@ audited transitions.
 
 #### Scenario: Reopen drafts after open
 
-- GIVEN a closed sheet with confirmed allocations and no other open sheet
-  for that seller in that company
+- GIVEN a closed sheet with confirmed allocations and no other open sheet for that
+  seller in that company
 - WHEN Reopen runs
 - THEN the sheet MUST be `open`
 - AND every allocation MUST be `draft`
 
 #### Scenario: Invariant-breaking state write refused
 
-- GIVEN an allocation whose `state` would not match its sheet (`draft` on
-  closed, or `confirmed` on open)
+- GIVEN an allocation whose `state` would not match its sheet (`draft` on closed, or
+  `confirmed` on open)
 - WHEN a non-audited `state` write is attempted
 - THEN the write MUST be refused
 - AND stored `state` MUST be unchanged
 
 ### Requirement: Draft unlink with revisions
 
-The system MUST allow unlinking a `draft` allocation even when revision rows
-exist. That unlink MUST unassign linked vouchers (MUST NOT destroy them),
-MUST cascade invoice lines, and MUST delete revision snapshots only as a
-consequence of deleting that parent. Direct revision write and unlink MUST
-remain forbidden. Unlink of a `confirmed` allocation MUST be refused even
-with zero revisions.
+The system MUST allow unlinking a `draft` allocation even when revision rows exist. That
+unlink MUST unassign linked vouchers (MUST NOT destroy them), MUST cascade invoice
+lines, and MUST delete revision snapshots only as a consequence of deleting that parent.
+Direct revision write and unlink MUST remain forbidden. Unlink of a `confirmed`
+allocation MUST be refused even with zero revisions.
 
 #### Scenario: Draft with revisions unlinks
 
@@ -76,42 +74,40 @@ with zero revisions.
 
 ### Requirement: MCP create_collection_allocation
 
-MUST expose MCP write `create_collection_allocation` for Enabled Seller
-internal callers (`category=write`, `registry=mcp`, method-discovered; MUST
-NOT add a `muk_mcp.tool` row). Input MUST be:
+MUST expose MCP write `create_collection_allocation` for Enabled Seller internal callers
+(`category=write`, `registry=mcp`, method-discovered; MUST NOT add a `muk_mcp.tool`
+row). Input MUST be:
 
-| Key | Rule |
-| --- | --- |
-| seller_id | int > 0 |
+| Key                     | Rule                                                       |
+| ----------------------- | ---------------------------------------------------------- |
+| seller_id               | int > 0                                                    |
 | customer_identification | stripped string; top-level only; MUST NOT on payment items |
-| request_id | required |
-| payments[] | minItems 1; payment shape without customer_identification |
-| invoices[] | REQUIRED; MAY be empty |
-| residual_reason | nullable |
-| total_debt | MAY be present; MUST be ignored |
+| request_id              | required                                                   |
+| payments[]              | minItems 1; payment shape without customer_identification  |
+| invoices[]              | REQUIRED; MAY be empty                                     |
+| residual_reason         | nullable                                                   |
+| total_debt              | MAY be present; MUST be ignored                            |
 
-Success output MUST be exactly `{sheet_id, vouchers, allocation}`:
-`vouchers[]` one `{id,name,state,document_id}` row per submitted payment IN
-SEND ORDER; `allocation` exactly seven keys
-`{id,name,state,revision,total_vouchers,total_applied,residual}` with
-`revision` a JSON int (MUST NOT be bool, float, or str). Persist `draft`
-revision-1; `UNIQUE(sheet_id, partner_id)`. Unbound identification MUST
-lazy-resolve via `resolve_customer_partner` on this write. When
-`company.auto_create_sheet` is False, MUST raise a named `UserError` and
-write zero rows. Exact same-company `document_id` set MUST reuse rows and
-continue to allocation (MUST NOT voucher-style early-return). Partial overlap
-or other-company hit MUST raise generic conflict with no writes. Revalidation
-failure MUST roll back vouchers and allocation. Errors MUST be raised, NEVER
-`{"error":...}` bodies. MUST NOT `sudo()`.
-(Previously: Persist `confirmed` revision-1.)
+Success output MUST be exactly `{sheet_id, vouchers, allocation}`: `vouchers[]` one
+`{id,name,state,document_id}` row per submitted payment IN SEND ORDER; `allocation`
+exactly seven keys `{id,name,state,revision,total_vouchers,total_applied,residual}` with
+`revision` a JSON int (MUST NOT be bool, float, or str). Persist `draft` revision-1;
+`UNIQUE(sheet_id, partner_id)`. Unbound identification MUST lazy-resolve via
+`resolve_customer_partner` on this write. When `company.auto_create_sheet` is False,
+MUST raise a named `UserError` and write zero rows. Exact same-company `document_id` set
+MUST reuse rows and continue to allocation (MUST NOT voucher-style early-return).
+Partial overlap or other-company hit MUST raise generic conflict with no writes.
+Revalidation failure MUST roll back vouchers and allocation. Errors MUST be raised,
+NEVER `{"error":...}` bodies. MUST NOT `sudo()`. (Previously: Persist `confirmed`
+revision-1.)
 
 #### Scenario: First create
 
-- GIVEN valid enabled-seller payload with inline `payments` and required
-  `invoices` (MAY be `[]`)
+- GIVEN valid enabled-seller payload with inline `payments` and required `invoices` (MAY
+  be `[]`)
 - WHEN create with a new `request_id`
-- THEN `draft`, `revision` 1 (int), matching totals, `sheet_id`, and
-  `vouchers[]` in send order
+- THEN `draft`, `revision` 1 (int), matching totals, `sheet_id`, and `vouchers[]` in
+  send order
 - AND a second header for same (sheet, partner) MUST be unique-rejected
 
 #### Scenario: Authorization denied
@@ -136,8 +132,7 @@ failure MUST roll back vouchers and allocation. Errors MUST be raised, NEVER
 
 #### Scenario: Partial overlap or other-company conflict
 
-- GIVEN a partial same-company `document_id` overlap, or a hit only in another
-  company
+- GIVEN a partial same-company `document_id` overlap, or a hit only in another company
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise generic conflict with no writes and no ids disclosed
 
@@ -151,30 +146,26 @@ failure MUST roll back vouchers and allocation. Errors MUST be raised, NEVER
 ### Requirement: Idempotency and amend
 
 MUST replay identical `request_id` (zero writes) with the full
-`{sheet_id, vouchers[], allocation}` payload, `vouchers[]` in submitted
-order. Matching `content_hash` (new `request_id`, no extra revision) MUST
-include `residual_reason` so a reason-only retry is not a silent no-op.
-Amend MUST be voucher SUPERSET (`revision`+1) and MUST be allowed only while
-`draft`. MUST reject subset/partial overlap and `state != draft`
-(`confirmed` MUST refuse amend). `UniqueViolation` MUST invalidate then
-replay or generic-conflict with no ids.
-(Previously: Amend required `confirmed`; `validated`/`rejected` refused as
-already reviewed.)
+`{sheet_id, vouchers[], allocation}` payload, `vouchers[]` in submitted order. Matching
+`content_hash` (new `request_id`, no extra revision) MUST include `residual_reason` so a
+reason-only retry is not a silent no-op. Amend MUST be voucher SUPERSET (`revision`+1)
+and MUST be allowed only while `draft`. MUST reject subset/partial overlap and
+`state != draft` (`confirmed` MUST refuse amend). `UniqueViolation` MUST invalidate then
+replay or generic-conflict with no ids. (Previously: Amend required `confirmed`;
+`validated`/`rejected` refused as already reviewed.)
 
 #### Scenario: Replay by request_id, content_hash, or UniqueViolation
 
 - GIVEN a prior create or concurrent `UNIQUE(request_id)` insert
 - WHEN identical `request_id`, same content with a new `request_id`, or race
-- THEN zero writes, no extra revision, or invalidate-replay/generic-conflict
-  with no ids
+- THEN zero writes, no extra revision, or invalidate-replay/generic-conflict with no ids
 - AND `request_id` replay MUST return `sheet_id` plus ordered `vouchers[]`
 
 #### Scenario: Amend voucher superset or overlap
 
 - GIVEN draft {V1,V2} or destination `confirmed`
 - WHEN payload is {V1,V2,V3}, {V1}, {V2,V3}, or amend after confirm
-- THEN SUPERSET on draft MUST `revision`+1 and link V3; else MUST error with
-  no writes
+- THEN SUPERSET on draft MUST `revision`+1 and link V3; else MUST error with no writes
 
 #### Scenario: Residual reason participates in content_hash
 
@@ -184,21 +175,20 @@ already reviewed.)
 
 ### Requirement: Input and sheet gates
 
-Vouchers MUST be caller-company, amount > 0, not `rejected`, one partner, one
-caller seller, one sheet. Those single-customer and single-sheet gates MUST
-remain and MUST be reachable via `document_id` reuse. Customer MUST resolve
-via `resolve_customer_partner` on this write (MAY create partner/binding);
-MUST match voucher partner after resolve. Sheet MUST be `open` and same
-company. Successful persist MUST leave the allocation `draft` on that open
-sheet. When `auto_create_sheet` is False, MUST raise a named `UserError`
-(company requires a sheet chosen in Odoo) with zero writes.
-(Previously: Persist implied confirmed on the open sheet.)
+Vouchers MUST be caller-company, amount > 0, not `rejected`, one partner, one caller
+seller, one sheet. Those single-customer and single-sheet gates MUST remain and MUST be
+reachable via `document_id` reuse. Customer MUST resolve via `resolve_customer_partner`
+on this write (MAY create partner/binding); MUST match voucher partner after resolve.
+Sheet MUST be `open` and same company. Successful persist MUST leave the allocation
+`draft` on that open sheet. When `auto_create_sheet` is False, MUST raise a named
+`UserError` (company requires a sheet chosen in Odoo) with zero writes. (Previously:
+Persist implied confirmed on the open sheet.)
 
 #### Scenario: Ineligible input rejected
 
 - GIVEN amount null/≤0, `rejected`, other company, other sheet, mixed
-  partner/seller/sheet via reused `document_id`, partner mismatch after
-  resolve, closed sheet, or other company sheet
+  partner/seller/sheet via reused `document_id`, partner mismatch after resolve, closed
+  sheet, or other company sheet
 - WHEN allocated
 - THEN MUST error
 - AND mixed-reuse and mismatch MUST NOT create a partner or binding
@@ -219,23 +209,21 @@ sheet. When `auto_create_sheet` is False, MUST raise a named `UserError`
 
 ### Requirement: Revalidation and residual
 
-Each `external_invoice_id` MUST remain in fresh ERP debt. Available = fresh
-balance − other `draft`/`confirmed` applications of that id.
-`amount_applied` ≤ available (currency compare). `total_debt` is fresh
-snapshot, MUST NOT require caller equality. Residual ≥ 0 (currency compare);
-`residual_reason` iff residual > 0; empty invoices allowed. Residual
-constraint MUST apply while `draft` and while `confirmed`.
-(Previously: Subtracted other `confirmed`/`validated`; residual only while
-`confirmed`.)
+Each `external_invoice_id` MUST remain in fresh ERP debt. Available = fresh balance −
+other `draft`/`confirmed` applications of that id. `amount_applied` ≤ available
+(currency compare). `total_debt` is fresh snapshot, MUST NOT require caller equality.
+Residual ≥ 0 (currency compare); `residual_reason` iff residual > 0; empty invoices
+allowed. Residual constraint MUST apply while `draft` and while `confirmed`.
+(Previously: Subtracted other `confirmed`/`validated`; residual only while `confirmed`.)
 
 #### Scenario: Fresh debt, residual, and both-state constraint
 
-- GIVEN invoice I in fresh debt, other draft or confirmed apply A, caller
-  `total_debt` ≠ fresh snapshot
+- GIVEN invoice I in fresh debt, other draft or confirmed apply A, caller `total_debt` ≠
+  fresh snapshot
 - WHEN apply B, empty invoices, residual > 0 or < 0
-- THEN available = fresh − A; B > available errors; `total_debt` is fresh;
-  empty invoices persist as all on account; residual_reason iff residual > 0;
-  residual < 0 MUST error while `draft` and while `confirmed`
+- THEN available = fresh − A; B > available errors; `total_debt` is fresh; empty
+  invoices persist as all on account; residual_reason iff residual > 0; residual < 0
+  MUST error while `draft` and while `confirmed`
 
 #### Scenario: Residual holds on draft and confirmed
 
@@ -245,17 +233,15 @@ constraint MUST apply while `draft` and while `confirmed`.
 
 ### Requirement: Freeze, revisions, ACL, back-office
 
-When `state` is `confirmed`, freeze `line_ids`/`voucher_ids`/`partner_id`/
-`sheet_id`. When `state` is `draft`, those fields MUST remain writable
-subject to other rules. O2M Command.DELETE MUST NOT destroy vouchers.
-Revisions immutable, `UNIQUE(request_id)`, company `ir.rule`, no sudo.
-Direct revision write and unlink MUST remain forbidden. MUST NOT delete a
-`confirmed` allocation. Draft unlink with revisions is specified under Draft
-unlink with revisions. MUST NOT expose Validate or Reject; `action_validate`
-and `action_reject` MUST NOT remain; `validated` and `rejected` MUST NOT
-remain as states.
-(Previously: Freeze when `state != confirmed`; unlink with revisions
-refused; back-office validate/reject then amend refused.)
+When `state` is `confirmed`, freeze `line_ids`/`voucher_ids`/`partner_id`/ `sheet_id`.
+When `state` is `draft`, those fields MUST remain writable subject to other rules. O2M
+Command.DELETE MUST NOT destroy vouchers. Revisions immutable, `UNIQUE(request_id)`,
+company `ir.rule`, no sudo. Direct revision write and unlink MUST remain forbidden. MUST
+NOT delete a `confirmed` allocation. Draft unlink with revisions is specified under
+Draft unlink with revisions. MUST NOT expose Validate or Reject; `action_validate` and
+`action_reject` MUST NOT remain; `validated` and `rejected` MUST NOT remain as states.
+(Previously: Freeze when `state != confirmed`; unlink with revisions refused;
+back-office validate/reject then amend refused.)
 
 #### Scenario: Freeze when confirmed
 
@@ -267,8 +253,7 @@ refused; back-office validate/reject then amend refused.)
 #### Scenario: Draft membership remains writable
 
 - GIVEN a draft allocation
-- WHEN `line_ids`, `voucher_ids`, `partner_id`, or `sheet_id` are written
-  lawfully
+- WHEN `line_ids`, `voucher_ids`, `partner_id`, or `sheet_id` are written lawfully
 - THEN the write MUST persist
 
 #### Scenario: Direct revision mutation forbidden
@@ -286,19 +271,17 @@ refused; back-office validate/reject then amend refused.)
 
 ### Requirement: Source detach residual refuse
 
-When a voucher would leave a `draft` allocation, the system MUST project
-residual as current residual minus that voucher's amount (currency compare).
-If projected residual is `< 0`, the system MUST refuse the move with no
-`partner_id` or `allocation_id` change. Fully applied draft sources MUST be
-refused. The system MUST NOT unallocate the voucher to avoid a negative
-residual. Detach from a `confirmed` allocation MUST be refused.
-(Previously: Projection applied only to `confirmed` allocations.)
+When a voucher would leave a `draft` allocation, the system MUST project residual as
+current residual minus that voucher's amount (currency compare). If projected residual
+is `< 0`, the system MUST refuse the move with no `partner_id` or `allocation_id`
+change. Fully applied draft sources MUST be refused. The system MUST NOT unallocate the
+voucher to avoid a negative residual. Detach from a `confirmed` allocation MUST be
+refused. (Previously: Projection applied only to `confirmed` allocations.)
 
 #### Scenario: Fully applied source detach refused
 
 - GIVEN a draft allocation with residual 0 and a linked voucher
-- WHEN that voucher is moved off the allocation (including via `partner_id`
-  write)
+- WHEN that voucher is moved off the allocation (including via `partner_id` write)
 - THEN the move MUST be refused
 - AND allocation `voucher_ids` MUST be unchanged
 
@@ -325,24 +308,22 @@ residual. Detach from a `confirmed` allocation MUST be refused.
 
 ### Requirement: Partner match after voucher write
 
-Every allocated voucher's `partner_id` MUST equal the allocation `partner_id`
-after voucher `partner_id` or `allocation_id` writes, not only after allocation
-`partner_id` or `voucher_ids` writes. A mismatch MUST be refused with no
-persist.
-(Previously: Same-write attach used a confirmed same-sheet target.)
+Every allocated voucher's `partner_id` MUST equal the allocation `partner_id` after
+voucher `partner_id` or `allocation_id` writes, not only after allocation `partner_id`
+or `voucher_ids` writes. A mismatch MUST be refused with no persist. (Previously:
+Same-write attach used a confirmed same-sheet target.)
 
 #### Scenario: Voucher partner write mismatch refused
 
 - GIVEN a voucher linked to an allocation for partner P
-- WHEN `partner_id` is written to Q without a matching `allocation_id` in the
-  same vals
+- WHEN `partner_id` is written to Q without a matching `allocation_id` in the same vals
 - THEN the write MUST be refused
 - AND the voucher MUST remain on P and that allocation
 
 #### Scenario: Same-write matching partner and allocation
 
-- GIVEN a voucher on allocation A (partner P) and draft same-sheet
-  allocation B (partner Q) with attachable residual
+- GIVEN a voucher on allocation A (partner P) and draft same-sheet allocation B (partner
+  Q) with attachable residual
 - WHEN `partner_id` is written to Q with `allocation_id` B in the same vals
 - THEN partner match MUST hold
 - AND the voucher MUST belong to B
@@ -350,19 +331,17 @@ persist.
 ### Requirement: MCP get_collection_allocation
 
 MUST expose `get_collection_allocation` via `@mcp_tool` on `muk_mcp.mixin`
-(`category=read`, `registry=mcp`), method-discovered; MUST NOT add a
-`muk_mcp.tool` row. Input MUST be `{seller_id, customer_identification}`.
-Portal/public MUST receive `AccessError`. Internal callers MUST pass Enabled
-Seller plus active-connector seller-binding gates. Open sheet MUST be resolved
-via `_open_sheets_for_seller` and MUST NOT use
-`_resolve_open_sheet_id_for_create`. Unbound identification, no open sheet, or
-no allocation MUST return `{allocation: null}` and MUST NOT create partner,
-binding, or sheet. Found MUST return residual_reason plus `vouchers` and
-`invoices` as lists (even empty); MUST NEVER include attachments or base64.
-Found open-sheet allocation `state` MUST be `draft`. MUST NOT return
-`validated` or `rejected`. More than one open sheet MUST raise the existing
-multi-open `UserError`. Errors MUST be raised, NEVER `{"error":...}` bodies.
-Every branch MUST write zero rows. MUST NOT `sudo()`.
+(`category=read`, `registry=mcp`), method-discovered; MUST NOT add a `muk_mcp.tool` row.
+Input MUST be `{seller_id, customer_identification}`. Portal/public MUST receive
+`AccessError`. Internal callers MUST pass Enabled Seller plus active-connector
+seller-binding gates. Open sheet MUST be resolved via `_open_sheets_for_seller` and MUST
+NOT use `_resolve_open_sheet_id_for_create`. Unbound identification, no open sheet, or
+no allocation MUST return `{allocation: null}` and MUST NOT create partner, binding, or
+sheet. Found MUST return residual_reason plus `vouchers` and `invoices` as lists (even
+empty); MUST NEVER include attachments or base64. Found open-sheet allocation `state`
+MUST be `draft`. MUST NOT return `validated` or `rejected`. More than one open sheet
+MUST raise the existing multi-open `UserError`. Errors MUST be raised, NEVER
+`{"error":...}` bodies. Every branch MUST write zero rows. MUST NOT `sudo()`.
 (Previously: `validated` allocations were returned with that `state`.)
 
 #### Scenario: Registered read tool
@@ -374,8 +353,8 @@ Every branch MUST write zero rows. MUST NOT `sudo()`.
 
 #### Scenario: Unbound or missing returns null
 
-- GIVEN an enabled seller and an unbound identification, or no open sheet, or
-  an open sheet with no allocation
+- GIVEN an enabled seller and an unbound identification, or no open sheet, or an open
+  sheet with no allocation
 - WHEN `get_collection_allocation` runs
 - THEN the body MUST be `{allocation: null}`
 - AND MUST NOT create partner, binding, or sheet
@@ -384,8 +363,8 @@ Every branch MUST write zero rows. MUST NOT `sudo()`.
 
 - GIVEN one open sheet and an allocation
 - WHEN `get_collection_allocation` runs
-- THEN payload MUST include residual_reason and list `vouchers` and `invoices`
-  (even empty), never attachments or base64
+- THEN payload MUST include residual_reason and list `vouchers` and `invoices` (even
+  empty), never attachments or base64
 - AND `state` MUST be `draft` with zero writes
 
 #### Scenario: Multi-open sheet and auth fail closed
@@ -400,10 +379,9 @@ Every branch MUST write zero rows. MUST NOT `sudo()`.
 ### Requirement: Back-office Validate and Reject
 
 (Reason: Allocations stay draft until sheet Close; confirmed is the freeze.
-Validate/Reject and `validated`/`rejected` are gone.)
-(Migration: Module `19.0.1.28.0` SQL-maps allocation `state` from the parent
-sheet (`open`→`draft`, `closed`→`confirmed`) at the start of post-migrate so
-dropped Selection keys never linger. Collapse leftover `validated`/`rejected`.
-Chatter history remains. `reviewed_by`/`reviewed_at` stay on the model and
-leave the form. Upgrade cannot restore Selection keys; restore from dump.
+Validate/Reject and `validated`/`rejected` are gone.) (Migration: Module `19.0.1.28.0`
+SQL-maps allocation `state` from the parent sheet (`open`→`draft`, `closed`→`confirmed`)
+at the start of post-migrate so dropped Selection keys never linger. Collapse leftover
+`validated`/`rejected`. Chatter history remains. `reviewed_by`/`reviewed_at` stay on the
+model and leave the form. Upgrade cannot restore Selection keys; restore from dump.
 Manifest rollback target `19.0.1.27.0`.)

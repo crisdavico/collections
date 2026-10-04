@@ -296,9 +296,8 @@ to this unit, not a test failure.
 
 Covering tests for the five CRITICAL UNTESTED rows from verify
 `sha256:5bb948f03c1c69eee30830e0b795ec8a40c1ff60d9c3a9fa79b0911ab092b7ee`. No new
-production paths. Tasks stay 17/17. Focused tags: **0 failed, 0 error(s) of 7
-tests**. Full `invoke test -m collection --mode=update`: **0 failed, 0 error(s)
-of 846 tests**.
+production paths. Tasks stay 17/17. Focused tags: **0 failed, 0 error(s) of 7 tests**.
+Full `invoke test -m collection --mode=update`: **0 failed, 0 error(s) of 846 tests**.
 
 | File                                             | Tests added                                                                                                                             |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |

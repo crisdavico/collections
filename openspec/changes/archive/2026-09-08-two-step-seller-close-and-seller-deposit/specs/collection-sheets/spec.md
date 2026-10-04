@@ -7,10 +7,11 @@
 Declare Cash MUST run only while `state` is `submitted` and MUST persist seller-declared
 `cash_on_hand` and `commission_withheld`. It MUST stamp `cash_declared_at` and
 `cash_declared_by`. It MUST be re-runnable: a later Declare Cash MUST replace those two
-amounts and MUST restamp declared-at/by. It MUST refuse `open`, `proposal`, `closed`, and
-`cancelled` with no persist. The persisted field name MUST remain `cash_on_hand`. Declare
-Cash MUST NOT change sheet or allocation `state`. A disabled seller MUST still be allowed
-to declare on an existing `submitted` sheet. Any internal user MAY run Declare Cash.
+amounts and MUST restamp declared-at/by. It MUST refuse `open`, `proposal`, `closed`,
+and `cancelled` with no persist. The persisted field name MUST remain `cash_on_hand`.
+Declare Cash MUST NOT change sheet or allocation `state`. A disabled seller MUST still
+be allowed to declare on an existing `submitted` sheet. Any internal user MAY run
+Declare Cash.
 
 #### Scenario: Submitted sheet accepts Declare Cash
 
@@ -100,8 +101,8 @@ raise `UserError`.
 
 #### Scenario: Zero submitted sheets raise not null
 
-- GIVEN an internal seller with no `submitted` sheet (none, or only `open` /
-  `proposal` / `closed` / `cancelled`)
+- GIVEN an internal seller with no `submitted` sheet (none, or only `open` / `proposal`
+  / `closed` / `cancelled`)
 - WHEN `declare_collection_cash` runs with that `seller_id`
 - THEN MUST raise `UserError`
 - AND MUST NOT return `{sheet: null}`
@@ -133,15 +134,14 @@ raise `UserError`.
 ### Requirement: Seller Close from open
 
 Seller Close MUST run only from `open` and MUST write `submitted`. The system MUST
-refuse and MUST NOT change sheet or allocation `state` if any member voucher is
-`draft`; the error MUST list those offenders. An empty member set MUST pass. Members in
+refuse and MUST NOT change sheet or allocation `state` if any member voucher is `draft`;
+the error MUST list those offenders. An empty member set MUST pass. Members in
 `validated_seller` or `validated_collections` MUST pass. Seller Close MUST NOT require
 an allocation and MUST NOT require every member to be `validated_collections`. Seller
 Close MUST NOT persist `cash_on_hand` or `commission_withheld` and MUST NOT stamp
 `cash_declared_at`. Close MUST NOT confirm allocations. A disabled seller MUST still be
-allowed to close an existing `open` sheet.
-(Previously: The same close write persisted seller-declared `cash_on_hand` and
-`commission_withheld`.)
+allowed to close an existing `open` sheet. (Previously: The same close write persisted
+seller-declared `cash_on_hand` and `commission_withheld`.)
 
 #### Scenario: Open sheet closes to submitted
 
@@ -184,11 +184,11 @@ returned as `{"error":...}`. On success the body MUST include
 `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, cash:{collected}}`
 with `state` `submitted` and MUST NOT include report bytes. `cash.collected` MUST equal
 the sheet's collected cash total. Zero `open` sheets (including when only `submitted`
-exists) MUST raise `UserError` and MUST NOT return `{sheet: null}`. More than one
-`open` sheet MUST raise the existing multi-open `UserError`. A later MCP allocation
-create for that seller MUST persist on a new `open` sheet.
-(Previously: Input required `cash_on_hand` and `commission_withheld`; success omitted
-`cash.collected` and persisted those amounts on close.)
+exists) MUST raise `UserError` and MUST NOT return `{sheet: null}`. More than one `open`
+sheet MUST raise the existing multi-open `UserError`. A later MCP allocation create for
+that seller MUST persist on a new `open` sheet. (Previously: Input required
+`cash_on_hand` and `commission_withheld`; success omitted `cash.collected` and persisted
+those amounts on close.)
 
 #### Scenario: Internal seller closes the open sheet
 
@@ -202,15 +202,14 @@ create for that seller MUST persist on a new `open` sheet.
 #### Scenario: Amounts on close refused
 
 - GIVEN an internal caller and an internal seller with exactly one `open` sheet
-- WHEN `close_collection_sheet` is invoked with `cash_on_hand` or
-  `commission_withheld`
+- WHEN `close_collection_sheet` is invoked with `cash_on_hand` or `commission_withheld`
 - THEN MUST refuse
 - AND that sheet MUST remain `open`
 
 #### Scenario: Zero open sheets raise not null
 
-- GIVEN an internal seller with no `open` sheet (none, or only `submitted` /
-  `proposal` / `closed` / `cancelled`)
+- GIVEN an internal seller with no `open` sheet (none, or only `submitted` / `proposal`
+  / `closed` / `cancelled`)
 - WHEN `close_collection_sheet` runs with that `seller_id`
 - THEN MUST raise `UserError`
 - AND MUST NOT return `{sheet: null}`
@@ -241,9 +240,9 @@ create for that seller MUST persist on a new `open` sheet.
 
 `collection.sheet` MUST inherit `mail.thread` and `mail.activity.mixin`. Operators MAY
 post messages and schedule activities on a sheet. Seller Close, Declare Cash, Confirm,
-Close, Cancel, and Reinstate SHOULD be tracked in chatter.
-(Previously: Seller Close chatter also recorded declared `cash_on_hand` and
-`commission_withheld` on the close write.)
+Close, Cancel, and Reinstate SHOULD be tracked in chatter. (Previously: Seller Close
+chatter also recorded declared `cash_on_hand` and `commission_withheld` on the close
+write.)
 
 #### Scenario: Message persists on sheet
 
@@ -292,13 +291,14 @@ Close, Cancel, and Reinstate SHOULD be tracked in chatter.
 
 Existing sheets MUST stay visible and operable if their seller is later disabled. The
 system MUST NOT hide or delete them for that reason. Seller Close from `open` and
-Confirm from `submitted` MUST still succeed when their gates are met.
-(Previously: Seller Close from `open` required declarations on the same write.)
+Confirm from `submitted` MUST still succeed when their gates are met. (Previously:
+Seller Close from `open` required declarations on the same write.)
 
 #### Scenario: Disabled-seller sheet stays visible and confirmable
 
 - GIVEN a submitted sheet whose seller is later removed from the enabled list
-- WHEN an allowed-company user opens Collection Sheets and Confirms it (members eligible)
+- WHEN an allowed-company user opens Collection Sheets and Confirms it (members
+  eligible)
 - THEN the sheet MUST still be listed
 - AND `state` MUST become `proposal`
 - AND the sheet MUST NOT be deleted
@@ -317,9 +317,8 @@ editable when `open` or `submitted`. Seller-declared `cash_on_hand` and
 `commission_withheld` MUST be editable only when `submitted`. `commission_percent` MUST
 be editable when the sheet is not `closed` or `cancelled`. When `closed` or `cancelled`,
 those records MUST be read-only except chatter and PDF/XLSX. Confirm MUST NOT confirm
-allocations.
-(Previously: Seller-declared `cash_on_hand` and `commission_withheld` MUST be editable
-only when `open`.)
+allocations. (Previously: Seller-declared `cash_on_hand` and `commission_withheld` MUST
+be editable only when `open`.)
 
 #### Scenario: Proposal keeps allocation and debt editable
 
