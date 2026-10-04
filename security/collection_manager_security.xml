@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="privilege_collection" model="res.groups.privilege">
+        <field name="name">Collections</field>
+        <field name="category_id" ref="base.module_category_sales" />
+    </record>
+    <record id="group_collection_manager" model="res.groups">
+        <field name="name">Collections Manager</field>
+        <field name="privilege_id" ref="privilege_collection" />
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]" />
+        <field
+      name="comment"
+    >Manage collections and collection configuration in allowed companies without system administration access.</field>
+    </record>
+    <record id="collection_manager_company_bank_rule" model="ir.rule">
+        <field name="name">Collections Manager: own company bank accounts</field>
+        <field name="model_id" ref="base.model_res_partner_bank" />
+        <field name="groups" eval="[(5, 0, 0)]" />
+        <field
+      name="domain_force"
+    >[('partner_id', 'in', user.company_ids.partner_id.ids)] if user.has_group('collection.group_collection_manager') and not user.has_group('base.group_system') else [(1, '=', 1)]</field>
+    </record>
+    <record id="collection_company_settings_company_rule" model="ir.rule">
+        <field name="name">Collection Settings: multi-company</field>
+        <field name="model_id" ref="model_collection_company_settings" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="collection_connector_settings_company_rule" model="ir.rule">
+        <field name="name">Collection Connector Settings: multi-company</field>
+        <field name="model_id" ref="model_collection_connector_settings" />
+        <field
+      name="domain_force"
+    >[('connector_id.company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

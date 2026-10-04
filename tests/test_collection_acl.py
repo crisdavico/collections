@@ -468,8 +468,8 @@ class TestCollectionAcl(TransactionCase):
         self.assertTrue(acls.perm_unlink)
         self._assert_global_company_rule("collection.voucher")
 
-    def test_catalog_acl_read_only_no_extra_groups(self):
-        """Catalog stays read-only for internal users; no extra groups or rules."""
+    def test_catalog_acl_read_only_with_manager_group(self):
+        """The shared catalog stays read-only, including for managers."""
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.document.type")]
         )
@@ -484,11 +484,10 @@ class TestCollectionAcl(TransactionCase):
                 [("model_id.model", "=", "collection.document.type")]
             )
         )
-        self.assertFalse(
-            self.env["ir.model.data"].search(
-                [("module", "=", "collection"), ("model", "=", "res.groups")]
-            )
+        groups = self.env["ir.model.data"].search(
+            [("module", "=", "collection"), ("model", "=", "res.groups")]
         )
+        self.assertEqual(groups.mapped("name"), ["group_collection_manager"])
 
     def test_voucher_company_id_required_defaults_to_env_company(self):
         field = self.env["collection.voucher"]._fields["company_id"]
@@ -708,11 +707,11 @@ class TestCollectionAcl(TransactionCase):
         self.assertEqual(row.deposit_voucher_id, deposit)
 
     def test_connector_acl_user_read_system_write_rows(self):
-        """Connectors: group_user read, group_system write; no extra groups."""
+        """Connectors: internal read; systems and Collections Managers have CRUD."""
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.connector")]
         )
-        self.assertEqual(len(acls), 2)
+        self.assertEqual(len(acls), 3)
         user_group = self.env.ref("base.group_user")
         system_group = self.env.ref("base.group_system")
         user_acl = acls.filtered(lambda acl: acl.group_id == user_group)
@@ -727,11 +726,13 @@ class TestCollectionAcl(TransactionCase):
         self.assertTrue(system_acl.perm_write)
         self.assertTrue(system_acl.perm_create)
         self.assertTrue(system_acl.perm_unlink)
-        self.assertFalse(
-            self.env["ir.model.data"].search(
-                [("module", "=", "collection"), ("model", "=", "res.groups")]
-            )
-        )
+        manager_group = self.env.ref("collection.group_collection_manager")
+        manager_acl = acls.filtered(lambda acl: acl.group_id == manager_group)
+        self.assertEqual(len(manager_acl), 1)
+        self.assertTrue(manager_acl.perm_read)
+        self.assertTrue(manager_acl.perm_write)
+        self.assertTrue(manager_acl.perm_create)
+        self.assertTrue(manager_acl.perm_unlink)
 
     def test_internal_user_reads_but_cannot_write_connector(self):
         connector = self.env["collection.connector"].create(

@@ -79,7 +79,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 | Path                                              | Role                                                                                                                                                                                                |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `__manifest__.py`                                 | Module metadata `19.0.1.48.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                                                                             |
+| `__manifest__.py`                                 | Module metadata `19.0.1.50.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                                                                             |
 | `models/res_company.py`                           | Collection Settings fields + `_assert_new_work`; Import sync; seq copy; type seed                                                                                                                   |
 | `models/res_config_settings.py`                   | Related writable Collection Settings + Import action                                                                                                                                                |
 | `models/collection_connector.py`                  | Company-scoped connector + `_dispatch` allowlist (`list_customers`, `get_customer_debt`, `create_receipt`)                                                                                          |
@@ -178,7 +178,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `base.main_company` (`seq_collection_allocation`). `res.company.create` copies all
   three sequences (`number_next=1` on copies) and unions all nine types
   (`COLLECTION_TYPE_CODES` follows `DOCUMENT_TYPE_CODES`); new companies start with
-  empty enabled sellers. Manifest `19.0.1.48.0`; migrate folders
+  empty enabled sellers. Manifest `19.0.1.50.0`; migrate folders
   `migrations/19.0.1.17.0/` (COL/CS stamp/repair), `migrations/19.0.1.25.0/` (`CA/`
   copy), `migrations/19.0.1.28.0/` (allocation state remap; no `CA/`),
   `migrations/19.0.1.31.0/` (voucher state SQL remap; no snapshot `decision` rewrite),
@@ -319,20 +319,27 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   Customer). The Char `customer_identification` field is gone. MCP
   `create_collection_allocation` accepts a top-level `customer_identification` string
   and resolves it server-side on all-new voucher create via the fused write.
-- **ACL:** internal users only (`base.group_user`); no extra groups. Required
-  `company_id` (default `env.company`) on voucher/sheet; snapshot related stored
-  `company_id` from `voucher_id.company_id` (`required=True`, `precompute=True`).
-  Allocation/line/revision related stored `company_id` from sheet/allocation
-  (`required=True`, `precompute=True`, `index=True`). Global `ir.rule`
-  `[('company_id', 'in', company_ids)]` on voucher, sheet, snapshot, connector, seller
-  binding, customer binding, allocation, line, revision, receipt, and value
-  (`security/collection_security.xml`). Catalog is read-only for `base.group_user`.
-  Connector/seller binding: `group_user` read, `group_system` write. Customer binding:
-  `group_user` `1,0,1,0` (read+create; no write/unlink), `group_system` `1,1,1,1`.
-  Allocation and line: `group_user` `1,1,1,1`. Add Debt picker and candidates:
-  `group_user` `1,1,1,1` (transients; no company `ir.rule`). Receipt and value:
-  `group_user` `1,1,1,1`. Revision: `group_user` `1,0,1,1` (unlink for cascade;
-  `@api.ondelete` is the lock). Never `sudo()`.
+- **ACL:** workflows remain available to internal users (`base.group_user`). The
+  `collection.group_collection_manager` group adds company-scoped connector and binding
+  CRUD, company bank accounts, and dedicated company/connector settings dialogs. No
+  system or user-administration group is implied. Configuration dialogs check group and
+  company membership before fixed-field privileged writes. Manager seller import matches
+  only company-local users and never expands another user's company access. Ordinary
+  collection workflows and MCP tools never elevate. Bank restrictions are a conditional
+  global rule, because group rules would be widened by existing Odoo rules. Company and
+  connector settings transients also have global company rules. Required `company_id`
+  (default `env.company`) on voucher/sheet; snapshot related stored `company_id` from
+  `voucher_id.company_id` (`required=True`, `precompute=True`). Allocation/line/revision
+  related stored `company_id` from sheet/allocation (`required=True`, `precompute=True`,
+  `index=True`). Global `ir.rule` `[('company_id', 'in', company_ids)]` on voucher,
+  sheet, snapshot, connector, seller binding, customer binding, allocation, line,
+  revision, receipt, and value (`security/collection_security.xml`). Catalog is
+  read-only for `base.group_user`. Connector/seller binding: `group_user` read,
+  `group_system` write. Customer binding: `group_user` `1,0,1,0` (read+create; no
+  write/unlink), `group_system` `1,1,1,1`. Allocation and line: `group_user` `1,1,1,1`.
+  Add Debt picker and candidates: `group_user` `1,1,1,1` (transients; no company
+  `ir.rule`). Receipt and value: `group_user` `1,1,1,1`. Revision: `group_user`
+  `1,0,1,1` (unlink for cascade; `@api.ondelete` is the lock). Never `sudo()`.
 - **Attachment:** optional one image/PDF designated proof per voucher
   (`message_main_attachment_id`, chatter `ir.attachment`, `copy=False` on rotation);
   extras do not steal proof; server validates base64 and detected MIME on MCP nest; omit

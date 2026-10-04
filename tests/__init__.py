@@ -15,6 +15,7 @@ from . import test_collection_customer_resolution
 from . import test_collection_document_review
 from . import test_collection_document_review_flag
 from . import test_collection_mail
+from . import test_collection_manager
 from . import test_collection_mcp_allocation
 from . import test_collection_mcp_allocation_lookup
 from . import test_collection_mcp_cash_declare

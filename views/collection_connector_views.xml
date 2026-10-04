@@ -84,6 +84,6 @@
     parent="menu_collection_config"
     action="action_collection_connector"
     sequence="10"
-    groups="base.group_system"
+    groups="base.group_system,collection.group_collection_manager"
   />
 </odoo>

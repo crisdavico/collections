@@ -2,13 +2,14 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 {
     "name": "Collections",
-    "version": "19.0.1.48.0",
+    "version": "19.0.1.50.0",
     "category": "Sales/CRM",
     "summary": "Manual payment vouchers for cobranzas",
     "author": "Seedian",
     "website": "https://seedian.ai",
     "depends": ["base", "mail", "muk_mcp", "web"],
     "data": [
+        "security/collection_manager_security.xml",
         "security/collection_security.xml",
         "security/ir.model.access.csv",
         "data/ir_sequence_data.xml",
@@ -20,8 +21,10 @@
         "wizard/collection_allocation_debt_picker_views.xml",
         "views/collection_receipt_views.xml",
         "views/collection_document_review_views.xml",
-        "views/collection_connector_views.xml",
         "views/res_config_settings_views.xml",
+        "views/collection_connector_views.xml",
+        "views/collection_company_settings_views.xml",
+        "views/collection_connector_settings_views.xml",
         "report/report_paperformat.xml",
         "report/collection_sheet_report.xml",
         "report/collection_sheet_templates.xml",

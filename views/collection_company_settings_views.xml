@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_collection_company_settings_form" model="ir.ui.view">
+        <field name="name">collection.company.settings.form</field>
+        <field name="model">collection.company.settings</field>
+        <field name="arch" type="xml">
+            <form string="Collection Settings">
+                <group>
+                    <field name="company_id" readonly="1" />
+                    <field
+            name="enabled_seller_ids"
+            widget="many2many_tags"
+            options="{'no_create': True}"
+          />
+                    <field name="auto_create_sheet" />
+                    <field name="document_review_enabled" />
+                    <field
+            name="allowed_document_type_ids"
+            widget="many2many_tags"
+            options="{'no_create': True}"
+          />
+                    <field name="collection_connector_id" />
+                </group>
+                <footer>
+                    <button
+            name="action_save"
+            type="object"
+            string="Save"
+            class="btn-primary"
+          />
+                    <button
+            name="action_import_enabled_sellers"
+            type="object"
+            string="Import Sellers"
+            invisible="not collection_connector_id"
+          />
+                    <button string="Cancel" special="cancel" />
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="action_collection_company_settings" model="ir.actions.act_window">
+        <field name="name">Collection Settings</field>
+        <field name="res_model">collection.company.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+    <menuitem
+    id="menu_collection_company_settings"
+    name="Company Collection Settings"
+    parent="menu_collection_config"
+    action="action_collection_company_settings"
+    sequence="1"
+    groups="collection.group_collection_manager"
+  />
+    <record id="action_collection_company_banks" model="ir.actions.server">
+        <field name="name">Company Bank Accounts</field>
+        <field name="model_id" ref="model_collection_company_settings" />
+        <field name="state">code</field>
+        <field name="code">action = model.action_bank_accounts()</field>
+    </record>
+    <menuitem
+    id="menu_collection_company_banks"
+    name="Company Bank Accounts"
+    parent="menu_collection_config"
+    action="action_collection_company_banks"
+    sequence="20"
+    groups="collection.group_collection_manager"
+  />
+</odoo>

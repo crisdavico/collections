@@ -105,7 +105,7 @@
     name="Configuration"
     parent="menu_collection_root"
     sequence="100"
-    groups="base.group_system"
+    groups="base.group_system,collection.group_collection_manager"
   />
     <menuitem
     id="menu_collection_settings"

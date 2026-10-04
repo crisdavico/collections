@@ -195,9 +195,9 @@ class TestCollectionCustomerBinding(TransactionCase):
             )
 
     def test_acl_rows_user_create_system_full(self):
-        """group_user 1,0,1,0; group_system 1,1,1,1; no extra groups."""
+        """Internal users read/create; systems and Collections Managers have CRUD."""
         acls = self.env["ir.model.access"].search([("model_id.model", "=", MODEL)])
-        self.assertEqual(len(acls), 2)
+        self.assertEqual(len(acls), 3)
         user_group = self.env.ref("base.group_user")
         system_group = self.env.ref("base.group_system")
         user_acl = acls.filtered(lambda acl: acl.group_id == user_group)
@@ -212,11 +212,13 @@ class TestCollectionCustomerBinding(TransactionCase):
         self.assertTrue(system_acl.perm_write)
         self.assertTrue(system_acl.perm_create)
         self.assertTrue(system_acl.perm_unlink)
-        self.assertFalse(
-            self.env["ir.model.data"].search(
-                [("module", "=", "collection"), ("model", "=", "res.groups")]
-            )
-        )
+        manager_group = self.env.ref("collection.group_collection_manager")
+        manager_acl = acls.filtered(lambda acl: acl.group_id == manager_group)
+        self.assertEqual(len(manager_acl), 1)
+        self.assertTrue(manager_acl.perm_read)
+        self.assertTrue(manager_acl.perm_write)
+        self.assertTrue(manager_acl.perm_create)
+        self.assertTrue(manager_acl.perm_unlink)
         self._assert_global_company_rule(MODEL)
         create_source = inspect.getsource(type(self.env[MODEL]).create)
         code_lines = [

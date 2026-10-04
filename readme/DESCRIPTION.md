@@ -31,6 +31,19 @@ connector (create/match/bind, then replace the enabled list). Voucher (`COL/`) a
 (`collection.connector.customer.binding`) map an external customer to a partner;
 internal users may create them (`1,0,1,0`) and MUST never `sudo()`.
 
+The **Collections Manager** group (`collection.group_collection_manager`) grants
+collection configuration without system administration. Under Collections →
+Configuration, **Company Collection Settings** edits only the current company's
+collection options and imports sellers within that company. **Connectors** provides
+company-scoped CRUD and a **Connector Settings** dialog for SQLite/Bejerman settings,
+connection testing, and Bejerman snapshot refresh. **Company Bank Accounts** manages
+only bank accounts belonging to the user's allowed companies. Company record rules
+continue to apply to vouchers, sheets, allocations, receipts, and connector bindings.
+Privileged configuration writes use fixed field lists after checking the caller's
+manager group and company access; collection operations and MCP tools retain their
+existing permissions. Creating a company or user is an explicit database setup step, so
+installing the module does not create business companies or login credentials.
+
 MCP `create_collection_vouchers` still takes per-payment `customer_identification`
 strings and returns `{vouchers:[{id,name,state,document_id},...]}`. On all-new create
 only, the server lazily resolves each string into `partner_id` and MAY create a

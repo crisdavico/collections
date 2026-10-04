@@ -1859,6 +1859,9 @@ class TestCollectionMcpAllocation(TransactionCase):
         """MCP write MUST reject seller_commission; it MUST NOT join the nest enum."""
         self.assertNotIn("seller_commission", _DOCUMENT_TYPES)
         before = self._counts()
+        existing_commissions = self.env["collection.voucher"].search_count(
+            [("document_type", "=", "seller_commission")]
+        )
         err = self._assert_user_error_no_writes(
             lambda: self._call(
                 self._payload(
@@ -1881,7 +1884,7 @@ class TestCollectionMcpAllocation(TransactionCase):
             self.env["collection.voucher"].search_count(
                 [("document_type", "=", "seller_commission")]
             ),
-            0,
+            existing_commissions,
         )
 
     def test_receipt_validation_uniqueness_and_unknown_document(self):

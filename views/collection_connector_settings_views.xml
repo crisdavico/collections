@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_collection_connector_settings_form" model="ir.ui.view">
+        <field name="name">collection.connector.settings.form</field>
+        <field name="model">collection.connector.settings</field>
+        <field name="arch" type="xml">
+            <form string="Connector Settings">
+                <group>
+                    <field name="connector_id" readonly="1" />
+                    <field name="connector_type" invisible="1" />
+                </group>
+                <group invisible="connector_type != 'sqlite'">
+                    <field name="sqlite_path" />
+                </group>
+                <group invisible="connector_type != 'bejerman'">
+                    <group>
+                        <field name="bejerman_ws_url" />
+                        <field name="bejerman_usuario" />
+                        <field name="bejerman_clave" password="True" />
+                        <field name="bejerman_empresa" />
+                        <field name="bejerman_puesto" />
+                        <field name="bejerman_sucursal" />
+                        <field name="bejerman_timeout" />
+                        <field name="bejerman_allow_insecure" />
+                        <field name="bejerman_ca_bundle" />
+                    </group>
+                    <group>
+                        <field name="bejerman_seller_scenario" />
+                        <field name="bejerman_seller_view" />
+                        <field name="bejerman_debt_scenario" />
+                        <field name="bejerman_debt_view" />
+                        <field name="bejerman_quotation_kinds" />
+                        <field name="bejerman_debt_filter_field" />
+                    </group>
+                </group>
+                <footer>
+                    <button
+            name="action_save"
+            type="object"
+            string="Save"
+            class="btn-primary"
+          />
+                    <button
+            name="action_test_connection"
+            type="object"
+            string="Test Connection"
+          />
+                    <button
+            name="action_refresh_snapshot"
+            type="object"
+            string="Refresh Debt Snapshot"
+            invisible="connector_type != 'bejerman'"
+          />
+                    <button string="Cancel" special="cancel" />
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="view_collection_connector_form_management" model="ir.ui.view">
+        <field name="name">collection.connector.form.management</field>
+        <field name="model">collection.connector</field>
+        <field name="inherit_id" ref="view_collection_connector_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group" position="before">
+                <button
+          name="action_collection_connector_settings"
+          type="object"
+          string="Connector Settings"
+          class="btn-primary"
+          groups="collection.group_collection_manager"
+        />
+            </xpath>
+        </field>
+    </record>
+</odoo>

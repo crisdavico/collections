@@ -176,10 +176,14 @@ class TestCollectionCompanyMigration(TransactionCase):
         vals["partner_id"] = partner.id
         if vals.get("document_type") != "unsupported" and "amount" not in vals:
             vals["amount"] = 100.0
-        if vals.get("document_type") in (
-            "check",
-            "echeck",
-        ) and "check_number" not in vals:
+        if (
+            vals.get("document_type")
+            in (
+                "check",
+                "echeck",
+            )
+            and "check_number" not in vals
+        ):
             # check_number is mandatory at save for check/echeck
             # (_check_check_number_required); a random default keeps
             # existing fixtures unique enough to dodge
@@ -207,11 +211,11 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_48_0(self):
+    def test_manifest_version_is_1_50_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.48.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.50.0"', manifest_text)
         self.assertNotIn('"version": "19.0.1.47.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
@@ -386,7 +390,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.48.0`", agents)
+        self.assertIn("Module metadata `19.0.1.50.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.47.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`migrations/19.0.1.43.0/`", agents)
