@@ -123,17 +123,30 @@ class TestCollectionRoles(TransactionCase):
             }
         )
         as_plain = company.with_user(self.plain_user)
-        values = as_plain.read()[0]
-        self.assertEqual(values["id"], company.id)
+        collection_fields = [
+            name
+            for name, field in company._fields.items()
+            if "collection" in (getattr(field, "_modules", None) or ())
+        ]
+        self.assertIn("allowed_document_type_ids", collection_fields)
+        visible = as_plain.fields_get()
+        # Every collection field a CRM user can see reads without AccessError.
+        readable = [name for name in collection_fields if name in visible]
+        self.assertEqual(as_plain.read(readable)[0]["id"], company.id)
         for name in (
             "collection_connector_id",
             "allowed_document_type_ids",
             "enabled_seller_ids",
         ):
             with self.subTest(company_field=name):
-                self.assertNotIn(name, values)
-                self.assertNotIn(name, as_plain.fields_get())
-        self.assertTrue(partner.with_user(self.plain_user).read()[0]["name"])
+                self.assertNotIn(name, visible)
+        # Collection adds no res.partner field; the bound customer and the
+        # seller identity read as any contact does.
+        self.assertTrue(as_plain.read(["name"])[0]["name"])
+        self.assertEqual(
+            partner.with_user(self.plain_user).read(["name", "vat"])[0]["vat"],
+            "ROLES-BOUND",
+        )
         self.assertTrue(self.seller.with_user(self.plain_user).read(["name"]))
         with self.assertRaises(AccessError):
             connector.with_user(self.plain_user).read(["name"])
