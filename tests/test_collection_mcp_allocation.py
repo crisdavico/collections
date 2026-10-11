@@ -673,14 +673,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         write_date = allocation.write_date
         revision_count = len(allocation.revision_ids)
         before = self._counts()
-        second = self._call(
-            self._payload(
-                [payment],
-                [self._applied(INVOICE_OPEN, 50.0)],
-                request_id="req-replay",
-                residual_reason="on_account",
-            )
-        )
+        second = self._call(arguments)
         self.assertEqual(second, first)
         self._assert_payload(
             second, allocation, revision=1, document_ids=[payment["document_id"]]

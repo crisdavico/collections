@@ -324,9 +324,10 @@ class CollectionMcpMixin(models.AbstractModel):
                         index=index,
                     )
                 )
-            if document_type in _CHECK_DOCUMENT_TYPES and not (
-                parsed.get("check_number") or ""
-            ).strip():
+            if (
+                document_type in _CHECK_DOCUMENT_TYPES
+                and not (parsed.get("check_number") or "").strip()
+            ):
                 raise UserError(
                     _(
                         "seller_confirmed check_number is required for check "
@@ -646,6 +647,8 @@ class CollectionMcpMixin(models.AbstractModel):
     ) -> dict[str, Any]:
         """Build the MCP list response in submitted payment order."""
         by_doc = {voucher.document_id: voucher for voucher in vouchers}
+        if any(doc_id not in by_doc for doc_id in document_ids):
+            raise self._collection_document_conflict_error()
         ordered = [by_doc[doc_id] for doc_id in document_ids]
         return {
             "vouchers": [
@@ -667,20 +670,39 @@ class CollectionMcpMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_classify_visible(self, existing, document_ids: list[str]):
-        """Return replay payload, raise on other-company/partial, or None if new."""
+    def _collection_classify_visible(
+        self,
+        existing,
+        document_ids: list[str],
+        seller,
+        payment_vals_list: list[dict[str, Any]],
+    ):
+        """Return replay payload, raise a conflict, or None if every row is new.
+
+        A visible document_id replays only for the seller that owns it: other
+        company and other seller are the same generic conflict, so the answer
+        never tells whose payment a document_id is.
+        """
         if not existing:
             return None
         current_id = self.env.company.id
-        if any(voucher.company_id.id != current_id for voucher in existing):
+        if any(
+            voucher.company_id.id != current_id or voucher.seller_id != seller
+            for voucher in existing
+        ):
             raise self._collection_document_conflict_error()
-        return self._collection_replay_or_reject(existing, document_ids)
+        return self._collection_replay_or_reject(
+            existing, document_ids, payment_vals_list
+        )
 
     @api.model
     def _collection_replay_or_reject(
-        self, existing, document_ids: list[str]
+        self,
+        existing,
+        document_ids: list[str],
+        payment_vals_list: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Replay when every submitted document_id exists; otherwise reject."""
+        """Replay when every document_id exists with the same payment fields."""
         if len(existing) != len(document_ids):
             raise UserError(
                 _(
@@ -689,16 +711,44 @@ class CollectionMcpMixin(models.AbstractModel):
                 )
             )
         # Exact set of existing document_ids succeeds even across vouchers.
-        # Customer identification, nested attachments, provenance nests, and
-        # seller_id are ignored.
+        # Customer identification, nested attachments and provenance nests are
+        # ignored; the seller_confirmed fields must match each voucher.
+        by_doc = {voucher.document_id: voucher for voucher in existing}
+        for vals in payment_vals_list:
+            voucher = by_doc.get(vals["document_id"])
+            if not voucher or not self._collection_voucher_matches_payment(
+                voucher, vals
+            ):
+                raise self._collection_document_conflict_error()
         return self._collection_vouchers_payload(existing, document_ids)
 
     @api.model
-    def _collection_replay_existing(self, document_ids: list[str]):
+    @api.private
+    def _collection_voucher_matches_payment(self, voucher, vals: dict[str, Any]):
+        """Return whether every field the payment states equals the voucher's.
+
+        Fields the payment omits are not compared, so a reviewer's later fill-in
+        of an empty field does not turn a retry into a conflict.
+        """
+        return all(
+            voucher._review_fields_equal(name, voucher[name], value)
+            for name, value in vals.items()
+            if name != "document_id"
+        )
+
+    @api.model
+    def _collection_replay_existing(
+        self,
+        document_ids: list[str],
+        seller,
+        payment_vals_list: list[dict[str, Any]],
+    ):
         """Invalidate caches and classify visible document_id rows, or return None."""
         self.env.invalidate_all()
         raced = self._collection_vouchers_by_document_ids(document_ids)
-        return self._collection_classify_visible(raced, document_ids)
+        return self._collection_classify_visible(
+            raced, document_ids, seller, payment_vals_list
+        )
 
     @api.model
     def _collection_require_internal_seller(self, seller_id: Any):

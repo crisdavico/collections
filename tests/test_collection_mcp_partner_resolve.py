@@ -97,9 +97,9 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         orig_resolve = Connector.resolve_customer_partner
         order = []
 
-        def classify(this, existing, document_ids):
+        def classify(this, existing, document_ids, *args):
             order.append("classify")
-            result = orig_classify(this, existing, document_ids)
+            result = orig_classify(this, existing, document_ids, *args)
             order.append("classified-new" if result is None else "classified-replay")
             return result
 
@@ -175,7 +175,11 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         )
 
     def test_exact_replay_skips_adapter_keeps_first_partner(self):
-        """Exact replay MUST skip list_customers and keep first-call partner_id."""
+        """Exact replay MUST skip list_customers and keep first-call partner_id.
+
+        A replay under another customer string is not the same request: it is
+        the generic conflict, still without calling the adapter or writing.
+        """
         Connector = type(self.env["collection.connector"])
         orig = Connector.list_customers
         calls = {"n": 0}
@@ -198,20 +202,16 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
             voucher = self.env["collection.voucher"].browse(first["vouchers"][0]["id"])
             first_partner = voucher.partner_id
             self.assertTrue(first_partner)
-            second = self._call(
-                self._payload(
-                    "MCP-P4-REPLAY-CHANGED",
-                    [
-                        {
-                            "document_id": "MCP-P4-REPLAY-A",
-                            "document_type": "check",
-                            "amount": 99.0,
-                        }
-                    ],
-                )
+            second = self._call(self._payload(IDENT_ACTIVE, payments_first))
+            self.assertEqual(calls["n"], after_create)
+            self.assertEqual(second, first)
+            with self.assertRaises(UserError) as err:
+                self._call(self._payload("MCP-P4-REPLAY-CHANGED", payments_first))
+            self.assertEqual(
+                str(err.exception),
+                "Allocation request conflict could not be resolved.",
             )
             self.assertEqual(calls["n"], after_create)
-            self.assertEqual(second["vouchers"], first["vouchers"])
             voucher.invalidate_recordset(["partner_id", "amount", "document_type"])
             self.assertEqual(voucher.partner_id, first_partner)
             self.assertEqual(voucher.partner_id.vat, IDENT_ACTIVE)
