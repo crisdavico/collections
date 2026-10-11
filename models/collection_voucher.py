@@ -248,6 +248,12 @@ class CollectionVoucher(models.Model):
         "retention_kind",
     )
     _REVIEW_EDITABLE_FIELDS = frozenset(_REVIEW_EDITABLE_FIELD_ORDER)
+    # What an approval vouches for. The review fields are what Document Review
+    # checked against the proof and snapshotted; the others decide whose debt
+    # the money pays, in which company and currency, and into which account.
+    _APPROVED_LOCKED_FIELDS = _REVIEW_EDITABLE_FIELDS | frozenset(
+        {"partner_id", "company_id", "currency_id", "to_account_bank_id"}
+    )
     _ALLOWED_ROTATIONS = frozenset({0, 90, 180, 270})
 
     _document_id_uniq = models.Constraint(
@@ -454,6 +460,8 @@ class CollectionVoucher(models.Model):
         vals, split_result = self._prepare_partner_reassign_write(vals)
         if split_result is not None:
             return split_result
+        # After the sheet freeze checks, so a frozen sheet keeps its own error.
+        self._ensure_approved_money_fields_unlocked(vals)
         if "sheet_id" in vals:
             self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
         if "allocation_id" in vals:
@@ -685,6 +693,80 @@ class CollectionVoucher(models.Model):
                     "sheet is not open."
                 )
             )
+
+    @api.private
+    def _ensure_approved_money_fields_unlocked(self, vals):
+        """Refuse edits that would change what Document Review approved.
+
+        Replacing the designated proof is the way back: it reopens the voucher
+        to ``validated_seller``, where Document Review corrects and approves it
+        again. A write that replaces the proof therefore passes, and so does
+        server code inside the audited scope.
+        """
+        if is_privileged("collection_audited_state"):
+            return
+        names = self._APPROVED_LOCKED_FIELDS & set(vals)
+        touches_proof = "message_main_attachment_id" in vals
+        if not names and not touches_proof:
+            return
+        new_proof = record_id(vals.get("message_main_attachment_id"))
+        for voucher in self:
+            if voucher.state != "validated_collections":
+                continue
+            old_proof = voucher.message_main_attachment_id.id
+            if touches_proof and old_proof and new_proof and new_proof != old_proof:
+                continue
+            if touches_proof and old_proof and not new_proof:
+                raise UserError(
+                    _(
+                        "Validated vouchers must keep their designated proof. "
+                        "Replace it instead to send the voucher back to "
+                        "Document Review."
+                    )
+                )
+            changed = [
+                name for name in names if voucher._write_changes_field(name, vals[name])
+            ]
+            if changed:
+                labels = ", ".join(
+                    self._fields[name]._description_string(self.env)
+                    for name in sorted(changed)
+                )
+                raise UserError(
+                    _(
+                        "Validated vouchers cannot change %(fields)s. Replace the "
+                        "designated proof to send the voucher back to Document "
+                        "Review, and correct it there.",
+                        fields=labels,
+                    )
+                )
+
+    @api.private
+    def _write_changes_field(self, name, value):
+        """Return whether writing ``value`` would change ``name`` on this voucher."""
+        self.ensure_one()
+        field = self._fields[name]
+        new = field.convert_to_record(
+            field.convert_to_cache(value, self, validate=False), self
+        )
+        old = self[name]
+        if field.type == "monetary":
+            return self.currency_id.compare_amounts(new or 0.0, old or 0.0) != 0
+        return (new or False) != (old or False)
+
+    @api.constrains("amount")
+    def _check_receipt_values_within_amount(self):
+        """A lower amount MUST NOT leave receipt values above it.
+
+        ``collection.receipt.value`` caps the split only when a value row is
+        written; this is the same cap seen from the voucher side.
+        """
+        for voucher in self:
+            total = sum(voucher.receipt_value_ids.mapped("amount"))
+            if voucher.currency_id.compare_amounts(total, voucher.amount or 0.0) > 0:
+                raise ValidationError(
+                    _("Receipt values for a voucher cannot exceed the voucher amount.")
+                )
 
     @api.constrains("amount", "document_type")
     def _check_amount_positive(self):

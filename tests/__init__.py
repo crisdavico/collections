@@ -6,6 +6,7 @@ from . import test_collection_allocation
 from . import test_collection_allocation_acl
 from . import test_collection_allocation_debt_picker
 from . import test_collection_allocation_document_kind
+from . import test_collection_approved_voucher
 from . import test_collection_cash_replacement
 from . import test_collection_company_settings
 from . import test_collection_company_migration
