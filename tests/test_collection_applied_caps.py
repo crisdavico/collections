@@ -12,6 +12,7 @@ from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
+    insert_company_like,
 )
 
 
@@ -113,6 +114,29 @@ class TestCollectionAppliedCaps(TransactionCase):
         other_sheet = self._sheet(create_internal_seller(self.env, "caps-seller-z"))
         allocation = self._allocation(other_sheet, [self._line(0.0, balance=40.0)])
         self.assertEqual(allocation.line_ids.amount_applied, 0.0)
+
+    def test_a_lower_later_snapshot_leaves_the_rest_applicable(self):
+        """The cap is the largest snapshot: a later, lower balance keeps it."""
+        self._allocation(self.sheet, [self._line(70.0, balance=100.0)])
+        other_sheet = self._sheet(create_internal_seller(self.env, "caps-seller-low"))
+        other = self._allocation(other_sheet, [self._line(30.0, balance=30.0)])
+        self.assertEqual(other.line_ids.amount_applied, 30.0)
+
+    def test_the_same_document_id_in_another_company_does_not_count(self):
+        """Document ids belong to one company's ERP: B never caps A's document."""
+        self._allocation(self.sheet, [self._line(100.0)])
+        owner = dummy_customer_partner(self.env, customer="CAPS-COMPANY-B")
+        company_b = insert_company_like(self.env, "Caps Co B", owner.id)
+        company_b._collection_copy_sequences()
+        company_b._collection_enable_all_document_types()
+        seller_b = create_internal_seller(self.env, "caps-seller-company-b")
+        ensure_enabled_seller(self.env, seller_b, company=company_b)
+        sheet_b = self.env["collection.sheet"].create(
+            {"seller_id": seller_b.id, "company_id": company_b.id}
+        )
+        allocation_b = self._allocation(sheet_b, [self._line(100.0)])
+        self.assertEqual(allocation_b.company_id, company_b)
+        self.assertEqual(allocation_b.line_ids.amount_applied, 100.0)
 
     def test_drafts_of_a_cancelled_sheet_do_not_count(self):
         """A cancelled sheet frees the invoice; Reinstate re-checks it."""
