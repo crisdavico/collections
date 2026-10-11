@@ -10,6 +10,8 @@ from odoo.exceptions import AccessError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
     create_internal_seller,
@@ -232,9 +234,8 @@ class TestCollectionSheetReport(TransactionCase):
 
     def _mark_validated_collections(self, vouchers):
         if vouchers:
-            vouchers.with_context(collection_audited_state=True).write(
-                {"state": "validated_collections"}
-            )
+            with privileged("collection_audited_state"):
+                vouchers.write({"state": "validated_collections"})
         return vouchers
 
     def test_get_report_values_one_payload_per_doc(self):

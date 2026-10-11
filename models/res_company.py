@@ -8,7 +8,11 @@ from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tools.translate import _
 
-from .collection_common import COLLECTION_USER_GROUP, DOCUMENT_TYPE_CODES
+from .collection_common import (
+    COLLECTION_USER_GROUP,
+    DOCUMENT_TYPE_CODES,
+    is_privileged,
+)
 
 COLLECTION_CONFIG_GROUPS = f"{COLLECTION_USER_GROUP},base.group_system"
 COLLECTION_SEQUENCE_SPECS = (
@@ -62,13 +66,13 @@ class ResCompany(models.Model):
     def _assert_new_work(self, seller, document_type=None):
         """Reject NEW work when seller or type is missing, empty, or not allowed.
 
-        Context ``collection_seller_commission_mint`` skips this gate only for
-        Confirm-time ``seller_commission`` creates. ORM, UI, and MCP callers
-        MUST omit the key; it MUST NOT ``sudo()``.
+        The ``collection_seller_commission_mint`` privileged scope skips this
+        gate only for Confirm-time ``seller_commission`` creates; a context
+        key of that name has no effect. It MUST NOT ``sudo()``.
         """
         self.ensure_one()
         if (
-            self.env.context.get("collection_seller_commission_mint")
+            is_privileged("collection_seller_commission_mint")
             and document_type == "seller_commission"
         ):
             return

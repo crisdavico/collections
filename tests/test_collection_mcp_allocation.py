@@ -13,6 +13,7 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from odoo.addons.collection.models.collection_common import privileged
 from odoo.addons.collection.tools.collection_voucher import _DOCUMENT_TYPES
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
@@ -169,9 +170,8 @@ class TestCollectionMcpAllocation(TransactionCase):
     def _close_open_sheet(self, sheet=None):
         sheet = sheet or self.sheet
         if sheet.voucher_ids:
-            sheet.voucher_ids.with_context(collection_audited_state=True).write(
-                {"state": "validated_collections"}
-            )
+            with privileged("collection_audited_state"):
+                sheet.voucher_ids.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         sheet.action_close()
         return sheet
@@ -460,9 +460,8 @@ class TestCollectionMcpAllocation(TransactionCase):
         return patch("odoo.models.Model.search", search_proxy), calls
 
     def _confirm(self, allocation):
-        allocation.with_context(collection_allocation_audited_state=True).write(
-            {"state": "confirmed"}
-        )
+        with privileged("collection_allocation_audited_state"):
+            allocation.write({"state": "confirmed"})
         return allocation
 
     def test_discovered_as_method_write_mcp(self):
@@ -1269,22 +1268,21 @@ class TestCollectionMcpAllocation(TransactionCase):
                 }
             )
         )
-        self.env["collection.allocation.revision"].with_company(company_b).with_context(
-            collection_allocation_revision=True
-        ).create(
-            {
-                "allocation_id": foreign.id,
-                "revision": 1,
-                "request_id": "req-uv-hidden",
-                "content_hash": "foreign-hash",
-                "confirmed_by": self.env.user.id,
-                "confirmed_at": "2026-09-01 12:00:00",
-                "total_vouchers": 40.0,
-                "total_applied": 0.0,
-                "total_debt": 0.0,
-                "residual": 40.0,
-            }
-        )
+        with privileged("collection_allocation_revision"):
+            self.env["collection.allocation.revision"].with_company(company_b).create(
+                {
+                    "allocation_id": foreign.id,
+                    "revision": 1,
+                    "request_id": "req-uv-hidden",
+                    "content_hash": "foreign-hash",
+                    "confirmed_by": self.env.user.id,
+                    "confirmed_at": "2026-09-01 12:00:00",
+                    "total_vouchers": 40.0,
+                    "total_applied": 0.0,
+                    "total_debt": 0.0,
+                    "residual": 40.0,
+                }
+            )
         self.internal_user.write(
             {
                 "company_id": self.env.company.id,
@@ -1355,9 +1353,8 @@ class TestCollectionMcpAllocation(TransactionCase):
             if state == "validated_seller":
                 vouchers.action_validate_seller()
             elif state == "validated_collections":
-                vouchers.with_context(collection_audited_state=True).write(
-                    {"state": "validated_collections"}
-                )
+                with privileged("collection_audited_state"):
+                    vouchers.write({"state": "validated_collections"})
             result = self._call(
                 self._payload(
                     self._payments_from_vouchers(vouchers),
@@ -1711,9 +1708,8 @@ class TestCollectionMcpAllocation(TransactionCase):
             prefix="ALLOC-HIDDEN-COVER",
             allocation_id=other_alloc.id,
         )
-        cover.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            cover.write({"state": "validated_collections"})
         confirm_sheet(self.sheet)
         self.assertEqual(self.sheet.state, "proposal")
         self.assertEqual(other_alloc.state, "draft")

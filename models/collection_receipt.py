@@ -7,6 +7,8 @@ from odoo.tools.translate import _
 
 from .collection_common import (
     DOCUMENT_KIND_SELECTION,
+    is_privileged,
+    privileged,
     raise_if_create_vals_frozen,
     raise_if_sheet_frozen,
 )
@@ -22,8 +24,9 @@ _RECEIPT_STATE_SELECTION = (
     ("closed", "Closed"),
     ("issued", "Issued"),
 )
-_STATE_CONTEXT_AUDITED = "collection_receipt_audited_state"
-_STATE_CONTEXT_ISSUING = "collection_receipt_issuing"
+# Privileged scopes (``collection_common.privileged``), never context keys.
+_STATE_SCOPE_AUDITED = "collection_receipt_audited_state"
+_STATE_SCOPE_ISSUING = "collection_receipt_issuing"
 
 
 class CollectionReceipt(models.Model):
@@ -140,16 +143,16 @@ class CollectionReceipt(models.Model):
 
     def write(self, vals):
         self._intercept_state_write(vals)
-        if self.env.context.get(_STATE_CONTEXT_ISSUING):
+        if is_privileged(_STATE_SCOPE_ISSUING):
             return super().write(vals)
         self._raise_if_issued()
-        if not self.env.context.get(_STATE_CONTEXT_AUDITED):
+        if not is_privileged(_STATE_SCOPE_AUDITED):
             self._raise_if_sheet_frozen()
         return super().write(vals)
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_issued_or_frozen(self):
-        if self.env.context.get("collection_allocation_parent_unlink"):
+        if is_privileged("collection_allocation_parent_unlink"):
             return
         self._raise_if_sheet_frozen()
         self._raise_if_issued()
@@ -159,18 +162,16 @@ class CollectionReceipt(models.Model):
         drafts = self.filtered(lambda receipt: receipt.state == "draft")
         if not drafts:
             return True
-        return drafts.with_context(**{_STATE_CONTEXT_AUDITED: True}).write(
-            {"state": "closed"}
-        )
+        with privileged(_STATE_SCOPE_AUDITED):
+            return drafts.write({"state": "closed"})
 
     @api.private
     def _action_reopen_closed(self):
         closed = self.filtered(lambda receipt: receipt.state == "closed")
         if not closed:
             return True
-        return closed.with_context(**{_STATE_CONTEXT_AUDITED: True}).write(
-            {"state": "draft"}
-        )
+        with privileged(_STATE_SCOPE_AUDITED):
+            return closed.write({"state": "draft"})
 
     @api.private
     def _intercept_state_write(self, vals):
@@ -180,9 +181,8 @@ class CollectionReceipt(models.Model):
 
     @api.private
     def _state_write_is_audited(self):
-        return bool(
-            self.env.context.get(_STATE_CONTEXT_AUDITED)
-            or self.env.context.get(_STATE_CONTEXT_ISSUING)
+        return is_privileged(_STATE_SCOPE_AUDITED) or is_privileged(
+            _STATE_SCOPE_ISSUING
         )
 
     @api.private

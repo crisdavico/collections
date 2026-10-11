@@ -13,6 +13,8 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .common_connector import (
     advance_sheet_to,
     force_sheet_state,
@@ -108,10 +110,14 @@ class TestCollectionSheetReportData(TransactionCase):
             "amount": amount,
         }
         vals.update(extra)
-        if vals.get("document_type") in (
-            "check",
-            "echeck",
-        ) and "check_number" not in extra:
+        if (
+            vals.get("document_type")
+            in (
+                "check",
+                "echeck",
+            )
+            and "check_number" not in extra
+        ):
             # check_number is mandatory at save for check/echeck
             # (_check_check_number_required); a random default keeps
             # existing fixtures unique enough to dodge
@@ -195,12 +201,13 @@ class TestCollectionSheetReportData(TransactionCase):
         return sheet
 
     def _mark_issued(self, receipt, external_id):
-        receipt.with_context(collection_receipt_issuing=True).write(
-            {
-                "state": "issued",
-                "external_receipt_id": external_id,
-            }
-        )
+        with privileged("collection_receipt_issuing"):
+            receipt.write(
+                {
+                    "state": "issued",
+                    "external_receipt_id": external_id,
+                }
+            )
         return receipt
 
     def _line_vals(self, amount_applied=100.0, invoice_balance=100.0, **extra):
@@ -271,9 +278,8 @@ class TestCollectionSheetReportData(TransactionCase):
 
     def _mark_validated_collections(self, vouchers):
         if vouchers:
-            vouchers.with_context(collection_audited_state=True).write(
-                {"state": "validated_collections"}
-            )
+            with privileged("collection_audited_state"):
+                vouchers.write({"state": "validated_collections"})
         return vouchers
 
     def _drive_sheet(self, sheet, target):
@@ -627,9 +633,8 @@ class TestCollectionSheetReportData(TransactionCase):
         seller = self._create_voucher(seller_partner, sheet, amount=20.0)
         collections = self._create_voucher(collections_partner, sheet, amount=30.0)
         seller.action_validate_seller()
-        collections.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            collections.write({"state": "validated_collections"})
         first = self._create_allocation(
             sheet,
             draft_partner,

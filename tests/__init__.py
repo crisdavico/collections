@@ -29,6 +29,7 @@ from . import test_collection_mcp_sheet_close
 from . import test_collection_mcp_sheet_pdf
 from . import test_collection_mcp_tool
 from . import test_collection_payment
+from . import test_collection_privileged_scope
 from . import test_collection_receipt
 from . import test_collection_receipt_split
 from . import test_collection_roles

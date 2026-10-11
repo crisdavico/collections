@@ -5,7 +5,12 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.translate import _
 
-from .collection_common import raise_if_create_vals_frozen, raise_if_sheet_frozen
+from .collection_common import (
+    is_privileged,
+    privileged,
+    raise_if_create_vals_frozen,
+    raise_if_sheet_frozen,
+)
 
 
 class CollectionReceiptValue(models.Model):
@@ -94,7 +99,7 @@ class CollectionReceiptValue(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
-        if self.env.context.get("collection_receipt_issuing"):
+        if is_privileged("collection_receipt_issuing"):
             return super().write(vals)
         self._raise_if_sheet_frozen()
         self._raise_if_receipt_issued()
@@ -102,7 +107,7 @@ class CollectionReceiptValue(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_issued_or_frozen(self):
-        if self.env.context.get("collection_allocation_parent_unlink"):
+        if is_privileged("collection_allocation_parent_unlink"):
             return
         self._raise_if_sheet_frozen()
         self._raise_if_receipt_issued()
@@ -228,14 +233,15 @@ class CollectionReceiptValue(models.Model):
         if currency.compare_amounts(applied, 0.0) == 0:
             return empty
         self._grow_voucher_amount(receipt, target_voucher, applied)
-        return empty.with_context(collection_cash_replacement=True).create(
-            {
-                "receipt_id": receipt.id,
-                "cash_voucher_id": cash_voucher.id,
-                "deposit_voucher_id": deposit_voucher.id,
-                "amount": applied,
-                "direction": direction,
-                "created_by": self.env.user.id,
-                "created_at": fields.Datetime.now(),
-            }
-        )
+        with privileged("collection_cash_replacement"):
+            return empty.create(
+                {
+                    "receipt_id": receipt.id,
+                    "cash_voucher_id": cash_voucher.id,
+                    "deposit_voucher_id": deposit_voucher.id,
+                    "amount": applied,
+                    "direction": direction,
+                    "created_by": self.env.user.id,
+                    "created_at": fields.Datetime.now(),
+                }
+            )

@@ -5,6 +5,8 @@ from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .common_connector import (
     TEST_INVOICES,
     confirm_sheet,
@@ -183,9 +185,8 @@ class TestCollectionAllocationDebtPicker(TransactionCase):
                 "document_id": f"picker-cover-{sheet.id}",
             }
         )
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         return voucher
 
     def _open_picker(self, allocation):

@@ -4,6 +4,8 @@
 from odoo import api, fields, models
 from odoo.orm.model_classes import add_to_registry
 
+from odoo.addons.collection.models.collection_common import privileged
+
 TEST_CONNECTOR_TYPE = "test"
 
 TEST_SELLERS = (
@@ -261,8 +263,9 @@ def mcp_env_with_listable_customers(env, arguments, user, default_user):
 
 
 def force_sheet_state(sheet, state):
-    """Write sheet ``state`` through the audited dispatcher bypass."""
-    sheet.with_context(collection_sheet_audited_state=True).write({"state": state})
+    """Write sheet ``state`` inside the audited privileged scope."""
+    with privileged("collection_sheet_audited_state"):
+        sheet.write({"state": state})
     return sheet
 
 
@@ -284,9 +287,8 @@ def advance_sheet_to(sheet, target):
         return sheet
     vouchers = sheet.voucher_ids
     if vouchers:
-        vouchers.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            vouchers.write({"state": "validated_collections"})
     if sheet.state == "open":
         sheet.action_seller_close()
     if target == "submitted":

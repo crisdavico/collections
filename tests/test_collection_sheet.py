@@ -12,6 +12,8 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .common_connector import confirm_sheet, force_sheet_state
 from .test_collection_payment import (
     create_internal_seller,
@@ -128,15 +130,13 @@ class TestCollectionSheet(TransactionCase):
         )
 
     def _force_confirmed_and_closed(self, sheet, allocations):
-        allocations.with_context(collection_allocation_audited_state=True).write(
-            {"state": "confirmed"}
-        )
+        with privileged("collection_allocation_audited_state"):
+            allocations.write({"state": "confirmed"})
         force_sheet_state(sheet, "closed")
 
     def _mark_validated_collections(self, vouchers):
-        vouchers.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            vouchers.write({"state": "validated_collections"})
         return vouchers
 
     def _second_open_via_audited(self):
@@ -949,7 +949,7 @@ class TestCollectionSheet(TransactionCase):
         self.assertAlmostEqual(sheet.cash_banked, 0.0, places=2)
 
     def test_mint_bypass_does_not_widen_orm_or_mcp_create(self):
-        """The mint context key MUST NOT open ORM, UI, or MCP voucher create."""
+        """The mint scope MUST NOT open ORM, UI, or MCP voucher create."""
         seller = self._seller()
         sheet = self._create_sheet()
         self._enable_seller_commission_type()
@@ -966,17 +966,16 @@ class TestCollectionSheet(TransactionCase):
         self.assertIn("not enabled", str(error.exception).lower())
         partner = dummy_customer_partner(self.env, customer="CUST-SC-BYPASS")
         with self.assertRaises(UserError) as error:
-            self.env["collection.voucher"].with_context(
-                collection_seller_commission_mint=True
-            ).create(
-                {
-                    "document_type": "cash",
-                    "partner_id": partner.id,
-                    "seller_id": seller.id,
-                    "sheet_id": sheet.id,
-                    "amount": 10.0,
-                }
-            )
+            with privileged("collection_seller_commission_mint"):
+                self.env["collection.voucher"].create(
+                    {
+                        "document_type": "cash",
+                        "partner_id": partner.id,
+                        "seller_id": seller.id,
+                        "sheet_id": sheet.id,
+                        "amount": 10.0,
+                    }
+                )
         self.assertIn("not enabled", str(error.exception).lower())
         from odoo.addons.collection.tools import collection_seller_deposit
         from odoo.addons.collection.tools import collection_voucher as mcp_voucher
@@ -1404,8 +1403,8 @@ class TestCollectionSheet(TransactionCase):
             sheet.write({"state": "proposal"})
         self.assertEqual(sheet.state, "proposal")
 
-    def test_audited_state_write_allowed_with_context(self):
-        """collection_sheet_audited_state allows the write used by audited actions."""
+    def test_audited_state_write_allowed_in_privileged_scope(self):
+        """The audited sheet scope allows the write used by audited actions."""
         sheet = self._create_sheet()
         force_sheet_state(sheet, "proposal")
         self.assertEqual(sheet.state, "proposal")

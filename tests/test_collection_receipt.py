@@ -13,6 +13,8 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .common_connector import confirm_sheet, install_bound_test_connector
 from .test_collection_payment import (
     create_internal_seller,
@@ -160,11 +162,8 @@ class TestCollectionReceipt(TransactionCase):
             "created_at": extra.pop("created_at", "2026-09-01 12:00:00"),
         }
         vals.update(extra)
-        return (
-            self.env["collection.cash.replacement"]
-            .with_context(collection_cash_replacement=True)
-            .create(vals)
-        )
+        with privileged("collection_cash_replacement"):
+            return self.env["collection.cash.replacement"].create(vals)
 
     def test_unique_kind_per_allocation(self):
         """UNIQUE(allocation_id, document_kind) MUST refuse a second invoice."""
@@ -523,9 +522,8 @@ class TestCollectionReceipt(TransactionCase):
         records = vouchers[0]
         for voucher in vouchers[1:]:
             records |= voucher
-        records.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            records.write({"state": "validated_collections"})
         return records
 
     def _partner_has_autopost_bills_column(self):
@@ -722,12 +720,13 @@ class TestCollectionReceipt(TransactionCase):
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         receipt = self._create_receipt(allocation, "invoice")
         self._create_value(receipt, voucher, 100.0)
-        receipt.with_context(collection_receipt_issuing=True).write(
-            {
-                "state": "issued",
-                "external_receipt_id": "ERP-1",
-            }
-        )
+        with privileged("collection_receipt_issuing"):
+            receipt.write(
+                {
+                    "state": "issued",
+                    "external_receipt_id": "ERP-1",
+                }
+            )
         self.assertEqual(receipt.state, "issued")
         self.assertEqual(receipt.external_receipt_id, "ERP-1")
         with self.assertRaises(UserError):
@@ -1027,9 +1026,8 @@ class TestCollectionReceipt(TransactionCase):
         allocation, voucher, sheet, _partner = self._balanced_allocation()
         issued = self._create_receipt(allocation, "invoice")
         self._create_value(issued, voucher, 100.0)
-        issued.with_context(collection_receipt_issuing=True).write(
-            {"state": "issued", "external_receipt_id": "ERP-KEEP"}
-        )
+        with privileged("collection_receipt_issuing"):
+            issued.write({"state": "issued", "external_receipt_id": "ERP-KEEP"})
         self._mark_validated(voucher)
         confirm_sheet(sheet)
         self._close_locally(sheet)
@@ -1062,9 +1060,8 @@ class TestCollectionReceipt(TransactionCase):
         issued = self._create_receipt(allocation, "quotation")
         self._create_value(draft, voucher, 40.0)
         self._create_value(issued, voucher, 60.0)
-        issued.with_context(collection_receipt_issuing=True).write(
-            {"state": "issued", "external_receipt_id": "ERP-HELPER"}
-        )
+        with privileged("collection_receipt_issuing"):
+            issued.write({"state": "issued", "external_receipt_id": "ERP-HELPER"})
         states = {key for key, _label in draft._fields["state"].selection}
         self.assertEqual(states, {"draft", "closed", "issued"})
         (draft | issued)._action_mark_closed()
@@ -1089,9 +1086,8 @@ class TestCollectionReceipt(TransactionCase):
         issued = self._create_receipt(allocation, "quotation")
         self._create_value(local, voucher, 40.0)
         self._create_value(issued, voucher, 60.0)
-        issued.with_context(collection_receipt_issuing=True).write(
-            {"state": "issued", "external_receipt_id": "ERP-KEEP-CAN"}
-        )
+        with privileged("collection_receipt_issuing"):
+            issued.write({"state": "issued", "external_receipt_id": "ERP-KEEP-CAN"})
         self._mark_validated(voucher)
         confirm_sheet(sheet)
         self._close_locally(sheet)

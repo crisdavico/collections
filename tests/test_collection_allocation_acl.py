@@ -8,6 +8,8 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .test_collection_payment import dummy_customer_partner, ensure_enabled_seller
 
 
@@ -317,9 +319,10 @@ class TestCollectionAllocationAcl(TransactionCase):
         )
         with self.assertRaises(UserError):
             Revision.create(self._revision_vals(allocation))
-        rev = Revision.with_context(collection_allocation_revision=True).create(
-            self._revision_vals(allocation, confirmed_by=self.internal_user.id)
-        )
+        with privileged("collection_allocation_revision"):
+            rev = Revision.create(
+                self._revision_vals(allocation, confirmed_by=self.internal_user.id)
+            )
         self.assertTrue(rev.id)
         read = Revision.browse(rev.id).read(["request_id", "revision"])
         self.assertEqual(read[0]["revision"], 1)
@@ -340,17 +343,14 @@ class TestCollectionAllocationAcl(TransactionCase):
         """Draft parent unlink MUST delete revisions under the parent-unlink gate."""
         allocation = self._create_allocation()
         self.assertEqual(allocation.state, "draft")
-        rev = (
-            self.env["collection.allocation.revision"]
-            .with_context(collection_allocation_revision=True)
-            .create(
+        with privileged("collection_allocation_revision"):
+            rev = self.env["collection.allocation.revision"].create(
                 self._revision_vals(
                     allocation,
                     request_id="req-parent-unlink",
                     confirmed_by=self.internal_user.id,
                 )
             )
-        )
         rev_id = rev.id
         allocation_id = allocation.id
         allocation.with_user(self.internal_user).unlink()
@@ -404,10 +404,8 @@ class TestCollectionAllocationAcl(TransactionCase):
     def test_draft_allocation_unlink_cascades_replacements(self):
         """Draft allocation unlink MUST drop replacement rows and keep vouchers."""
         allocation, receipt, cash, deposit = self._cash_replacement_records()
-        row = (
-            self.env["collection.cash.replacement"]
-            .with_context(collection_cash_replacement=True)
-            .create(
+        with privileged("collection_cash_replacement"):
+            row = self.env["collection.cash.replacement"].create(
                 {
                     "receipt_id": receipt.id,
                     "cash_voucher_id": cash.id,
@@ -418,7 +416,6 @@ class TestCollectionAllocationAcl(TransactionCase):
                     "created_at": "2026-09-01 12:00:00",
                 }
             )
-        )
         row_id, cash_id, deposit_id = row.id, cash.id, deposit.id
         allocation.with_user(self.internal_user).unlink()
         self.assertFalse(
@@ -433,20 +430,16 @@ class TestCollectionAllocationAcl(TransactionCase):
     def test_parent_unlink_refused_when_confirmed(self):
         """Confirmed parent unlink MUST be refused; revisions MUST remain."""
         allocation = self._create_allocation()
-        rev = (
-            self.env["collection.allocation.revision"]
-            .with_context(collection_allocation_revision=True)
-            .create(
+        with privileged("collection_allocation_revision"):
+            rev = self.env["collection.allocation.revision"].create(
                 self._revision_vals(
                     allocation,
                     request_id="req-parent-confirmed",
                     confirmed_by=self.internal_user.id,
                 )
             )
-        )
-        allocation.with_context(collection_allocation_audited_state=True).write(
-            {"state": "confirmed"}
-        )
+        with privileged("collection_allocation_audited_state"):
+            allocation.write({"state": "confirmed"})
         allocation_id = allocation.id
         rev_id = rev.id
         with self.assertRaises(UserError):
@@ -461,11 +454,10 @@ class TestCollectionAllocationAcl(TransactionCase):
     def test_portal_denied_on_allocation_models(self):
         allocation = self._create_allocation()
         line = self._add_line(allocation, "INV-PORTAL", amount=5.0)
-        rev = (
-            self.env["collection.allocation.revision"]
-            .with_context(collection_allocation_revision=True)
-            .create(self._revision_vals(allocation, request_id="req-portal"))
-        )
+        with privileged("collection_allocation_revision"):
+            rev = self.env["collection.allocation.revision"].create(
+                self._revision_vals(allocation, request_id="req-portal")
+            )
         for record, fields in (
             (allocation, ["name", "state"]),
             (line, ["amount_applied"]),
@@ -487,17 +479,14 @@ class TestCollectionAllocationAcl(TransactionCase):
         self._restrict_user_to_company(self.internal_user, self.env.company)
         visible = self._create_allocation(user=self.internal_user)
         visible_line = self._add_line(visible, "INV-VIS")
-        visible_rev = (
-            self.env["collection.allocation.revision"]
-            .with_context(collection_allocation_revision=True)
-            .create(
+        with privileged("collection_allocation_revision"):
+            visible_rev = self.env["collection.allocation.revision"].create(
                 self._revision_vals(
                     visible,
                     request_id="req-vis",
                     confirmed_by=self.internal_user.id,
                 )
             )
-        )
 
         company_b = self._create_company("Alloc Hidden Co")
         seller_b = self._create_user("alloc_acl_seller_b", "base.group_user")
@@ -509,17 +498,14 @@ class TestCollectionAllocationAcl(TransactionCase):
         )
         hidden = self._create_allocation(user=seller_b, company=company_b)
         hidden_line = self._add_line(hidden, "INV-HID")
-        hidden_rev = (
-            self.env["collection.allocation.revision"]
-            .with_context(collection_allocation_revision=True)
-            .create(
+        with privileged("collection_allocation_revision"):
+            hidden_rev = self.env["collection.allocation.revision"].create(
                 self._revision_vals(
                     hidden,
                     request_id="req-hid",
                     confirmed_by=seller_b.id,
                 )
             )
-        )
 
         Alloc = self.env["collection.allocation"].with_user(self.internal_user)
         self.assertTrue(Alloc.search([("id", "=", visible.id)]))

@@ -5,7 +5,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_common import raise_if_create_vals_frozen
+from .collection_common import is_privileged, raise_if_create_vals_frozen
 
 
 class CollectionAllocationRevision(models.Model):
@@ -57,7 +57,7 @@ class CollectionAllocationRevision(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if not self.env.context.get("collection_allocation_revision"):
+        if not is_privileged("collection_allocation_revision"):
             raise UserError(
                 _("Allocation revisions can only be created by the allocation flow.")
             )
@@ -80,6 +80,6 @@ class CollectionAllocationRevision(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_forbidden(self):
-        if self.env.context.get("collection_allocation_parent_unlink"):
+        if is_privileged("collection_allocation_parent_unlink"):
             return
         raise UserError(_("Allocation revisions cannot be deleted."))
