@@ -16,5 +16,6 @@ from . import collection_sheet
 from . import collection_sheet_report
 from . import collection_voucher
 from . import collection_voucher_review_snapshot
+from . import ir_attachment
 from . import res_company
 from . import res_config_settings
