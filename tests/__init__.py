@@ -46,3 +46,4 @@ from . import test_collection_sheet_report_data
 from . import test_collection_sheet_xlsx
 from . import test_collection_ui
 from . import test_collection_voucher
+from . import test_collection_split_ownership
