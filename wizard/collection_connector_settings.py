@@ -23,6 +23,18 @@ CONNECTOR_SETTING_FIELDS = (
     "bejerman_quotation_kinds",
     "bejerman_debt_filter_field",
 )
+# Credentials, the endpoint, TLS trust and server file paths: a manager could use
+# them to read a secret or point the server at a host or file of their choosing.
+SYSTEM_SETTING_FIELDS = frozenset(
+    {
+        "sqlite_path",
+        "bejerman_ws_url",
+        "bejerman_usuario",
+        "bejerman_clave",
+        "bejerman_allow_insecure",
+        "bejerman_ca_bundle",
+    }
+)
 
 
 class CollectionConnectorSettings(models.TransientModel):
@@ -31,16 +43,18 @@ class CollectionConnectorSettings(models.TransientModel):
 
     connector_id = fields.Many2one("collection.connector", required=True)
     connector_type = fields.Selection(related="connector_id.type", related_sudo=False)
-    sqlite_path = fields.Char(string="SQLite Path")
-    bejerman_ws_url = fields.Char(string="Web Service URL")
-    bejerman_usuario = fields.Char(string="User")
-    bejerman_clave = fields.Char(string="Password")
+    sqlite_path = fields.Char(string="SQLite Path", groups="base.group_system")
+    bejerman_ws_url = fields.Char(string="Web Service URL", groups="base.group_system")
+    bejerman_usuario = fields.Char(string="User", groups="base.group_system")
+    bejerman_clave = fields.Char(string="Password", groups="base.group_system")
     bejerman_empresa = fields.Char(string="External Company")
     bejerman_puesto = fields.Char(string="Workstation")
     bejerman_sucursal = fields.Char(string="Branch")
     bejerman_timeout = fields.Integer(string="Timeout", default=60)
-    bejerman_allow_insecure = fields.Boolean(string="Allow Insecure HTTP/TLS")
-    bejerman_ca_bundle = fields.Char(string="CA Bundle")
+    bejerman_allow_insecure = fields.Boolean(
+        string="Allow Insecure HTTP/TLS", groups="base.group_system"
+    )
+    bejerman_ca_bundle = fields.Char(string="CA Bundle", groups="base.group_system")
     bejerman_seller_scenario = fields.Char(string="Seller Scenario")
     bejerman_seller_view = fields.Char(string="Seller View")
     bejerman_debt_scenario = fields.Char(string="Debt Scenario")
@@ -57,15 +71,27 @@ class CollectionConnectorSettings(models.TransientModel):
         return connector
 
     @api.model
+    @api.private
+    def _managed_setting_fields(self):
+        """Settings this user may see and change; system ones need an admin."""
+        if self.env.su or self.env.user._is_system():
+            return CONNECTOR_SETTING_FIELDS
+        return tuple(
+            name
+            for name in CONNECTOR_SETTING_FIELDS
+            if name not in SYSTEM_SETTING_FIELDS
+        )
+
+    @api.model
     def default_get(self, field_names):
         vals = super().default_get(field_names)
         connector = self.env["collection.connector"].browse(vals.get("connector_id"))
         if connector:
             connector._check_collection_management_access()
-            # Credentials remain protected on adapter models; only this checked
-            # company connector's whitelisted settings are exposed to its manager.
+            # Adapter fields are admin-only; the checked manager gets this company
+            # connector's non-system settings and never a credential.
             elevated = connector.sudo()
-            for name in CONNECTOR_SETTING_FIELDS:
+            for name in self._managed_setting_fields():
                 if name in field_names and name in elevated._fields:
                     vals[name] = elevated[name]
         return vals
@@ -73,9 +99,10 @@ class CollectionConnectorSettings(models.TransientModel):
     def action_save(self):
         connector = self._checked_connector()
         prefix = "bejerman_" if connector.type == "bejerman" else "sqlite_"
+        # Leaving the system settings out keeps a manager's save from blanking them.
         vals = {
             name: self[name]
-            for name in CONNECTOR_SETTING_FIELDS
+            for name in self._managed_setting_fields()
             if name.startswith(prefix) and name in connector._fields
         }
         connector.sudo().write(vals)
