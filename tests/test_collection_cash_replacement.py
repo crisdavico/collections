@@ -8,7 +8,11 @@ from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
-from .test_collection_payment import dummy_customer_partner, ensure_enabled_seller
+from .test_collection_payment import (
+    dummy_customer_partner,
+    ensure_enabled_seller,
+    second_active_currency,
+)
 
 
 class TestCollectionCashReplacement(TransactionCase):
@@ -288,9 +292,7 @@ class TestCollectionCashReplacement(TransactionCase):
     def test_currency_mismatch_refused(self):
         """Cash, deposit, and receipt currencies MUST agree or nothing persists."""
         receipt, cash, deposit, cash_value = self._funded_invoice_receipt()
-        other = self.env["res.currency"].search(
-            [("id", "!=", cash.currency_id.id)], limit=1
-        )
+        other = second_active_currency(self.env, cash.currency_id)
         self.assertTrue(other, "need a second currency for mismatch")
         cash.write({"currency_id": other.id})
         Replacement = self.env["collection.cash.replacement"]

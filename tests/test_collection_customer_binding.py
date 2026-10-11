@@ -11,7 +11,7 @@ from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
 from .test_collection_acl import TestCollectionAcl
-from .test_collection_payment import create_internal_seller
+from .test_collection_payment import create_internal_seller, insert_company_like
 
 MODEL = "collection.connector.customer.binding"
 
@@ -21,28 +21,7 @@ class TestCollectionCustomerBinding(TransactionCase):
 
     def _create_company(self, name):
         partner = self._create_partner(name)
-        self.env.cr.execute(
-            """
-            INSERT INTO res_company (
-                name, partner_id, currency_id,
-                fiscalyear_last_day, fiscalyear_last_month,
-                account_price_include, cost_method, horizon_days,
-                inventory_period, layout_background, security_lead
-            )
-            SELECT
-                %s, %s, currency_id,
-                fiscalyear_last_day, fiscalyear_last_month,
-                account_price_include, cost_method, horizon_days,
-                inventory_period, layout_background, security_lead
-            FROM res_company
-            WHERE id = %s
-            RETURNING id
-            """,
-            (name, partner.id, self.env.company.id),
-        )
-        company = self.env["res.company"].browse(self.env.cr.fetchone()[0])
-        company.invalidate_recordset()
-        return company
+        return insert_company_like(self.env, name, partner.id)
 
     def _restrict_user_to_company(self, user, company):
         return TestCollectionAcl._restrict_user_to_company(self, user, company)

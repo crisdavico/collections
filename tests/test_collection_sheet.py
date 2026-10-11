@@ -23,8 +23,12 @@ from .test_collection_payment import (
 class TestCollectionSheet(TransactionCase):
     """RED/GREEN: collection.sheet sequence, frozen seller, four-state lifecycle."""
 
-    def _other_internal_seller(self):
-        return create_internal_seller(self.env, f"other_{self._testMethodName}")
+    def _other_internal_seller(self, suffix=""):
+        """Create a second seller; ``suffix`` keeps logins unique per call."""
+        login = f"other_{self._testMethodName}"
+        if suffix:
+            login = f"{login}_{suffix}"
+        return create_internal_seller(self.env, login)
 
     def _ensure_enabled_seller(self, seller=None):
         seller = seller or self.env.ref("base.user_admin")
@@ -477,9 +481,7 @@ class TestCollectionSheet(TransactionCase):
         this task enforces, and it fires regardless of the debt-side residual.
         """
         sheet = self._create_sheet()
-        partner = dummy_customer_partner(
-            self.env, customer="CUST-CONF-DEBT-NOVOUCHER"
-        )
+        partner = dummy_customer_partner(self.env, customer="CUST-CONF-DEBT-NOVOUCHER")
         allocation = self.env["collection.allocation"].create(
             {
                 "sheet_id": sheet.id,
@@ -2042,7 +2044,7 @@ class TestCollectionSheet(TransactionCase):
         for state in ("proposal", "closed", "cancelled"):
             with self.subTest(state=state):
                 sheet = self._create_sheet(
-                    seller_id=self._other_internal_seller().id,
+                    seller_id=self._other_internal_seller(state).id,
                 )
                 force_sheet_state(sheet, state)
                 with self.assertRaises(UserError):

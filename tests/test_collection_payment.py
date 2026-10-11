@@ -8,7 +8,7 @@ from psycopg2 import IntegrityError
 from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
-from odoo.tools import mute_logger
+from odoo.tools import SQL, mute_logger
 
 # Minimal valid payloads (base64) for MIME triangulation.
 PNG_B64 = (
@@ -181,6 +181,84 @@ def dummy_customer_partner(env, customer=None, extra=None, default="CUST"):
         (label, label, env.company.id, label),
     )
     return Partner.browse(env.cr.fetchone()[0])
+
+
+#: Settings a bare test company copies from its template company. A column
+#: that does not exist in this database (``account`` or ``stock`` not
+#: installed) is simply not copied.
+_COMPANY_COPY_COLUMNS = (
+    "active",
+    "currency_id",
+    "fiscalyear_last_day",
+    "fiscalyear_last_month",
+    "account_price_include",
+    "cost_method",
+    "horizon_days",
+    "inventory_period",
+    "layout_background",
+    "security_lead",
+)
+
+
+def insert_company_like(env, name, partner_id, template=None):
+    """Insert a bare ``res.company`` row that copies ``template``'s settings.
+
+    Raw SQL on purpose: callers expect none of ``res.company.create()``'s side
+    effects, and ``account``'s NOT NULL columns may outlive its fields in the
+    registry these tests load into. The column list is read from the database
+    -- the known settings above plus every other NOT NULL column without a
+    default -- so the helper works whether or not ``account`` is installed.
+    """
+    template = template or env.company
+    env.cr.execute(
+        """
+        SELECT column_name
+          FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'res_company'
+           AND column_name NOT IN ('id', 'name', 'partner_id')
+           AND (
+                column_name = ANY(%s)
+                OR (is_nullable = 'NO' AND column_default IS NULL)
+           )
+         ORDER BY column_name
+        """,
+        (list(_COMPANY_COPY_COLUMNS),),
+    )
+    columns = SQL(", ").join(SQL.identifier(row[0]) for row in env.cr.fetchall())
+    env.cr.execute(
+        SQL(
+            """
+            INSERT INTO res_company (name, partner_id, %s)
+            SELECT %s, %s, %s FROM res_company WHERE id = %s
+            RETURNING id
+            """,
+            columns,
+            name,
+            partner_id,
+            columns,
+            template.id,
+        )
+    )
+    company = env["res.company"].browse(env.cr.fetchone()[0])
+    company.invalidate_recordset()
+    return company
+
+
+def second_active_currency(env, currency):
+    """Return an active currency other than ``currency``, activating one.
+
+    A fresh database ships a single active currency, and a mismatch test needs
+    a second one. Activating it stays inside the test's own transaction.
+    """
+    other = (
+        env["res.currency"]
+        .with_context(active_test=False)
+        .search([("id", "!=", currency.id)], order="active desc, id", limit=1)
+    )
+    if other and not other.active:
+        other.active = True
+    return other
 
 
 def post_voucher_proof(voucher, name, datas_b64, body="Proof"):
