@@ -63,8 +63,10 @@ class TestCollectionCashReplacement(TransactionCase):
                             "invoice_number": "R-1",
                             "issue_date": date(2026, 1, 1),
                             "due_date": date(2026, 1, 31),
-                            "invoice_amount": cash_amount,
-                            "invoice_balance": cash_amount,
+                            # The document owes at least what is applied:
+                            # a line cannot apply above its balance.
+                            "invoice_amount": max(cash_amount, applied),
+                            "invoice_balance": max(cash_amount, applied),
                             "invoice_state": "open",
                             "amount_applied": applied,
                             "document_kind": "invoice",
@@ -229,8 +231,10 @@ class TestCollectionCashReplacement(TransactionCase):
                             "invoice_number": "C-1",
                             "issue_date": date(2026, 1, 1),
                             "due_date": date(2026, 1, 31),
-                            "invoice_amount": cash_amount,
-                            "invoice_balance": cash_amount,
+                            # The document owes at least what is applied:
+                            # a line cannot apply above its balance.
+                            "invoice_amount": max(cash_amount, applied),
+                            "invoice_balance": max(cash_amount, applied),
                             "invoice_state": "open",
                             "amount_applied": applied,
                             "document_kind": "invoice",

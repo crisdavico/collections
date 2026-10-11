@@ -473,12 +473,11 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(allocation.total_applied, 0.0)
 
     def test_action_confirm_debt_over_applied_without_vouchers_still_blocks(self):
-        """Over-applying against DEBT with zero vouchers collected MUST still block.
+        """Applying debt with zero vouchers collected MUST still block Confirm.
 
-        Over-allocation against customer debt stays allowed on its own
-        (``residual`` may go negative), but this allocation also applied more
-        than the sheet actually collected (zero vouchers) -- that is the rule
-        this task enforces, and it fires regardless of the debt-side residual.
+        The line applies its whole balance (applying above it is refused at
+        the line now), yet no voucher collected anything: the collected-money
+        gate fires on its own.
         """
         sheet = self._create_sheet()
         partner = dummy_customer_partner(self.env, customer="CUST-CONF-DEBT-NOVOUCHER")
@@ -491,14 +490,15 @@ class TestCollectionSheet(TransactionCase):
                         {
                             "external_invoice_id": "INV-CONF-DEBT",
                             "invoice_number": "INV-CONF-DEBT",
-                            "invoice_balance": 40.0,
+                            "invoice_balance": 80.0,
                             "amount_applied": 80.0,
                         }
                     )
                 ],
             }
         )
-        self.assertEqual(allocation.residual, -40.0)
+        self.assertEqual(allocation.residual, 0.0)
+        self.assertEqual(allocation.total_vouchers, 0.0)
         sheet.action_seller_close()
         with self.assertRaises(UserError) as error:
             sheet.action_confirm()

@@ -1028,6 +1028,9 @@ class CollectionAllocationMixin(models.AbstractModel):
         line_commands,
     ):
         """Replace draft membership lines and voucher set, then bump revision."""
+        # The receipts are rebuilt from the new values afterwards; dropping them
+        # first keeps the old values from capping the new applications.
+        allocation.write({"receipt_ids": [Command.clear()]})
         # Command.clear() unlinks lines first and flushes computes before creates.
         allocation.write(
             {

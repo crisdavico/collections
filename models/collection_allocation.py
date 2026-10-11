@@ -283,6 +283,10 @@ class CollectionAllocation(models.Model):
             raise UserError(
                 _("Allocation state can only be changed via Close, Cancel, or Open.")
             )
+        if "line_ids" in vals:
+            return self.env["collection.allocation.line"]._write_line_batch(
+                self, lambda: super(CollectionAllocation, self).write(vals)
+            )
         return super().write(vals)
 
     @api.model

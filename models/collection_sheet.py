@@ -230,6 +230,10 @@ class CollectionSheet(models.Model):
                 )
             vals = dict(vals)
             vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
+        if "debt_line_ids" in vals:
+            return self.env["collection.allocation.line"]._write_line_batch(
+                self.allocation_ids, lambda: super(CollectionSheet, self).write(vals)
+            )
         return super().write(vals)
 
     def unlink(self):
@@ -501,6 +505,9 @@ class CollectionSheet(models.Model):
             result = self.write({"state": "submitted"})
         if allocations:
             allocations._check_sheet_state_iff()
+            # Cancelled sheets do not count against a document's balance, so
+            # coming back must not over-apply what another sheet took since.
+            allocations.line_ids._check_invoice_not_over_applied()
         return result
 
     def action_open_document_review(self):
