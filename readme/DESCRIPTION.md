@@ -60,9 +60,9 @@ only, the server lazily resolves each string into `partner_id` and MAY create a
 `res.partner` plus customer binding. A replay answers only the seller that wrote it and
 only with the same content: a reused `request_id` needs the same payments, receipts and
 customer, and a reused `document_id` the same seller and payment fields; anything else
-is a generic conflict. Each payment may nest `raw_ocr` and `seller_confirmed`
-(typed review fields; both omitted leaves empty provenance). MCP `get_seller_id`
-resolves `{seller_id}` from a WhatsApp/mobile among the company's enabled sellers. MCP
+is a generic conflict. Each payment may nest `raw_ocr` and `seller_confirmed` (typed
+review fields; both omitted leaves empty provenance). MCP `get_seller_id` resolves
+`{seller_id}` from a WhatsApp/mobile among the company's enabled sellers. MCP
 `list_collection_customers` and `customer_debt` MUST NOT create partners.
 `list_collection_customers` still returns `{customers}`. `customer_debt` still returns
 `{customer, summary, invoices}` with unchanged gross `balance` / `total_balance` /
