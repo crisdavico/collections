@@ -1,6 +1,8 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import fnmatch
+import re
 import zipfile
 from datetime import date
 from io import BytesIO
@@ -857,3 +859,127 @@ class TestCollectionSheetXlsx(TransactionCase):
         date_cell = self._cell_with_date(worksheet, voucher_date)
         self.assertIsNotNone(date_cell)
         self.assertEqual(date_cell.alignment.horizontal, "center")
+
+    def test_xlsx_free_text_is_written_as_text_never_as_formula(self):
+        """Names, numbers and banks starting with ``=`` stay inert strings."""
+        injected = '=HYPERLINK("http://evil.example/x","click")'
+        self.seller.write({"name": "=1+1"})
+        partner = self._create_partner(injected)
+        sheet = self._create_sheet(force_new=True)
+        transfer = self._create_voucher(
+            partner, sheet, amount=10.0, voucher_number="=2+2"
+        )
+        check = self._create_voucher(
+            partner,
+            sheet,
+            amount=20.0,
+            document_type="check",
+            check_number="=3+3",
+            check_bank="http://evil.example/bank",
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=transfer | check,
+            lines=[
+                self._line_vals(
+                    amount_applied=30.0, invoice_balance=30.0, invoice_number="=4+4"
+                )
+            ],
+        )
+        content, _payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        for text in (injected, "=1+1", "=2+2", "=3+3", "=4+4"):
+            with self.subTest(text=text):
+                cells = [
+                    cell
+                    for row in worksheet.iter_rows()
+                    for cell in row
+                    if cell.value == text
+                ]
+                self.assertTrue(cells, f"{text!r} must be written")
+                for cell in cells:
+                    self.assertEqual(cell.data_type, "s", cell.coordinate)
+        bank = self._cell_with_value(worksheet, "http://evil.example/bank")
+        self.assertIsNotNone(bank)
+        self.assertIsNone(bank.hyperlink)
+        formulas = [
+            str(cell.value)
+            for row in worksheet.iter_rows()
+            for cell in row
+            if cell.data_type == "f"
+        ]
+        self.assertTrue(formulas, "intentional formulas must still be formulas")
+        self.assertFalse([value for value in formulas if "HYPERLINK" in value])
+
+    def _evaluate_sumifs(self, worksheet, formula):
+        """Evaluate ``=SUMIF(range,criteria,sum_range)+...`` the way Excel does.
+
+        Text criteria are case-insensitive and honour the ``*`` / ``?`` wildcards;
+        numbers compare by value. Enough to recalculate the customer totals.
+        """
+        cell = r"\$?([A-Z]+)\$?(\d+)"
+        part = re.compile(
+            rf"SUMIF\({cell}:{cell},{cell},{cell}:{cell}\)", re.IGNORECASE
+        )
+        total = 0.0
+        for match in part.finditer(formula):
+            key_col, first, _key_col2, last = match.group(1, 2, 3, 4)
+            crit_col, crit_row = match.group(5, 6)
+            sum_col = match.group(7)
+            criteria = worksheet[f"{crit_col}{crit_row}"].value
+            for row in range(int(first), int(last) + 1):
+                value = worksheet[f"{key_col}{row}"].value
+                if isinstance(criteria, str):
+                    pattern = criteria.lower().replace("[", "[[]")
+                    hit = isinstance(value, str) and fnmatch.fnmatchcase(
+                        value.lower(), pattern
+                    )
+                else:
+                    hit = value is not None and value == criteria
+                if hit:
+                    total += float(worksheet[f"{sum_col}{row}"].value or 0.0)
+        return total
+
+    def test_xlsx_customer_totals_never_mix_customers(self):
+        """Same names, or a ``*`` in a name, must not pull another customer's rows."""
+        sheet = self._create_sheet(force_new=True)
+        figures = (
+            ("Cliente Duplicado", 100.0, 300.0),
+            ("Cliente Duplicado", 40.0, 70.0),
+            ("Cliente*", 25.0, 90.0),
+        )
+        for index, (name, collected, balance) in enumerate(figures):
+            partner = self._create_partner(name)
+            voucher = self._create_voucher(partner, sheet, amount=collected)
+            self._create_allocation(
+                sheet,
+                partner,
+                vouchers=voucher,
+                lines=[
+                    self._line_vals(
+                        amount_applied=collected,
+                        invoice_balance=balance,
+                        invoice_number=f"FAC-MIX-{index}",
+                    )
+                ],
+            )
+        content, payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        self.assertTrue(worksheet.column_dimensions["L"].hidden, "key column")
+        header = self._cell_with_value(worksheet, "Saldo Total")
+        self.assertIsNotNone(header)
+        customers = payload["customers"]
+        self.assertEqual(len(customers), 3)
+        for offset, expected in enumerate(customers):
+            row = header.row + 1 + offset
+            with self.subTest(customer=expected["name"], row=row):
+                for col, key in ((3, "debt"), (4, "collected"), (5, "applied")):
+                    formula = str(worksheet.cell(row, col).value)
+                    self.assertTrue(formula.startswith("="), formula)
+                    self.assertAlmostEqual(
+                        self._evaluate_sumifs(worksheet, formula),
+                        expected[key],
+                        places=2,
+                        msg=f"{key}: {formula}",
+                    )
