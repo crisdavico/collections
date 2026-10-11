@@ -578,8 +578,13 @@ class TestCollectionCompanyMigration(TransactionCase):
                 "document_type": "bank_transfer",
                 "seller_id": seller_b.id,
                 "sheet_id": sheet_b.id,
-                "company_id": main.id,
+                "company_id": company_b.id,
             }
+        )
+        # Legacy rows predate the company check: corrupt this one in SQL.
+        self.env.cr.execute(
+            "UPDATE collection_voucher SET company_id = %s WHERE id = %s",
+            (main.id, from_sheet.id),
         )
         no_sheet = self._create_voucher(
             {
@@ -630,9 +635,15 @@ class TestCollectionCompanyMigration(TransactionCase):
                 "document_type": "bank_transfer",
                 "seller_id": seller_b.id,
                 "sheet_id": sheet_b.id,
-                "company_id": main.id,
+                "company_id": company_b.id,
             }
         )
+        # Legacy rows predate the company check: corrupt this one in SQL.
+        self.env.cr.execute(
+            "UPDATE collection_voucher SET company_id = %s WHERE id = %s",
+            (main.id, member.id),
+        )
+        member.invalidate_recordset(["company_id"])
         self.assertEqual(member.company_id, main)
         self._run_migrate()
         self.assertEqual(member.company_id, sheet_b.company_id)

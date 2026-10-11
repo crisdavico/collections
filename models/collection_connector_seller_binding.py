@@ -10,6 +10,7 @@ class CollectionConnectorSellerBinding(models.Model):
     _name = "collection.connector.seller.binding"
     _description = "Collection Connector Seller Binding"
     _order = "connector_id, external_seller_id"
+    _check_company_auto = True
 
     connector_id = fields.Many2one(
         comodel_name="collection.connector",

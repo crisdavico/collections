@@ -12,6 +12,7 @@ class CollectionCashReplacement(models.Model):
     _name = "collection.cash.replacement"
     _description = "Collection Cash Replacement"
     _order = "id"
+    _check_company_auto = True
 
     receipt_id = fields.Many2one(
         comodel_name="collection.receipt",
@@ -24,12 +25,14 @@ class CollectionCashReplacement(models.Model):
         required=True,
         ondelete="restrict",
         index=True,
+        check_company=True,
     )
     deposit_voucher_id = fields.Many2one(
         comodel_name="collection.voucher",
         required=True,
         ondelete="restrict",
         index=True,
+        check_company=True,
         help="The replacing voucher (`seller_deposit` or `seller_commission`).",
     )
     currency_id = fields.Many2one(

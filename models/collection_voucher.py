@@ -33,6 +33,7 @@ class CollectionVoucher(models.Model):
     _description = "Payment Voucher"
     _inherit = ["mail.thread.main.attachment", "mail.activity.mixin"]
     _order = "id desc"
+    _check_company_auto = True
 
     _DOCUMENT_TYPE_SELECTION = DOCUMENT_TYPE_SELECTION
     _RETENTION_KIND_SELECTION = RETENTION_KIND_SELECTION
@@ -73,6 +74,7 @@ class CollectionVoucher(models.Model):
         string="Collection Sheet",
         ondelete="set null",
         tracking=True,
+        check_company=True,
     )
     allocation_id = fields.Many2one(
         comodel_name="collection.allocation",
@@ -815,6 +817,49 @@ class CollectionVoucher(models.Model):
             if allocation and voucher.partner_id != allocation.partner_id:
                 raise UserError(
                     _("Voucher customer must match the allocation customer.")
+                )
+
+    @api.constrains("sheet_id", "allocation_id")
+    def _check_allocation_sheet(self):
+        """An allocated voucher MUST stay on its allocation's sheet.
+
+        Mirrors ``collection.allocation._check_voucher_sheets``: Odoo only runs
+        the constraints of the model being written, so moving the voucher is
+        checked from this side.
+        """
+        for voucher in self:
+            allocation = voucher.allocation_id
+            if allocation and allocation.sheet_id != voucher.sheet_id:
+                raise ValidationError(
+                    _("Allocation vouchers must belong to the allocation sheet.")
+                )
+
+    @api.constrains("sheet_id")
+    def _check_receipt_rows_on_sheet(self):
+        """Receipt values and cash replacements MUST keep their voucher's sheet.
+
+        Mirrors ``collection.receipt.value._check_same_allocation``, which
+        only runs when a value row is written.
+        """
+        rows = self.env["collection.cash.replacement"].search(
+            [
+                "|",
+                ("cash_voucher_id", "in", self.ids),
+                ("deposit_voucher_id", "in", self.ids),
+            ]
+        )
+        for voucher in self:
+            sheets = voucher.receipt_value_ids.receipt_id.sheet_id
+            sheets |= rows.filtered(
+                lambda row, current=voucher: current
+                in (row.cash_voucher_id | row.deposit_voucher_id)
+            ).sheet_id
+            if sheets and sheets != voucher.sheet_id:
+                raise ValidationError(
+                    _(
+                        "Receipt values must use vouchers from the same "
+                        "collection sheet."
+                    )
                 )
 
     @api.constrains("sheet_id", "seller_id")

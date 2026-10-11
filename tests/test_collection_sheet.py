@@ -64,10 +64,17 @@ class TestCollectionSheet(TransactionCase):
         if null_seller:
             extra = {key: value for key, value in extra.items() if key != "seller_id"}
             if not extra.get("sheet_id"):
+                # Same company only: a voucher cannot join another
+                # company's sheet.
                 existing_open = self.env["collection.sheet"].search(
                     [
                         ("seller_id", "=", self._seller().id),
                         ("state", "=", "open"),
+                        (
+                            "company_id",
+                            "=",
+                            extra.get("company_id") or self.env.company.id,
+                        ),
                     ],
                     limit=1,
                 )
