@@ -450,20 +450,33 @@ class TestCollectionAllocation(TransactionCase):
                     allocation, revision=1, request_id="req-unique-rev-dup"
                 )
 
-    def test_draft_unlink_with_revisions_unassigns_vouchers(self):
+    def test_draft_unlink_with_revisions_refused(self):
+        """Revisions are the immutable audit trail: they block the delete.
+
+        This used to cascade the revisions away with a draft allocation.
+        """
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         line_ids = allocation.line_ids.ids
         revision = self._create_revision(allocation, request_id="req-draft-unlink")
-        revision_id = revision.id
+        self.assertEqual(allocation.state, "draft")
+        with self.assertRaises(UserError):
+            allocation.unlink()
+        self.assertTrue(allocation.exists())
+        self.assertTrue(revision.exists())
+        self.assertTrue(
+            self.env["collection.allocation.line"].browse(line_ids).exists()
+        )
+        self.assertEqual(voucher.allocation_id, allocation)
+
+    def test_draft_unlink_without_revisions_unassigns_vouchers(self):
+        """Triangulation: a draft allocation with no ledger still deletes."""
+        allocation, voucher, _sheet, _partner = self._balanced_allocation()
+        line_ids = allocation.line_ids.ids
         allocation_id = allocation.id
         voucher_id = voucher.id
-        self.assertEqual(allocation.state, "draft")
         allocation.unlink()
         self.assertFalse(
             self.env["collection.allocation"].browse(allocation_id).exists()
-        )
-        self.assertFalse(
-            self.env["collection.allocation.revision"].browse(revision_id).exists()
         )
         self.assertFalse(
             self.env["collection.allocation.line"].browse(line_ids).exists()
@@ -1488,14 +1501,16 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(receipt.value_ids.amount, 100.0)
 
     def test_draft_unlink_cascades_receipts_and_values(self):
-        """Draft unlink MUST cascade receipts and values and unassign vouchers."""
+        """Draft unlink MUST remove draft receipts and values, unassign vouchers.
+
+        No revision here any more: a revision now blocks the delete
+        (``test_draft_unlink_with_revisions_refused``).
+        """
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         receipt = self._create_receipt(allocation, "invoice")
         value = self._create_value(receipt, voucher, 100.0)
-        revision = self._create_revision(allocation, request_id="req-rcpt-unlink")
         receipt_id = receipt.id
         value_id = value.id
-        revision_id = revision.id
         voucher_id = voucher.id
         allocation_id = allocation.id
         line_ids = allocation.line_ids.ids
@@ -1505,9 +1520,6 @@ class TestCollectionAllocation(TransactionCase):
         )
         self.assertFalse(self.env["collection.receipt"].browse(receipt_id).exists())
         self.assertFalse(self.env["collection.receipt.value"].browse(value_id).exists())
-        self.assertFalse(
-            self.env["collection.allocation.revision"].browse(revision_id).exists()
-        )
         self.assertFalse(
             self.env["collection.allocation.line"].browse(line_ids).exists()
         )

@@ -16,7 +16,7 @@ class CollectionAllocationRevision(models.Model):
     allocation_id = fields.Many2one(
         comodel_name="collection.allocation",
         required=True,
-        ondelete="cascade",
+        ondelete="restrict",
         index=True,
     )
     currency_id = fields.Many2one(
@@ -80,6 +80,6 @@ class CollectionAllocationRevision(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_forbidden(self):
-        if is_privileged("collection_allocation_parent_unlink"):
-            return
+        # No bypass: an allocation with revisions refuses its own delete,
+        # and the FK restricts the database.
         raise UserError(_("Allocation revisions cannot be deleted."))

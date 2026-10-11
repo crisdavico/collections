@@ -339,8 +339,12 @@ class TestCollectionAllocationAcl(TransactionCase):
         self.assertTrue(rev.exists())
         self.assertTrue(allocation.exists())
 
-    def test_parent_unlink_deletes_revisions_on_draft(self):
-        """Draft parent unlink MUST delete revisions under the parent-unlink gate."""
+    def test_parent_unlink_refused_on_draft_with_revisions(self):
+        """Draft parent unlink MUST keep revisions: they block the delete.
+
+        Revisions used to be deleted under the parent-unlink scope; they are
+        the immutable audit trail of the agent's writes.
+        """
         allocation = self._create_allocation()
         self.assertEqual(allocation.state, "draft")
         with privileged("collection_allocation_revision"):
@@ -351,15 +355,10 @@ class TestCollectionAllocationAcl(TransactionCase):
                     confirmed_by=self.internal_user.id,
                 )
             )
-        rev_id = rev.id
-        allocation_id = allocation.id
-        allocation.with_user(self.internal_user).unlink()
-        self.assertFalse(
-            self.env["collection.allocation"].browse(allocation_id).exists()
-        )
-        self.assertFalse(
-            self.env["collection.allocation.revision"].browse(rev_id).exists()
-        )
+        with self.assertRaises(UserError):
+            allocation.with_user(self.internal_user).unlink()
+        self.assertTrue(allocation.exists())
+        self.assertTrue(rev.exists())
 
     def _enable_seller_deposit_type(self):
         catalog = self.env.ref("collection.document_type_seller_deposit")
@@ -401,8 +400,11 @@ class TestCollectionAllocationAcl(TransactionCase):
         """collection.cash.replacement MUST be 1,0,1,0 for Collections Users."""
         self._assert_acl("collection.cash.replacement", (1, 0, 1, 0))
 
-    def test_draft_allocation_unlink_cascades_replacements(self):
-        """Draft allocation unlink MUST drop replacement rows and keep vouchers."""
+    def test_draft_allocation_unlink_refused_with_replacements(self):
+        """Draft allocation unlink MUST keep replacement rows: they block it.
+
+        The delete used to cascade the cash replacement audit rows away.
+        """
         allocation, receipt, cash, deposit = self._cash_replacement_records()
         with privileged("collection_cash_replacement"):
             row = self.env["collection.cash.replacement"].create(
@@ -416,16 +418,12 @@ class TestCollectionAllocationAcl(TransactionCase):
                     "created_at": "2026-09-01 12:00:00",
                 }
             )
-        row_id, cash_id, deposit_id = row.id, cash.id, deposit.id
-        allocation.with_user(self.internal_user).unlink()
-        self.assertFalse(
-            self.env["collection.cash.replacement"].browse(row_id).exists()
-        )
-        leftover_cash = self.env["collection.voucher"].browse(cash_id)
-        leftover_deposit = self.env["collection.voucher"].browse(deposit_id)
-        self.assertTrue(leftover_cash.exists())
-        self.assertTrue(leftover_deposit.exists())
-        self.assertFalse(leftover_cash.allocation_id)
+        with self.assertRaises(UserError):
+            allocation.with_user(self.internal_user).unlink()
+        self.assertTrue(row.exists())
+        self.assertTrue(allocation.exists())
+        self.assertTrue(deposit.exists())
+        self.assertEqual(cash.allocation_id, allocation)
 
     def test_parent_unlink_refused_when_confirmed(self):
         """Confirmed parent unlink MUST be refused; revisions MUST remain."""

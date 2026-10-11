@@ -6,7 +6,10 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command
 from odoo.tools.translate import _
 
+from odoo.addons.base.models.ir_model import MODULE_UNINSTALL_FLAG
+
 from .collection_common import (
+    ADMIN_EDITABLE_SHEET_STATES,
     CONFIRMED_SHEET_STATE,
     DRAFT_SHEET_STATES,
     FROZEN_SHEET_STATES,
@@ -307,13 +310,16 @@ class CollectionAllocation(models.Model):
     def unlink(self):
         if not self:
             return True
-        # Child ledger rows refuse a direct unlink; only this scope lets the
-        # parent delete take them along.
+        # Refuse before any child is touched. The database no longer cascades
+        # receipt values, cash replacements or revisions, so the children
+        # that may go are removed here, through the ORM and their own guards.
+        if not self.env.context.get(MODULE_UNINSTALL_FLAG):
+            self._unlink_except_frozen_or_ledger()
         with privileged("collection_allocation_parent_unlink"):
-            drafts = self.filtered(lambda allocation: allocation.state != "confirmed")
-            vouchers = drafts.mapped("voucher_ids")
+            vouchers = self.voucher_ids
             if vouchers:
-                models.Model.write(vouchers, {"allocation_id": False})
+                vouchers.write({"allocation_id": False})
+            self.receipt_ids.unlink()
             return super().unlink()
 
     @api.constrains("partner_id", "voucher_ids")
@@ -373,9 +379,43 @@ class CollectionAllocation(models.Model):
                 )
 
     @api.ondelete(at_uninstall=False)
-    def _unlink_if_confirmed(self):
+    def _unlink_except_frozen_or_ledger(self):
+        """Only a draft allocation of an editable sheet, with no ledger, goes.
+
+        Proposal, closed and cancelled sheets are frozen (only open sheets
+        can be deleted, Document Review stops after submitted). Issued
+        receipts were sent to the ERP; cash replacements and revisions are
+        the audit trail of what moved money and what the agent wrote.
+        """
         if any(allocation.state == "confirmed" for allocation in self):
             raise UserError(_("Confirmed allocations cannot be deleted."))
+        if any(
+            allocation.sheet_id.state not in ADMIN_EDITABLE_SHEET_STATES
+            for allocation in self
+        ):
+            raise UserError(
+                _(
+                    "Allocations can only be deleted while their collection "
+                    "sheet is open or submitted."
+                )
+            )
+        receipts = self.receipt_ids
+        if any(
+            receipt.state == "issued" or receipt.external_receipt_id
+            for receipt in receipts
+        ):
+            raise UserError(
+                _("Allocations with issued collection receipts cannot be deleted.")
+            )
+        if receipts._has_cash_replacements():
+            raise UserError(_("Allocations with cash replacements cannot be deleted."))
+        if self.revision_ids:
+            raise UserError(
+                _(
+                    "Allocations with revisions cannot be deleted: the revisions "
+                    "are the audit trail of the agent's writes."
+                )
+            )
 
     @api.private
     def _ensure_saved_allocation(self):
