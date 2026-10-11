@@ -19,6 +19,9 @@ PDF_B64 = "JVBERi0xLjEKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK"
 TXT_B64 = "aGVsbG8gd29ybGQ="
 INVALID_B64 = "!!!not-base64!!!"
 
+COLLECTION_USER_GROUP = "collection.group_collection_user"
+COLLECTION_MANAGER_GROUP = "collection.group_collection_manager"
+
 
 def ensure_enabled_seller(env, seller=None, company=None):
     """Enable a seller on a company so NEW-work helper tests can create rows.
@@ -119,6 +122,17 @@ def create_internal_seller(env, login):
             }
         )
     )
+
+
+def create_collection_user(env, login, manager=False):
+    """Back-office operator or MCP API user: a Collections User (or Manager).
+
+    Sellers stay plain internal identities (:func:`create_internal_seller`).
+    """
+    user = create_internal_seller(env, login)
+    group = env.ref(COLLECTION_MANAGER_GROUP if manager else COLLECTION_USER_GROUP)
+    user.write({"group_ids": [Command.link(group.id)]})
+    return user
 
 
 def dummy_customer_partner(env, customer=None, extra=None, default="CUST"):

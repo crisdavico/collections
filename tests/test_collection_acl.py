@@ -16,12 +16,14 @@ from .test_collection_payment import (
 
 
 class TestCollectionAcl(TransactionCase):
-    """RED: ACL allow for base.group_user; deny for non-internal users."""
+    """ACL allow for Collections Users; deny for users without the role."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.internal_user = cls._create_user("collection_internal", "base.group_user")
+        cls.internal_user = cls._create_user(
+            "collection_internal", "collection.group_collection_user"
+        )
         cls.portal_user = cls._create_user("collection_portal", "base.group_portal")
 
     @classmethod
@@ -265,7 +267,7 @@ class TestCollectionAcl(TransactionCase):
             Voucher.browse(admin_voucher.id).action_review_set_rotation(sheet_id, 90)
 
     def test_internal_user_review_queue_and_approve_allowed(self):
-        """Internal users must queue an attached pending voucher and approve it."""
+        """Collections Users queue an attached pending voucher and approve it."""
         env = self.env(user=self.internal_user)
         voucher = self._create_attached_pending_voucher(
             env,
@@ -296,7 +298,7 @@ class TestCollectionAcl(TransactionCase):
         self.assertFalse(voucher.reviewed_by)
 
     def test_internal_user_review_set_rotation_allowed(self):
-        """Internal users must persist viewer rotation on an eligible voucher."""
+        """Collections Users persist viewer rotation on an eligible voucher."""
         env = self.env(user=self.internal_user)
         voucher = self._create_attached_pending_voucher(
             env,
@@ -354,12 +356,14 @@ class TestCollectionAcl(TransactionCase):
             Sheet.browse(admin_sheet.id).unlink()
 
     def test_sheet_acl_internal_group_only(self):
-        """Sheets use one base.group_user ACL row plus a global company rule."""
+        """Sheets use one Collections User ACL row plus a global company rule."""
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.sheet")]
         )
         self.assertEqual(len(acls), 1)
-        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertEqual(
+            acls.group_id, self.env.ref("collection.group_collection_user")
+        )
         self.assertTrue(acls.perm_read)
         self.assertTrue(acls.perm_write)
         self.assertTrue(acls.perm_create)
@@ -380,7 +384,7 @@ class TestCollectionAcl(TransactionCase):
         return vals
 
     def test_snapshot_acl_read_and_gated_create(self):
-        """Internal users read history; create requires collection_review_snapshot."""
+        """Collections Users read history; create needs collection_review_snapshot."""
         voucher = (
             self.env["collection.voucher"]
             .with_user(self.internal_user)
@@ -431,7 +435,9 @@ class TestCollectionAcl(TransactionCase):
             [("model_id.model", "=", "collection.voucher.review.snapshot")]
         )
         self.assertEqual(len(acls), 1)
-        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertEqual(
+            acls.group_id, self.env.ref("collection.group_collection_user")
+        )
         self.assertTrue(acls.perm_read)
         self.assertTrue(acls.perm_create)
         self.assertFalse(acls.perm_write)
@@ -456,12 +462,14 @@ class TestCollectionAcl(TransactionCase):
             self.assertNotIn("sudo()", code)
 
     def test_voucher_acl_internal_group_and_company_rule(self):
-        """Vouchers use one base.group_user ACL row plus a global company rule."""
+        """Vouchers use one Collections User ACL row plus a global company rule."""
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.voucher")]
         )
         self.assertEqual(len(acls), 1)
-        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertEqual(
+            acls.group_id, self.env.ref("collection.group_collection_user")
+        )
         self.assertTrue(acls.perm_read)
         self.assertTrue(acls.perm_write)
         self.assertTrue(acls.perm_create)
@@ -469,16 +477,24 @@ class TestCollectionAcl(TransactionCase):
         self._assert_global_company_rule("collection.voucher")
 
     def test_catalog_acl_read_only_with_manager_group(self):
-        """The shared catalog stays read-only, including for managers."""
+        """The shared catalog stays read-only, including for managers.
+
+        Administrators read it too: creating a company seeds its allowed types.
+        """
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.document.type")]
         )
-        self.assertEqual(len(acls), 1)
-        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
-        self.assertTrue(acls.perm_read)
-        self.assertFalse(acls.perm_write)
-        self.assertFalse(acls.perm_create)
-        self.assertFalse(acls.perm_unlink)
+        self.assertEqual(
+            acls.group_id,
+            self.env.ref("collection.group_collection_user")
+            | self.env.ref("base.group_system"),
+        )
+        for acl in acls:
+            with self.subTest(group=acl.group_id.name):
+                self.assertTrue(acl.perm_read)
+                self.assertFalse(acl.perm_write)
+                self.assertFalse(acl.perm_create)
+                self.assertFalse(acl.perm_unlink)
         self.assertFalse(
             self.env["ir.rule"].search(
                 [("model_id.model", "=", "collection.document.type")]
@@ -487,7 +503,10 @@ class TestCollectionAcl(TransactionCase):
         groups = self.env["ir.model.data"].search(
             [("module", "=", "collection"), ("model", "=", "res.groups")]
         )
-        self.assertEqual(groups.mapped("name"), ["group_collection_manager"])
+        self.assertEqual(
+            sorted(groups.mapped("name")),
+            ["group_collection_manager", "group_collection_user"],
+        )
 
     def test_voucher_company_id_required_defaults_to_env_company(self):
         field = self.env["collection.voucher"]._fields["company_id"]
@@ -662,12 +681,14 @@ class TestCollectionAcl(TransactionCase):
         return vals
 
     def test_cash_replacement_acl_1_0_1_0_and_company_rule(self):
-        """Ledger MUST be group_user 1,0,1,0 with a global company ir.rule."""
+        """Ledger MUST be Collections User 1,0,1,0 with a global company ir.rule."""
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.cash.replacement")]
         )
         self.assertEqual(len(acls), 1)
-        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertEqual(
+            acls.group_id, self.env.ref("collection.group_collection_user")
+        )
         self.assertTrue(acls.perm_read)
         self.assertTrue(acls.perm_create)
         self.assertFalse(acls.perm_write)
@@ -707,12 +728,12 @@ class TestCollectionAcl(TransactionCase):
         self.assertEqual(row.deposit_voucher_id, deposit)
 
     def test_connector_acl_user_read_system_write_rows(self):
-        """Connectors: internal read; systems and Collections Managers have CRUD."""
+        """Connectors: Collections User read; systems and managers have CRUD."""
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.connector")]
         )
         self.assertEqual(len(acls), 3)
-        user_group = self.env.ref("base.group_user")
+        user_group = self.env.ref("collection.group_collection_user")
         system_group = self.env.ref("base.group_system")
         user_acl = acls.filtered(lambda acl: acl.group_id == user_group)
         system_acl = acls.filtered(lambda acl: acl.group_id == system_group)

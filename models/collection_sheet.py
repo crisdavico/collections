@@ -10,9 +10,12 @@ from odoo.tools.translate import _
 
 from .collection_common import (
     ADMIN_EDITABLE_SHEET_STATES,
+    COLLECTION_MANAGER_GROUP,
+    COLLECTION_USER_GROUP,
     CONFIRM_REVIEW_EXEMPT_TYPES,
     SELLER_DECLARATION_STATES,
     SELLER_SHEET_STATES,
+    check_collection_role,
     record_id,
     sanitize_voucher_commands,
 )
@@ -297,7 +300,27 @@ class CollectionSheet(models.Model):
             return self.action_reinstate()
         raise UserError(_("Only open collection sheets can be closed by the seller."))
 
+    @api.private
+    def _check_collection_user(self):
+        check_collection_role(
+            self.env,
+            COLLECTION_USER_GROUP,
+            _("Only Collections Users can review documents or confirm sheets."),
+        )
+
+    @api.private
+    def _check_collection_manager(self):
+        check_collection_role(
+            self.env,
+            COLLECTION_MANAGER_GROUP,
+            _(
+                "Only Collections Managers can close, cancel or reinstate "
+                "collection sheets."
+            ),
+        )
+
     def action_confirm(self):
+        self._check_collection_user()
         if any(sheet.state != "submitted" for sheet in self):
             raise UserError(_("Only submitted sheets can be confirmed."))
         for sheet in self:
@@ -430,6 +453,7 @@ class CollectionSheet(models.Model):
         )
 
     def action_close(self):
+        self._check_collection_manager()
         if any(sheet.state != "proposal" for sheet in self):
             raise UserError(_("Only proposal sheets can be closed."))
         for sheet in self:
@@ -448,6 +472,7 @@ class CollectionSheet(models.Model):
         return result
 
     def action_cancel(self):
+        self._check_collection_manager()
         if any(
             sheet.state not in ("submitted", "proposal", "closed") for sheet in self
         ):
@@ -477,6 +502,7 @@ class CollectionSheet(models.Model):
         self.mapped("allocation_ids.receipt_ids")._action_reopen_closed()
 
     def action_reinstate(self):
+        self._check_collection_manager()
         if any(sheet.state != "cancelled" for sheet in self):
             raise UserError(_("Only cancelled sheets can be reinstated."))
         allocations = self.mapped("allocation_ids")
@@ -489,6 +515,7 @@ class CollectionSheet(models.Model):
 
     def action_open_document_review(self):
         self.ensure_one()
+        self._check_collection_user()
         self.env["collection.voucher"]._ensure_document_review_enabled()
         self._ensure_saved_sheet()
         if self.state not in ADMIN_EDITABLE_SHEET_STATES:

@@ -384,13 +384,20 @@
     </record>
 
     <!-- Menus: Collections → Payment Vouchers -->
-    <menuitem id="menu_collection_root" name="Collections" sequence="45" />
+    <!-- Administrators reach Configuration even without a collection role. -->
+    <menuitem
+    id="menu_collection_root"
+    name="Collections"
+    sequence="45"
+    groups="collection.group_collection_user,base.group_system"
+  />
     <menuitem
     id="menu_collection_voucher"
     name="Payment Vouchers"
     parent="menu_collection_root"
     action="action_collection_voucher"
     sequence="10"
+    groups="collection.group_collection_user"
   />
 
     <!-- Collection Sheets -->
@@ -445,6 +452,7 @@
             type="object"
             class="oe_highlight"
             invisible="not id or state not in ('open', 'submitted')"
+            groups="collection.group_collection_user"
           />
                     <button
             name="action_close"
@@ -452,18 +460,21 @@
             type="object"
             class="oe_highlight"
             invisible="state != 'proposal'"
+            groups="collection.group_collection_manager"
           />
                     <button
             name="action_cancel"
             string="Cancel"
             type="object"
             invisible="state not in ('submitted', 'proposal', 'closed')"
+            groups="collection.group_collection_manager"
           />
                     <button
             name="action_reinstate"
             string="Reinstate"
             type="object"
             invisible="state != 'cancelled'"
+            groups="collection.group_collection_manager"
           />
                     <button
             name="action_open_document_review"
@@ -471,6 +482,7 @@
             type="object"
             class="oe_highlight"
             invisible="not id or not document_review_enabled or state not in ('open', 'submitted')"
+            groups="collection.group_collection_user"
           />
                     <button
             name="action_print_xlsx"
@@ -623,5 +635,6 @@
     parent="menu_collection_root"
     action="action_collection_sheet"
     sequence="20"
+    groups="collection.group_collection_user"
   />
 </odoo>

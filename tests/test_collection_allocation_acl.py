@@ -28,7 +28,9 @@ class TestCollectionAllocationAcl(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.internal_user = cls._create_user("alloc_acl_internal", "base.group_user")
+        cls.internal_user = cls._create_user(
+            "alloc_acl_internal", "collection.group_collection_user"
+        )
         cls.portal_user = cls._create_user("alloc_acl_portal", "base.group_portal")
 
     @classmethod
@@ -168,7 +170,9 @@ class TestCollectionAllocationAcl(TransactionCase):
     def _assert_acl(self, model_name, perms):
         acls = self.env["ir.model.access"].search([("model_id.model", "=", model_name)])
         self.assertEqual(len(acls), 1, f"{model_name} must have one ACL row")
-        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertEqual(
+            acls.group_id, self.env.ref("collection.group_collection_user")
+        )
         self.assertEqual(bool(acls.perm_read), perms[0])
         self.assertEqual(bool(acls.perm_write), perms[1])
         self.assertEqual(bool(acls.perm_create), perms[2])
@@ -240,7 +244,7 @@ class TestCollectionAllocationAcl(TransactionCase):
         return vals
 
     def test_debt_picker_acl_full_crud(self):
-        """Picker transients MUST be 1,1,1,1 for base.group_user."""
+        """Picker transients MUST be 1,1,1,1 for Collections Users."""
         self._assert_acl("collection.allocation.debt.picker", (1, 1, 1, 1))
         self._assert_acl("collection.allocation.debt.candidate", (1, 1, 1, 1))
         allocation = self._create_allocation()
@@ -257,7 +261,7 @@ class TestCollectionAllocationAcl(TransactionCase):
             PortalPicker.create({"allocation_id": allocation.id})
 
     def test_allocation_and_line_acl_full_crud(self):
-        """allocation and line MUST be 1,1,1,1 for base.group_user."""
+        """allocation and line MUST be 1,1,1,1 for Collections Users."""
         self._assert_acl("collection.allocation", (1, 1, 1, 1))
         self._assert_acl("collection.allocation.line", (1, 1, 1, 1))
         Alloc = self.env["collection.allocation"].with_user(self.internal_user)
@@ -394,7 +398,7 @@ class TestCollectionAllocationAcl(TransactionCase):
         return allocation, receipt, cash, deposit
 
     def test_cash_replacement_acl_read_create_no_write_unlink(self):
-        """collection.cash.replacement MUST be 1,0,1,0 for base.group_user."""
+        """collection.cash.replacement MUST be 1,0,1,0 for Collections Users."""
         self._assert_acl("collection.cash.replacement", (1, 0, 1, 0))
 
     def test_draft_allocation_unlink_cascades_replacements(self):

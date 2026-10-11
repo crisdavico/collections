@@ -658,7 +658,7 @@ class TestCollectionSheetXlsx(TransactionCase):
 
     def test_company_b_access_error_on_xlsx(self):
         """Company-B users MUST get AccessError on action_print_xlsx with no file."""
-        user_a = self._create_user("xlsx_company_a", "base.group_user")
+        user_a = self._create_user("xlsx_company_a", "collection.group_collection_user")
         self._restrict_user_to_company(user_a, self.env.company)
 
         company_b = self._create_company("XLSX Hidden Co B")

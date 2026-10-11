@@ -11,7 +11,11 @@ from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
 from .test_collection_acl import TestCollectionAcl
-from .test_collection_payment import create_internal_seller, insert_company_like
+from .test_collection_payment import (
+    create_collection_user,
+    create_internal_seller,
+    insert_company_like,
+)
 
 MODEL = "collection.connector.customer.binding"
 
@@ -174,10 +178,10 @@ class TestCollectionCustomerBinding(TransactionCase):
             )
 
     def test_acl_rows_user_create_system_full(self):
-        """Internal users read/create; systems and Collections Managers have CRUD."""
+        """Collections Users read/create; systems and managers have CRUD."""
         acls = self.env["ir.model.access"].search([("model_id.model", "=", MODEL)])
         self.assertEqual(len(acls), 3)
-        user_group = self.env.ref("base.group_user")
+        user_group = self.env.ref("collection.group_collection_user")
         system_group = self.env.ref("base.group_system")
         user_acl = acls.filtered(lambda acl: acl.group_id == user_group)
         system_acl = acls.filtered(lambda acl: acl.group_id == system_group)
@@ -210,8 +214,8 @@ class TestCollectionCustomerBinding(TransactionCase):
         self.assertNotIn("sudo()", code)
 
     def test_user_can_create_not_write_or_unlink(self):
-        """Internal user MAY create a same-company binding; write/unlink denied."""
-        user = create_internal_seller(self.env, "cust_bind_acl_user")
+        """Collections User MAY create a same-company binding; no write/unlink."""
+        user = create_collection_user(self.env, "cust_bind_acl_user")
         connector = self.env["collection.connector"].create({"name": "ACL Cust Bind"})
         partner = self._create_partner("ACL Cust Partner")
         Binding = self.env[MODEL].with_user(user)
@@ -231,7 +235,7 @@ class TestCollectionCustomerBinding(TransactionCase):
     def test_other_company_bindings_hidden(self):
         """ir.rule MUST hide a customer binding in a company the user cannot access."""
         self._assert_global_company_rule(MODEL)
-        user = create_internal_seller(self.env, "cust_bind_rule_user")
+        user = create_collection_user(self.env, "cust_bind_rule_user")
         self._restrict_user_to_company(user, self.env.company)
         connector_a = self.env["collection.connector"].create(
             {"name": "Cust Bind Visible"}

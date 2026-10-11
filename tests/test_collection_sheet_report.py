@@ -424,7 +424,7 @@ class TestCollectionSheetReport(TransactionCase):
 
     def test_company_b_access_error_on_data_and_render(self):
         """Company-B users MUST get AccessError on payload data() and HTML render."""
-        user_a = self._create_user("rpt_company_a", "base.group_user")
+        user_a = self._create_user("rpt_company_a", "collection.group_collection_user")
         self._restrict_user_to_company(user_a, self.env.company)
 
         company_b = self._create_company("Report Hidden Co B")

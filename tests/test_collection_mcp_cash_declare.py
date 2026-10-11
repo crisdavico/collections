@@ -40,7 +40,7 @@ class TestCollectionMcpCashDeclare(TransactionCase):
         super().setUp()
         self.tool_model = self.env["muk_mcp.tool"]
         self.internal_user = self._create_user(
-            "collection_mcp_cash_declare_internal", "base.group_user"
+            "collection_mcp_cash_declare_internal", "collection.group_collection_user"
         )
         self.portal_user = self._create_user(
             "collection_mcp_cash_declare_portal", "base.group_portal"

@@ -56,7 +56,7 @@ class TestCollectionMcpSheetPdf(TransactionCase):
         self._doc_seq = 0
         self.tool_model = self.env["muk_mcp.tool"]
         self.internal_user = self._create_user(
-            "collection_mcp_sheet_pdf_internal", "base.group_user"
+            "collection_mcp_sheet_pdf_internal", "collection.group_collection_user"
         )
         self.portal_user = self._create_user(
             "collection_mcp_sheet_pdf_portal", "base.group_portal"
@@ -458,7 +458,9 @@ class TestCollectionMcpSheetPdf(TransactionCase):
         sheet_b = self._create_sheet(seller=seller_b, company=company_b)
         self.assertEqual(sheet_b.company_id, company_b)
 
-        user_a = self._create_user("collection_mcp_sheet_pdf_only_a", "base.group_user")
+        user_a = self._create_user(
+            "collection_mcp_sheet_pdf_only_a", "collection.group_collection_user"
+        )
         self._restrict_user_to_company(user_a, self.env.company)
 
         result, calls = self._call_with_stub_render(

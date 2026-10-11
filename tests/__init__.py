@@ -31,6 +31,7 @@ from . import test_collection_mcp_tool
 from . import test_collection_payment
 from . import test_collection_receipt
 from . import test_collection_receipt_split
+from . import test_collection_roles
 from . import test_collection_seller_sync
 from . import test_collection_sheet
 from . import test_collection_sheet_report
