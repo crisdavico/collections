@@ -170,8 +170,14 @@ def _collection_reject_unknown_keys(
 
 
 def _collection_normalize_amount(value: Any) -> float:
-    """Parse a JSON number or decimal string; reject bool, non-finite, and junk."""
-    if isinstance(value, bool) or value in _OMIT_VALUES:
+    """Parse a JSON number or decimal string; reject bool, non-finite, and junk.
+
+    Zero is an amount (a declared commission may be nothing); only a missing
+    value is not. ``0 in (None, False, "")`` is True in Python, so the omitted
+    values are compared by identity, not with ``in``. Callers that need a
+    positive amount check the sign themselves.
+    """
+    if isinstance(value, bool) or value is None:
         raise ValueError("invalid amount")
     if isinstance(value, str):
         value = value.strip()

@@ -556,7 +556,13 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _run_cash_replacement(self):
-        """Replace cash receipt values with this deposit or commission."""
+        """Replace cash receipt values with this deposit or commission.
+
+        Only the part of the amount the voucher does not already hold on a
+        receipt is replaced: money a reversal could not take back, or that
+        the board assigned from the pool, already counts, and replacing the
+        whole amount again would push the voucher's values above it.
+        """
         Value = self.env["collection.receipt.value"]
         for replacer in self.sorted("id"):
             if replacer.document_type not in CASH_REPLACEMENT_TYPES:
@@ -565,7 +571,8 @@ class CollectionVoucher(models.Model):
             if not sheet or sheet.state in FROZEN_SHEET_STATES:
                 continue
             currency = replacer.currency_id
-            remaining = currency.round(replacer.amount or 0.0)
+            held = sum(replacer.receipt_value_ids.mapped("amount"))
+            remaining = currency.round((replacer.amount or 0.0) - held)
             for receipt, cash_value in replacer._iter_replaceable_cash_values():
                 if currency.compare_amounts(remaining, 0.0) <= 0:
                     break
@@ -622,6 +629,80 @@ class CollectionVoucher(models.Model):
                 ).sorted(key=self._replacement_cash_upload_key)
                 for cash_value in cash_values:
                     yield receipt, cash_value
+
+    @api.private
+    def _reverse_cash_replacement(self):
+        """Give back the cash this deposit or commission replaced.
+
+        Nets the ledger per (receipt, cash voucher) and moves each net slice
+        from this voucher's value back to the cash voucher through
+        ``_cash_reverse``, which writes the reverse rows. A slice goes back on
+        the receipt it was taken from first; what the board moved elsewhere
+        comes back from any receipt this voucher still funds. Issued receipts
+        are never touched. Afterwards ``replaced_amount`` of the cash nets to
+        zero for what could be given back, and a later approval replaces again
+        from scratch.
+        """
+        self.ensure_one()
+        if self.document_type not in CASH_REPLACEMENT_TYPES:
+            return
+        currency = self.currency_id
+        rows = self.env["collection.cash.replacement"].search(
+            [("deposit_voucher_id", "=", self.id)], order="id"
+        )
+        owed = {}
+        for row in rows:
+            sign = 1.0 if row.direction == "replace" else -1.0
+            key = (row.receipt_id, row.cash_voucher_id)
+            owed[key] = owed.get(key, 0.0) + sign * (row.amount or 0.0)
+        pending = {}
+        for (receipt, cash), net in owed.items():
+            net = currency.round(net)
+            if currency.compare_amounts(net, 0.0) <= 0:
+                continue
+            left = currency.round(net - self._reverse_cash_onto(receipt, cash, net))
+            if currency.compare_amounts(left, 0.0) > 0:
+                pending[cash] = currency.round(pending.get(cash, 0.0) + left)
+        for cash, left in pending.items():
+            for value in self.receipt_value_ids.sorted("id"):
+                if currency.compare_amounts(left, 0.0) <= 0:
+                    break
+                moved = self._reverse_cash_onto(value.receipt_id, cash, left)
+                left = currency.round(left - moved)
+
+    @api.private
+    def _reverse_cash_onto(self, receipt, cash, amount):
+        """Move up to ``amount`` of this voucher's value on ``receipt`` to cash."""
+        self.ensure_one()
+        if receipt.state == "issued":
+            return 0.0
+        value = receipt.value_ids.filtered(lambda row: row.voucher_id == self)[:1]
+        if not value:
+            return 0.0
+        slice_amount = min(amount, value.amount or 0.0)
+        row = self.env["collection.receipt.value"]._cash_reverse(
+            receipt, cash, self, slice_amount
+        )
+        return row.amount if row else 0.0
+
+    @api.private
+    def _resync_seller_commission(self, amount):
+        """Set this commission to ``amount`` and replace cash for it again.
+
+        Returns whether the voucher changed. The old replacement is reversed
+        first, so the amount never sits below the values it holds; zero leaves
+        a void voucher that still anchors its immutable replacement rows.
+        """
+        self.ensure_one()
+        currency = self.currency_id
+        if currency.compare_amounts(self.amount or 0.0, amount) == 0:
+            return False
+        self._reverse_cash_replacement()
+        with privileged("collection_audited_state"):
+            self.write({"amount": amount})
+        if currency.compare_amounts(amount, 0.0) > 0:
+            self._run_cash_replacement()
+        return True
 
     @api.private
     def _intercept_state_write(self, vals):
@@ -775,8 +856,25 @@ class CollectionVoucher(models.Model):
         for voucher in self:
             if voucher.document_type == "unsupported":
                 continue
-            if voucher.currency_id.compare_amounts(voucher.amount or 0.0, 0.0) <= 0:
-                raise ValidationError(_("Amount must be greater than zero."))
+            compared = voucher.currency_id.compare_amounts(voucher.amount or 0.0, 0.0)
+            if compared > 0 or (compared == 0 and voucher._is_void_seller_commission()):
+                continue
+            raise ValidationError(_("Amount must be greater than zero."))
+
+    @api.private
+    def _is_void_seller_commission(self):
+        """A commission set to zero after it replaced cash (see Declare Cash).
+
+        Its replacement rows cannot be deleted, so the voucher stays at zero
+        to anchor them. A commission that never replaced anything has no such
+        reason and still needs a positive amount.
+        """
+        self.ensure_one()
+        return self.document_type == "seller_commission" and bool(
+            self.env["collection.cash.replacement"].search_count(
+                [("deposit_voucher_id", "=", self.id)], limit=1
+            )
+        )
 
     @api.constrains(
         "document_type", "check_type", "check_issue_date", "check_payment_date"

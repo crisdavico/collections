@@ -4,7 +4,7 @@
 from datetime import date
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tools.translate import _
 
 from .collection_common import FROZEN_SHEET_STATES, SELLER_DECLARATION_STATES
@@ -207,7 +207,20 @@ class CollectionSheetReport(models.Model):
             raise UserError(
                 _("Closed collection sheets cannot change the reconciliation inputs.")
             )
-        return super().write(vals)
+        result = super().write(vals)
+        if declarations:
+            # A reinstated sheet already holds the commission voucher Confirm
+            # minted; it must follow the new declaration right away.
+            for sheet in self:
+                sheet._sync_seller_commission_voucher()
+        return result
+
+    @api.constrains("commission_withheld")
+    def _check_commission_withheld_not_negative(self):
+        for sheet in self:
+            currency = sheet.currency_id
+            if currency.compare_amounts(sheet.commission_withheld or 0.0, 0.0) < 0:
+                raise ValidationError(_("The withheld commission cannot be negative."))
 
     @api.depends("voucher_ids.document_type", "voucher_ids.amount")
     def _compute_cash_banked_totals(self):

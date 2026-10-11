@@ -95,6 +95,8 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
             raise UserError(
                 _("amount must be an amount and voucher_date must be an ISO date.")
             ) from err
+        if self.env.company.currency_id.compare_amounts(parsed_amount, 0.0) <= 0:
+            raise UserError(_("amount must be greater than zero."))
         sidecar = None
         if attachment not in _OMIT_VALUES:
             sidecar = self._collection_parse_attachment_nest(attachment, 0)

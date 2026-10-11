@@ -378,23 +378,57 @@ class CollectionSheet(models.Model):
             return self.write({"state": "proposal"})
 
     @api.private
+    def _seller_commission_voucher(self):
+        self.ensure_one()
+        return self.voucher_ids.filtered(
+            lambda voucher: voucher.document_type == "seller_commission"
+        )[:1]
+
+    @api.private
+    def _sync_seller_commission_voucher(self):
+        """Keep an existing commission voucher equal to the declared commission.
+
+        Only a reinstated sheet holds one before Confirm. Its cash replacement
+        is reversed and run again for the new amount, so the voucher, the cash
+        it replaced and ``cash_on_hand`` agree. A zero declaration leaves the
+        voucher at zero: its replacement rows are immutable and keep naming it.
+        """
+        self.ensure_one()
+        commission = self._seller_commission_voucher()
+        if not commission:
+            return commission
+        currency = self.company_id.currency_id
+        withheld = currency.round(self.commission_withheld or 0.0)
+        previous = commission.amount or 0.0
+        if commission._resync_seller_commission(withheld):
+            self.message_post(
+                body=_(
+                    "Seller commission %(name)s changed from %(previous)s to "
+                    "%(amount)s.",
+                    name=commission.name,
+                    previous=previous,
+                    amount=withheld,
+                )
+            )
+        return commission
+
+    @api.private
     def _ensure_seller_commission_voucher(self):
         """Mint at most one seller_commission from locked commission_withheld.
 
-        No-op when withheld is zero or the sheet already has a member. Create
+        An existing member (a reinstated sheet) is brought in step with the
+        declaration instead. Otherwise a no-op when withheld is zero. Create
         stays ``validated_seller``; the audited write to ``validated_collections``
         runs replacement while the sheet is still ``submitted``.
         """
         self.ensure_one()
+        existing = self._seller_commission_voucher()
+        if existing:
+            return self._sync_seller_commission_voucher()
         withheld = self.commission_withheld or 0.0
         currency = self.company_id.currency_id
         if currency.compare_amounts(withheld, 0.0) <= 0:
             return self.env["collection.voucher"]
-        existing = self.voucher_ids.filtered(
-            lambda voucher: voucher.document_type == "seller_commission"
-        )
-        if existing:
-            return existing[:1]
         with privileged("collection_seller_commission_mint"):
             voucher = self.env["collection.voucher"].create(
                 {
