@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from odoo import _, api, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import UserError
 
 from odoo.addons.collection.tools.collection_voucher import (
     _COLLECTION_AMOUNT_SCHEMA,
@@ -42,7 +42,7 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
             "sheet with commission_withheld. Cash to Administration is computed "
             "from the sheet vouchers and MUST NOT be sent. Returns "
             "{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}} "
-            "with state submitted. Internal users only."
+            "with state submitted. Collections Users only."
         ),
         input_schema=_DECLARE_COLLECTION_CASH_SCHEMA,
         category="write",
@@ -50,13 +50,14 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
     )
     def declare_collection_cash(
         self,
-        seller_id: int,
-        commission_withheld: Any,
+        seller_id: int | None = None,
+        commission_withheld: Any = None,
         **kwargs: Any,
     ) -> dict:
         """Declare Cash on the seller's submitted sheet.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when the seller is invalid, extra keys are passed,
             amounts are invalid, or the submitted-sheet set is empty or mixed.
         """
@@ -66,13 +67,12 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
                 frozenset(),
                 _("declare_collection_cash"),
             )
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can declare collection cash."))
+        self._collection_require_collection_user()
         try:
             withheld = _collection_normalize_amount(commission_withheld)
         except ValueError as err:
             raise UserError(_("commission_withheld must be an amount.")) from err
-        seller = self._collection_require_internal_seller(seller_id)
+        seller = self._collection_mcp_seller(seller_id)
         Sheet = self.env["collection.sheet"]
         Sheet._lock_open_sheet_for_seller(seller, self.env.company)
         submitted = Sheet._submitted_sheets_for_seller(seller, self.env.company)

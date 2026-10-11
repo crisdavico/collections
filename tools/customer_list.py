@@ -3,8 +3,7 @@
 
 from __future__ import annotations
 
-from odoo import _, api, models
-from odoo.exceptions import AccessError
+from odoo import api, models
 
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
@@ -30,21 +29,21 @@ class CollectionCustomerListMixin(models.AbstractModel):
         name="list_collection_customers",
         description=(
             "List active customers for an Enabled Seller from the company's "
-            "collection connector. Returns {customers}. Internal users only."
+            "collection connector. Returns {customers}. Collections Users only."
         ),
         input_schema=_LIST_COLLECTION_CUSTOMERS_SCHEMA,
         category="read",
         registry="mcp",
     )
-    def list_collection_customers(self, seller_id: int) -> dict:
+    def list_collection_customers(self, seller_id: int | None = None) -> dict:
         """Return active connector customers for an Enabled Seller.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when the seller, connector, or adapter is unavailable.
         """
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can list collection customers."))
-        seller = self._collection_require_internal_seller(seller_id)
+        self._collection_require_collection_user()
+        seller = self._collection_mcp_seller(seller_id)
         connector = self.env.company._collection_active_connector()
         result = connector.list_customers(seller.id)
         result.pop("source", None)

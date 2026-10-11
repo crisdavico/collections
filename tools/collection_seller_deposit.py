@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from odoo import _, api, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import UserError
 
 from odoo.addons.collection.tools.collection_voucher import (
     _ATTACHMENT_NEST_SCHEMA,
@@ -54,7 +54,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
             "Create a seller_deposit on the seller's submitted sheet. Mints "
             "sd-<uuid4 hex>, stamps the sentinel, leaves the voucher in "
             "validated_seller for Document Review. Returns {sheet, voucher}. "
-            "Internal users only."
+            "Collections Users only."
         ),
         input_schema=_CREATE_SELLER_DEPOSIT_SCHEMA,
         category="write",
@@ -62,10 +62,10 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
     )
     def create_seller_deposit(
         self,
-        seller_id: int,
-        amount: Any,
-        voucher_number: str,
-        voucher_date: Any,
+        seller_id: int | None = None,
+        amount: Any = None,
+        voucher_number: str | None = None,
+        voucher_date: Any = None,
         attachment: Any = None,
         **kwargs: Any,
     ) -> dict:
@@ -74,7 +74,8 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         The deposit slip is a reviewable designated proof, so the voucher stays
         ``validated_seller``: only Document Review Approve promotes it.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when the seller, type, extra keys, amounts, dates,
             or submitted-sheet set are invalid.
         """
@@ -84,8 +85,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
                 frozenset(),
                 _("create_seller_deposit"),
             )
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can create seller deposits."))
+        self._collection_require_collection_user()
         if not isinstance(voucher_number, str) or not voucher_number.strip():
             raise UserError(_("voucher_number is required."))
         try:
@@ -98,7 +98,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         sidecar = None
         if attachment not in _OMIT_VALUES:
             sidecar = self._collection_parse_attachment_nest(attachment, 0)
-        seller = self._collection_require_internal_seller(seller_id)
+        seller = self._collection_mcp_seller(seller_id)
         self.env.company._assert_new_work(seller, "seller_deposit")
         Sheet = self.env["collection.sheet"]
         Sheet._lock_open_sheet_for_seller(seller, self.env.company)

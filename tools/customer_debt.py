@@ -3,8 +3,7 @@
 
 from __future__ import annotations
 
-from odoo import _, api, models
-from odoo.exceptions import AccessError
+from odoo import api, models
 
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
@@ -38,23 +37,25 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
             "active customer from the company's collection connector. Returns "
             "{customer, summary, invoices} with invoice document_kind "
             "(default invoice) and allocatable_balance (gross balance minus "
-            "draft and confirmed reservations, clamped at zero). Internal "
-            "users only."
+            "draft and confirmed reservations, clamped at zero). Collections "
+            "Users only."
         ),
         input_schema=_CUSTOMER_DEBT_SCHEMA,
         category="read",
         registry="mcp",
     )
-    def customer_debt(self, seller_id: int, customer_identification: str) -> dict:
+    def customer_debt(
+        self, seller_id: int | None = None, customer_identification: str | None = None
+    ) -> dict:
         """Return outstanding connector debt for one Enabled Seller customer.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when the seller, customer, connector, or adapter is
             unavailable.
         """
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can read customer debt."))
-        seller = self._collection_require_internal_seller(seller_id)
+        self._collection_require_collection_user()
+        seller = self._collection_mcp_seller(seller_id)
         connector = self.env.company._collection_active_connector()
         result = connector.get_customer_debt(seller.id, customer_identification)
         result.pop("source", None)

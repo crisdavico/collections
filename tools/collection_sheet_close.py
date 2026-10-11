@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from odoo import _, api, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import UserError
 
 from odoo.addons.collection.tools.collection_voucher import (
     _collection_reject_unknown_keys,
@@ -38,7 +38,7 @@ class CollectionSheetCloseMcpMixin(models.AbstractModel):
             "Seller Close the authenticated seller's open collection sheet. "
             "Returns {sheet:{id,name,state,seller_id,date_from,date_to,"
             "voucher_count}, cash:{collected}} with state submitted. "
-            "Internal users only."
+            "Collections Users only."
         ),
         input_schema=_CLOSE_COLLECTION_SHEET_SCHEMA,
         category="write",
@@ -46,12 +46,13 @@ class CollectionSheetCloseMcpMixin(models.AbstractModel):
     )
     def close_collection_sheet(
         self,
-        seller_id: int,
+        seller_id: int | None = None,
         **kwargs: Any,
     ) -> dict:
         """Close the seller's open sheet via Seller Close.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when the seller is invalid, extra keys are passed,
             or the open-sheet set is empty or mixed.
         """
@@ -61,9 +62,8 @@ class CollectionSheetCloseMcpMixin(models.AbstractModel):
                 frozenset(),
                 _("close_collection_sheet"),
             )
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can close collection sheets."))
-        seller = self._collection_require_internal_seller(seller_id)
+        self._collection_require_collection_user()
+        seller = self._collection_mcp_seller(seller_id)
         Sheet = self.env["collection.sheet"]
         Sheet._lock_open_sheet_for_seller(seller, self.env.company)
         opens = Sheet._open_sheets_for_seller(seller, self.env.company)
