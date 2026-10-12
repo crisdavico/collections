@@ -7,7 +7,7 @@ from odoo.service.model import get_public_method
 from odoo.tests import TransactionCase
 
 from .common_connector import TEST_CONNECTOR_TYPE, install_test_connector_type
-from .test_collection_payment import create_internal_seller
+from .test_collection_payment import create_collection_user, create_internal_seller
 
 # Called only server side (MCP tools, Import, allocation helpers): never over RPC.
 INTERNAL_CONNECTOR_OPERATIONS = (
@@ -58,6 +58,14 @@ class TestCollectionConnectorAccess(TransactionCase):
     def test_test_connection_refuses_users_who_cannot_manage_the_connector(self):
         with self.assertRaises(AccessError):
             self.connector.with_user(self.plain_user).test_connection()
+
+    def test_test_connection_refused_for_collections_user(self):
+        """Operators read the connector but cannot drive it."""
+        operator = create_collection_user(self.env, "connector_access_operator")
+        connector = self.connector.with_user(operator)
+        self.assertEqual(connector.read(["name"])[0]["name"], "Access Connector")
+        with self.assertRaises(AccessError):
+            connector.test_connection()
 
     def test_test_connection_allowed_for_manager_and_admin(self):
         for user in (self.manager, self.admin_user):

@@ -16,6 +16,7 @@ from .common_connector import (
 )
 from .test_collection_mcp_tool import _nest_seller_confirmed, _on_account_receipts
 from .test_collection_payment import (
+    create_collection_user,
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
@@ -37,14 +38,19 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.tool_model = cls.env["muk_mcp.tool"]
-        cls.internal_user = create_internal_seller(
+        # The agent calls as the MCP API user (a Collections User) on behalf of
+        # a seller, who stays a plain internal identity.
+        cls.internal_user = create_collection_user(
             cls.env, "collection_mcp_partner_resolve"
         )
-        ensure_enabled_seller(cls.env, cls.internal_user)
+        cls.seller = create_internal_seller(
+            cls.env, "collection_mcp_partner_resolve_seller"
+        )
+        ensure_enabled_seller(cls.env, cls.seller)
 
     def setUp(self):
         super().setUp()
-        install_bound_test_connector(self, self.internal_user)
+        install_bound_test_connector(self, self.seller)
 
     def _call(self, arguments, user=None):
         arguments = dict(arguments)
@@ -67,7 +73,7 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         cleaned = [_nest_seller_confirmed(payment) for payment in payments]
         payload = {
             "payments": cleaned,
-            "seller_id": self.internal_user.id,
+            "seller_id": self.seller.id,
             "customer_identification": customer,
             "request_id": extra.pop("request_id", f"req-{self._testMethodName}"),
             "receipts": extra.pop("receipts", _on_account_receipts(cleaned)),

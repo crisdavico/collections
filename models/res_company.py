@@ -8,8 +8,9 @@ from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tools.translate import _
 
-from .collection_common import DOCUMENT_TYPE_CODES
+from .collection_common import COLLECTION_USER_GROUP, DOCUMENT_TYPE_CODES
 
+COLLECTION_CONFIG_GROUPS = f"{COLLECTION_USER_GROUP},base.group_system"
 COLLECTION_SEQUENCE_SPECS = (
     ("collection.voucher", "Payment Voucher", "COL/%(year)s/", 4),
     ("collection.sheet", "Collection Sheet", "CS/%(year)s/", 4),
@@ -27,6 +28,8 @@ class ResCompany(models.Model):
         return self.env["collection.document.type"].search([])
 
     document_review_enabled = fields.Boolean(default=False)
+    # Collection configuration stays out of plain internal users' company reads:
+    # they have no access to these comodels, and a read would raise AccessError.
     enabled_seller_ids = fields.Many2many(
         comodel_name="res.users",
         relation="res_company_collection_enabled_seller_rel",
@@ -34,6 +37,7 @@ class ResCompany(models.Model):
         column2="user_id",
         string="Enabled Sellers",
         domain=[("share", "=", False)],
+        groups=COLLECTION_CONFIG_GROUPS,
     )
     auto_create_sheet = fields.Boolean(default=True)
     allowed_document_type_ids = fields.Many2many(
@@ -43,6 +47,7 @@ class ResCompany(models.Model):
         column2="document_type_id",
         string="Allowed Document Types",
         default=_default_allowed_document_type_ids,
+        groups=COLLECTION_CONFIG_GROUPS,
     )
     collection_connector_id = fields.Many2one(
         comodel_name="collection.connector",
@@ -50,6 +55,7 @@ class ResCompany(models.Model):
         ondelete="set null",
         check_company=True,
         domain="[('company_id', '=', id)]",
+        groups=COLLECTION_CONFIG_GROUPS,
     )
 
     @api.private

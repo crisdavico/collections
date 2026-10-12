@@ -38,7 +38,7 @@ class TestCollectionReceiptSplit(TransactionCase):
         install_test_connector_type(cls)
         cls.tool_model = cls.env["muk_mcp.tool"]
         cls.internal_user = cls._create_user(
-            "collection_receipt_split_internal", "base.group_user"
+            "collection_receipt_split_internal", "collection.group_collection_user"
         )
         cls.seller = create_internal_seller(cls.env, "collection_receipt_split_seller")
 

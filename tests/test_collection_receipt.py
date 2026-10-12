@@ -654,7 +654,9 @@ class TestCollectionReceipt(TransactionCase):
     def _assert_acl(self, model_name, perms):
         acls = self.env["ir.model.access"].search([("model_id.model", "=", model_name)])
         self.assertEqual(len(acls), 1, f"{model_name} must have one ACL row")
-        self.assertEqual(acls.group_id, self.env.ref("base.group_user"))
+        self.assertEqual(
+            acls.group_id, self.env.ref("collection.group_collection_user")
+        )
         self.assertEqual(bool(acls.perm_read), perms[0])
         self.assertEqual(bool(acls.perm_write), perms[1])
         self.assertEqual(bool(acls.perm_create), perms[2])
@@ -786,13 +788,15 @@ class TestCollectionReceipt(TransactionCase):
         self.assertFalse(leftover.allocation_id)
 
     def test_receipt_and_value_acl_full_crud_without_sudo(self):
-        """Internal users MUST have 1,1,1,1 on receipt and value without sudo()."""
+        """Collections Users MUST have 1,1,1,1 on receipt and value without sudo()."""
         self._assert_acl("collection.receipt", (1, 1, 1, 1))
         self._assert_acl("collection.receipt.value", (1, 1, 1, 1))
         self.assertFalse(
             self.env["res.groups"].search([("name", "ilike", "Collection Receipt")])
         )
-        user = self._create_user("rcpt_acl_internal", "base.group_user")
+        user = self._create_user(
+            "rcpt_acl_internal", "collection.group_collection_user"
+        )
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         Receipt = self.env["collection.receipt"].with_user(user)
         receipt = Receipt.create(
@@ -824,7 +828,7 @@ class TestCollectionReceipt(TransactionCase):
         """Receipts in a company outside company_ids MUST NOT be visible."""
         self._assert_global_company_rule("collection.receipt")
         self._assert_global_company_rule("collection.receipt.value")
-        user = self._create_user("rcpt_acl_home", "base.group_user")
+        user = self._create_user("rcpt_acl_home", "collection.group_collection_user")
         user.write(
             {
                 "company_id": self.env.company.id,

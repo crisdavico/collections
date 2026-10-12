@@ -11,7 +11,11 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 
 from .common_connector import TEST_CONNECTOR_TYPE, install_test_connector_type
-from .test_collection_payment import create_internal_seller, ensure_enabled_seller
+from .test_collection_payment import (
+    create_collection_user,
+    create_internal_seller,
+    ensure_enabled_seller,
+)
 
 BINDING = "collection.connector.customer.binding"
 CUSTOMER_UNAVAILABLE = "The requested customer is not available."
@@ -27,7 +31,7 @@ class TestCollectionCustomerResolution(TransactionCase):
         super().setUpClass()
         install_test_connector_type(cls)
         cls.seller = create_internal_seller(cls.env, "collection_resolve_seller")
-        cls.internal_user = create_internal_seller(cls.env, "collection_resolve_user")
+        cls.internal_user = create_collection_user(cls.env, "collection_resolve_user")
 
     def setUp(self):
         super().setUp()

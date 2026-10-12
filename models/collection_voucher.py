@@ -6,19 +6,22 @@ from base64 import b64decode
 from datetime import date
 
 from odoo import api, fields, models
-from odoo.addons.base.models.res_bank import sanitize_account_number
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare
 from odoo.tools.mimetypes import guess_mimetype
 from odoo.tools.translate import _
 
+from odoo.addons.base.models.res_bank import sanitize_account_number
+
 from .collection_common import (
     ADMIN_EDITABLE_SHEET_STATES,
     CASH_REPLACEMENT_TYPES,
     CHECK_TYPE_SELECTION,
+    COLLECTION_USER_GROUP,
     DOCUMENT_TYPE_SELECTION,
     FROZEN_SHEET_STATES,
     RETENTION_KIND_SELECTION,
+    check_collection_role,
     record_id,
 )
 
@@ -923,9 +926,7 @@ class CollectionVoucher(models.Model):
             document_type = vals.get("document_type")
             company_id = vals.get("company_id") or self.env.company.id
             if document_type in self._CHECK_DOCUMENT_TYPES:
-                normalized = self._normalize_instrument_number(
-                    vals.get("check_number")
-                )
+                normalized = self._normalize_instrument_number(vals.get("check_number"))
                 if normalized:
                     key = (company_id, normalized)
                     if key in seen_check:
@@ -1096,8 +1097,17 @@ class CollectionVoucher(models.Model):
                     )
                 )
 
+    @api.private
+    def _check_document_reviewer(self):
+        check_collection_role(
+            self.env,
+            COLLECTION_USER_GROUP,
+            self.env._("Only Collections Users can review documents."),
+        )
+
     @api.model
     def get_review_queue(self, sheet_id=None):
+        self._check_document_reviewer()
         sheet = self._require_review_sheet(sheet_id)
         vouchers = self.search(
             [
@@ -1114,6 +1124,7 @@ class CollectionVoucher(models.Model):
         ]
 
     def action_review_approve(self, sheet_id=None, vals=None):
+        self._check_document_reviewer()
         sheet = self._require_review_sheet(sheet_id)
         self.ensure_one()
         self._ensure_review_sheet_member(sheet)
@@ -1125,6 +1136,7 @@ class CollectionVoucher(models.Model):
         return True
 
     def action_review_set_rotation(self, sheet_id=None, degrees=None):
+        self._check_document_reviewer()
         sheet = self._require_review_sheet(sheet_id)
         self.ensure_one()
         self._ensure_review_sheet_member(sheet)

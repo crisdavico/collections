@@ -6,8 +6,14 @@ Kept free of Odoo model definitions so any model module can import it without
 creating a registry load-order dependency.
 """
 
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
+
+# Users + Managers role model. Back-office operators and the MCP API user are
+# Collections Users; Close, Cancel, Reinstate and configuration need a Manager.
+# Seller identity users are plain internal users and get no collection group.
+COLLECTION_USER_GROUP = "collection.group_collection_user"
+COLLECTION_MANAGER_GROUP = "collection.group_collection_manager"
 
 # Catalog codes, mirrored by ``data/collection_document_type_data.xml`` and by
 # ``collection.voucher`` / ``collection.voucher.review.snapshot`` selections.
@@ -65,6 +71,18 @@ FROZEN_SHEET_BYPASS_CONTEXTS = frozenset(
         "collection_sheet_unlinking",
     }
 )
+
+
+def check_collection_role(env, group_xmlid, message):
+    """Raise ``AccessError(message)`` unless the user has the collection role.
+
+    Action methods are callable over RPC, so a ``groups`` attribute on the
+    button is not enough: the server checks the role itself. Superuser
+    environments (crons, internal elevation) pass.
+    """
+    if env.su or env.user.has_group(group_xmlid):
+        return
+    raise AccessError(message)
 
 
 def record_id(value):

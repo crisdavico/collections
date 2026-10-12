@@ -35,7 +35,7 @@ class TestCollectionMcpCustomerList(TransactionCase):
         install_test_connector_type(cls)
         cls.tool_model = cls.env["muk_mcp.tool"]
         cls.internal_user = cls._create_user(
-            "collection_customer_list_internal", "base.group_user"
+            "collection_customer_list_internal", "collection.group_collection_user"
         )
         cls.portal_user = cls._create_user(
             "collection_customer_list_portal", "base.group_portal"

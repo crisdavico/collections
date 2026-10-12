@@ -29,19 +29,29 @@ and the active `collection.connector`. Settings users can Import sellers from th
 connector (create/match/bind, then replace the enabled list). Voucher (`COL/`) and sheet
 (`CS/`) sequences are per company. Customer bindings
 (`collection.connector.customer.binding`) map an external customer to a partner;
-internal users may create them (`1,0,1,0`) and MUST never `sudo()`.
+Collections Users may create them (`1,0,1,0`) and MUST never `sudo()`.
 
-The **Collections Manager** group (`collection.group_collection_manager`) grants
-collection configuration without system administration. Under Collections →
+Access follows two roles. **Collections User** (`collection.group_collection_user`) is
+for back-office operators and the MCP API user: Document Review, allocations, the
+receipt proposal board, and Confirm. It may create contacts (no edit or delete) so new
+customers can be bound without `base.group_partner_manager`. Plain internal users (CRM
+users, and the password-less seller identities that Import creates) get no access to
+collection data; sellers act only through the agent. Close, Cancel, and Reinstate need
+a Collections Manager, and the server checks the role, not only the button. The
+**Collections Manager** group (`collection.group_collection_manager`) implies
+Collections User and grants collection configuration without system administration;
+the administrator is a manager on install. Under Collections →
 Configuration, **Company Collection Settings** edits only the current company's
 collection options and imports sellers within that company. **Connectors** provides
 company-scoped CRUD and a **Connector Settings** dialog for SQLite/Bejerman settings,
-connection testing, and Bejerman snapshot refresh. **Company Bank Accounts** manages
+connection testing, and Bejerman snapshot refresh. Credentials, the web service URL, TLS
+options, the CA bundle, and the SQLite path are shown and written only for
+administrators. Connector operations are server-side only (`@api.private`); Test
+Connection checks for an administrator or a Collections Manager. **Company Bank Accounts** manages
 only bank accounts belonging to the user's allowed companies. Company record rules
 continue to apply to vouchers, sheets, allocations, receipts, and connector bindings.
 Privileged configuration writes use fixed field lists after checking the caller's
-manager group and company access; collection operations and MCP tools retain their
-existing permissions. Creating a company or user is an explicit database setup step, so
+manager group and company access; collection operations and MCP tools never elevate. Creating a company or user is an explicit database setup step, so
 installing the module does not create business companies or login credentials.
 
 MCP `create_collection_vouchers` still takes per-payment `customer_identification`
