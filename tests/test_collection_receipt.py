@@ -1174,7 +1174,9 @@ class TestCollectionReceipt(TransactionCase):
         )
         allocation.write({"voucher_ids": [Command.link(cash.id)]})
         receipt = self._create_receipt(allocation, "invoice")
-        self._create_value(receipt, voucher, 50.0)
+        # The whole voucher funds the receipt: collected money follows the
+        # receipt values, and Confirm refuses an allocation applying more.
+        self._create_value(receipt, voucher, 100.0)
         self._enable_seller_deposit_type()
         self.env.company.write({"auto_create_sheet": False})
         deposit = self.env["collection.voucher"].create(

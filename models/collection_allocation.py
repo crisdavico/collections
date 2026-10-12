@@ -105,10 +105,13 @@ class CollectionAllocation(models.Model):
         readonly=True,
     )
     total_vouchers = fields.Monetary(
-        compute="_compute_totals",
+        compute="_compute_total_vouchers",
         store=True,
         tracking=True,
         currency_field="currency_id",
+        help="Money collected for this customer: the receipt values on its "
+        "receipts, plus the full amount of each voucher pointing here whose "
+        "money was never placed on a receipt.",
     )
     total_applied = fields.Monetary(
         compute="_compute_totals",
@@ -152,16 +155,45 @@ class CollectionAllocation(models.Model):
     )
 
     @api.depends(
+        "receipt_ids.value_ids.amount",
         "voucher_ids.amount",
+        "voucher_ids.receipt_value_ids",
+        "voucher_ids.cash_replacement_ids",
+    )
+    def _compute_total_vouchers(self):
+        """Collected money: where the receipt values put it, else the pointer.
+
+        ``voucher.allocation_id`` names a single owner, so it cannot count a
+        voucher split across customers on one sheet, nor a remittance (which
+        never gets an owner) placed on a customer's receipt. Receipt values
+        can, and cash replacement only swaps the voucher behind a value, so
+        the sum is unchanged by it.
+
+        A voucher with no receipt value at all and no cash replacement never
+        had its money placed on a receipt: an allocation built in the UI, or
+        before receipts exist. Only such a voucher counts, in full, on the
+        allocation it points at. A voucher that has values counts only
+        through them, so the part left off every receipt is unassigned money
+        and nobody's collected money. A cash voucher whose values were all
+        replaced counts nowhere: the replacing voucher's values carry it.
+        """
+        for allocation in self:
+            total = sum(
+                value.amount or 0.0 for value in allocation.receipt_ids.value_ids
+            )
+            for voucher in allocation.voucher_ids:
+                if voucher.receipt_value_ids or voucher.cash_replacement_ids:
+                    continue
+                total += voucher.amount or 0.0
+            allocation.total_vouchers = total
+
+    @api.depends(
         "line_ids.amount_applied",
         "line_ids.invoice_balance",
         "line_ids.document_kind",
     )
     def _compute_totals(self):
         for allocation in self:
-            total_vouchers = sum(
-                voucher.amount or 0.0 for voucher in allocation.voucher_ids
-            )
             total_applied = sum(
                 line.amount_applied or 0.0 for line in allocation.line_ids
             )
@@ -175,7 +207,6 @@ class CollectionAllocation(models.Model):
                     total_quotations += balance
                 else:
                     total_invoices += balance
-            allocation.total_vouchers = total_vouchers
             allocation.total_applied = total_applied
             allocation.total_debt = total_debt
             allocation.total_invoices = total_invoices

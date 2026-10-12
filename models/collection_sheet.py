@@ -440,7 +440,10 @@ class CollectionSheet(models.Model):
         ``total_vouchers``.
 
         This is the collected-money gate: an allocation must not apply more
-        than its vouchers actually collected. It is independent of the
+        than its vouchers actually collected. ``total_vouchers`` follows the
+        receipt values, so a voucher split across customers counts on each
+        customer it pays (the Planilla prints the same figure). It is
+        independent of the
         debt-side ``residual``, which stays negative-capable by design -- an
         allocation with zero vouchers and zero applied money passes here even
         though it carries no proof of collection at all, because that is not
