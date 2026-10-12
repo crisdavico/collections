@@ -435,6 +435,7 @@
                 <field name="company_id" optional="hide" />
                 <field name="date_from" />
                 <field name="date_to" />
+                <field name="erp_entered_date" optional="hide" />
                 <field name="state" />
             </list>
         </field>
@@ -450,6 +451,11 @@
                 <field name="date_from" />
                 <field name="date_to" />
                 <field name="state" />
+                <filter
+          name="pending_erp_entry"
+          string="Pending ERP entry"
+          domain="[('state', '=', 'closed'), ('erp_entered_date', '=', False)]"
+        />
             </search>
         </field>
     </record>
@@ -495,6 +501,21 @@
             string="Reinstate"
             type="object"
             invisible="state != 'cancelled'"
+            groups="collection.group_collection_manager"
+          />
+                    <button
+            name="action_mark_erp_entered"
+            string="Mark as Entered in the ERP"
+            type="object"
+            invisible="state != 'closed' or erp_entered_date"
+            groups="collection.group_collection_manager"
+            confirm="Confirm that every receipt of this sheet was entered in the ERP. Its amounts stop being subtracted from the ERP balances after the next refresh."
+          />
+                    <button
+            name="action_unmark_erp_entered"
+            string="Unmark Entered in the ERP"
+            type="object"
+            invisible="not erp_entered_date"
             groups="collection.group_collection_manager"
           />
                     <button
@@ -551,6 +572,16 @@
               />
                             <field name="date_from" readonly="1" />
                             <field name="date_to" readonly="1" />
+                            <field
+                name="erp_entered_date"
+                readonly="1"
+                invisible="state != 'closed'"
+              />
+                            <field
+                name="erp_entered_uid"
+                readonly="1"
+                invisible="not erp_entered_date"
+              />
                         </group>
                         <group>
                             <field name="currency_id" invisible="1" />

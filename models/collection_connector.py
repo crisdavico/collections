@@ -254,6 +254,19 @@ class CollectionConnector(models.Model):
         return identification
 
     @api.private
+    def _collection_erp_reflected_since(self):
+        """Time from which this connector's data includes manual ERP entries.
+
+        A sheet marked "Entered in the ERP" before this time is already in the
+        balances the connector serves, so its applied amounts are no longer
+        subtracted from them. A connector reading the ERP live answers "now";
+        one with a snapshot answers when its last successful refresh STARTED.
+        False (this default) means unknown: keep subtracting.
+        """
+        self.ensure_one()
+        return False
+
+    @api.private
     def _source_payload(self):
         """Return the connector provenance block shared by every read payload."""
         self.ensure_one()
