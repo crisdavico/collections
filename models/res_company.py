@@ -90,10 +90,24 @@ class ResCompany(models.Model):
 
     @api.private
     def _sync_enabled_sellers_from_connector(self):
-        """Replace enabled sellers from the active connector list."""
+        """Enable the active connector's sellers; never disable anyone.
+
+        The one import used by the settings and the manager wizard (which
+        calls it elevated, scoped to this company). An empty answer is refused:
+        a failed or truncated source must not read as "no sellers". Enabled
+        sellers missing from the answer stay enabled and are returned for a
+        manager to disable explicitly. Users are matched and created only
+        inside this company; no user gains company access.
+
+        :return: ``{"imported": res.users, "missing": res.users}``
+        """
         self.ensure_one()
         connector = self._collection_active_connector()
         rows = list(connector.list_sellers().get("sellers") or [])
+        if not rows:
+            raise UserError(
+                _("The connector returned no sellers. Nothing was changed.")
+            )
         normalize = self.env["muk_mcp.mixin"]._collection_normalize_ar_mobile
         self._collection_validate_connector_seller_rows(rows, normalize)
         resolved = self._collection_resolve_connector_sellers(
@@ -101,13 +115,37 @@ class ResCompany(models.Model):
         )
         self._collection_upsert_seller_bindings(connector, resolved, rows)
         imported = self.env["res.users"].browse([user.id for _ext, user in resolved])
-        missing_company = imported.filtered(
-            lambda user: self.id not in user.company_ids.ids
-        )
-        if missing_company:
-            missing_company.write({"company_ids": [Command.link(self.id)]})
-        self.write({"enabled_seller_ids": [Command.set(imported.ids)]})
-        return True
+        missing = self.enabled_seller_ids - imported
+        self.write({"enabled_seller_ids": [Command.link(user.id) for user in imported]})
+        return {"imported": imported, "missing": missing}
+
+    @api.private
+    def _collection_seller_import_notification(self, result):
+        """Notification for an import; missing sellers turn it into a warning."""
+        imported, missing = result["imported"], result["missing"]
+        message = _("%(count)s sellers imported and enabled.", count=len(imported))
+        if missing:
+            message = " ".join(
+                (
+                    message,
+                    _(
+                        "Still enabled but not in the connector list: "
+                        "%(names)s. Disable them in the collection settings "
+                        "if they no longer collect.",
+                        names=", ".join(missing.mapped("name")),
+                    ),
+                )
+            )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": "warning" if missing else "success",
+                "title": _("Sellers imported"),
+                "message": message,
+                "sticky": bool(missing),
+            },
+        }
 
     @api.private
     def _collection_active_connector(self):
@@ -172,6 +210,8 @@ class ResCompany(models.Model):
             ext_id = row["external_seller_id"]
             binding = existing_bindings.get(ext_id)
             if binding:
+                if self not in binding.user_id.company_ids:
+                    raise UserError(_("A seller binding belongs to another company."))
                 user = self._collection_claim_seller_user(
                     assigned, binding.user_id, ext_id
                 )
@@ -224,8 +264,18 @@ class ResCompany(models.Model):
 
     @api.private
     def _collection_internal_users_by_mobile(self, normalize):
-        """Map normalized AR mobile → internal users (no sudo, one search)."""
-        internals = self.env["muk_mcp.mixin"]._collection_internal_users_with_phone()
+        """Map normalized AR mobile → this company's internal users (one search).
+
+        Users of other companies never match, so an import cannot claim them.
+        """
+        internals = self.env["res.users"].search(
+            [
+                ("share", "=", False),
+                ("company_ids", "in", self.id),
+                ("phone", "!=", False),
+                ("phone", "!=", ""),
+            ]
+        )
         index = {}
         for user in internals:
             needle = normalize(user.phone)
@@ -250,6 +300,7 @@ class ResCompany(models.Model):
                     "name": row.get("name") or login,
                     "email": f"{login}@example.com",
                     "phone": row.get("mobile") or False,
+                    "company_id": self.id,
                 }
             )
         partners = self._collection_create_partners(partner_vals_list)

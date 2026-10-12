@@ -125,15 +125,20 @@ class TestCollectionSellerSync(TransactionCase):
         self.assertEqual(self.company.enabled_seller_ids, bound)
         self.assertEqual(self.env["res.users"].search_count([]), before)
 
-    def test_import_replaces_enabled_list_and_omits_inactive(self):
-        """Replace-all MUST drop extras and omit inactive source rows."""
+    def test_import_adds_sellers_keeps_extras_and_omits_inactive(self):
+        """Import MUST add the listed sellers, keep extras, omit inactive rows.
+
+        T28: Import used to replace the list, so a short answer disabled every
+        seller missing from it. Extras now stay enabled (reported as missing)
+        until a manager disables them.
+        """
         extra = create_internal_seller(self.env, "sync_manual_extra")
         self.company.write({"enabled_seller_ids": [Command.set([extra.id])]})
         self.assertEqual(self.company.enabled_seller_ids, extra)
         self._sync([ANA, BRUNO, INACTIVE])
         enabled = self.company.enabled_seller_ids
-        self.assertNotIn(extra, enabled)
-        self.assertEqual(len(enabled), 2)
+        self.assertIn(extra, enabled)
+        self.assertEqual(len(enabled), 3)
         self.assertFalse(self._binding_for("facundo-1"))
         logins = set(enabled.mapped("login"))
         self.assertIn(f"collection.{self.company.id}.ana-1", logins)
@@ -148,7 +153,8 @@ class TestCollectionSellerSync(TransactionCase):
         self._sync([BRUNO])
         self.assertTrue(ana.exists())
         self.assertTrue(self._binding_for("ana-1"))
-        self.assertEqual(self.company.enabled_seller_ids, bruno)
+        # T28: a seller missing from the answer is no longer disabled.
+        self.assertEqual(self.company.enabled_seller_ids, ana | bruno)
 
     def test_missing_connector_leaves_enabled_list_unchanged(self):
         """Missing connector MUST UserError and MUST NOT change enabled sellers."""

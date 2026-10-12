@@ -1,6 +1,7 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import re
 from datetime import datetime
 
 import pytz
@@ -166,7 +167,7 @@ class CollectionConnector(models.Model):
         if len(matches) != 1:
             raise UserError(_("The requested customer is not available."))
         row = matches[0]
-        partners = self.env["res.partner"].search([("vat", "=", identification)])
+        partners = self._collection_commercial_partners_by_cuit(identification)
         if len(partners) > 1:
             raise UserError(_("The requested customer is not available."))
         Binding = self.env["collection.connector.customer.binding"]
@@ -206,7 +207,31 @@ class CollectionConnector(models.Model):
             )
             if binding:
                 return binding.partner_id
-            raise
+            # Another binding constraint (the partner or the external id is
+            # already bound under another identification): never leak the
+            # database error.
+            raise UserError(_("The requested customer is not available.")) from None
+
+    @api.private
+    def _collection_commercial_partners_by_cuit(self, identification):
+        """Commercial partners whose VAT has the digits of ``identification``.
+
+        The VAT is stored with or without dashes (both exist in this database)
+        or with a country prefix, so both sides compare digits only. Contacts
+        inherit their parent's VAT; only partners without a parent count.
+        """
+        digits = re.sub(r"\D", "", identification or "")
+        if not digits:
+            return self.env["res.partner"]
+        variants = {identification, digits, f"AR{digits}"}
+        if len(digits) == 11:
+            variants.add(f"{digits[:2]}-{digits[2:10]}-{digits[10]}")
+        candidates = self.env["res.partner"].search(
+            [("vat", "in", sorted(variants)), ("parent_id", "=", False)]
+        )
+        return candidates.filtered(
+            lambda partner: re.sub(r"\D", "", partner.vat or "") == digits
+        )
 
     @api.private
     def _dispatch(self, op, *args):

@@ -125,55 +125,9 @@ class CollectionCompanySettings(models.TransientModel):
     def action_import_enabled_sellers(self):
         company = self._checked_company()
         self.action_save()
-        # Elevation is limited to this company's source and company-local users.
+        # The company's one import, elevated only for this checked company: it
+        # matches and creates company-local users and never widens access.
         scoped = company.sudo().with_company(company)
-        connector = scoped._collection_active_connector()
-        rows = list(connector.list_sellers().get("sellers") or [])
-        normalize = self.env["muk_mcp.mixin"]._collection_normalize_ar_mobile
-        scoped._collection_validate_connector_seller_rows(rows, normalize)
-        users = (
-            self.env["res.users"]
-            .sudo()
-            .search([("share", "=", False), ("company_ids", "in", company.id)])
-        )
-        bindings = {
-            binding.external_seller_id: binding
-            for binding in connector.seller_binding_ids
-        }
-        assigned, resolved = {}, []
-        for row in rows:
-            external_id = row["external_seller_id"]
-            binding = bindings.get(external_id)
-            if binding:
-                user = binding.user_id
-                if company not in user.company_ids:
-                    raise UserError(_("A seller binding belongs to another company."))
-            else:
-                phone = normalize(row.get("mobile"))
-                user = users.filtered(
-                    lambda candidate, needle=phone: needle
-                    and normalize(candidate.phone) == needle
-                )
-                if len(user) > 1:
-                    raise UserError(
-                        _("Multiple Odoo users share the same seller phone.")
-                    )
-                if not user:
-                    user = scoped._collection_create_connector_seller_users([row])
-                    user.partner_id.company_id = company
-                    users |= user
-            scoped._collection_claim_seller_user(assigned, user, external_id)
-            resolved.append((external_id, user))
-        scoped._collection_upsert_seller_bindings(connector, resolved, rows)
-        seller_ids = [user.id for _external_id, user in resolved]
-        scoped.write({"enabled_seller_ids": [Command.set(seller_ids)]})
-        self.enabled_seller_ids = [Command.set(seller_ids)]
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Sellers imported"),
-                "message": _("Enabled sellers were replaced from the connector."),
-                "type": "success",
-            },
-        }
+        result = scoped._sync_enabled_sellers_from_connector()
+        self.enabled_seller_ids = [Command.set(scoped.enabled_seller_ids.ids)]
+        return company._collection_seller_import_notification(result)
