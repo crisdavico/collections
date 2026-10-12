@@ -388,6 +388,7 @@ class CollectionSheetReport(models.Model):
                 (
                     self._collection_report_code_sort(code, partner.name),
                     {
+                        "partner_id": partner.id,
                         "code": code,
                         "name": partner.name or "",
                         "debt": allocation.total_debt or 0.0,
@@ -421,6 +422,7 @@ class CollectionSheetReport(models.Model):
                     self._collection_report_code_sort(code, partner.name)
                     + ((line.due_date or date.max), line.invoice_number or ""),
                     {
+                        "partner_id": partner.id,
                         "code": code,
                         "name": partner.name or "",
                         "invoice_number": line.invoice_number or "",
@@ -511,6 +513,7 @@ class CollectionSheetReport(models.Model):
                 else False
             )
         return {
+            "partner_id": voucher.partner_id.id,
             "code": partner_code,
             "name": voucher.partner_id.name or "",
             "number": number,

@@ -19,6 +19,14 @@ INT = "#,##0"
 PCT = "0.0%"
 MONEY_BIG = '"$" #,##0.00'
 COLUMN_WIDTHS = (13, 32, 19, 17, 14, 14, 15, 15, 14, 16, 15)
+# Every text cell holds data (customer names, document and voucher numbers,
+# banks): xlsxwriter must not turn a leading "=" into a live formula nor a
+# URL-looking string into a hyperlink. Intentional formulas use write_formula.
+WORKBOOK_OPTIONS = {"strings_to_formulas": False, "strings_to_urls": False}
+# Hidden column right of the printed area: a per-customer number the Clientes
+# SUMIFs key on, so two customers never match by name (duplicates, or names
+# holding the SUMIF wildcards * and ?).
+KEY_COL = len(COLUMN_WIDTHS)
 _KIND_TITLES = {"invoice": "Facturas", "quotation": "Presupuestos"}
 _BANNER_FILL = {
     "balanced": ("#C6EFCE", "#006100"),
@@ -224,18 +232,33 @@ def _abs_range(first, last, col):
 
 
 def _sumif_formula(criteria_row, ranges, sum_col):
-    """SUMIF each data range by the customer name on ``criteria_row`` (column B)."""
+    """SUMIF each data range by the hidden customer key on ``criteria_row``."""
     if not ranges:
         return "=0"
-    criteria = _a1(criteria_row, 1)
+    criteria = _a1(criteria_row, KEY_COL)
     parts = [
         (
-            f"SUMIF({_abs_range(first, last, 1)},"
+            f"SUMIF({_abs_range(first, last, KEY_COL)},"
             f"{criteria},{_abs_range(first, last, sum_col)})"
         )
         for first, last in ranges
     ]
     return "=" + "+".join(parts)
+
+
+def _customer_keys(payload):
+    """Number each Clientes row 1..n by partner (name only for bare payloads)."""
+    keys = {}
+    for item in payload.get("customers") or ():
+        keys.setdefault(item.get("partner_id") or item.get("name") or "", len(keys) + 1)
+    return keys
+
+
+def _write_key(ws, row, keys, item):
+    """Write the hidden customer key of a Clientes, document or voucher row."""
+    key = keys.get(item.get("partner_id") or item.get("name") or "")
+    if key:
+        ws.write_number(row - 1, KEY_COL, key)
 
 
 def _customer_detail_ranges(payload, customer_start):
@@ -373,6 +396,7 @@ def _write_resumen(
 def _write_customers(ws, fmt, payload, start):
     rows = payload.get("customers") or []
     totals = payload.get("customer_totals") or {}
+    keys = _customer_keys(payload)
     document_ranges, voucher_ranges = _customer_detail_ranges(payload, start)
     first, last, total_row, next_row = _section_span(start, len(rows))
     _write_section(ws, fmt, start, "Clientes")
@@ -394,6 +418,7 @@ def _write_customers(ws, fmt, payload, start):
         row = first + index
         _write(ws, row, 0, item.get("code") or "", fmt["data"])
         _write(ws, row, 1, item.get("name") or "", fmt["data"])
+        _write_key(ws, row, keys, item)
         _formula(
             ws,
             row,
@@ -478,6 +503,7 @@ def _write_customers(ws, fmt, payload, start):
 def _write_documents(ws, fmt, payload, start):
     applied_refs = []
     commission_refs = []
+    keys = _customer_keys(payload)
     cursor = start
     for block in payload.get("document_blocks") or ():
         title = _KIND_TITLES.get(block.get("kind"), block.get("kind") or "")
@@ -503,6 +529,7 @@ def _write_documents(ws, fmt, payload, start):
             data_row = first + index
             _write(ws, data_row, 0, item.get("code") or "", fmt["data"])
             _write(ws, data_row, 1, item.get("name") or "", fmt["data"])
+            _write_key(ws, data_row, keys, item)
             _write(ws, data_row, 2, item.get("invoice_number") or "", fmt["data"])
             _write(ws, data_row, 3, _date_cell(item.get("due_date")), fmt["data_date"])
             _write(
@@ -580,6 +607,7 @@ def _write_documents(ws, fmt, payload, start):
 def _write_vouchers(ws, fmt, payload, start):
     subtotals = {}
     refs = []
+    keys = _customer_keys(payload)
     cursor = start
     for block in payload.get("voucher_blocks") or ():
         code = block.get("code") or ""
@@ -594,6 +622,7 @@ def _write_vouchers(ws, fmt, payload, start):
             data_row = first + index
             _write(ws, data_row, 0, item.get("code") or "", fmt["data"])
             _write(ws, data_row, 1, item.get("name") or "", fmt["data"])
+            _write_key(ws, data_row, keys, item)
             _write(ws, data_row, 2, _date_cell(item.get("date")), fmt["data_date"])
             if columns.get("merge_number"):
                 _merge(
@@ -781,11 +810,12 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
 def _build_xlsx(payload):
     """Render a Planilla workbook from payload primitives. No ORM access."""
     output = BytesIO()
-    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True, **WORKBOOK_OPTIONS})
     try:
         ws = workbook.add_worksheet("Planilla de Cobranza")
         for index, width in enumerate(COLUMN_WIDTHS):
             ws.set_column(index, index, width)
+        ws.set_column(KEY_COL, KEY_COL, None, None, {"hidden": True})
         fmt = _formats(workbook)
         _write_membrete(ws, fmt, payload)
         # Clientes SUMIF formulas forward-ref Facturas/Comprobantes rows;
@@ -820,11 +850,13 @@ def _build_xlsx(payload):
     return _align_workbook_xml(output.getvalue())
 
 
-_TEMPLATE_COLS = "<cols>{}</cols>".format(
+_TEMPLATE_COLS = "<cols>{}{}</cols>".format(
     "".join(
         f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
         for index, width in enumerate(COLUMN_WIDTHS, start=1)
-    )
+    ),
+    f'<col min="{KEY_COL + 1}" max="{KEY_COL + 1}" width="0" hidden="1" '
+    'customWidth="1"/>',
 )
 
 
@@ -832,7 +864,7 @@ def _align_workbook_xml(content):
     """Match template col widths and fitToWidth so openpyxl reads them exactly.
 
     xlsxwriter stores a converted character width (32 → 32.71) and omits the
-    default fitToWidth=1 attribute.
+    default fitToWidth=1 attribute. The hidden customer-key column stays hidden.
     """
     source = ZipFile(BytesIO(content), "r")
     output = BytesIO()

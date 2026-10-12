@@ -1,3 +1,25 @@
+## Production setup
+
+1. **API user.** Give the user behind the agent's MCP API key **Collections User** only.
+   The agent's tools never need Collections Manager (Close, Cancel, Reinstate,
+   connectors, settings) and never need administrator rights.
+2. **Tools.** The agent needs only the collection tools: `get_seller_id`,
+   `list_collection_customers`, `customer_debt`, `get_collection_allocation`,
+   `create_collection_allocation`, `get_collection_sheet_pdf`, `close_collection_sheet`,
+   `declare_collection_cash` and `create_seller_deposit`. The generic muk_mcp write
+   tools (`create_records`, `update_records`, `delete_records`, `call_method`) accept a
+   caller-supplied `context` and arbitrary writes on any model the API user can reach,
+   which skips every check the collection tools make. At the pinned muk_mcp version an
+   API key has no per-tool switch, only a `read` or `write` scope, and the collection
+   write tools need `write`. So expose only the collection tools to the model in the
+   gateway's MCP client, and keep the API user's rights to Collections User.
+3. **Seller identity.** Set the trusted seller header (below) and deploy the matching
+   Nebula change, so the gateway, not the model, names the seller.
+4. **Upgrades.** Upgrading a database that already had `collection` installed cuts plain
+   internal users off collection data (menus, vouchers, sheets, snapshots, board events)
+   until they are added to Collections User or Collections Manager. Assign the groups as
+   part of the upgrade.
+
 ## Trusted seller header (MCP agent)
 
 By default every collection MCP tool acts for the `seller_id` the agent sends (for
