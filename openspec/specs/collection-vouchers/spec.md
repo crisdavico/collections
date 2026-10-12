@@ -16,7 +16,7 @@ per company. Each payment MUST consume one sequence number of that voucher's com
 
 #### Scenario: Sequence assigned on create
 
-- GIVEN an internal user creates a voucher
+- GIVEN a Collections User creates a voucher
 - WHEN saved the first time
 - THEN name MUST match `COL/<current-year>/<number>` and be unique
 
@@ -44,22 +44,24 @@ tracked; seller/sheet/type/amount were untracked.)
 - WHEN Validate by Seller runs
 - THEN chatter MUST record the state change
 
-### Requirement: Authorization for internal users
+### Requirement: Authorization for Collections Users
 
-Internal users (`base.group_user`) MUST have full CRUD on vouchers of companies they are
-allowed. The system MUST NOT grant ACL on `collection.voucher.line`. Dedicated groups
-MUST NOT be added. Allowed-company record rules MUST hide other companies. (Previously:
-No record rules; vouchers were company-blind.)
+Collections Users (`collection.group_collection_user`; Collections Manager implies it)
+MUST have full CRUD on vouchers of companies they are allowed. Plain internal users MUST
+have no access. The system MUST NOT grant ACL on `collection.voucher.line`.
+Allowed-company record rules MUST hide other companies. (Previously: every internal user
+(`base.group_user`) had CRUD and dedicated groups were forbidden; before that, no record
+rules made vouchers company-blind.)
 
-#### Scenario: Internal user CRUD
+#### Scenario: Collections User CRUD
 
-- GIVEN an authenticated internal user
+- GIVEN an authenticated Collections User
 - WHEN they CRUD a voucher of an allowed company
 - THEN ACL MUST allow the operation
 
-#### Scenario: Non-internal user denied
+#### Scenario: User without Collections User denied
 
-- GIVEN a user without internal-user privileges
+- GIVEN a user without the Collections User group (including a plain internal user)
 - WHEN they attempt voucher CRUD
 - THEN the system MUST deny access
 
@@ -102,8 +104,9 @@ Mismatch or bad base64 MUST raise `UserError` with no writes. Explicit JSON `nul
 succeed with attachment omitted or null. Create with attachments MUST persist all
 vouchers and files atomically under a savepoint by posting each nest onto the new
 voucher chatter via `message_post` (MUST NOT write Binary `attachment`). Exact
-same-company `document_id` reuse MUST NOT add, replace, or compare attachments (even
-when a voucher has none) and MUST continue to allocation. All-new and conflict rules
+same-company, same-seller `document_id` reuse whose payment fields match MUST NOT add,
+replace, or compare attachments (even when a voucher has none) and MUST continue to
+allocation. All-new and conflict rules
 MUST remain unchanged except as this change specifies for company, seller, and type
 gates. (Previously: Declared MIME had to equal detected MIME exactly; `image/jpg` vs
 `image/jpeg` failed; cash-without-proof was not named.)
@@ -123,7 +126,8 @@ gates. (Previously: Declared MIME had to equal detected MIME exactly; `image/jpg
 
 #### Scenario: Exact-retry skips attachment writes
 
-- GIVEN every submitted `document_id` already exists in the same company
+- GIVEN every submitted `document_id` already exists in the same company for the calling
+  seller with the same `seller_confirmed` fields
 - WHEN retried with or without nested attachments
 - THEN matching vouchers MUST be unchanged; attachments MUST NOT be
   written/replaced/compared
@@ -160,15 +164,22 @@ NOT exist. (Previously: Eligibility was not `pending`; approve or reject.)
 ### Requirement: Attachment replacement resets review to pending
 
 Replacing designated proof (`message_main_attachment_id` to a different attachment) MUST
-set `state` to `validated_seller` and MUST clear reviewer/time. Extra chatter files that
-do not change designated proof MUST NOT reset review, audit, or rotation. Clearing proof
-MUST reset rotation to 0 and MUST NOT reopen a decided voucher. Omit/empty and MIME
-rules unchanged. (Previously: Replacement reset `state` to `pending` from
+set `state` to `validated_seller` and MUST clear reviewer/time, except on `cash` and
+`seller_commission` vouchers, which carry no reviewed proof and never reopen. Reopening a
+`validated_collections` voucher MUST first reverse the cash it replaced. A first proof
+posted after the approved proof was deleted MUST reopen review like a swap. Extra chatter
+files that do not change designated proof MUST NOT reset review, audit, or rotation.
+Clearing proof MUST reset rotation to 0 and MUST NOT reopen; a write clearing the proof
+of a `validated_collections` voucher MUST be refused. On a `closed` or `cancelled` sheet,
+replacing, clearing, or deleting the proof attachment MUST be refused; past `submitted`,
+a `validated_collections` voucher MUST NOT go back to review nor lose its proof. Omit/empty
+and MIME rules unchanged. (Previously: Replacement reset `state` to `pending` from
 `approved`/`rejected`.)
 
 #### Scenario: Attachment replacement resets voucher state
 
-- GIVEN `validated_seller` or `validated_collections` with designated proof
+- GIVEN a non-cash, non-commission voucher in `validated_seller` or
+  `validated_collections` with designated proof on an open or submitted sheet
 - WHEN designated proof changes to a different valid file
 - THEN `state` MUST be `validated_seller` and reviewer/time MUST clear
 
@@ -180,9 +191,28 @@ rules unchanged. (Previously: Replacement reset `state` to `pending` from
 
 #### Scenario: Clearing proof does not reopen
 
-- GIVEN `validated_seller` or `validated_collections` with designated proof
+- GIVEN a `validated_seller` voucher with designated proof
 - WHEN proof is cleared with no replacement
 - THEN `state` MUST stay decided and rotation MUST be 0
+
+### Requirement: Approved vouchers are frozen
+
+A `validated_collections` voucher MUST refuse changes to the twelve
+`_REVIEW_EDITABLE_FIELDS` and to `partner_id`, `company_id`, `currency_id`, and
+`to_account_bank_id` with a `UserError` that points to replacing the designated proof.
+Writing an unchanged value MUST still save. Only server code inside the internal
+`collection_audited_state` privileged scope (Document Review correction) MAY change them,
+and any amount change MUST re-check the receipt-value cap. The form MUST show those fields
+readonly once the voucher is approved. (Previously: approved vouchers stayed editable from
+the form and over RPC.)
+
+#### Scenario: Approved amount edit refused
+
+- GIVEN a `validated_collections` voucher
+- WHEN a Collections User writes a different `amount` or `partner_id`
+- THEN MUST raise `UserError` and MUST NOT persist
+- AND on an open or submitted sheet, replacing its designated proof MUST reopen it to
+  `validated_seller` instead
 
 ### Requirement: Voucher fields and defaults
 
@@ -383,7 +413,8 @@ Reassign Customers kanban. Menu Payment Vouchers MUST stay `sequence=10`. Form M
 non-clickable statusbar, **Validate by Seller** when `draft`, readonly `create_date`,
 type-specific payment fields, chatter/activity; MUST NOT show `received_date`,
 Approve/Reject, a Collections button, History, or payment-line tables. `partner_id` MUST
-have no bound-partner domain. Clearing `sheet_id` on an open member MUST unlink;
+have no bound-partner domain. Clearing `sheet_id` on an open member MUST unlink unless
+the voucher is allocated or has receipt values or cash replacements (refused);
 non-open-sheet membership writes MUST be rejected. MUST NOT expose sheet-form member
 list or Payment Lines.
 
@@ -453,7 +484,7 @@ rejected.)
 
 #### Scenario: Clear sheet_id unlinks open membership
 
-- GIVEN a voucher assigned to an open sheet
+- GIVEN an unallocated voucher with no receipt values assigned to an open sheet
 - WHEN `sheet_id` is cleared on the form and saved
 - THEN the voucher MUST be unassigned and the sheet MUST persist
 
@@ -471,7 +502,7 @@ Collections → Payment Vouchers (e.g. filter `document_type=unsupported`).
 #### Scenario: Unsupported voucher visible in Payment Vouchers
 
 - GIVEN an `unsupported` voucher exists
-- WHEN an internal user opens Collections → Payment Vouchers and filters to
+- WHEN a Collections User opens Collections → Payment Vouchers and filters to
   `unsupported`
 - THEN that voucher MUST be listed
 
@@ -479,7 +510,7 @@ Collections → Payment Vouchers (e.g. filter `document_type=unsupported`).
 
 Each `collection.voucher` MAY store one optional designated proof as a chatter
 `ir.attachment` (empty `res_field`, linked via `mail.message`). Omit/empty MUST remain
-valid. Proof files MUST be `copy=False` and under existing internal-user voucher ACL.
+valid. Proof files MUST be `copy=False` and under the Collections User voucher ACL.
 Setting or replacing designated proof MUST validate base64 and detected MIME (`image/*`
 or PDF only); MUST raise `UserError` otherwise. (Previously: Proof was Binary
 `attachment=True` plus filename via `ir.attachment`.)
@@ -506,7 +537,7 @@ or PDF only); MUST raise `UserError` otherwise. (Previously: Proof was Binary
 ### Requirement: Attachment widgets on Payment Vouchers views
 
 Payment Vouchers form, list, and kanban MUST NOT include Binary attachment or filename
-widgets. Form chatter MAY remain so internal users MAY attach after the voucher is
+widgets. Form chatter MAY remain so Collections Users MAY attach after the voucher is
 saved. Where a file picker applies to designated proof, browser accept MUST be limited
 to `image/*` and PDF. (Previously: Form, list, and kanban required Binary attachment and
 filename widgets.)
@@ -514,7 +545,7 @@ filename widgets.)
 #### Scenario: Payment Vouchers views omit Binary widgets
 
 - GIVEN Collections → Payment Vouchers
-- WHEN an internal user opens form, list, or kanban
+- WHEN a Collections User opens form, list, or kanban
 - THEN Binary attachment and filename widgets MUST NOT be present
 - AND form chatter MUST remain available for attaching files after save
 
@@ -546,7 +577,7 @@ system MUST NOT backfill existing null rows. List, form, and search MUST expose
 
 #### Scenario: ORM create without seller
 
-- GIVEN an internal user creates a voucher via ORM without `seller_id`
+- GIVEN a Collections User creates a voucher via ORM without `seller_id`
 - WHEN create runs
 - THEN the create MUST be rejected with no write
 
@@ -731,8 +762,10 @@ Stamp `seller_*` always on all-new create. Reject `unsupported` and non-positive
 `seller_confirmed` amount. Seller-declared `cash` MUST succeed with `raw_ocr` omitted or
 null. UI/ORM create without nests MUST remain allowed. Malformed nests, raw without
 seller, or seller≠ derived current (minus `document_id`) MUST fail the batch with no
-writes. Exact same-company `document_id` reuse MUST ignore those nests with no
-provenance mutation and MUST continue to allocation. (Previously: Four-type nests;
+writes. Exact same-company, same-seller `document_id` reuse MUST require
+`seller_confirmed` fields equal to the stored voucher (else generic conflict), MUST
+ignore `raw_ocr` with no provenance mutation, and MUST continue to allocation.
+(Previously: Four-type nests;
 `retention_kind` was an unknown key; cash-without- proof and decimal-string amounts were
 not named.)
 
@@ -772,9 +805,9 @@ not named.)
 
 #### Scenario: Exact replay ignores provenance nests
 
-- GIVEN every submitted `document_id` already exists in the same company, with or
-  without stored provenance
-- WHEN retried with different or omitted nests
+- GIVEN every submitted `document_id` already exists in the same company for the calling
+  seller, with or without stored provenance
+- WHEN retried with the same `seller_confirmed` fields and a different or omitted `raw_ocr`
 - THEN matching vouchers MUST return unchanged
 - AND provenance and snapshots MUST NOT be written, backfilled, or mutated
 
@@ -795,15 +828,16 @@ not named.)
 ### Requirement: Immutable review snapshots and ACL
 
 MUST store immutable Document Review snapshots (revision, reviewer, time, decision,
-current payment fields). Internal users MUST read snapshots for allowed companies and
-MUST NOT write or unlink, add dedicated groups, or sudo. Snapshots MUST follow voucher
+current payment fields). Collections Users MUST read snapshots for allowed companies and
+MUST NOT write or unlink, or sudo; plain internal users get no access. Snapshots MUST
+follow voucher
 company isolation. Form Validate by Seller MUST NOT append snapshots. Snapshot
 `decision` MUST stay `approved`\|`rejected`. (Previously: Form Approve and Reject MUST
 NOT append snapshots.)
 
-#### Scenario: Internal users read history without client mutation
+#### Scenario: Collections Users read history without client mutation
 
-- GIVEN an internal user and snapshots of an allowed-company voucher
+- GIVEN a Collections User and snapshots of an allowed-company voucher
 - WHEN they read snapshots
 - THEN ACL MUST allow read and MUST deny client write or unlink
 
@@ -828,9 +862,9 @@ Upgrade MUST add nullable provenance with no backfill or fabricated snapshots.
 ### Requirement: Collection Settings persistence
 
 Each company MUST persist Collection Settings: enabled sellers, `auto_create_sheet`
-(default ON), and allowed document types (all eight catalog codes). Settings action and
+(default ON), and allowed document types (all nine catalog codes). Settings action and
 menu labels MUST be **Collection Settings**. An empty enabled-seller list MUST mean none
-for NEW work. All eight types MUST start enabled. Unsupported MUST remain independently
+for NEW work. All nine types MUST start enabled. Unsupported MUST remain independently
 configurable. Saving these fields MUST NOT clear `document_review_enabled`. (Previously:
 Defaults enabled seven catalog codes.)
 
@@ -846,13 +880,13 @@ Defaults enabled seven catalog codes.)
 - WHEN a new voucher is created via UI, ORM, import, or MCP
 - THEN the create MUST be rejected with no write
 
-#### Scenario: Defaults enable auto-create and all eight types
+#### Scenario: Defaults enable auto-create and all nine types
 
 - GIVEN a fresh install or a company with no prior Collection Settings
 - WHEN settings are read
 - THEN `auto_create_sheet` MUST be ON
 - AND `bank_transfer`, `check`, `echeck`, `cash_deposit`, `retention_certificate`,
-  `cash`, `unsupported`, and `seller_deposit` MUST all be enabled
+  `cash`, `unsupported`, `seller_deposit`, and `seller_commission` MUST all be enabled
 
 #### Scenario: Unsupported is configurable
 
@@ -864,7 +898,7 @@ Defaults enabled seven catalog codes.)
 ### Requirement: Company ownership of vouchers
 
 Every voucher MUST have a required company. Users MUST see and operate only vouchers of
-companies they are allowed. Dedicated groups MUST NOT be added.
+companies they are allowed, and only as Collections Users.
 
 #### Scenario: Company required on create
 
@@ -884,7 +918,8 @@ companies they are allowed. Dedicated groups MUST NOT be added.
 
 NEW voucher create (UI, ORM, import, MCP) MUST require an enabled seller for that
 company and an allowed `document_type`. Writes of `seller_id` or `document_type` on a
-voucher MUST pass the same gates. Exact same-company MCP replay is exempt (see MCP).
+voucher MUST pass the same gates. Exact same-company, same-seller MCP replay with
+matching payment fields is exempt (see MCP).
 
 #### Scenario: ORM and import create require an enabled seller
 
@@ -895,7 +930,7 @@ voucher MUST pass the same gates. Exact same-company MCP replay is exempt (see M
 #### Scenario: UI create offers only enabled sellers and allowed types
 
 - GIVEN a company with a non-empty enabled-seller list and a subset of types enabled
-- WHEN an internal user opens a new Payment Vouchers form
+- WHEN a Collections User opens a new Payment Vouchers form
 - THEN seller choices MUST be those enabled sellers
 - AND type choices MUST be those allowed types
 
@@ -1041,7 +1076,9 @@ When `partner_id` changes, the system MUST NOT auto-compute or auto-write
 `partner_id` write while `allocation_id` is set MUST raise `UserError` with no persist.
 MUST NOT `sudo()`. Same-value `partner_id` MUST NOT recompute allocation. `confirmed`
 current allocation MUST refuse the move with no field change. While the sheet is `open`
-and the voucher is unassigned, any voucher state MAY change Customer. (Previously:
+and the voucher is unassigned, a `draft` or `validated_seller` voucher MAY change
+Customer; a `validated_collections` voucher MUST refuse (approved money fields are
+frozen). (Previously:
 Customer change auto-attached the unique draft same-sheet allocation or left the voucher
 unallocated with chatter.)
 
@@ -1072,8 +1109,7 @@ unallocated with chatter.)
 
 #### Scenario: Unassigned voucher may change customer
 
-- GIVEN an open-sheet unallocated voucher in `draft`, `validated_seller`, or
-  `validated_collections`
+- GIVEN an open-sheet unallocated voucher in `draft` or `validated_seller`
 - WHEN `partner_id` is written to another customer
 - THEN the write MUST succeed and `state` MUST stay unchanged
 
@@ -1103,9 +1139,10 @@ attachment nest, provenance nests, create vouchers, submit-order payload,
 classify/replay/conflict, require internal seller). They MUST NOT be registered as MCP
 tools. `create_collection_allocation` MUST reuse them. Payment items MUST omit
 `customer_identification`; helpers MUST take top-level identification and replicate it
-per payment. Exact same-company `document_id` set MUST be reusable by allocation
-(continue; MUST NOT voucher-only early-return). Partial overlap and other-company hits
-MUST stay generic conflict with no writes. Optional nested `attachment` and
+per payment. Exact same-company `document_id` set of the calling seller with matching
+payment fields MUST be reusable by allocation (continue; MUST NOT voucher-only
+early-return). Partial overlap, other-company or other-seller hits, and changed payment
+fields MUST stay generic conflict with no writes. Optional nested `attachment` and
 `raw_ocr`/`seller_confirmed` parse rules MUST still apply on the fused write.
 
 #### Scenario: Helpers not discovered as MCP tools
@@ -1139,7 +1176,9 @@ MUST NOT keep voucher `rejected`.
 
 Voucher membership (`sheet_id` add, remove, or reassign) and voucher business fields
 MUST be writable while the sheet is `open` or `submitted` (or the voucher is
-unassigned). When the sheet is `proposal`, `closed`, or `cancelled`, those writes MUST
+unassigned), except the frozen money fields of a `validated_collections` voucher and the
+allocation and receipt-row sheet constraints. When the sheet is `proposal`, `closed`, or
+`cancelled`, those writes MUST
 raise `UserError` with no persist, including via form or RPC. The membership freeze
 `UserError` text MUST remain
 `Closed collection sheets cannot change membership. Reopen first.` Chatter MUST remain
@@ -1404,7 +1443,8 @@ run for any other code. (Previously: The trigger matched `seller_deposit` only.)
 
 The system MUST expose `create_seller_deposit` via `@mcp_tool` on `muk_mcp.mixin`
 (`category=write`, `registry=mcp`), method-discovered; MUST NOT add a DB tool record.
-Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require integer
+Calls MUST use the authenticated user and MUST NOT `sudo()` (except to read
+`collection.mcp_trusted_seller_header`). Input MUST require integer
 `seller_id`, amount, `voucher_number`, `voucher_date`, and MAY accept nested
 `attachment`. The tool MUST NOT accept `customer_identification` or `sheet_id` from the
 caller. It MUST resolve the seller's own `submitted` sheet, stamp the sentinel partner
@@ -1413,7 +1453,8 @@ explicitly, and require new-work for that seller and `seller_deposit`. The tool 
 write `validated_collections`: the deposit slip is a reviewable designated proof, so the
 voucher MUST stay `validated_seller` and MUST reach `validated_collections` only through
 Document Review Approve. A deposit carrying designated proof MUST appear in
-`get_review_queue` for its sheet. Portal or public callers MUST receive `AccessError`.
+`get_review_queue` for its sheet. Callers that are not Collections Users MUST receive
+`AccessError`.
 Errors MUST be raised, never `{"error":...}`. Zero or more than one `submitted` sheet
 MUST raise `UserError`. `create_collection_allocation` MUST remain customer-required and
 `open`-sheet-only. (Previously: the tool wrote `validated_collections` under
@@ -1422,7 +1463,8 @@ queue. Before that: No MCP path could create a no-customer remittance voucher.)
 
 #### Scenario: Internal seller creates a deposit on submitted
 
-- GIVEN an internal caller and an internal seller with exactly one `submitted` sheet
+- GIVEN a Collections User caller and an internal seller with exactly one `submitted`
+  sheet
 - WHEN `create_seller_deposit` runs with amount, number, date, and optional proof
 - THEN one `seller_deposit` voucher MUST persist on that sheet
 - AND `partner_id` MUST be the sentinel

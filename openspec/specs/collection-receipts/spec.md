@@ -94,7 +94,10 @@ pairing.
 Each receipt MUST expose `total_values` (sum of value amounts), `total_applied` (sum of
 derived application amounts), and `amount_on_account` = `total_values − total_applied`.
 `total_values >= total_applied` MUST be allowed. The system MUST NOT require equality.
-Totals MUST recompute when stored allocation-line `amount_applied` changes. Recompute
+A change that raises a receipt's `total_applied` above its `total_values` MUST be
+refused (`UserError`); lowering the applications of an overdrawn receipt MUST stay
+allowed, and a save of several lines MUST be judged on its end state. Totals MUST
+recompute when stored allocation-line `amount_applied` changes. Recompute
 MUST NOT raise because derived applications are a non-stored Many2many. (Previously:
 Totals depended on the non-stored `line_ids` inverse, which raised Cannot convert
 collection.receipt.line_ids to SQL when an existing `amount_applied` was written.)
@@ -171,14 +174,19 @@ Freeze refused write and unlink only; Close issued via `create_receipt`.)
 - THEN the `closed` receipt MUST become `draft` with no `external_receipt_id`
 - AND the `issued` receipt MUST remain `issued`
 
-### Requirement: Draft unlink cascades receipts
+### Requirement: Draft unlink removes receipts
 
-Unlink of a `draft` allocation MUST cascade receipts and values. Linked vouchers MUST
-survive with `allocation_id` unset.
+Unlink of a `draft` allocation MUST remove its receipts and values through the ORM, and
+only when its sheet is `open` or `submitted` and it has no issued receipt, no cash
+replacement, and no revision; otherwise it MUST be refused before any child changes.
+Receipt value `receipt_id` MUST be `ondelete` restrict, and a receipt with cash
+replacements MUST NOT be deleted. Linked vouchers MUST survive with `allocation_id` unset.
+(Previously: unlink of any `draft` allocation cascaded receipts and values in SQL.)
 
 #### Scenario: Draft unlink drops receipts keeps vouchers
 
-- GIVEN a draft allocation with receipts, values, and linked vouchers
+- GIVEN a draft allocation on an open sheet with receipts, values, and linked vouchers,
+  and no revision or cash replacement
 - WHEN the allocation is deleted
 - THEN receipts and values MUST be gone
 - AND vouchers MUST persist unassigned
@@ -222,8 +230,9 @@ be rejected except audited `draft` → `closed` and `closed` → `draft`. (Previ
 
 `company_id` on receipt and value MUST be required, stored, and indexed, and MUST match
 the allocation company. Allowed-company `ir.rule` `[('company_id', 'in', company_ids)]`
-MUST apply. Internal users (`base.group_user`) MUST have CRUD `1,1,1,1` on receipt and
-value. Dedicated groups MUST NOT be added. Calls MUST NOT `sudo()`.
+MUST apply. Collections Users (`collection.group_collection_user`) MUST have CRUD
+`1,1,1,1` on receipt and value; plain internal users get no access. Calls MUST NOT
+`sudo()`.
 
 #### Scenario: Other-company hidden
 
@@ -231,12 +240,11 @@ value. Dedicated groups MUST NOT be added. Calls MUST NOT `sudo()`.
 - WHEN they search receipts
 - THEN that receipt MUST NOT be visible
 
-#### Scenario: Internal CRUD without sudo
+#### Scenario: Collections User CRUD without sudo
 
-- GIVEN an authenticated internal user of an allowed company
+- GIVEN an authenticated Collections User of an allowed company
 - WHEN they create, read, write, or unlink a draft receipt in that company
 - THEN ACL MUST allow it without `sudo()`
-- AND a dedicated receipt group MUST NOT exist
 
 ### Requirement: Additive migration without backfill
 
@@ -277,7 +285,7 @@ Issuance was owned by the ERP Close hand-off.)
 ### Requirement: Cash replacement ledger
 
 The system MUST persist immutable `collection.cash.replacement` rows with required
-`receipt_id` (`ondelete` cascade), `cash_voucher_id`, `deposit_voucher_id` (`ondelete`
+`receipt_id`, `cash_voucher_id`, `deposit_voucher_id` (all `ondelete`
 restrict), `amount` > 0, and `direction` `replace` or `reverse`. `deposit_voucher_id`
 MUST hold the replacing voucher, which MAY be a `seller_deposit` or a
 `seller_commission`; the column MUST NOT be renamed, and the replacing type MUST be
@@ -285,14 +293,17 @@ recovered by joining `deposit_voucher_id.document_type`. `sheet_id` and `currenc
 MUST be related stored from the receipt. `company_id` MUST be related stored, required,
 precomputed, and indexed. `created_by` and `created_at` MUST be required.
 `replaced_amount` of a cash voucher MUST equal Σ `replace` minus Σ `reverse` for that
-cash voucher. Create MUST be context-gated. Write MUST raise. Unlink MUST raise except
-when a draft allocation parent-unlink cascades receipts. Internal users
-(`base.group_user`) MUST have ACL `1,0,1,0`. Allowed-company `ir.rule`
-`[('company_id', 'in', company_ids)]` MUST apply. Dedicated groups MUST NOT be added.
-Calls MUST NOT `sudo()`. Cancel MUST NOT write `reverse` rows. Reinstate MUST NOT
-re-replace. Because a commission is minted once by Confirm against a declaration that is
-locked by the same transition, no code path MUST write a `reverse` row for a
-`seller_commission`. (Previously: `deposit_voucher_id` could only be a
+cash voucher. Create MUST succeed only inside the internal `collection_cash_replacement`
+privileged scope; a context key of that name MUST have no effect. Write MUST raise.
+Unlink MUST always raise. Collections Users MUST have ACL `1,0,1,0`. Allowed-company
+`ir.rule` `[('company_id', 'in', company_ids)]` MUST apply. Calls MUST NOT `sudo()`.
+Cancel MUST NOT write `reverse` rows. Reinstate MUST NOT re-replace. `reverse` rows MUST
+be written only when a proof swap reopens review on a replacing voucher, or when Declare
+Cash or Confirm re-syncs a `seller_commission` to a changed `commission_withheld`; a share
+the board returned to the unassigned pool is reversed with a ledger-only row. Replacement
+MUST replace only what the replacing voucher does not already hold on a receipt.
+(Previously: create was context-gated, a draft allocation unlink cascaded the rows, no
+path reversed a `seller_commission`, and `deposit_voucher_id` could only be a
 `seller_deposit`.)
 
 #### Scenario: Replace row persists
@@ -321,14 +332,14 @@ locked by the same transition, no code path MUST write a `reverse` row for a
 - GIVEN a replacement in a company the user is not allowed
 - WHEN they search replacements
 - THEN that row MUST NOT be visible
-- AND `group_user` MUST be `1,0,1,0` without `sudo()` or a dedicated group
+- AND `collection.group_collection_user` MUST be `1,0,1,0` without `sudo()`
 
-#### Scenario: Draft allocation unlink cascades replacements
+#### Scenario: Allocation with replacements cannot be deleted
 
 - GIVEN a draft allocation whose receipts have replacement rows
 - WHEN the allocation is deleted
-- THEN those replacement rows MUST be gone
-- AND linked vouchers MUST persist
+- THEN MUST refuse
+- AND the allocation, receipts, values, and replacement rows MUST persist
 
 #### Scenario: Commission replace row is distinguishable
 
@@ -445,7 +456,7 @@ walked `issued` receipts — where shrinking a value raises and aborts the whole
 
 When the sheet is `closed` or `cancelled`, create of `collection.cash.replacement` MUST
 be refused. Audited Close, Cancel, and Reinstate MUST NOT create replacement rows. MUST
-NOT `sudo()`. (Previously: Replacement create was context-gated only.)
+NOT `sudo()`. (Previously: Replacement create was gated only, by a context key.)
 
 #### Scenario: Frozen sheet refuses replacement create
 

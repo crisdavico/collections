@@ -354,15 +354,21 @@ Aggregation cells MUST use formulas with cached SUM values (`data_only` MUST rea
 non-None totals equal to the payload). Header rows 1–4 MUST show the title "Planilla de
 Cobranza" (row 1) and the sheet reference (row 2), with no company name and no printed
 date; Resumen MUST NOT contain "Impreso el" (row numbers stay unchanged). Clientes **Saldo Total** and **Aplicado** MUST be
-`SUMIF` of Facturas/Presupuestos Saldo/Aplicado by customer name, **Cobrado** MUST be
-`SUMIF` of comprobante Importe, and **Remanente** MUST be `Saldo Total − Aplicado`
-(cached payload values). Resumen Remanente MUST reference the Clientes remanente total
+`SUMIF` of Facturas/Presupuestos Saldo/Aplicado on a hidden per-customer key column right
+of the print area (one key per partner, from the payload `partner_id`; MUST NOT match on
+the customer name), **Cobrado** MUST be `SUMIF` of comprobante Importe on that key, and
+**Remanente** MUST be `Saldo Total − Aplicado` (cached payload values). The workbook MUST
+be created with `strings_to_formulas` and `strings_to_urls` off (shared
+`WORKBOOK_OPTIONS`), so free text starting with `=` or looking like a URL stays text;
+intentional formulas MUST go through `write_formula`. Resumen Remanente MUST reference the Clientes remanente total
 (MUST NOT `=C11-G11`). Odoo `commission_percent` 0–100 MUST be written as
 `percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow `recon.status`.
 Header **Export XLSX** MUST be last in `<header>` before `state`. Notebook MUST be the
 three pages specified in collection-sheets (recon fields remain on the sheet form).
 `action_print_xlsx` MUST return `ir.actions.act_url` download; MUST NOT `sudo()`.
-(Previously: Clientes amounts were literals; Resumen remanente was `=C11-G11` cobrado −
+(Previously: Clientes totals were `SUMIF` by customer name, so same-named customers or
+names holding `*` or `?` pulled each other's rows; text could become a formula. Before
+that: Clientes amounts were literals; Resumen remanente was `=C11-G11` cobrado −
 aplicado.)
 
 #### Scenario: Zip freeze and cached SUM
@@ -372,7 +378,8 @@ aplicado.)
 - THEN bytes MUST start `PK` and contain `xl/workbook.xml`
 - AND freeze MUST be `A6` and cached SUM cells MUST equal payload totals (MUST NOT be
   `None`)
-- AND Clientes Saldo Total / Cobrado / Aplicado MUST be SUMIF formulas by customer name
+- AND Clientes Saldo Total / Cobrado / Aplicado MUST be SUMIF formulas on the hidden
+  customer-key column
 - AND Clientes Remanente MUST be Saldo Total minus Aplicado
 
 #### Scenario: Percent scale 0–100 to 0.0%
@@ -395,7 +402,7 @@ users MUST receive `AccessError` on a company-A sheet. Report code MUST NOT `sud
 
 #### Scenario: Company-B AccessError
 
-- GIVEN an internal user whose company is B and a sheet in company A
+- GIVEN a Collections User whose company is B and a sheet in company A
 - WHEN `_collection_report_data()`, HTML render, or `action_print_xlsx` runs
 - THEN MUST raise `AccessError`
 - AND MUST NOT return payload, HTML, or an attachment
@@ -432,7 +439,8 @@ rules MUST stay unchanged. Unsaved and mixed-currency guards MUST still apply.
 
 The system MUST expose `get_collection_sheet_pdf` via `@mcp_tool` on `muk_mcp.mixin`
 (`category=read`, `registry=mcp`), method-discovered; MUST NOT add a DB tool record.
-Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require exactly
+Calls MUST use the authenticated user, who MUST be a Collections User (else
+`AccessError`), and MUST NOT `sudo()`. Input MUST require exactly
 one property, integer `seller_id`, and MUST NOT accept `model`, `domain`, `fields`,
 `context`, `order`, a `sheet_id`, or a report reference. At this call site only, the
 tool MUST resolve the seller's own `open` sheet on `env.company` through
@@ -451,7 +459,7 @@ only `submitted` existed.)
 
 #### Scenario: Open sheet returns base64 PDF
 
-- GIVEN an internal caller and an internal seller with exactly one `open` sheet on the
+- GIVEN a Collections User caller and an internal seller with exactly one `open` sheet on the
   caller's company
 - WHEN `get_collection_sheet_pdf` runs with that `seller_id`
 - THEN the response MUST be exactly `sheet`, `filename`, `mimetype`, `content_base64`
@@ -462,7 +470,7 @@ only `submitted` existed.)
 
 #### Scenario: Submitted sheet returns base64 PDF
 
-- GIVEN an internal caller and an internal seller with zero `open` sheets and exactly
+- GIVEN a Collections User caller and an internal seller with zero `open` sheets and exactly
   one `submitted` sheet on the caller's company
 - WHEN `get_collection_sheet_pdf` runs with that `seller_id`
 - THEN the response MUST include that submitted `sheet` and `content_base64`
@@ -499,15 +507,15 @@ only `submitted` existed.)
 
 #### Scenario: Caller authorization
 
-- GIVEN a portal or public caller
+- GIVEN a portal, public, or plain internal caller (no Collections User)
 - WHEN `get_collection_sheet_pdf` runs with any `seller_id`
 - THEN MUST raise `AccessError` and MUST NOT return a PDF
-- AND an invalid, portal, or unknown `seller_id` from an internal caller MUST raise
-  `UserError`
+- AND an invalid, portal, or unknown `seller_id` from a Collections User caller MUST
+  raise `UserError`
 
 #### Scenario: Company scoping
 
-- GIVEN an internal caller restricted to company A and a seller whose only `open` or
+- GIVEN a Collections User caller restricted to company A and a seller whose only `open` or
   `submitted` sheet belongs to company B
 - WHEN `get_collection_sheet_pdf` runs with that `seller_id`
 - THEN the response MUST be `{ "sheet": null }`

@@ -9,7 +9,8 @@ ERP debt; back-office validates or rejects.
 
 ### Requirement: MCP create_collection_allocation
 
-MUST expose MCP write `create_collection_allocation` for Enabled Seller internal callers
+MUST expose MCP write `create_collection_allocation` for Collections User callers acting
+for an Enabled Seller
 (`category=write`, `registry=mcp`, method-discovered; MUST NOT add a `muk_mcp.tool`
 row). Input MUST be:
 
@@ -35,9 +36,11 @@ exactly seven keys `{id,name,state,revision,total_vouchers,total_applied,residua
 `revision` a JSON int (MUST NOT be bool, float, or str). Persist `draft` revision-1;
 `UNIQUE(sheet_id, partner_id)`. Unbound identification MUST lazy-resolve via
 `resolve_customer_partner` on this write. When `company.auto_create_sheet` is False,
-MUST raise a named `UserError` and write zero rows. Exact same-company `document_id` set
-MUST reuse rows and continue to allocation (MUST NOT voucher-style early-return).
-Partial overlap or other-company hit MUST raise generic conflict with no writes.
+MUST raise a named `UserError` and write zero rows. An exact same-company, same-seller
+`document_id` set whose stated payment fields equal the stored vouchers MUST reuse rows
+and continue to allocation (MUST NOT voucher-style early-return). Partial overlap,
+other-company or other-seller hit, or changed payment fields MUST raise generic conflict
+with no writes.
 Revalidation failure MUST roll back vouchers and allocation. Errors MUST be raised,
 NEVER `{"error":...}` bodies. MUST NOT `sudo()`. (Previously: Four-type
 `seller_confirmed`; amounts advertised as numbers only; `unsupported` reject was not
@@ -54,7 +57,7 @@ stated on this requirement; extra nested keys were ignored on payment objects.)
 
 #### Scenario: Authorization denied
 
-- GIVEN a non-internal or non-enabled seller
+- GIVEN a caller without Collections User, or a non-internal or non-enabled seller
 - WHEN the tool runs
 - THEN the call MUST fail with no writes
 
@@ -67,14 +70,16 @@ stated on this requirement; extra nested keys were ignored on payment objects.)
 
 #### Scenario: Exact document_id reuse continues
 
-- GIVEN every submitted `document_id` already exists in the same company
+- GIVEN every submitted `document_id` already exists in the same company for the calling
+  seller, with the same payment fields
 - WHEN `create_collection_allocation` runs with a new `request_id`
 - THEN those voucher rows MUST be reused and allocation MUST still persist
 - AND MUST NOT return a voucher-only payload
 
 #### Scenario: Partial overlap or other-company conflict
 
-- GIVEN a partial same-company `document_id` overlap, or a hit only in another company
+- GIVEN a partial same-company `document_id` overlap, a hit only in another company or
+  for another seller, or changed payment fields
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise generic conflict with no writes and no ids disclosed
 
@@ -102,8 +107,11 @@ stated on this requirement; extra nested keys were ignored on payment objects.)
 
 ### Requirement: Idempotency and amend
 
-MUST replay identical `request_id` (zero writes) with
-`{sheet_id, vouchers[], allocation}` in submit order. Matching `content_hash` (new
+MUST replay an identical `request_id` (zero writes) only for the seller that wrote it,
+the same customer binding, and the same content hash; anything else (including another
+seller's `request_id`) MUST raise the generic conflict with no ids. A replay MUST return
+`{sheet_id, vouchers[], allocation}` in submit order. Bodies MUST be parsed before the
+replay so the content can be compared. Matching `content_hash` (new
 `request_id`, no extra revision) MUST NOT include `residual_reason`. Content hash MUST
 include receipts (`document_kind`, values, applications including `balance_seen`). Amend
 MUST be voucher SUPERSET (`revision`+1) only while `draft`. MUST reject subset/partial
@@ -114,7 +122,8 @@ was a no-op.)
 #### Scenario: Replay by request_id, content_hash, or UniqueViolation
 
 - GIVEN a prior create or concurrent `UNIQUE(request_id)` insert
-- WHEN identical `request_id`, same content with a new `request_id`, or race
+- WHEN identical `request_id` with the same seller and content, same content with a new
+  `request_id`, or race
 - THEN zero writes, no extra revision, or invalidate-replay/generic-conflict with no
   ids; `request_id` replay MUST return `sheet_id` plus ordered `vouchers[]`
 
@@ -185,7 +194,8 @@ requires a sheet chosen in Odoo) with zero writes. (Previously: Vouchers MUST be
 Each payload application with `amount_applied > 0` MUST remain in fresh ERP debt.
 `balance_seen` MUST match the fresh connector invoice `balance` via
 `currency.compare_amounts`; a stale snapshot MUST raise with no writes. Available =
-fresh balance − other `draft`/`confirmed` applications. `amount_applied` MUST be `> 0`
+fresh balance − other `draft`/`confirmed` applications still reserved (see MCP
+customer_debt allocatable balances). `amount_applied` MUST be `> 0`
 and `<=` available and `<= balance_seen`. Persist MUST then expand to every currently
 outstanding ERP invoice: payload applied amount, else 0. Empty `applications[]` MUST
 expand to all outstanding zeros (on account). `total_debt` MUST be the computed line
@@ -222,8 +232,8 @@ When `state` is `confirmed`, freeze `line_ids`/`voucher_ids`/`receipt_ids`/
 `partner_id`/`sheet_id`. When `state` is `draft`, those fields MUST remain writable
 subject to other rules. O2M Command.DELETE MUST NOT destroy vouchers. Revisions
 immutable, `UNIQUE(request_id)`, company `ir.rule`, no sudo. Direct revision write and
-unlink MUST remain forbidden. MUST NOT delete a `confirmed` allocation. Draft unlink
-with revisions is specified under Draft unlink with revisions. MUST NOT expose Validate
+unlink MUST remain forbidden. MUST NOT delete a `confirmed` allocation. Draft unlink is
+specified under Draft allocation unlink. MUST NOT expose Validate
 or Reject; `action_validate` and `action_reject` MUST NOT remain; `validated` and
 `rejected` MUST NOT remain as states. (Previously: Freeze omitted `receipt_ids`; freeze
 when `state != confirmed`; unlink with revisions refused; back-office validate/reject
@@ -317,8 +327,9 @@ Same-write attach used a confirmed same-sheet target.)
 
 MUST expose `get_collection_allocation` via `@mcp_tool` on `muk_mcp.mixin`
 (`category=read`, `registry=mcp`), method-discovered; MUST NOT add a `muk_mcp.tool` row.
-Input MUST be `{seller_id, customer_identification}`. Portal/public MUST receive
-`AccessError`. Internal callers MUST pass Enabled Seller plus active-connector
+Input MUST be `{seller_id, customer_identification}`. Callers without Collections User
+(including portal and public) MUST receive `AccessError`. Collections User callers
+MUST pass Enabled Seller plus active-connector
 seller-binding gates. Open sheet MUST use `_open_sheets_for_seller`, MUST NOT
 `_resolve_open_sheet_id_for_create`. Unbound identification, no open sheet, or no
 allocation MUST return `{allocation: null}` and MUST NOT create partner, binding, or
@@ -356,7 +367,8 @@ list.)
 
 #### Scenario: Multi-open sheet and auth fail closed
 
-- GIVEN more than one open sheet, or a non-internal / non-enabled seller
+- GIVEN more than one open sheet, a caller without Collections User, or a non-internal /
+  non-enabled seller
 - WHEN `get_collection_allocation` runs
 - THEN MUST raise (multi-open `UserError` or AccessError/UserError) with zero writes and
   MUST NOT return `{"error":...}`
@@ -432,21 +444,32 @@ after connector `create_receipt` dispatch.)
 - WHEN the system raises `UserError`
 - THEN the message MUST name `submitted` among the draft sheet states
 
-### Requirement: Draft unlink with revisions
+### Requirement: Draft allocation unlink
 
-The system MUST allow unlinking a `draft` allocation even when revision rows exist. That
-unlink MUST unassign linked vouchers (MUST NOT destroy them), MUST cascade invoice
-lines, receipts, and receipt values, and MUST delete revision snapshots only as a
-consequence of deleting that parent. Direct revision write and unlink MUST remain
-forbidden. Unlink of a `confirmed` allocation MUST be refused even with zero revisions.
-(Previously: Cascade covered lines and revisions only; receipts/values did not exist.)
+The system MUST allow unlinking a `draft` allocation only while its sheet is `open` or
+`submitted` and it has no revision, no cash replacement, and no issued receipt (`issued`
+or with an `external_receipt_id`). The check MUST run before any child is touched. That
+unlink MUST unassign linked vouchers with a normal write (MUST NOT destroy them) and
+MUST remove invoice lines, receipts, and receipt values through the ORM. The revision,
+receipt-value, and cash-replacement foreign keys MUST be `ondelete` restrict, so the
+database never drops those rows behind a guard. Direct revision write and unlink MUST
+remain forbidden. Unlink of a `confirmed` allocation MUST be refused even with zero
+revisions. (Previously: a `draft` allocation with revisions unlinked and cascaded its
+revisions, receipts, values, and cash replacements on any sheet state.)
 
-#### Scenario: Draft with revisions unlinks
+#### Scenario: Draft with revisions refused
 
 - GIVEN a draft allocation with revision rows, receipts, values, and linked vouchers
 - WHEN the allocation is deleted
-- THEN the allocation, its lines, its receipts, its values, and its revisions MUST be
-  gone
+- THEN the delete MUST be refused
+- AND the allocation, its revisions, and the voucher links MUST remain
+
+#### Scenario: Plain draft on an open sheet unlinks
+
+- GIVEN a draft allocation on an open sheet with lines, receipts, values, and linked
+  vouchers, and no revision, cash replacement, or issued receipt
+- WHEN the allocation is deleted
+- THEN the allocation, its lines, receipts, and values MUST be gone
 - AND vouchers MUST persist with `allocation_id` unset
 
 #### Scenario: Confirmed unlink refused
@@ -575,7 +598,8 @@ NOT backfill existing allocations.
 | ------------------------------------- | ----------------------------------------------------------------- |
 | `total_debt`                          | sum(`invoice_balance`); computed; MUST NOT store MCP `total_debt` |
 | `total_invoices` / `total_quotations` | sum balance where `document_kind` is invoice / quotation          |
-| `total_vouchers` / `total_applied`    | sum voucher amounts / sum `amount_applied`                        |
+| `total_vouchers`                      | receipt values on its own receipts + full amount of linked vouchers with no receipt value and no cash replacement; stored |
+| `total_applied`                       | sum `amount_applied`                                              |
 | `residual`                            | `total_debt − total_applied`; negative MUST be allowed            |
 | `amount_applied`                      | default 0; MUST be `>= 0`                                         |
 
@@ -779,16 +803,24 @@ with no writes.
 
 ### Requirement: MCP customer_debt allocatable balances
 
-MCP `customer_debt` MUST keep each invoice's gross connector `balance` and existing
-summary fields (`total_balance`, `overdue_balance`, `open_balance`, `invoice_count`)
-unchanged. It MUST add `invoices[].allocatable_balance` and summary
+MCP `customer_debt` MUST keep each invoice's gross connector `balance` and the summary
+fields `overdue_balance`, `open_balance`, and `invoice_count` unchanged (`total_balance`
+is the net of open credit notes; see collection-connectors). It MUST add
+`invoices[].allocatable_balance` and summary
 `total_allocatable_balance`, `open_allocatable_balance`, and
 `overdue_allocatable_balance`.
 
-Allocatable MUST be the gross connector `balance` minus ALL same-company
+Allocatable MUST be the gross connector `balance` minus the same-company
 `collection.allocation.line.amount_applied` on allocations whose `state` is `draft` OR
-`confirmed`, INCLUDING allocations on proposal, closed, or cancelled sheets that
-`get_collection_allocation` does not expose. The result MUST be clamped at zero (MUST
+`confirmed`, INCLUDING allocations on proposal or closed sheets that
+`get_collection_allocation` does not expose. An applied amount MUST be subtracted while
+its sheet is not `cancelled` AND (the sheet is not marked Entered in the ERP OR no
+successful connector refresh started after the mark): the connector reports since when
+its data includes ERP entries through `_collection_erp_reflected_since()`, and a
+connector that does not report it (the default `False`) keeps subtracting. Cancelled
+sheets MUST never reserve. (Previously: every draft and confirmed application, cancelled
+sheets included, was subtracted forever, so receipts already in the ERP were subtracted
+twice.) The result MUST be clamped at zero (MUST
 NEVER be negative). No reservations MUST mean allocatable equals gross. Empty `invoices`
 MUST still return the three allocatable summary keys as `0`. MUST NOT `sudo()`.
 
@@ -869,3 +901,22 @@ unlink only.)
 - GIVEN a closed or cancelled sheet
 - WHEN an allocation revision is created
 - THEN MUST refuse with no persist
+
+### Requirement: Applied amount caps
+
+On every path (UI, RPC, MCP, the receipt proposal board), a line's `amount_applied` MUST
+NOT exceed the `invoice_balance` it snapshotted; a line that applies nothing is never
+refused. Per company and `external_invoice_id`, the total applied by allocations whose
+sheet is not `cancelled` (draft and confirmed) MUST NOT exceed the largest balance those
+lines snapshotted, so the cap holds whether or not the ERP already registered earlier
+applications; Reinstate MUST re-check it. A change that raises a receipt's applications
+above its values MUST be refused, while lowering an overdrawn receipt MUST stay allowed.
+Saves of several lines MUST be judged on their end state, and amounts MUST be compared in
+the company currency. (Previously: only the allocation-level applied `<=` collected gate
+at Confirm and Close existed.)
+
+#### Scenario: Same ERP document applied twice
+
+- GIVEN an invoice with balance 100 applied 70 on a draft allocation of an open sheet
+- WHEN another allocation of the same company applies 50 to the same `external_invoice_id`
+- THEN MUST raise `UserError` with no persist
