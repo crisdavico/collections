@@ -119,12 +119,29 @@ class TestCollectionCustomerResolution(TransactionCase):
         self.assertNotIn(DOCUMENT_CONFLICT, str(ctx.exception))
 
     def _partner_rank(self, partner):
+        """Return `customer_rank`, or None when `account` is not installed."""
         if "customer_rank" in partner._fields:
             return partner.customer_rank
+        self.env.cr.execute(
+            """
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'res_partner' AND column_name = 'customer_rank'
+            """
+        )
+        if not self.env.cr.fetchone():
+            return None
         self.env.cr.execute(
             "SELECT customer_rank FROM res_partner WHERE id = %s", (partner.id,)
         )
         return self.env.cr.fetchone()[0]
+
+    def _assert_customer_rank_one(self, partner):
+        """`customer_rank` belongs to `account`: assert it wherever it exists."""
+        rank = self._partner_rank(partner)
+        if rank is None:
+            self.assertNotIn("customer_rank", partner._fields)
+            return
+        self.assertEqual(rank, 1)
 
     def _binding_count(self, identification=IDENT):
         return self.env[BINDING].search_count(
@@ -240,7 +257,7 @@ class TestCollectionCustomerResolution(TransactionCase):
         self.assertEqual(result.vat, IDENT)
         self.assertEqual(result.name, "Bound Active Customer")
         self.assertEqual(result.company_id, self.connector.company_id)
-        self.assertEqual(self._partner_rank(result), 1)
+        self._assert_customer_rank_one(result)
         self.assertFalse(result.category_id)
         self.assertFalse(result.ref)
         self.assertEqual(
@@ -276,7 +293,7 @@ class TestCollectionCustomerResolution(TransactionCase):
         result = self._resolve(IDENT)
         self.assertNotEqual(result, digits_only)
         self.assertEqual(result.vat, IDENT)
-        self.assertEqual(self._partner_rank(result), 1)
+        self._assert_customer_rank_one(result)
 
     def test_ambiguous_vat_fails_closed(self):
         """More than one vat match MUST raise the generic error with no writes."""

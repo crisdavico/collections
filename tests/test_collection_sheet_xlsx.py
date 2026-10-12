@@ -19,6 +19,7 @@ from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
+    insert_company_like,
 )
 
 XLSX_MODEL = "collection.sheet.xlsx"
@@ -126,10 +127,14 @@ class TestCollectionSheetXlsx(TransactionCase):
             "amount": amount,
         }
         vals.update(extra)
-        if vals.get("document_type") in (
-            "check",
-            "echeck",
-        ) and "check_number" not in extra:
+        if (
+            vals.get("document_type")
+            in (
+                "check",
+                "echeck",
+            )
+            and "check_number" not in extra
+        ):
             # check_number is mandatory at save for check/echeck
             # (_check_check_number_required); a random default keeps
             # existing fixtures unique enough to dodge
@@ -286,27 +291,7 @@ class TestCollectionSheetXlsx(TransactionCase):
 
     def _create_company(self, name):
         partner = self._create_partner(name)
-        self.env.cr.execute(
-            """
-            INSERT INTO res_company (
-                name, partner_id, currency_id,
-                fiscalyear_last_day, fiscalyear_last_month,
-                account_price_include, cost_method, horizon_days,
-                inventory_period, layout_background, security_lead
-            )
-            SELECT
-                %s, %s, currency_id,
-                fiscalyear_last_day, fiscalyear_last_month,
-                account_price_include, cost_method, horizon_days,
-                inventory_period, layout_background, security_lead
-            FROM res_company
-            WHERE id = %s
-            RETURNING id
-            """,
-            (name, partner.id, self.env.company.id),
-        )
-        company = self.env["res.company"].browse(self.env.cr.fetchone()[0])
-        company.invalidate_recordset()
+        company = insert_company_like(self.env, name, partner.id)
         company._collection_copy_sequences()
         company._collection_enable_all_document_types()
         return company

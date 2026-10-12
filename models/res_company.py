@@ -269,7 +269,13 @@ class ResCompany(models.Model):
 
     @api.private
     def _collection_create_partners(self, vals_list):
-        """Create partners; satisfy account.autopost_bills when the column exists."""
+        """Create partners; honour `account` columns only when they exist.
+
+        `account` is not a dependency. With it loaded, `autopost_bills` is set
+        through the ORM; when its NOT NULL column outlives the field in the
+        registry, the row is inserted by SQL; without it, `customer_rank` is
+        dropped because the field does not exist.
+        """
         Partner = self.env["res.partner"].with_context(
             tracking_disable=True,
             mail_create_nolog=True,
@@ -281,7 +287,13 @@ class ResCompany(models.Model):
                 vals["autopost_bills"] = "ask"
             return Partner.create(vals_list)
         if not self._collection_partner_has_autopost_bills_column():
-            return Partner.create(vals_list)
+            # No `account` in this database. `customer_rank` is one of its
+            # fields and this module does not depend on it, so there is no
+            # rank to set; every other value is a base field.
+            base_vals_list = [dict(vals) for vals in vals_list]
+            for vals in base_vals_list:
+                vals.pop("customer_rank", None)
+            return Partner.create(base_vals_list)
         ids = []
         for vals in vals_list:
             self.env.cr.execute(
