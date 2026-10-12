@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import UserError
 
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
@@ -37,24 +37,24 @@ class CollectionAllocationLookupMixin(models.AbstractModel):
         name="get_collection_allocation",
         description=(
             "Return the open-sheet collection allocation for an Enabled Seller "
-            "customer, or {allocation: null}. Internal users only."
+            "customer, or {allocation: null}. Collections Users only."
         ),
         input_schema=_GET_COLLECTION_ALLOCATION_SCHEMA,
         category="read",
         registry="mcp",
     )
     def get_collection_allocation(
-        self, seller_id: int, customer_identification: str
+        self, seller_id: int | None = None, customer_identification: str | None = None
     ) -> dict:
         """Return the open-sheet allocation payload or allocation null.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when the seller, connector, or open-sheet set is
             invalid.
         """
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can read collection allocations."))
-        seller = self._collection_require_internal_seller(seller_id)
+        self._collection_require_collection_user()
+        seller = self._collection_mcp_seller(seller_id)
         connector = self.env.company._collection_active_connector()
         connector._enabled_bound_external_seller_id(seller.id)
         identification = str(customer_identification or "").strip()

@@ -88,6 +88,18 @@
                             <field name="document_review_enabled" />
                         </setting>
                     </block>
+                    <block title="Agent (MCP)" name="collection_mcp">
+                        <setting
+              string="Trusted seller header"
+              help="HTTP header in which the gateway sends the verified sender phone. Empty means the agent names the seller."
+              id="collection_mcp_trusted_seller_header_setting"
+            >
+                            <field
+                name="collection_mcp_trusted_seller_header"
+                placeholder="X-Sender-Phone"
+              />
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

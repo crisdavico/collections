@@ -24,6 +24,7 @@ from . import test_collection_mcp_customer_debt
 from . import test_collection_mcp_customer_list
 from . import test_collection_mcp_partner_resolve
 from . import test_collection_mcp_seller_deposit
+from . import test_collection_mcp_seller_identity
 from . import test_collection_mcp_seller_lookup
 from . import test_collection_mcp_sheet_close
 from . import test_collection_mcp_sheet_pdf

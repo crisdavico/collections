@@ -37,6 +37,17 @@ class ResConfigSettings(models.TransientModel):
         related="collection_connector_id.seller_binding_ids",
         readonly=True,
     )
+    collection_mcp_trusted_seller_header = fields.Char(
+        string="Trusted seller header",
+        config_parameter="collection.mcp_trusted_seller_header",
+        groups="base.group_system",
+        help=(
+            "HTTP header in which the MCP gateway sends the verified sender "
+            "phone. When set, collection agent tools act only for the enabled "
+            "seller with that phone and refuse any other seller. Leave empty to "
+            "trust the seller the agent names."
+        ),
+    )
 
     def action_import_enabled_sellers(self):
         """Replace Enabled Sellers from the active company connector."""

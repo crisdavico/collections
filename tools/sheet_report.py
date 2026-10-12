@@ -7,7 +7,7 @@ import base64
 import re
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import UserError
 
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
@@ -93,21 +93,21 @@ class CollectionSheetReportMcpMixin(models.AbstractModel):
             "Render the Planilla de Cobranza of a seller's open collection sheet "
             "(or the submitted sheet when none is open) and return it as base64 "
             "({sheet, filename, mimetype, content_base64}), or {sheet: null} "
-            "when the seller has neither. Internal users only."
+            "when the seller has neither. Collections Users only."
         ),
         input_schema=_GET_COLLECTION_SHEET_PDF_SCHEMA,
         category="read",
         registry="mcp",
     )
-    def get_collection_sheet_pdf(self, seller_id: int) -> dict:
+    def get_collection_sheet_pdf(self, seller_id: int | None = None) -> dict:
         """Return the open-sheet Planilla PDF payload or sheet null.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when the seller is invalid or the open-sheet set is.
         """
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can print collection sheets."))
-        seller = self._collection_require_internal_seller(seller_id)
+        self._collection_require_collection_user()
+        seller = self._collection_mcp_seller(seller_id)
         opens = self.env["collection.sheet"]._open_sheets_for_seller(
             seller, self.env.company
         )

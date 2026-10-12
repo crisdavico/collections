@@ -10,7 +10,7 @@ from typing import Any
 from psycopg2.errors import UniqueViolation
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tools import SQL
 
@@ -139,8 +139,8 @@ class CollectionAllocationMixin(models.AbstractModel):
         description=(
             "Create or amend a draft collection allocation for an Enabled "
             "Seller. Persists draft until sheet close. Amend is allowed only "
-            "while draft. Returns {sheet_id, vouchers, allocation}. Internal "
-            "users only."
+            "while draft. Returns {sheet_id, vouchers, allocation}. Collections "
+            "Users only."
         ),
         input_schema=_CREATE_COLLECTION_ALLOCATION_SCHEMA,
         category="write",
@@ -148,16 +148,17 @@ class CollectionAllocationMixin(models.AbstractModel):
     )
     def create_collection_allocation(
         self,
-        seller_id: int,
-        customer_identification: str,
-        request_id: str,
-        payments: list[dict[str, Any]],
-        receipts: list[dict[str, Any]],
+        seller_id: int | None = None,
+        customer_identification: str | None = None,
+        request_id: str | None = None,
+        payments: list[dict[str, Any]] | None = None,
+        receipts: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Validate, persist inline payments, revalidate ERP, then allocate.
 
-        :raise AccessError: when the caller is not an internal user.
+        :raise AccessError: when the caller is not a Collections User, or the
+            trusted seller header does not verify the seller.
         :raise UserError: when input, seller, records, or revalidation fail.
         """
         if kwargs:
@@ -166,8 +167,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                 frozenset(),
                 _("create_collection_allocation"),
             )
-        if not self.env.user.has_group("base.group_user"):
-            raise AccessError(_("Only internal users can create allocations."))
+        self._collection_require_collection_user()
         document_ids, request_key, identification = (
             self._collection_parse_allocation_identity(
                 payments,
@@ -175,7 +175,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                 customer_identification,
             )
         )
-        seller = self._collection_require_internal_seller(seller_id)
+        seller = self._collection_mcp_seller(seller_id)
         replayed = self._collection_allocation_classify_request(
             request_key, document_ids
         )
