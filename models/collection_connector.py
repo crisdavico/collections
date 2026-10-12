@@ -64,7 +64,9 @@ class CollectionConnector(models.Model):
     )
 
     def test_connection(self):
+        """Form button: stays public, so it checks who may manage the connector."""
         self.ensure_one()
+        self._check_connection_test_access()
         self._dispatch("test_connection")
         return {
             "type": "ir.actions.client",
@@ -77,16 +79,29 @@ class CollectionConnector(models.Model):
             },
         }
 
+    @api.private
+    def _check_connection_test_access(self):
+        self.ensure_one()
+        if self.env.su or self.env.user._is_system():
+            return
+        self._check_collection_management_access()
+
+    # The operations below are called server side only (MCP tools, Import and
+    # allocation helpers), never over RPC.
+
+    @api.private
     def list_sellers(self):
         self.ensure_one()
         return self._format_seller_list(self._dispatch("list_sellers"))
 
+    @api.private
     def list_customers(self, seller_id):
         self.ensure_one()
         external_seller_id = self._enabled_bound_external_seller_id(seller_id)
         rows = self._dispatch("list_customers", external_seller_id)
         return self._format_customer_list(rows)
 
+    @api.private
     def get_customer_debt(self, seller_id, customer_identification):
         self.ensure_one()
         identification = self._require_customer_identification(customer_identification)
@@ -96,10 +111,12 @@ class CollectionConnector(models.Model):
         )
         return self._format_customer_debt(payload)
 
+    @api.private
     def create_receipt(self, receipt):
         self.ensure_one()
         return self._dispatch("create_receipt", receipt)
 
+    @api.private
     def resolve_customer_partner(self, seller_id, identification):
         self.ensure_one()
         identification = self._require_customer_identification(identification)

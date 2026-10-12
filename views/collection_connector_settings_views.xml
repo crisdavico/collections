@@ -10,19 +10,26 @@
                     <field name="connector_type" invisible="1" />
                 </group>
                 <group invisible="connector_type != 'sqlite'">
-                    <field name="sqlite_path" />
+                    <field name="sqlite_path" groups="base.group_system" />
                 </group>
                 <group invisible="connector_type != 'bejerman'">
                     <group>
-                        <field name="bejerman_ws_url" />
-                        <field name="bejerman_usuario" />
-                        <field name="bejerman_clave" password="True" />
+                        <field name="bejerman_ws_url" groups="base.group_system" />
+                        <field name="bejerman_usuario" groups="base.group_system" />
+                        <field
+              name="bejerman_clave"
+              password="True"
+              groups="base.group_system"
+            />
                         <field name="bejerman_empresa" />
                         <field name="bejerman_puesto" />
                         <field name="bejerman_sucursal" />
                         <field name="bejerman_timeout" />
-                        <field name="bejerman_allow_insecure" />
-                        <field name="bejerman_ca_bundle" />
+                        <field
+              name="bejerman_allow_insecure"
+              groups="base.group_system"
+            />
+                        <field name="bejerman_ca_bundle" groups="base.group_system" />
                     </group>
                     <group>
                         <field name="bejerman_seller_scenario" />
