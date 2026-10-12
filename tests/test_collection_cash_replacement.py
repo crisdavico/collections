@@ -451,13 +451,15 @@ class TestCollectionCashReplacement(TransactionCase):
             Replacement.search_count([("deposit_voucher_id", "=", deposit.id)]),
             1,
         )
-        deposit.write({"voucher_number": "SD-LATER"})
+        # Money fields of an approved deposit are locked, so the later write
+        # touches a display field only.
+        deposit.write({"attachment_rotation": 90})
         self._validate_collections(deposit)
         self.assertEqual(
             Replacement.search_count([("deposit_voucher_id", "=", deposit.id)]),
             1,
         )
-        self.assertEqual(deposit.voucher_number, "SD-LATER")
+        self.assertEqual(deposit.attachment_rotation, 90)
 
     def test_no_allocations_is_a_no_op(self):
         """A deposit with zero allocations MUST persist without ledger rows."""

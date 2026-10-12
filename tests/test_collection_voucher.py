@@ -1300,8 +1300,13 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(voucher.partner_id, partner_p)
         self.assertEqual(voucher.allocation_id, allocation)
 
-    def test_all_voucher_states_may_change_partner(self):
-        """Any voucher state MUST NOT freeze partner_id on an open sheet."""
+    def test_only_approved_vouchers_freeze_partner(self):
+        """On an open sheet, only an approved voucher MUST freeze partner_id.
+
+        The customer decides whose debt an approved voucher pays, so it is
+        one of the money facts Document Review approved; it used to stay
+        editable in every state.
+        """
         partner_p = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-P")
         partner_q = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-Q")
         partner_r = dummy_customer_partner(self.env, customer="REASSIGN-DECIDED-R")
@@ -1325,8 +1330,9 @@ class TestCollectionVoucher(TransactionCase):
         )
         with privileged("collection_audited_state"):
             collections_done.write({"state": "validated_collections"})
-        collections_done.write({"partner_id": partner_r.id})
-        self.assertEqual(collections_done.partner_id, partner_r)
+        with self.assertRaises(UserError):
+            collections_done.write({"partner_id": partner_r.id})
+        self.assertEqual(collections_done.partner_id, partner_p)
         self.assertEqual(collections_done.state, "validated_collections")
 
     def test_constrain_mismatch_allocation_id_without_partner_refused(self):

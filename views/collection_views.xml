@@ -167,7 +167,10 @@
                     </div>
                     <group>
                         <group>
-                            <field name="partner_id" />
+                            <field
+                name="partner_id"
+                readonly="state == 'validated_collections'"
+              />
                             <field name="company_id" invisible="1" />
                             <field
                 name="seller_id"
@@ -178,7 +181,11 @@
                             <field name="create_date" readonly="1" />
                         </group>
                         <group>
-                            <field name="currency_id" groups="base.group_no_one" />
+                            <field
+                name="currency_id"
+                groups="base.group_no_one"
+                readonly="state == 'validated_collections'"
+              />
                             <field name="reviewed_by" readonly="1" />
                             <field name="reviewed_at" readonly="1" />
                         </group>
@@ -186,22 +193,29 @@
                     <notebook>
                         <page string="Current">
                             <group string="Payment">
-                                <field name="document_type" />
+                                <field
+                  name="document_type"
+                  readonly="state == 'validated_collections'"
+                />
                                 <field name="document_id" />
                                 <field
                   name="amount"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type == 'unsupported'"
                 />
                                 <field
                   name="from_account"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'bank_transfer'"
                 />
                                 <field
                   name="to_account"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'bank_transfer'"
                 />
                                 <field
                   name="to_account_bank_id"
+                  readonly="state == 'validated_collections'"
                   domain="[('partner_id', '=', company_partner_id)]"
                   invisible="document_type not in ('bank_transfer', 'cash_deposit')"
                 />
@@ -212,31 +226,38 @@
                 />
                                 <field
                   name="voucher_number"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'bank_transfer' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="voucher_date"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'bank_transfer' and document_type != 'seller_deposit'"
                 />
                                 <field
                   name="check_number"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'check'"
                   required="document_type in ('check', 'echeck')"
                 />
                                 <field
                   name="check_bank"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'check'"
                 />
                                 <field
                   name="check_type"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'check'"
                 />
                                 <field
                   name="check_issue_date"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'check'"
                 />
                                 <field
                   name="check_payment_date"
+                  readonly="state == 'validated_collections'"
                   invisible="document_type != 'check'"
                 />
                             </group>
