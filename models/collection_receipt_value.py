@@ -17,6 +17,7 @@ class CollectionReceiptValue(models.Model):
     _name = "collection.receipt.value"
     _description = "Collection Receipt Value"
     _order = "id"
+    _check_company_auto = True
 
     receipt_id = fields.Many2one(
         comodel_name="collection.receipt",
@@ -29,6 +30,7 @@ class CollectionReceiptValue(models.Model):
         required=True,
         ondelete="restrict",
         index=True,
+        check_company=True,
     )
     amount = fields.Monetary(
         required=True,
@@ -57,6 +59,12 @@ class CollectionReceiptValue(models.Model):
 
     @api.constrains("voucher_id", "receipt_id")
     def _check_same_allocation(self):
+        """A value MUST use a voucher of the receipt's sheet.
+
+        Same sheet, not same allocation, on purpose: cross-customer splits
+        (the board) and cash replacement (deposits and commissions carry no
+        allocation) put a voucher's money on other allocations' receipts.
+        """
         for value in self:
             if not value.voucher_id or not value.receipt_id:
                 continue

@@ -14,6 +14,7 @@ from . import test_collection_company_settings
 from . import test_collection_company_migration
 from . import test_collection_connector
 from . import test_collection_connector_access
+from . import test_collection_consistency
 from . import test_collection_customer_binding
 from . import test_collection_customer_resolution
 from . import test_collection_document_review

@@ -197,6 +197,8 @@ class CollectionSheet(models.Model):
     def write(self, vals):
         if "seller_id" in vals:
             raise UserError(_("The sheet seller cannot be changed."))
+        if "company_id" in vals:
+            self._ensure_company_unlocked(vals["company_id"])
         if "state" in vals and not is_privileged("collection_sheet_audited_state"):
             target = vals["state"]
             rest = {key: value for key, value in vals.items() if key != "state"}
@@ -235,6 +237,27 @@ class CollectionSheet(models.Model):
                 self.allocation_ids, lambda: super(CollectionSheet, self).write(vals)
             )
         return super().write(vals)
+
+    @api.private
+    def _ensure_company_unlocked(self, company):
+        """Refuse a company change once the sheet has vouchers or allocations.
+
+        Allocations, lines and receipts take the sheet company through stored
+        related fields while vouchers keep their own, so moving the sheet
+        would split one sheet across two companies.
+        """
+        company_id = record_id(company)
+        if any(
+            sheet.company_id.id != company_id
+            and (sheet.voucher_ids or sheet.allocation_ids)
+            for sheet in self
+        ):
+            raise UserError(
+                _(
+                    "The company of a collection sheet with vouchers or "
+                    "allocations cannot be changed."
+                )
+            )
 
     def unlink(self):
         # The ondelete cascade below detaches members and removes draft

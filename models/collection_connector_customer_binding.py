@@ -10,6 +10,7 @@ class CollectionConnectorCustomerBinding(models.Model):
     _name = "collection.connector.customer.binding"
     _description = "Collection Connector Customer Binding"
     _order = "connector_id, external_customer_id"
+    _check_company_auto = True
 
     connector_id = fields.Many2one(
         comodel_name="collection.connector",
