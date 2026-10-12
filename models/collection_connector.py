@@ -44,10 +44,19 @@ def _format_amount(value):
 
 
 def as_of_to_utc(value):
-    """Naive UTC datetime of an ``as_of`` ISO string (False when empty)."""
+    """Naive UTC datetime of an ``as_of`` (False when empty).
+
+    ``value`` is a datetime or an ISO 8601 string (``T`` or space, any
+    fraction, ``Z`` or an offset). Without an offset it is already UTC.
+    """
     if not value:
         return False
-    stamp = datetime.fromisoformat(value)
+    if isinstance(value, str):
+        stamp = datetime.fromisoformat(value)
+    elif isinstance(value, datetime):
+        stamp = value
+    else:
+        stamp = fields.Datetime.to_datetime(value)
     if stamp.tzinfo:
         stamp = stamp.astimezone(pytz.utc).replace(tzinfo=None)
     return stamp
@@ -426,14 +435,13 @@ class CollectionConnector(models.Model):
     def _collection_as_of(self, value):
         """ISO 8601 time, in the company timezone, the figures were read at.
 
-        ``value`` is the adapter's naive UTC time of its copy of the ERP (a
-        snapshot refresh). An adapter that reads the ERP live gives none, so
-        the read time stands.
+        ``value`` is the adapter's time of its copy of the ERP (a snapshot
+        refresh), in any form ``as_of_to_utc`` reads; without an offset it is
+        UTC. An adapter that reads the ERP live gives none, so the read time
+        stands.
         """
         self.ensure_one()
-        stamp = fields.Datetime.to_datetime(value) if value else None
-        if not stamp:
-            stamp = fields.Datetime.now()
+        stamp = as_of_to_utc(value) or fields.Datetime.now()
         tz = company_timezone(self.company_id, self.env.user)
         local = pytz.utc.localize(stamp.replace(microsecond=0)).astimezone(tz)
         return local.isoformat()

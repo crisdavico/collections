@@ -1,7 +1,8 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from odoo import fields
 from odoo.exceptions import UserError
@@ -9,6 +10,7 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 
 from odoo.addons.collection.models.collection_common import ConnectorDataStaleError
+from odoo.addons.collection.models.collection_connector import company_timezone
 
 from .common_connector import (
     TEST_STALE_MESSAGE,
@@ -67,6 +69,53 @@ class TestCollectionDebtFreshness(TransactionCase):
         connector = self.connector.with_context(collection_test_as_of=_AS_OF)
         debt = connector.get_customer_debt(self.seller.id, _IDENT)
         self.assertEqual(debt["as_of"], "2026-10-01T09:00:00-03:00")
+
+    def test_payload_reads_every_adapter_time_format(self):
+        """An adapter's time means one instant whatever form it takes: a naive
+        UTC datetime or string (space or ``T``), or one that carries its own
+        offset."""
+        buenos_aires = timezone(timedelta(hours=-3))
+        forms = (
+            _AS_OF,
+            "2026-10-01 12:00:00",
+            "2026-10-01T12:00:00",
+            "2026-10-01T12:00:00.250000",
+            "2026-10-01T12:00:00Z",
+            "2026-10-01T09:00:00-03:00",
+            _AS_OF.replace(tzinfo=timezone.utc),
+            datetime(2026, 10, 1, 9, 0, 0, tzinfo=buenos_aires),
+        )
+        for as_of in forms:
+            with self.subTest(as_of=as_of):
+                connector = self.connector.with_context(collection_test_as_of=as_of)
+                debt = connector.get_customer_debt(self.seller.id, _IDENT)
+                self.assertEqual(debt["as_of"], "2026-10-01T09:00:00-03:00")
+
+    def test_company_timezone_falls_back_to_the_user_then_utc(self):
+        """An unset or unknown company zone never breaks a debt read.
+
+        A zone name the installed tz database no longer knows (renamed or
+        removed upstream) is read as UTC instead of raising.
+        """
+
+        def zone(company_tz, user_tz):
+            company = SimpleNamespace(partner_id=SimpleNamespace(tz=company_tz))
+            return company_timezone(company, SimpleNamespace(tz=user_tz)).zone
+
+        cases = (
+            (
+                "America/Argentina/Buenos_Aires",
+                "Europe/Madrid",
+                "America/Argentina/Buenos_Aires",
+            ),
+            (False, "Europe/Madrid", "Europe/Madrid"),
+            (False, False, "UTC"),
+            ("Mars/Olympus_Mons", "Europe/Madrid", "UTC"),
+            (False, "Mars/Olympus_Mons", "UTC"),
+        )
+        for company_tz, user_tz, expected in cases:
+            with self.subTest(company_tz=company_tz, user_tz=user_tz):
+                self.assertEqual(zone(company_tz, user_tz), expected)
 
     def test_payload_of_a_live_adapter_is_stamped_at_read_time(self):
         """No adapter time means the figures are live: the read time stands."""
