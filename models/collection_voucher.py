@@ -18,6 +18,7 @@ from .collection_common import (
     CASH_REPLACEMENT_TYPES,
     CHECK_TYPE_SELECTION,
     COLLECTION_USER_GROUP,
+    CONFIRM_REVIEW_EXEMPT_TYPES,
     DOCUMENT_TYPE_SELECTION,
     FROZEN_SHEET_STATES,
     RETENTION_KIND_SELECTION,
@@ -480,6 +481,14 @@ class CollectionVoucher(models.Model):
                 return all(rec.write(vals) for rec in self)
             new_id = record_id(vals.get("message_main_attachment_id"))
             self._validate_main_attachment_id(new_id)
+            self._ensure_proof_change_allowed(new_id)
+            if self.state == "validated_collections" and (
+                self._proof_change_reopens_review(new_id)
+            ):
+                # The replacement belongs to the approval being undone. Give
+                # the cash back before the state leaves validated_collections
+                # and before an amount in the same write drops under it.
+                self._reverse_cash_replacement()
             vals = self._vals_with_review_reset_on_new_attachment(vals)
         intercepted = self._intercept_state_write(vals)
         if intercepted is not None:
@@ -638,15 +647,21 @@ class CollectionVoucher(models.Model):
         from this voucher's value back to the cash voucher through
         ``_cash_reverse``, which writes the reverse rows. A slice goes back on
         the receipt it was taken from first; what the board moved elsewhere
-        comes back from any receipt this voucher still funds. Issued receipts
-        are never touched. Afterwards ``replaced_amount`` of the cash nets to
-        zero for what could be given back, and a later approval replaces again
-        from scratch.
+        comes back from any receipt this voucher still funds. Money the board
+        returned to the unassigned pool sits on no receipt, so no value can
+        move: its share is reversed in the ledger alone and the cash voucher
+        holds it as free money instead. Issued receipts are never touched.
+        Afterwards ``replaced_amount`` of the cash nets to zero for what could
+        be given back, and a later approval replaces again from scratch.
         """
         self.ensure_one()
         if self.document_type not in CASH_REPLACEMENT_TYPES:
             return
         currency = self.currency_id
+        # Read before any slice moves: what this voucher holds on no receipt.
+        unplaced = currency.round(
+            (self.amount or 0.0) - sum(self.receipt_value_ids.mapped("amount"))
+        )
         rows = self.env["collection.cash.replacement"].search(
             [("deposit_voucher_id", "=", self.id)], order="id"
         )
@@ -656,6 +671,7 @@ class CollectionVoucher(models.Model):
             key = (row.receipt_id, row.cash_voucher_id)
             owed[key] = owed.get(key, 0.0) + sign * (row.amount or 0.0)
         pending = {}
+        origin = {}
         for (receipt, cash), net in owed.items():
             net = currency.round(net)
             if currency.compare_amounts(net, 0.0) <= 0:
@@ -663,12 +679,34 @@ class CollectionVoucher(models.Model):
             left = currency.round(net - self._reverse_cash_onto(receipt, cash, net))
             if currency.compare_amounts(left, 0.0) > 0:
                 pending[cash] = currency.round(pending.get(cash, 0.0) + left)
+                origin.setdefault(cash, receipt)
         for cash, left in pending.items():
             for value in self.receipt_value_ids.sorted("id"):
                 if currency.compare_amounts(left, 0.0) <= 0:
                     break
                 moved = self._reverse_cash_onto(value.receipt_id, cash, left)
                 left = currency.round(left - moved)
+            unreturned = currency.round(min(left, unplaced))
+            if currency.compare_amounts(unreturned, 0.0) > 0:
+                self._reverse_unplaced_cash(origin[cash], cash, unreturned)
+                unplaced = currency.round(unplaced - unreturned)
+
+    @api.private
+    def _reverse_unplaced_cash(self, receipt, cash, amount):
+        """Ledger-only reverse row for a share the board left in the pool."""
+        self.ensure_one()
+        with privileged("collection_cash_replacement"):
+            return self.env["collection.cash.replacement"].create(
+                {
+                    "receipt_id": receipt.id,
+                    "cash_voucher_id": cash.id,
+                    "deposit_voucher_id": self.id,
+                    "amount": amount,
+                    "direction": "reverse",
+                    "created_by": self.env.user.id,
+                    "created_at": fields.Datetime.now(),
+                }
+            )
 
     @api.private
     def _reverse_cash_onto(self, receipt, cash, amount):
@@ -797,7 +835,7 @@ class CollectionVoucher(models.Model):
             if voucher.state != "validated_collections":
                 continue
             old_proof = voucher.message_main_attachment_id.id
-            if touches_proof and old_proof and new_proof and new_proof != old_proof:
+            if touches_proof and voucher._proof_change_reopens_review(new_proof):
                 continue
             if touches_proof and old_proof and not new_proof:
                 raise UserError(
@@ -1434,11 +1472,78 @@ class CollectionVoucher(models.Model):
             return vals
         vals = dict(vals)
         vals["attachment_rotation"] = 0
-        if old_id and new_id:
+        if self._proof_change_reopens_review(new_id):
             vals["state"] = "validated_seller"
             vals["reviewed_by"] = False
             vals["reviewed_at"] = False
         return vals
+
+    @api.private
+    def _proof_change_reopens_review(self, new_proof):
+        """Whether designating ``new_proof`` sends the voucher back to review.
+
+        Replacing a proof always does. So does a first proof on a reviewed
+        voucher of a reviewed type: it lacks one only because its approved
+        proof was deleted, and nobody reviewed the new file. Cash and
+        commission vouchers carry no proof to review (Confirm exempts them),
+        so no file on them -- first or replacement -- reopens anything:
+        reopening a commission gave back the cash it replaced, and nothing
+        ever replaced it again.
+        """
+        self.ensure_one()
+        old_proof = self.message_main_attachment_id.id or False
+        if not new_proof or new_proof == old_proof:
+            return False
+        if self.document_type in CONFIRM_REVIEW_EXEMPT_TYPES:
+            return False
+        if old_proof:
+            return True
+        return self.state == "validated_collections"
+
+    @api.private
+    def _ensure_proof_change_allowed(self, new_proof):
+        """Refuse a designated-proof change the sheet can no longer take.
+
+        On a closed or cancelled sheet the proof stays as it is: replacing or
+        clearing it would reopen review, or drop the evidence, of a frozen
+        voucher. A first proof that reopens nothing still posts there, so the
+        chatter keeps working. Past submitted, a reviewed voucher cannot go
+        back to Document Review either: review only runs on open and
+        submitted sheets, so it could never be approved again. For the same
+        reason its approved proof cannot be deleted there: no new file could
+        be reviewed, so the voucher would stay approved with no evidence.
+        """
+        self.ensure_one()
+        old_proof = self.message_main_attachment_id.id or False
+        if old_proof == (new_proof or False):
+            return
+        reopens = self._proof_change_reopens_review(new_proof)
+        sheet = self.sheet_id
+        if sheet.state in FROZEN_SHEET_STATES and (old_proof or reopens):
+            raise UserError(
+                _(
+                    "The designated proof of a voucher on a closed or cancelled "
+                    "collection sheet cannot change."
+                )
+            )
+        if self.state != "validated_collections" or not self._sheet_is_frozen(sheet):
+            return
+        if reopens:
+            raise UserError(
+                _(
+                    "A validated voucher cannot go back to Document Review "
+                    "once its collection sheet is past Submitted. Cancel and "
+                    "reinstate the sheet first."
+                )
+            )
+        if not new_proof and self.document_type not in CONFIRM_REVIEW_EXEMPT_TYPES:
+            raise UserError(
+                _(
+                    "A validated voucher keeps its designated proof once its "
+                    "collection sheet is past Submitted: a new one could not be "
+                    "reviewed. Cancel and reinstate the sheet first."
+                )
+            )
 
     @api.private
     def _normalize_attachment_rotation(self, degrees):
