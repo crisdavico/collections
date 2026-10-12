@@ -161,6 +161,27 @@ class TestCollectionCommissionResync(TransactionCase):
         self.assertEqual(self.receipt.total_values + moved.total_values, 400.0)
         self.assertEqual(other.total_vouchers, 100.0)
 
+    def test_share_returned_to_the_pool_is_given_back_too(self):
+        """The board returned part of the commission to the unassigned pool.
+
+        That share is on no receipt, so the reversal records it without moving
+        a value: cash keeps it as free money and the new amount replaces cash
+        only once.
+        """
+        self.sheet.action_declare_cash(commission_withheld=300.0)
+        self.sheet.action_confirm()
+        commission = self._commission()
+        commission.receipt_value_ids.amount = 100.0
+        self.sheet.action_cancel()
+        self.sheet.action_reinstate()
+        self.sheet.action_declare_cash(commission_withheld=50.0)
+        self.assertEqual(commission.amount, 50.0)
+        self.assertEqual(self._value_of(commission), 50.0)
+        self.assertEqual(self.cash.replaced_amount, 50.0)
+        self.assertEqual(self._value_of(self.cash), 150.0)
+        self.assertEqual(self.receipt.total_values, 200.0)
+        self.assertEqual(self.sheet.cash_on_hand, 350.0)
+
     def test_commission_above_replaceable_cash_is_refused(self):
         commission = self._confirmed_then_reinstated(300.0)
         with self.assertRaises(UserError):

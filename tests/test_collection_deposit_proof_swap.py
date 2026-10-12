@@ -214,3 +214,69 @@ class TestCollectionDepositProofSwap(TransactionCase):
         post_voucher_proof(self.cash, "cash.png", PNG_B64)
         self.assertTrue(self.cash.message_main_attachment_id)
         self.assertEqual(self.cash.state, "validated_seller")
+
+    def test_a_share_left_in_the_pool_is_given_back_too(self):
+        """The board returned part of the deposit to the unassigned pool.
+
+        That part is on no receipt, so no value can move back to cash; the
+        reversal still gives it back in the ledger, or approving again would
+        replace more cash than the deposit holds.
+        """
+        self._approve(self.deposit)
+        self.deposit.receipt_value_ids.amount = 40.0
+        self.deposit.write(
+            {"message_main_attachment_id": self._new_proof(self.deposit).id}
+        )
+        self.assertEqual(self.cash.replaced_amount, 0.0)
+        self.assertEqual(self._held(self.cash), 80.0)
+        self._approve(self.deposit)
+        self.assertEqual(self.cash.replaced_amount, 60.0)
+        self.assertEqual(self._held(self.deposit), 60.0)
+        self.assertEqual(self._held(self.cash), 20.0)
+
+    def test_approved_proof_cannot_be_deleted_in_proposal(self):
+        """Deleting it would leave an approved voucher with no evidence.
+
+        Past submitted no new proof can be reviewed, so the delete half of
+        delete-then-upload is refused as the swap is.
+        """
+        self._approve(self.deposit)
+        self.sheet.action_declare_cash(commission_withheld=0.0)
+        self.sheet.action_confirm()
+        proof = self.deposit.message_main_attachment_id
+        with self.assertRaises(UserError):
+            proof.unlink()
+        self.assertTrue(proof.exists())
+        self.assertEqual(self.deposit.message_main_attachment_id, proof)
+        self.assertEqual(self.deposit.state, "validated_collections")
+        self._assert_replaced(60.0)
+
+    def test_a_commission_proof_swap_keeps_its_replacement(self):
+        """A commission has no proof to review, so a new file reopens nothing.
+
+        Reopening it gave the replaced cash back, and nothing replaced it
+        again: Confirm only re-syncs an amount that changed, and a commission
+        needs no review to pass Confirm.
+        """
+        catalog = self.env.ref("collection.document_type_seller_commission")
+        self.env.company.write(
+            {"allowed_document_type_ids": [Command.link(catalog.id)]}
+        )
+        self._approve(self.deposit)
+        self.sheet.action_declare_cash(commission_withheld=30.0)
+        self.sheet.action_confirm()
+        commission = self.sheet.voucher_ids.filtered(
+            lambda voucher: voucher.document_type == "seller_commission"
+        )
+        self.sheet.action_cancel()
+        self.sheet.action_reinstate()
+        self.assertEqual(self._held(commission), 30.0)
+        self.assertEqual(self.cash.replaced_amount, 90.0)
+        post_voucher_proof(commission, "commission.png", PNG_B64)
+        commission.write({"message_main_attachment_id": self._new_proof(commission).id})
+        self.assertEqual(commission.state, "validated_collections")
+        self.assertEqual(self._held(commission), 30.0)
+        self.assertEqual(self.cash.replaced_amount, 90.0)
+        self.sheet.action_declare_cash(commission_withheld=30.0)
+        self.sheet.action_confirm()
+        self.assertEqual(self.cash.replaced_amount, 90.0)
