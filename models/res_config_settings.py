@@ -2,7 +2,6 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import fields, models
-from odoo.tools.translate import _
 
 
 class ResConfigSettings(models.TransientModel):
@@ -50,18 +49,11 @@ class ResConfigSettings(models.TransientModel):
     )
 
     def action_import_enabled_sellers(self):
-        """Replace Enabled Sellers from the active company connector."""
+        """Enable the active company connector's sellers (never disables)."""
         self.ensure_one()
-        self.company_id._sync_enabled_sellers_from_connector()
+        company = self.company_id
+        result = company._sync_enabled_sellers_from_connector()
         self.invalidate_recordset(["enabled_seller_ids"])
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "type": "success",
-                "title": _("Sellers imported"),
-                "message": _("Enabled sellers were replaced from the connector."),
-                "sticky": False,
-                "next": {"type": "ir.actions.client", "tag": "reload"},
-            },
-        }
+        action = company._collection_seller_import_notification(result)
+        action["params"]["next"] = {"type": "ir.actions.client", "tag": "reload"}
+        return action

@@ -331,7 +331,11 @@ class TestCollectionManager(TransactionCase):
             type(connector), "list_sellers", return_value={"sellers": rows}
         ):
             self._settings().action_import_enabled_sellers()
-        seller = self.company.enabled_seller_ids
+        # T28: Import adds sellers; it no longer replaces the enabled list.
+        seller = connector.seller_binding_ids.filtered(
+            lambda binding: binding.external_seller_id == "manager-source"
+        ).user_id
+        self.assertIn(seller, self.company.enabled_seller_ids)
         self.assertNotEqual(seller, unrelated)
         self.assertEqual(seller.company_ids, self.company)
         self.assertEqual(unrelated.company_ids, self.other)

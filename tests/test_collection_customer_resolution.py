@@ -291,13 +291,17 @@ class TestCollectionCustomerResolution(TransactionCase):
         self.assertNotIn("sudo()", resolve_source)
         self.assertNotIn(".sudo(", resolve_source)
 
-    def test_no_cuit_normalize_creates_when_digits_differ(self):
-        """VAT matching MUST use the exact stripped string, not CUIT normalize."""
+    def test_cuit_digits_match_whatever_the_stored_format(self):
+        """VAT matching MUST compare CUIT digits, not the exact string.
+
+        T28: this database stores both 20-11111111-1 and 20111111111, so the
+        exact match created a duplicate customer for every digits-only VAT.
+        """
         digits_only = self._create_partner("Digits Vat", vat="20111111111")
+        before = self.env["res.partner"].search_count([])
         result = self._resolve(IDENT)
-        self.assertNotEqual(result, digits_only)
-        self.assertEqual(result.vat, IDENT)
-        self._assert_customer_rank_one(result)
+        self.assertEqual(result, digits_only)
+        self.assertEqual(self.env["res.partner"].search_count([]), before)
 
     def test_ambiguous_vat_fails_closed(self):
         """More than one vat match MUST raise the generic error with no writes."""
@@ -369,14 +373,17 @@ class TestCollectionCustomerResolution(TransactionCase):
         self.assertEqual(result, winner_binding.partner_id)
         self.assertEqual(self._binding_count(), 1)
 
-    def test_unique_violation_without_winner_reraises(self):
-        """Missing binding after UniqueViolation MUST re-raise, not document_id."""
+    def test_unique_violation_without_winner_is_the_generic_error(self):
+        """Missing binding after UniqueViolation MUST raise the generic error.
+
+        T28: the raw database error used to escape; it now becomes the module's
+        generic "not available" UserError.
+        """
         BindingModel = type(self.env[BINDING])
 
         def create_wrapper(this, vals_list):
             raise UniqueViolation()
 
         with patch.object(BindingModel, "create", create_wrapper):
-            with self.assertRaises(UniqueViolation):
-                self._resolve(IDENT)
+            self._assert_unavailable(lambda: self._resolve(IDENT))
         self.assertEqual(self._binding_count(), 0)
