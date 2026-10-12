@@ -104,36 +104,45 @@ create.
 - WHEN NEW voucher create is attempted for that seller
 - THEN `_assert_new_work` MUST reject create while the list still includes them
 
-### Requirement: Import replaces Enabled Sellers
+### Requirement: Import enables connector sellers
 
-Administrators MUST be able to Import sellers from the company's active connector into
-Collection Settings. Import MUST call `list_sellers()` (MUST NOT add a new dispatcher
-op). For each _active_ connector seller, the system MUST reuse an existing binding, else
-reuse a unique internal user with the same normalized AR phone, else create an internal
-user (name + phone, `no_reset_password`, `base.group_user`, login
-`collection.{company_id}.{external_seller_id}`). The system MUST upsert
+Administrators (Collection Settings) and Collections Managers (Company Collection
+Settings, scoped to their company) MUST be able to Import sellers from the company's
+active connector; both MUST share one implementation,
+`res.company._sync_enabled_sellers_from_connector`. Import MUST call `list_sellers()`
+(MUST NOT add a new dispatcher op). An empty answer MUST raise `UserError` and change
+nothing. For each _active_ connector seller, the system MUST reuse an existing binding
+(refused with `UserError` when its user does not belong to this company), else reuse a
+unique internal user of this company with the same normalized AR phone, else create an
+internal user in this company (name + phone, `no_reset_password`, `base.group_user`,
+login `collection.{company_id}.{external_seller_id}`). The system MUST upsert
 `collection.connector.seller.binding` (`external_seller_id` 1:1 `user_id` per connector)
-and MUST set `company_ids` to include this company. Import MUST persist
+and MUST NOT give any existing user access to another company. Import MUST persist
 `commission_percent` on `collection.connector.seller.binding`. A later Import MUST
 overwrite the stored rate without creating a new user. Rate `0.0` is valid. An invalid
 rate (`<0`, `>100`, or non-numeric) MUST raise `UserError` BEFORE any write, leaving
-bindings and `enabled_seller_ids` unchanged. After a successful fetch,
-`enabled_seller_ids` MUST be replaced (`Command.set`) with the imported users. Manual
-extras MUST drop unless they appear in the source. Inactive external rows MUST be
-omitted (same as `list_sellers()`). Users and old bindings MUST NOT be deleted when they
-fall off the list. The Import button MUST be `base.group_system`, next to Enabled
-Sellers, and MUST be invisible without a connector. Calls MUST NOT `sudo()`.
-(Previously: upsert did not persist or overwrite `commission_percent`; invalid rates
-were not a fail-closed Import case.)
+bindings and `enabled_seller_ids` unchanged. After a successful fetch, the imported
+users MUST be added to `enabled_seller_ids` (`Command.link`). Enabled sellers missing
+from the source MUST stay enabled and MUST be listed in a warning notification for a
+manager to disable explicitly. Inactive external rows MUST be omitted (same as
+`list_sellers()`). Users and old bindings MUST NOT be deleted when they fall off the
+list. The settings Import button MUST be `base.group_system`, next to Enabled Sellers,
+and MUST be invisible without a connector. Calls MUST NOT `sudo()` (the manager wizard
+runs the import elevated, scoped to the checked company). (Previously: a successful
+fetch replaced `enabled_seller_ids` (`Command.set`), so a partial answer disabled
+sellers; the admin path also linked the company to matched users. Before that: upsert
+did not persist or overwrite `commission_percent`; invalid rates were not a fail-closed
+Import case.)
 
-#### Scenario: Create match and bind then replace all
+#### Scenario: Create match and bind, keep extras
 
 - GIVEN an active connector with two active sellers (one unbound, one whose phone
   matches an existing internal user) and one inactive external seller, and a manual
   extra on Enabled Sellers
 - WHEN an administrator runs Import
 - THEN the system MUST create or reuse users, upsert bindings, omit the inactive row,
-  and replace Enabled Sellers with exactly the imported users
+  and add the imported users to Enabled Sellers
+- AND the manual extra MUST stay enabled and be named in a warning
 
 #### Scenario: Binding reuse on re-import
 
@@ -143,8 +152,9 @@ were not a fail-closed Import case.)
 
 #### Scenario: Fail closed leaves the list unchanged
 
-- GIVEN no connector, or an inactive or misconfigured one, or a source with duplicate
-  phones, or two source ids that resolve to the same user
+- GIVEN no connector, or an inactive or misconfigured one, an empty seller list, a
+  source with duplicate phones, two source ids that resolve to the same user, or a
+  binding to another company's user
 - WHEN Import runs
 - THEN the system MUST raise `UserError` and MUST NOT change `enabled_seller_ids` or
   create a partial user/binding set
@@ -190,9 +200,10 @@ global customer rule, without stating the payload stays without `partner_id`.)
   `muk_mcp.tool` row
 - AND `list_collection_sellers` MUST still be absent
 
-### Requirement: Internal caller and Enabled Seller
+### Requirement: Collections User caller and Enabled Seller
 
-Portal and public callers MUST receive `AccessError`. Internal callers MUST be allowed.
+Callers without Collections User (portal, public, plain internal) MUST receive
+`AccessError`. Collections Users MUST be allowed.
 `seller_id` MUST be an Enabled Seller on `env.company.enabled_seller_ids`. A missing
 seller binding on the active connector MUST raise `UserError`. Failures MUST use generic
 messages with no path, SQL, or secrets.
@@ -205,8 +216,8 @@ messages with no path, SQL, or secrets.
 
 #### Scenario: Non-enabled or unbound seller rejected
 
-- GIVEN an internal caller and a seller that is not on the current company's enabled
-  list, or that has no binding on the active connector
+- GIVEN a Collections User caller and a seller that is not on the current company's
+  enabled list, or that has no binding on the active connector
 - WHEN `list_collection_customers` runs with that `seller_id`
 - THEN the system MUST raise `UserError` and MUST NOT return customers
 
@@ -259,11 +270,15 @@ The system MUST expose `customer_debt` via `@mcp_tool` on `muk_mcp.mixin`
 (`category=read`, `registry=mcp`), method-discovered; MUST NOT add a DB `muk_mcp.tool`
 record. Input MUST require integer `seller_id` and non-empty string
 `customer_identification`. Calls MUST use the authenticated user and MUST NOT `sudo()`.
-Success MUST return `{customer, summary, invoices}` with no `source` and no
-`partner_id`. Invoice row keys MUST follow Normalized customer debt output (including
+Success MUST return `{customer, summary, invoices, as_of}` with no `source` and no
+`partner_id`; `as_of` is when the connector's copy of the ERP debt was taken (snapshot
+refresh time, or read time for a live adapter), ISO 8601 in the company timezone.
+Invoice row keys MUST follow Normalized customer debt output (including
 `document_kind`). The tool MUST NOT create `res.partner` records or customer bindings.
-Top-level keys MUST remain `{customer, summary, invoices}`. (Previously: Payload keys
-and values MUST remain byte-identical to the prior contract.)
+A connector whose copy is too old MUST raise `ConnectorDataStaleError` (a `UserError`)
+instead of answering. Top-level keys MUST remain `{customer, summary, invoices, as_of}`.
+(Previously: `{customer, summary, invoices}` only; payload keys and values were
+byte-identical to the prior contract.)
 
 #### Scenario: Registered read tool
 
@@ -273,9 +288,10 @@ and values MUST remain byte-identical to the prior contract.)
   row
 - AND `list_collection_sellers` MUST still be absent
 
-### Requirement: Internal caller and Enabled Seller for customer_debt
+### Requirement: Collections User caller and Enabled Seller for customer_debt
 
-Portal and public callers MUST receive `AccessError`. Internal callers MUST be allowed.
+Callers without Collections User (portal, public, plain internal) MUST receive
+`AccessError`. Collections Users MUST be allowed.
 `seller_id` MUST be an Enabled Seller on `env.company.enabled_seller_ids`. A missing
 seller binding on the active connector MUST raise `UserError`. Empty
 `customer_identification` MUST raise `UserError`. Failures MUST use generic messages
@@ -289,8 +305,8 @@ with no path, SQL, or secrets.
 
 #### Scenario: Non-enabled or unbound seller rejected
 
-- GIVEN an internal caller and a seller that is not on the current company's enabled
-  list, or that has no binding on the active connector
+- GIVEN a Collections User caller and a seller that is not on the current company's
+  enabled list, or that has no binding on the active connector
 - WHEN `customer_debt` runs with that `seller_id`
 - THEN the system MUST raise `UserError` and MUST NOT return debt
 
@@ -329,8 +345,11 @@ normalize fields, compute summary totals, and attach connector source metadata.
 ### Requirement: Normalized customer debt output
 
 Success MUST return `customer` with `external_customer_id`, `name`, `identification`,
-and `customer_code`; `summary` with `total_balance`, `overdue_balance`, `open_balance`,
-and outstanding `invoice_count`; `invoices` with `external_invoice_id`, `number`,
+and `customer_code`; `summary` with `gross_total` (open invoices), `credit_total` (open
+credit notes and advances the adapter reports, always positive), `net_total`, NET
+`total_balance` (`gross_total − credit_total`; negative when credits exceed invoices),
+`overdue_balance`, `open_balance`, and outstanding `invoice_count`; `invoices` with
+`external_invoice_id`, `number`,
 `issue_date`, `due_date`, `amount`, `balance`, `state`, and `document_kind` (MUST
 default `invoice` when the adapter omits it). Existing invoice keys MUST remain.
 Quotations MAY appear as outstanding debt rows with `document_kind` `quotation`.
@@ -550,20 +569,24 @@ identification, then apply the Enabled Seller plus active-connector seller-bindi
 BEFORE any customer-binding lookup or adapter call. A binding hit on
 `(connector_id, identification)` MUST return that `partner_id` with no adapter call. A
 miss MUST dispatch `list_customers` and keep exactly one active row for that
-identification. VAT matching MUST use the exact stripped string (MUST NOT normalize
-CUIT): one `res.partner.vat` match MUST bind that partner and MUST NOT create a new
-partner; zero matches MUST create a partner (`vat` equals identification, `name` from
-the ERP row, `company_id` from the connector, `customer_rank` 1, no extra tag) and a
-binding; more than one match MUST raise the generic `UserError`. Unknown, inactive, or
+identification. VAT matching MUST compare CUIT digits (dashed, digits-only, and
+`AR`-prefixed forms match) among commercial partners only (no `parent_id`): one match
+MUST bind that partner and MUST NOT create a new partner; zero matches MUST create a
+partner (`vat` equals identification, `name` from the ERP row, `company_id` from the
+connector, `customer_rank` 1 when `account` is installed, no extra tag) and a binding;
+more than one match MUST raise the generic `UserError`. Unknown, inactive, or
 other-seller identifications MUST raise the same generic `UserError`
 (`The requested customer is not available.`) with no partner or binding writes.
 Concurrent first-sighting UniqueViolation MUST converge on one partner and MUST NOT be
-reported as a payment `document_id` conflict. Calls MUST NOT `sudo()`.
+reported as a payment `document_id` conflict; a UniqueViolation on another binding
+constraint MUST raise the generic `UserError`, never the raw database error. Collections
+Users MAY create the partner (create-only contact rights). Calls MUST NOT `sudo()`.
+(Previously: VAT matched the exact stripped string.)
 
 #### Scenario: Enabled Seller gate before lookup
 
-- GIVEN an internal caller and a seller that is not enabled or not bound on the active
-  connector
+- GIVEN a Collections User caller and a seller that is not enabled or not bound on the
+  active connector
 - WHEN `resolve_customer_partner` runs
 - THEN the system MUST raise `UserError` before binding lookup or adapter dispatch
 - AND MUST NOT create a partner or binding
@@ -577,23 +600,24 @@ reported as a payment `document_id` conflict. Calls MUST NOT `sudo()`.
 
 #### Scenario: Unique vat binds existing partner
 
-- GIVEN no binding for I, exactly one active ERP row for I, and exactly one partner
-  whose `vat` equals I
+- GIVEN no binding for I, exactly one active ERP row for I, and exactly one commercial
+  partner whose `vat` digits equal I's
 - WHEN `resolve_customer_partner` runs
 - THEN it MUST bind that partner and MUST NOT create a new partner
 
 #### Scenario: No vat match creates partner
 
-- GIVEN no binding for I, exactly one active ERP row for I, and no partner whose `vat`
-  equals I
+- GIVEN no binding for I, exactly one active ERP row for I, and no commercial partner
+  whose `vat` digits equal I's
 - WHEN `resolve_customer_partner` runs
 - THEN it MUST create a partner with `vat` I, ERP name, connector company,
-  `customer_rank` 1, and no extra tag
+  `customer_rank` 1 when `account` is installed, and no extra tag
 - AND MUST create a binding for that partner
 
 #### Scenario: Ambiguous vat fails closed
 
-- GIVEN no binding for I and more than one partner whose `vat` equals I
+- GIVEN no binding for I and more than one commercial partner whose `vat` digits equal
+  I's
 - WHEN `resolve_customer_partner` runs
 - THEN the system MUST raise `UserError` `The requested customer is not available.`
 - AND MUST NOT create a partner or binding
@@ -614,15 +638,15 @@ reported as a payment `document_id` conflict. Calls MUST NOT `sudo()`.
 
 ### Requirement: Customer binding ACL
 
-Internal users (`base.group_user`) MUST have read and create on
-`collection.connector.customer.binding` and MUST NOT write or unlink (`1,0,1,0`).
-`base.group_system` MUST have full CRUD. Allowed-company `ir.rule`
-`[('company_id', 'in', company_ids)]` MUST hide other-company bindings. Dedicated groups
-MUST NOT be added. Calls MUST NOT `sudo()`.
+Collections Users (`collection.group_collection_user`) MUST have read and create on
+`collection.connector.customer.binding` and MUST NOT write or unlink (`1,0,1,0`); plain
+internal users get no access. `base.group_system` and Collections Managers MUST have
+full CRUD. Allowed-company `ir.rule` `[('company_id', 'in', company_ids)]` MUST hide
+other-company bindings. Calls MUST NOT `sudo()`.
 
 #### Scenario: User can create not mutate
 
-- GIVEN an authenticated internal user
+- GIVEN an authenticated Collections User
 - WHEN they create a customer binding of an allowed company
 - THEN ACL MUST allow create
 - AND write or unlink MUST be denied
@@ -749,3 +773,39 @@ persist a receipts table). Missing, unreadable, or misconfigured sqlite MUST rai
 - WHEN `create_receipt` is dispatched
 - THEN MUST raise `UserError` with no path or SQL
 - AND MUST NOT write a sqlite file
+
+### Requirement: Connector RPC surface and credentials
+
+`list_sellers`, `list_customers`, `get_customer_debt`, `resolve_customer_partner`, and
+`create_receipt` MUST be `@api.private` (server-side callers only: MCP tools, Import,
+allocation helpers). `test_connection` MUST stay public for the form button and MUST
+check server-side that the caller is an administrator or a Collections Manager of the
+connector's company. Connector credentials (user, password) and system settings (web
+service URL, insecure TLS, CA bundle, SQLite path) MUST be returned and written only for
+`base.group_system`, on the connector settings wizard too; a Collections Manager's save
+MUST leave them untouched rather than blank them. (Previously: those methods were
+callable over JSON-RPC by anyone who could read a connector, and the wizard read every
+adapter setting with `sudo()`, returning the password to managers.)
+
+#### Scenario: Manager never sees the password
+
+- GIVEN a Collections Manager opens the connector settings wizard
+- WHEN the wizard loads and is saved
+- THEN the credential and system fields MUST be absent from what the manager reads
+- AND the stored values MUST be unchanged after the save
+
+### Requirement: Debt freshness
+
+Every formatted customer debt MUST carry `as_of`. A connector MAY raise
+`ConnectorDataStaleError` (a `UserError`) when its copy of the ERP is too old to serve.
+The allocation debt helpers MUST let that error through, so the Add Debt picker and a
+new allocation refuse stale figures instead of showing an empty list; other connector
+errors keep reading as no debt. The Add Debt picker MUST show the debt time
+(`debt_as_of`) and the open invoices, open credits, and net (Customer Owes) totals.
+
+#### Scenario: Stale snapshot refused in the picker
+
+- GIVEN a connector whose debt snapshot is older than its configured maximum age
+- WHEN a Collections User opens Add Debt on a draft allocation
+- THEN the system MUST raise the connector's stale-data `UserError`
+- AND MUST NOT show an empty candidate list

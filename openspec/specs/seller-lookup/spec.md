@@ -10,15 +10,18 @@ Read-only MCP lookup of an internal seller id from the seller’s own mobile.
 
 The system MUST expose `get_seller_id` via `@mcp_tool` on `muk_mcp.mixin`
 (`category=read`, `registry=mcp`), method-discovered; MUST NOT add a DB tool record.
-Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require string
-`mobile`. Unique success MUST return exactly `{ "seller_id": <positive int> }` with no
-extra PII unless a later spec adds `name`. This tool MUST NOT create or update vouchers,
-MUST NOT fill invoke context, and MUST NOT replace connector `seller_id` on
-`create_collection_vouchers`.
+Calls MUST use the authenticated user and MUST NOT `sudo()` except to read
+`collection.mcp_trusted_seller_header`. Input MUST require string `mobile` (the schema
+still lists it; with the trusted seller header set it MAY be omitted). Unique success MUST
+return exactly `{ "seller_id": <positive int> }` with no extra PII unless a later spec
+adds `name`. This tool MUST NOT create or update vouchers, MUST NOT fill invoke context,
+and MUST NOT replace connector `seller_id` on `create_collection_allocation` or any other
+write tool.
 
 #### Scenario: Unique internal match returns seller_id only
 
-- GIVEN an internal caller and exactly one enabled internal user whose phone matches
+- GIVEN a Collections User caller and exactly one enabled internal user whose phone
+  matches
   after AR/WhatsApp normalize
 - WHEN `get_seller_id` runs with that mobile
 - THEN the response MUST be `{ "seller_id": <that user’s positive id> }` only
@@ -26,8 +29,9 @@ MUST NOT fill invoke context, and MUST NOT replace connector `seller_id` on
 
 ### Requirement: Caller authorization
 
-Portal and public callers MUST receive `AccessError`. Internal users (`base.group_user`)
-MUST be allowed to invoke the tool.
+Callers that are not Collections Users (`collection.group_collection_user`), including
+portal, public, and plain internal users, MUST receive `AccessError`. Collections Users
+MUST be allowed to invoke the tool. (Previously: every internal user, `base.group_user`.)
 
 #### Scenario: Portal or public caller denied
 
@@ -37,12 +41,13 @@ MUST be allowed to invoke the tool.
 
 ### Requirement: Fail closed on empty or invalid mobile
 
-Empty, whitespace-only, or invalid `mobile` (no usable digits after AR/WhatsApp
-normalize) MUST raise `UserError` and MUST NOT return a `seller_id`.
+With no trusted seller header configured, empty, whitespace-only, or invalid `mobile`
+(no usable digits after AR/WhatsApp normalize) MUST raise `UserError` and MUST NOT
+return a `seller_id`.
 
 #### Scenario: Empty whitespace or invalid mobile rejected
 
-- GIVEN an internal caller
+- GIVEN a Collections User caller
 - WHEN `get_seller_id` runs with empty, whitespace-only, or invalid `mobile`
 - THEN the system MUST raise `UserError` and MUST NOT return a `seller_id`
 
@@ -115,7 +120,8 @@ Connector `list_sellers()` MUST NOT grant collect permission.
 
 #### Scenario: Unique match not on the enabled list fails closed
 
-- GIVEN an internal caller and exactly one internal user whose phone matches after
+- GIVEN a Collections User caller and exactly one internal user whose phone matches
+  after
   AR/WhatsApp normalize, and that user is absent from the current company's enabled
   sellers
 - WHEN `get_seller_id` runs with that mobile
@@ -138,3 +144,20 @@ Connector `list_sellers()` MUST NOT grant collect permission.
 - GIVEN the matching internal user is on `env.company.enabled_seller_ids`
 - WHEN `get_seller_id` runs with that mobile
 - THEN the response MUST be `{ "seller_id": <that user’s positive id> }` only
+
+### Requirement: Trusted seller header
+
+When the admin-only parameter `collection.mcp_trusted_seller_header` names an HTTP header
+(empty, the default, means off), `get_seller_id` and every other collection MCP tool MUST
+act for the enabled seller whose normalized phone (the normalization above) is in that
+header of the current request. A missing or empty header, an unknown, ambiguous, or
+not-enabled phone, or a `mobile`/`seller_id` naming another seller MUST raise
+`AccessError` with the generic message `The seller identity could not be verified.` and
+MUST NOT reveal which sellers exist. The `UserError` rules above apply only while the
+header is off.
+
+#### Scenario: Header names another seller
+
+- GIVEN the trusted seller header is configured and carries enabled seller A's phone
+- WHEN `get_seller_id` runs with seller B's mobile
+- THEN the system MUST raise `AccessError` and MUST NOT return a `seller_id`

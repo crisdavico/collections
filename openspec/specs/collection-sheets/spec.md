@@ -17,7 +17,7 @@ keys `open`, `proposal`, `closed`, `cancelled` only.)
 
 #### Scenario: Sequence assigned on create
 
-- GIVEN an internal user creates a sheet with a valid seller
+- GIVEN a Collections User creates a sheet with a valid seller
 - WHEN saved the first time
 - THEN name MUST match `CS/<current-year>/<number>` and be unique
 - AND `state` MUST be `open`
@@ -61,7 +61,9 @@ A voucher MUST belong to at most one sheet. Membership MUST be editable while `o
 allowed. `date_from`/`date_to` MUST be UTC min/max of member `create_date` (empty if no
 members); MUST NOT use `received_date`. Unlink of an `open` sheet MUST unlink its draft
 allocations first (vouchers MUST persist unassigned; MUST NOT be destroyed), then delete
-the sheet. Unlink of a `submitted`, `proposal`, `closed`, or `cancelled` sheet MUST be
+the sheet; it MUST be refused with no change when any allocation has a revision, a cash
+replacement, or an issued receipt (cancel the sheet instead). Unlink of a `submitted`,
+`proposal`, `closed`, or `cancelled` sheet MUST be
 refused even when the sheet has no allocations or members. (Previously: Membership
 editable only while `open`; unlink refused for non-open except `submitted` did not
 exist.)
@@ -92,7 +94,8 @@ exist.)
 
 #### Scenario: Unlink open cascades draft allocations
 
-- GIVEN an open sheet with draft allocations and linked vouchers
+- GIVEN an open sheet with draft allocations (no revisions, cash replacements, or issued
+  receipts) and linked vouchers
 - WHEN deleted
 - THEN the sheet and those allocations MUST be gone
 - AND vouchers MUST persist unassigned (MUST NOT be destroyed)
@@ -120,7 +123,7 @@ exist.)
 #### Scenario: Submitted membership add and remove
 
 - GIVEN a submitted sheet
-- WHEN an internal user adds or removes a same-seller member
+- WHEN a Collections User adds or removes a same-seller member
 - THEN membership MUST persist
 - AND chatter MUST record the membership change
 
@@ -174,21 +177,25 @@ Open-sheet count was per seller across all companies; auto-create was not a flag
 - WHEN the list Action runs
 - THEN the Action MUST be rejected with no sheet created
 
-### Requirement: Authorization for internal users
+### Requirement: Authorization for Collections Users
 
-Internal users (`base.group_user`) MUST have full CRUD on sheets of companies they are
-allowed. Dedicated groups MUST NOT be added. Allowed-company record rules MUST hide
-other companies. (Previously: No record rules; sheets were company-blind.)
+Collections Users (`collection.group_collection_user`) MUST have full CRUD on sheets of
+companies they are allowed. Collections Manager MUST imply Collections User, and the
+administrator MUST be a Collections Manager on install. Plain internal users MUST have
+no sheet access and MUST NOT see the Collections menus. Allowed-company record rules MUST
+hide other companies. (Previously: every internal user, `base.group_user`, had CRUD and
+dedicated groups were forbidden; before that, no record rules made sheets
+company-blind.)
 
-#### Scenario: Internal user CRUD
+#### Scenario: Collections User CRUD
 
-- GIVEN an authenticated internal user
+- GIVEN an authenticated Collections User
 - WHEN they CRUD a sheet of an allowed company
 - THEN ACL MUST allow it
 
-#### Scenario: Non-internal user denied
+#### Scenario: User without Collections User denied
 
-- GIVEN a user without internal-user privileges
+- GIVEN an internal user without the Collections User group
 - WHEN they attempt sheet CRUD
 - THEN access MUST be denied
 
@@ -200,15 +207,18 @@ non-clickable statusbar (`open`, `submitted`, `proposal`, `closed`, `cancelled`)
 chatter/activity composer, and the three-page notebook. Header MUST show Seller Close
 immediately before Confirm, plus Document Review, when saved and `open`; Document Review
 and Confirm when `submitted`; Close and Cancel when `proposal`; Cancel when `closed`;
-Reinstate when `cancelled`. Open and Reopen MUST NOT exist. Export XLSX MUST remain
-available in every state. Membership MUST be editable when `open` or `submitted`.
+Reinstate when `cancelled`; Mark/Unmark Entered in the ERP when `closed`. Confirm and
+Document Review MUST show only to Collections Users; Close, Cancel, Reinstate, and
+Mark/Unmark only to Collections Managers. Open and Reopen MUST NOT exist. Export XLSX
+MUST remain available in every state. Membership MUST be editable when `open` or
+`submitted`.
 List/search MUST show name, seller, dates, and `state`. (Previously: Four-state
 statusbar; Confirm on `open`; Open when `cancelled`; membership only when `open`.)
 
 #### Scenario: Menu and form behaviors
 
 - GIVEN the module installed
-- WHEN an internal user opens Collections → Collection Sheets then a form
+- WHEN a Collections User opens Collections → Collection Sheets then a form
 - THEN list/search MUST show name, seller, dates, and `state`
 - AND form MUST show name, required seller, dates, a non-clickable five-state statusbar
   including Submitted by Seller
@@ -217,7 +227,7 @@ statusbar; Confirm on `open`; Open when `cancelled`; membership only when `open`
 
 #### Scenario: Header actions by state
 
-- GIVEN a saved sheet in each of the five states
+- GIVEN a Collections Manager and a saved sheet in each of the five states
 - WHEN the form opens
 - THEN Open MUST show Seller Close immediately before Confirm, plus Document Review;
   Submitted Document Review and Confirm; Proposal Close and Cancel; Closed Cancel;
@@ -248,25 +258,25 @@ write.)
 #### Scenario: Confirm tracks state in chatter
 
 - GIVEN a submitted sheet
-- WHEN an internal user Confirms it
+- WHEN a Collections User Confirms it
 - THEN chatter MUST record the state change from Submitted by Seller to Proposal
 
 #### Scenario: Close tracks state in chatter
 
 - GIVEN a proposal sheet
-- WHEN an internal user Closes it
+- WHEN a Collections Manager Closes it
 - THEN chatter MUST record the state change from Proposal to Closed
 
 #### Scenario: Cancel tracks state in chatter
 
 - GIVEN a submitted, proposal, or closed sheet
-- WHEN an internal user Cancels it
+- WHEN a Collections Manager Cancels it
 - THEN chatter MUST record the state change to Cancelled
 
 #### Scenario: Seller Close tracks state in chatter
 
 - GIVEN an open sheet
-- WHEN an internal user runs Seller Close
+- WHEN a Collections User runs Seller Close
 - THEN chatter MUST record the state change from Open to Submitted by Seller
 - AND MUST NOT require a declared `commission_withheld` on that write
 
@@ -279,7 +289,7 @@ write.)
 #### Scenario: Reinstate tracks state in chatter
 
 - GIVEN a cancelled sheet
-- WHEN an internal user Reinstates it
+- WHEN a Collections Manager Reinstates it
 - THEN chatter MUST record the state change from Cancelled to Submitted by Seller
 
 ### Requirement: Saved-sheet header action opens Document Review
@@ -293,20 +303,20 @@ MUST NOT open from an unsaved sheet. (Previously: Available only when saved and 
 #### Scenario: Header action available when flag is on
 
 - GIVEN a saved open collection sheet and Document Review ON for the current company
-- WHEN an internal user views the sheet form
+- WHEN a Collections User views the sheet form
 - THEN the header action that opens Document Review MUST be available
 
 #### Scenario: Header action hidden or refused when flag is off
 
 - GIVEN a saved collection sheet and Document Review OFF for the current company
-- WHEN an internal user views the sheet form or invokes the header action
+- WHEN a Collections User views the sheet form or invokes the header action
 - THEN the action MUST be hidden
 - AND invocation MUST be refused
 
 #### Scenario: Unsaved sheet must not open review
 
 - GIVEN a new unsaved collection sheet and Document Review ON
-- WHEN an internal user attempts to open Document Review from that form
+- WHEN a Collections User attempts to open Document Review from that form
 - THEN Document Review MUST NOT open
 
 #### Scenario: Sheet action parameters
@@ -319,14 +329,14 @@ MUST NOT open from an unsaved sheet. (Previously: Available only when saved and 
 #### Scenario: Submitted sheet opens review
 
 - GIVEN a saved submitted collection sheet and Document Review ON
-- WHEN an internal user views the form or runs the header action
+- WHEN a Collections User views the form or runs the header action
 - THEN the action MUST be available
 - AND it MUST open Document Review with that sheet identifier
 
 #### Scenario: Non-reviewable sheet hides and refuses review
 
 - GIVEN a saved proposal, closed, or cancelled sheet and Document Review ON
-- WHEN an internal user views the form or invokes the header action
+- WHEN a Collections User views the form or invokes the header action
 - THEN the action MUST be hidden and invocation MUST be refused
 
 ### Requirement: Open/closed lifecycle
@@ -347,22 +357,26 @@ and MUST return every allocation to `draft`. Cancel from `closed` MUST reopen lo
 the sheet MUST remain frozen until Reinstate. Reinstate MUST succeed from `cancelled`
 without checking one-open, MUST write `submitted` (MUST NOT write `open`), and MUST
 leave allocations `draft`. Confirm MUST run only from `submitted` and MUST NOT confirm
-allocations. Any internal user MAY run those audited actions. Write of raw `state` MUST
-be rejected except via Seller Close, Confirm, Close, Cancel, or Reinstate. Reinstate of
+allocations. Confirm MUST require a Collections User; Close, Cancel, and Reinstate MUST
+require a Collections Manager (`AccessError`), including when reached through a raw
+`state` write. Close MUST refuse a sheet whose allocations apply more than their
+`total_vouchers`, and Reinstate MUST re-check the per-document applied cap. Cancel MUST
+clear the Entered in the ERP mark. Write of raw `state` MUST be rejected except via
+Seller Close, Confirm, Close, Cancel, or Reinstate. Reinstate of
 a historical cancelled sheet MUST remain allowed even if the seller is later disabled.
 Open and Reopen MUST NOT exist. (Previously: Close dispatched connector `create_receipt`
 then confirmed allocations.)
 
 #### Scenario: Default open on create
 
-- GIVEN an internal user creates a sheet with a valid seller
+- GIVEN a Collections User creates a sheet with a valid seller
 - WHEN saved
 - THEN `state` MUST be `open`
 
 #### Scenario: Close when proposal
 
 - GIVEN a proposal sheet with zero or more draft allocations and optional draft receipts
-- WHEN an internal user Closes it
+- WHEN a Collections Manager Closes it
 - THEN `state` MUST become `closed`
 - AND every allocation MUST be `confirmed`
 - AND every draft receipt MUST be `closed` with no `external_receipt_id`
@@ -403,7 +417,7 @@ then confirmed allocations.)
 
 - GIVEN a cancelled sheet with draft allocations and that seller already has an `open`
   sheet in that company
-- WHEN an internal user Reinstates it
+- WHEN a Collections Manager Reinstates it
 - THEN `state` MUST become `submitted`
 - AND every allocation MUST remain `draft`
 - AND the other `open` sheet MUST remain `open`
@@ -507,7 +521,7 @@ open-creating operation; `submitted` did not exist; leftover opens were Confirma
 #### Scenario: Explicit create remains when auto-create is off
 
 - GIVEN `auto_create_sheet` OFF, an enabled seller, and zero open sheets in that company
-- WHEN an internal user creates a sheet explicitly
+- WHEN a Collections User creates a sheet explicitly
 - THEN the sheet MUST persist as `open`
 
 #### Scenario: Submitted does not occupy one-open
@@ -563,7 +577,9 @@ applied while not `open`; operators Open from Cancelled first.)
 ### Requirement: Company ownership of sheets
 
 Every sheet MUST have a required company. Users MUST see and operate only sheets of
-companies they are allowed. Dedicated groups MUST NOT be added.
+companies they are allowed. The company MUST NOT change once the sheet has vouchers or
+allocations (`UserError`), and vouchers, receipt values, cash replacements, and
+connector bindings MUST check their company against the records they link.
 
 #### Scenario: Company required on create
 
@@ -626,8 +642,9 @@ its own sheet numbering with no company-less sequence stealing numbers.
 Sheet form MUST show three notebook pages: Allocations, Vouchers, and Debt (MUST NOT
 hide them). Allocations MUST list Reference (`name`), Customer (`partner_id`),
 `total_debt`, `total_vouchers`, and Residual, and MUST NOT list `state` or
-`total_applied`. Draft allocations MUST be addable, editable, and deletable when `open`,
-`submitted`, or `proposal`, opening the allocation form. Vouchers MUST show all
+`total_applied`. Draft allocations MUST be addable and editable when `open`,
+`submitted`, or `proposal`, and deletable only when `open` or `submitted` (see
+collection-allocations), opening the allocation form. Vouchers MUST show all
 `voucher_ids`; operators MAY open existing members only when `open` or `submitted`; the
 tab MUST NOT create, remove, or delete vouchers. Debt MUST list all allocation
 invoice/debt lines for the sheet; only `amount_applied` MUST be editable when `open`,
@@ -734,7 +751,8 @@ the error did not name offenders. Before that: Confirm ran only from `open`.)
 
 Allocations and debt `amount_applied` MUST be editable when the sheet is `open`,
 `submitted`, or `proposal`. Voucher membership and voucher business fields MUST be
-editable when `open` or `submitted`. Seller-declared `commission_withheld` MUST be
+editable when `open` or `submitted`, except the frozen money fields of a
+`validated_collections` voucher. Seller-declared `commission_withheld` MUST be
 editable only when `submitted`. `commission_percent` MUST be editable when the sheet is
 not `closed` or `cancelled`. `cash_on_hand` MUST never be editable: it is a stored
 compute over the sheet vouchers and `commission_withheld`. When `closed` or `cancelled`,
@@ -832,7 +850,8 @@ Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require 
 `seller_id` only. The tool MUST NOT accept `cash_on_hand`, `commission_withheld`,
 `sheet_id`, `model`, `domain`, `fields`, `context`, or `order`. The tool MUST resolve
 the seller's own `open` sheet on `env.company` and MUST run Seller Close on that sheet.
-Portal or public callers MUST receive `AccessError`. Errors MUST be raised, never
+Callers that are not Collections Users (portal, public, plain internal) MUST receive
+`AccessError`. Errors MUST be raised, never
 returned as `{"error":...}`. On success the body MUST include
 `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, cash:{collected}}`
 with `state` `submitted` and MUST NOT include report bytes. `cash.collected` MUST equal
@@ -845,7 +864,8 @@ those amounts on close.)
 
 #### Scenario: Internal seller closes the open sheet
 
-- GIVEN an internal caller and an internal seller with exactly one `open` sheet
+- GIVEN a Collections User caller and an internal seller with exactly one `open`
+  sheet
 - WHEN `close_collection_sheet` runs with that `seller_id` and no declaration amounts
 - THEN that sheet MUST be `submitted` without persisting declaration amounts
 - AND the response `sheet.state` MUST be `submitted`
@@ -854,7 +874,8 @@ those amounts on close.)
 
 #### Scenario: Amounts on close refused
 
-- GIVEN an internal caller and an internal seller with exactly one `open` sheet
+- GIVEN a Collections User caller and an internal seller with exactly one `open`
+  sheet
 - WHEN `close_collection_sheet` is invoked with `cash_on_hand` or `commission_withheld`
 - THEN MUST refuse
 - AND that sheet MUST remain `open`
@@ -870,7 +891,7 @@ those amounts on close.)
 
 #### Scenario: sheet_id rejected
 
-- GIVEN an internal caller
+- GIVEN a Collections User caller
 - WHEN `close_collection_sheet` is invoked with a `sheet_id`
 - THEN MUST refuse
 - AND no sheet MUST change state
@@ -882,9 +903,9 @@ those amounts on close.)
 - THEN persist MUST be on a new `open` sheet
 - AND the submitted sheet MUST remain `submitted`
 
-#### Scenario: Non-internal close refused
+#### Scenario: Close by a non-Collections User refused
 
-- GIVEN a portal or public caller
+- GIVEN a portal, public, or plain internal caller
 - WHEN `close_collection_sheet` runs with any `seller_id`
 - THEN MUST raise `AccessError`
 - AND no sheet MUST change state
@@ -898,9 +919,12 @@ and `cash_declared_by`. It MUST be re-runnable: a later Declare Cash MUST replac
 withheld amount and MUST restamp declared-at/by. It MUST refuse `open`, `proposal`,
 `closed`, and `cancelled` with no persist. The stored field name MUST remain
 `cash_on_hand`. Declare Cash MUST NOT change sheet or allocation `state`. A disabled
-seller MUST still be allowed to declare on an existing `submitted` sheet. Any internal
-user MAY run Declare Cash. (Previously: Declare Cash took and persisted a
-seller-declared `cash_on_hand` alongside `commission_withheld`.)
+seller MUST still be allowed to declare on an existing `submitted` sheet. Any
+Collections User MAY run Declare Cash. A negative `commission_withheld` MUST be refused;
+zero MUST be accepted. When the sheet already holds a `seller_commission` voucher, Declare
+Cash MUST re-sync it to the new amount (see Confirm mints the seller commission
+voucher). (Previously: Declare Cash took and persisted a seller-declared `cash_on_hand`
+alongside `commission_withheld`.)
 
 #### Scenario: Submitted sheet accepts Declare Cash
 
@@ -974,8 +998,10 @@ Calls MUST use the authenticated user and MUST NOT `sudo()`. Input MUST require 
 accepted). The tool MUST NOT accept `cash_on_hand`, `sheet_id`, `model`, `domain`,
 `fields`, `context`, or `order`. The tool MUST resolve the seller's own `submitted`
 sheet on `env.company` and MUST run Declare Cash on that sheet. It MUST NOT resolve via
-the open-sheet helper and MUST NOT declare against an `open` sheet. Portal or public
-callers MUST receive `AccessError`. Errors MUST be raised, never returned as
+the open-sheet helper and MUST NOT declare against an `open` sheet. Callers that are not
+Collections Users (portal, public, plain internal) MUST receive `AccessError`. A negative
+`commission_withheld` MUST be refused with a generic `UserError`; numeric zero MUST be
+accepted. Errors MUST be raised, never returned as
 `{"error":...}`. On success the body MUST include
 `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}}` with `state`
 `submitted` and MUST NOT include report bytes. Zero `submitted` sheets MUST raise
@@ -984,7 +1010,8 @@ raise `UserError`.
 
 #### Scenario: Internal seller declares on the submitted sheet
 
-- GIVEN an internal caller and an internal seller with exactly one `submitted` sheet
+- GIVEN a Collections User caller and an internal seller with exactly one `submitted`
+  sheet
 - WHEN `declare_collection_cash` runs with that `seller_id` and `commission_withheld`
 - THEN that amount MUST persist on that sheet and `cash_on_hand` MUST follow by compute
 - AND `cash_declared_at` MUST be set
@@ -1002,7 +1029,7 @@ raise `UserError`.
 
 #### Scenario: sheet_id rejected
 
-- GIVEN an internal caller
+- GIVEN a Collections User caller
 - WHEN `declare_collection_cash` is invoked with a `sheet_id`
 - THEN MUST refuse
 - AND no sheet MUST change declarations
@@ -1014,9 +1041,9 @@ raise `UserError`.
 - THEN MUST raise `UserError`
 - AND the open sheet MUST NOT receive declarations
 
-#### Scenario: Non-internal declare refused
+#### Scenario: Declare by a non-Collections User refused
 
-- GIVEN a portal or public caller
+- GIVEN a portal, public, or plain internal caller
 - WHEN `declare_collection_cash` runs with any `seller_id`
 - THEN MUST raise `AccessError`
 - AND no sheet MUST change declarations
@@ -1049,27 +1076,35 @@ declaration gate have both passed, and MUST run before the `submitted → propos
 write, so that a refused Confirm leaves no voucher behind and the sheet is still
 unfrozen when the voucher is created.
 
-The mint MUST be a no-op when `commission_withheld` is zero or unset, and MUST be a
-no-op when the sheet already carries a `seller_commission` member voucher. That
-idempotency guard MUST key on the existing member voucher, not on replacement ledger
-rows, because Cancel does not reverse replacements and
+The mint MUST be a no-op when `commission_withheld` is zero or unset and no member
+exists. With an existing `seller_commission` member, Confirm MUST NOT mint again and MUST
+re-sync it to `commission_withheld`: reverse its replacement through reverse ledger rows,
+rewrite `amount`, and replace cash again for only what the voucher does not already hold
+on a receipt. A zero declaration leaves the voucher at zero (its ledger rows keep it).
+That idempotency guard MUST key on the existing member voucher, not on replacement
+ledger rows, because Cancel does not reverse replacements and
 `Confirm → Cancel → Reinstate → Confirm` is a reachable path.
 
 Otherwise the system MUST create exactly one `collection.voucher` with `document_type`
 `seller_commission`, `amount` equal to `commission_withheld`, `seller_id` and `sheet_id`
 of the sheet, a minted `document_id` matching `sc-<uuid4 hex>`, and `state`
-`validated_seller`; then MUST write `validated_collections` under
-`collection_audited_state` to trigger cash replacement. The mint MUST NOT `sudo()`. It
+`validated_seller`; then MUST write `validated_collections` inside the internal
+`collection_audited_state` privileged scope to trigger cash replacement. The mint MUST
+NOT `sudo()`. It
 MUST post a chatter note on the sheet naming the voucher and amount.
 
 Because the mint is system bookkeeping on an existing sheet rather than new seller work,
-it MUST bypass `_assert_new_work` through a narrow documented context key. Confirm MUST
+it MUST bypass `_assert_new_work` only inside the internal
+`collection_seller_commission_mint` privileged scope; a context key of that name MUST
+have no effect. Confirm MUST
 therefore stay usable on a historical sheet whose seller has since been removed from
 `enabled_seller_ids`. The bypass MUST NOT widen to ORM, UI, or MCP voucher create.
 
-`commission_withheld` is writable only while the sheet is `submitted`, and Confirm
-leaves `submitted`, so the voucher `amount` and the declaration MUST agree permanently
-and no reverse or adjustment path MUST exist.
+`commission_withheld` is writable only while the sheet is `submitted`, and Reinstate
+re-opens `submitted`, so Declare Cash and the next Confirm MUST re-sync the voucher;
+after Confirm the voucher `amount` and the declaration MUST agree. (Previously: no
+reverse or adjustment path existed, so a declaration changed after Reinstate left the
+voucher stale.)
 
 #### Scenario: Confirm mints one commission voucher
 
@@ -1118,3 +1153,42 @@ and no reverse or adjustment path MUST exist.
 - WHEN Confirm mints and promotes the commission voucher
 - THEN `cash_on_hand` MUST still equal X
 - AND `cash_banked` MUST NOT include the commission amount
+
+### Requirement: Entered in the ERP mark
+
+Receipts are typed into the ERP by hand, so a closed sheet MUST carry readonly
+`erp_entered_date` and `erp_entered_uid`. They MUST be set only by the manager-only
+**Mark as Entered in the ERP** action (`closed` sheets only; a second mark refused) and
+cleared only by **Unmark Entered in the ERP** and by Cancel; Reinstate MUST keep them
+cleared. Each change MUST post a chatter note. A plain create or write of either field
+MUST be refused. Search MUST offer **Pending ERP entry** (closed and not marked). The
+connector's reserved amounts read the mark (see collection-allocations).
+
+#### Scenario: Manager marks a closed sheet
+
+- GIVEN a closed sheet with no mark
+- WHEN a Collections Manager runs Mark as Entered in the ERP
+- THEN `erp_entered_date` and `erp_entered_uid` MUST be set and a chatter note posted
+- AND a Collections User running the same action MUST receive `AccessError`
+
+#### Scenario: Cancel clears the mark
+
+- GIVEN a marked closed sheet
+- WHEN it is cancelled
+- THEN the mark MUST be cleared with a chatter note
+
+### Requirement: Unforgeable workflow guards
+
+Audited state writes, gated creates (revisions, review snapshots, cash replacements, the
+commission mint) and cascade unlinks MUST be allowed only inside the server-side
+`collection_common.privileged(*scopes)` context variable, which nests and resets on
+exit. A key of the same name in `env.context` (JSON-RPC `call_kw` or an MCP tool call)
+MUST have no effect. (Previously: the guards read `env.context` keys, which any caller
+could set.)
+
+#### Scenario: Forged context key refused
+
+- GIVEN a Collections User
+- WHEN they write `state` on a sheet with `collection_sheet_audited_state` in the context
+- THEN the write MUST be handled like any raw `state` write (manager check and the
+  audited transition), never as an audited write

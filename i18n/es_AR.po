@@ -6,8 +6,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-08 16:09+0000\n"
-"PO-Revision-Date: 2026-09-08 16:09+0000\n"
+"POT-Creation-Date: 2026-10-12 07:40+0000\n"
+"PO-Revision-Date: 2026-10-12 07:40+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: es_AR\n"
@@ -15,6 +15,12 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/res_company.py:0
+msgid "%(count)s sellers imported and enabled."
+msgstr "%(count)s vendedores importados y habilitados."
 
 #. module: collection
 #. odoo-python
@@ -29,9 +35,24 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"A deferred check must have a payment date strictly after the issue date."
+msgstr ""
+"Un cheque diferido debe tener una fecha de pago posterior a la fecha de "
+"emisión."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_sheet_report.py:0
 msgid "A favor del vendedor"
 msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/res_company.py:0
+msgid "A seller binding belongs to another company."
+msgstr "Un vínculo de vendedor pertenece a otra empresa."
 
 #. module: collection
 #. odoo-python
@@ -47,6 +68,29 @@ msgstr "Se requiere un vendedor."
 msgid "A valid collection sheet is required for Document Review."
 msgstr ""
 "Se requiere una planilla de cobranza válida para la Revisión de Documentos."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"A validated voucher cannot go back to Document Review once its collection "
+"sheet is past Submitted. Cancel and reinstate the sheet first."
+msgstr ""
+"Un comprobante validado no puede volver a la Revisión de Documentos una vez "
+"que su planilla de cobranza superó el estado Rendida. Primero cancele y "
+"restablezca la planilla."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"A validated voucher keeps its designated proof once its collection sheet is "
+"past Submitted: a new one could not be reviewed. Cancel and reinstate the "
+"sheet first."
+msgstr ""
+"Un comprobante validado conserva su respaldo designado una vez que su "
+"planilla de cobranza superó el estado Rendida: uno nuevo no podría "
+"revisarse. Primero cancele y restablezca la planilla."
 
 #. module: collection
 #. odoo-python
@@ -119,6 +163,11 @@ msgstr "Agregar deuda del cliente"
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Add Debt"
 msgstr "Agregar deuda"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+msgid "Agent (MCP)"
+msgstr "Agente (MCP)"
 
 #. module: collection
 #. odoo-javascript
@@ -215,6 +264,7 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_allocation.py:0
+#: code:addons/collection/models/collection_voucher.py:0
 msgid "Allocation vouchers must belong to the allocation sheet."
 msgstr ""
 "Los comprobantes de la asignación deben pertenecer a la planilla de la "
@@ -235,6 +285,45 @@ msgid "Allocations"
 msgstr "Asignaciones"
 
 #. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation.py:0
+msgid ""
+"Allocations can only be deleted while their collection sheet is open or "
+"submitted."
+msgstr ""
+"Las asignaciones solo pueden eliminarse mientras su planilla de cobranza "
+"está abierta o rendida."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation.py:0
+msgid "Allocations with cash replacements cannot be deleted."
+msgstr "Las asignaciones con reemplazos de efectivo no se pueden eliminar."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation.py:0
+msgid "Allocations with issued collection receipts cannot be deleted."
+msgstr ""
+"Las asignaciones con recibos de cobranza emitidos no se pueden eliminar."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation.py:0
+msgid ""
+"Allocations with revisions cannot be deleted: the revisions are the audit "
+"trail of the agent's writes."
+msgstr ""
+"Las asignaciones con revisiones no se pueden eliminar: las revisiones son el"
+" registro de auditoría de los cambios del agente."
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_allow_insecure
+msgid "Allow Insecure HTTP/TLS"
+msgstr "Permitir HTTP/TLS inseguro"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__allowed_document_type_ids
 #: model:ir.model.fields,field_description:collection.field_res_company__allowed_document_type_ids
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__allowed_document_type_ids
 msgid "Allowed Document Types"
@@ -272,6 +361,12 @@ msgstr "Importe aplicado"
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__amount_on_account
 msgid "Amount On Account"
 msgstr "Importe a cuenta"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Amount must be greater than zero."
+msgstr "El importe debe ser mayor que cero."
 
 #. module: collection
 #. odoo-python
@@ -342,6 +437,29 @@ msgstr "El importe aplicado no puede ser negativo."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_allocation_line.py:0
+msgid "Applied amount cannot exceed the invoice balance (%(invoice)s)."
+msgstr ""
+"El importe aplicado no puede superar el saldo de la factura (%(invoice)s)."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid ""
+"Applied amount cannot exceed the money the vouchers actually collected: %s"
+msgstr ""
+"El importe aplicado no puede superar el dinero efectivamente cobrado por los"
+" comprobantes: %s"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation_line.py:0
+msgid "Applied amount exceeds available invoice balance (%(invoice)s)."
+msgstr ""
+"El importe aplicado supera el saldo disponible de la factura (%(invoice)s)."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/tools/collection_allocation.py:0
 msgid "Applied amount exceeds available invoice balance."
 msgstr "El importe aplicado supera el saldo disponible de la factura."
@@ -361,6 +479,11 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_search
 msgid "Archived"
 msgstr "Archivado"
+
+#. module: collection
+#: model:ir.model,name:collection.model_ir_attachment
+msgid "Attachment"
+msgstr "Archivos adjuntos"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__message_attachment_count
@@ -398,6 +521,7 @@ msgid "Attachment rotation must be 0, 90, 180, or 270 degrees."
 msgstr "La rotación del archivo adjunto debe ser de 0, 90, 180 o 270 grados."
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__auto_create_sheet
 #: model:ir.model.fields,field_description:collection.field_res_company__auto_create_sheet
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__auto_create_sheet
 msgid "Auto Create Sheet"
@@ -428,6 +552,11 @@ msgid "Bank Transfer"
 msgstr "Transferencia bancaria"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_res_config_settings__bank_ids
+msgid "Banks"
+msgstr "Bancos"
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_connector_customer_binding.py:0
 #: code:addons/collection/models/collection_connector_seller_binding.py:0
@@ -435,10 +564,28 @@ msgid "Binding company must match the connector company."
 msgstr "La empresa del vínculo debe coincidir con la empresa del conector."
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_sucursal
+msgid "Branch"
+msgstr "Sucursal"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_ca_bundle
+msgid "CA Bundle"
+msgstr "Paquete de certificados CA"
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_debt_picker_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Cancel"
 msgstr "Cancelar"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Cancel removed the Entered in the ERP mark of this sheet."
+msgstr "La cancelación quitó la marca Cargada en el ERP de esta planilla."
 
 #. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__cancelled
@@ -541,7 +688,6 @@ msgstr "Los reemplazos de efectivo no se pueden modificar."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__cash_on_hand
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Cash to Administration"
 msgstr "Efectivo a administración"
 
@@ -603,6 +749,46 @@ msgid "Check Type"
 msgstr "Tipo de cheque"
 
 #. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Check issue date cannot be after the check payment date."
+msgstr ""
+"La fecha de emisión del cheque no puede ser posterior a su fecha de pago."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Check issue date cannot be in the future."
+msgstr "La fecha de emisión del cheque no puede ser futura."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Check number %(number)s is already registered on voucher %(name)s."
+msgstr ""
+"El cheque número %(number)s ya está registrado en el comprobante %(name)s."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Check number %(number)s is duplicated within this request."
+msgstr "El cheque número %(number)s está duplicado en esta solicitud."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Check number is required for check and echeck vouchers."
+msgstr ""
+"El número de cheque es obligatorio para comprobantes de cheque y echeq."
+
+#. module: collection
+#: model:ir.model.constraint,message:collection.constraint_collection_voucher_check_number_uniq_idx
+msgid "Check number must be unique per company for check and echeck vouchers."
+msgstr ""
+"El número de cheque debe ser único por empresa para comprobantes de cheque y"
+" echeq."
+
+#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Cheque"
@@ -629,7 +815,19 @@ msgid "Close"
 msgstr "Cerrar"
 
 #. module: collection
+#: model:res.groups,comment:collection.group_collection_manager
+msgid ""
+"Close, cancel and reinstate collection sheets and manage collection "
+"configuration in allowed companies without system administration access."
+msgstr ""
+"Cerrar, cancelar y restablecer planillas de cobranza y administrar la "
+"configuración de cobranzas en las empresas permitidas, sin acceso de "
+"administración del sistema."
+
+#. module: collection
+#: model:ir.model.fields.selection,name:collection.selection__collection_receipt__state__closed
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__closed
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_search
 msgid "Closed"
 msgstr "Cerrada"
 
@@ -666,6 +864,23 @@ msgid ""
 msgstr ""
 "Las planillas de cobranza cerradas o canceladas no pueden cambiar la "
 "composición de las asignaciones."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation_revision.py:0
+msgid ""
+"Closed or cancelled collection sheets cannot change allocation revisions."
+msgstr ""
+"Las planillas de cobranza cerradas o canceladas no pueden cambiar revisiones"
+" de asignación."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_cash_replacement.py:0
+msgid "Closed or cancelled collection sheets cannot change cash replacements."
+msgstr ""
+"Las planillas de cobranza cerradas o canceladas no pueden cambiar reemplazos"
+" de efectivo."
 
 #. module: collection
 #. odoo-python
@@ -726,6 +941,7 @@ msgstr "Reemplazo de efectivo de cobranza"
 
 #. module: collection
 #: model:ir.model,name:collection.model_collection_connector
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__collection_connector_id
 #: model:ir.model.fields,field_description:collection.field_res_company__collection_connector_id
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__collection_connector_id
 msgid "Collection Connector"
@@ -765,8 +981,10 @@ msgid "Collection Receipts"
 msgstr "Recibos de cobranza"
 
 #. module: collection
+#: model:ir.actions.act_window,name:collection.action_collection_company_settings
 #: model:ir.actions.act_window,name:collection.action_collection_config_settings
 #: model:ir.ui.menu,name:collection.menu_collection_settings
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
 msgid "Collection Settings"
 msgstr "Configuración de Cobranzas"
 
@@ -817,6 +1035,13 @@ msgstr "Recibos de cobranza emitidos por el ERP"
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_receipt.py:0
+msgid "Collection receipts with cash replacements cannot be deleted."
+msgstr ""
+"Los recibos de cobranza con reemplazos de efectivo no se pueden eliminar."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_sheet_report.py:0
 msgid "Collection sheet report does not support mixed currencies."
 msgstr "El reporte de la planilla de cobranza no admite monedas mixtas."
@@ -829,9 +1054,20 @@ msgstr "Las planillas de cobranza solo pueden crearse en estado Abierta."
 
 #. module: collection
 #: model:ir.ui.menu,name:collection.menu_collection_root
+#: model:res.groups.privilege,name:collection.privilege_collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid "Collections"
 msgstr "Cobranzas"
+
+#. module: collection
+#: model:res.groups,name:collection.group_collection_manager
+msgid "Collections Manager"
+msgstr "Administrador de Cobranzas"
+
+#. module: collection
+#: model:res.groups,name:collection.group_collection_user
+msgid "Collections User"
+msgstr "Usuario de Cobranzas"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -878,6 +1114,7 @@ msgstr "Empresas"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__company_id
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__company_id
@@ -888,6 +1125,35 @@ msgstr "Empresas"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__company_id
 msgid "Company"
 msgstr "Empresa"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_company_settings.py:0
+#: model:ir.actions.server,name:collection.action_collection_company_banks
+#: model:ir.ui.menu,name:collection.menu_collection_company_banks
+msgid "Company Bank Accounts"
+msgstr "Cuentas bancarias de la empresa"
+
+#. module: collection
+#: model:ir.model,name:collection.model_collection_connector_settings
+msgid "Company Collection Connector Settings"
+msgstr "Configuración del conector de cobranzas de la empresa"
+
+#. module: collection
+#: model:ir.model,name:collection.model_collection_company_settings
+#: model:ir.ui.menu,name:collection.menu_collection_company_settings
+msgid "Company Collection Settings"
+msgstr "Configuración de cobranzas de la empresa"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_voucher__company_partner_id
+msgid "Company Partner"
+msgstr "Contacto de la empresa"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+msgid "Company bank accounts"
+msgstr "Cuentas bancarias de la empresa"
 
 #. module: collection
 #. odoo-javascript
@@ -937,10 +1203,21 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
-msgid "Confirm requires every member voucher to be validated by collections."
+msgid ""
+"Confirm requires every member voucher to be validated by collections: %s"
 msgstr ""
-"Confirmar requiere que todos los comprobantes de la planilla estén validados"
-" por Cobranzas."
+"Para confirmar, todos los comprobantes de la planilla deben estar validados "
+"por Cobranzas: %s"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Confirm that every receipt of this sheet was entered in the ERP. Its amounts"
+" stop being subtracted from the ERP balances after the next refresh."
+msgstr ""
+"Confirme que todos los recibos de esta planilla se cargaron en el ERP. Sus "
+"importes dejan de descontarse de los saldos del ERP después de la próxima "
+"actualización."
 
 #. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_allocation__state__confirmed
@@ -987,9 +1264,18 @@ msgstr "Prueba de conexión exitosa."
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__connector_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__connector_id
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__connector_id
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_form
 msgid "Connector"
 msgstr "Conector"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_connector_settings.py:0
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_form_management
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
+msgid "Connector Settings"
+msgstr "Configuración del conector"
 
 #. module: collection
 #. odoo-python
@@ -1057,9 +1343,11 @@ msgstr "Creado el"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__create_uid
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__create_uid
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_uid
@@ -1076,9 +1364,11 @@ msgstr "Creado por"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__create_date
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__create_date
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_date
@@ -1156,6 +1446,16 @@ msgid "Customer Debt"
 msgstr "Deuda del cliente"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_debt_filter_field
+msgid "Customer Filter Column"
+msgstr "Columna de filtro de clientes"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__debt_net_total
+msgid "Customer Owes"
+msgstr "Deuda neta del cliente"
+
+#. module: collection
 #: model:ir.model.constraint,message:collection.constraint_collection_connector_customer_binding_connector_identi_392a42e8
 msgid "Customer identification must be unique per connector."
 msgstr "La identificación del cliente debe ser única por conector."
@@ -1180,6 +1480,27 @@ msgstr "Fecha hasta"
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Debt"
 msgstr "Deuda"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__debt_as_of
+msgid "Debt As Of"
+msgstr "Deuda al"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_debt_scenario
+msgid "Debt Scenario"
+msgstr "Escenario de deuda"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_connector_settings.py:0
+msgid "Debt Snapshot Refreshed"
+msgstr "Instantánea de deuda actualizada"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_debt_view
+msgid "Debt View"
+msgstr "Vista de deuda"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__selected_ids
@@ -1232,6 +1553,26 @@ msgid "Designated proof attachment was not found."
 msgstr "No se encontró el archivo adjunto de comprobante designado."
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_voucher__to_account_mismatch
+msgid "Destination Account Mismatch"
+msgstr "Cuenta destino no coincide"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_voucher__to_account_bank_id
+msgid "Destination Bank Account"
+msgstr "Cuenta bancaria destino"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"Destination bank account must be one of the company's own registered bank "
+"accounts."
+msgstr ""
+"La cuenta bancaria destino debe ser una de las cuentas bancarias registradas"
+" de la empresa."
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Diferencia"
 msgstr ""
@@ -1254,9 +1595,11 @@ msgstr "Sentido"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__display_name
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_connector__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__display_name
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__display_name
@@ -1264,6 +1607,7 @@ msgstr "Sentido"
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__display_name
+#: model:ir.model.fields,field_description:collection.field_ir_attachment__display_name
 #: model:ir.model.fields,field_description:collection.field_muk_mcp_mixin__display_name
 #: model:ir.model.fields,field_description:collection.field_report_collection_report_collection_sheet__display_name
 #: model:ir.model.fields,field_description:collection.field_res_company__display_name
@@ -1296,6 +1640,7 @@ msgid "Document Review"
 msgstr "Revisión de Documentos"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__document_review_enabled
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__document_review_enabled
 #: model:ir.model.fields,field_description:collection.field_res_company__document_review_enabled
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__document_review_enabled
@@ -1519,6 +1864,7 @@ msgid "Enable Document Review for this company"
 msgstr "Habilitar la Revisión de Documentos para esta empresa"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__enabled_seller_ids
 #: model:ir.model.fields,field_description:collection.field_res_company__enabled_seller_ids
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__enabled_seller_ids
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
@@ -1527,9 +1873,20 @@ msgstr "Vendedores habilitados"
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/models/res_config_settings.py:0
-msgid "Enabled sellers were replaced from the connector."
-msgstr "Los vendedores habilitados se reemplazaron desde el conector."
+#: code:addons/collection/wizard/collection_company_settings.py:0
+msgid "Enabled sellers must be internal users of this company."
+msgstr ""
+"Los vendedores habilitados deben ser usuarios internos de esta empresa."
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_sheet__erp_entered_date
+msgid "Entered in the ERP"
+msgstr "Cargada en el ERP"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_sheet__erp_entered_uid
+msgid "Entered in the ERP by"
+msgstr "Cargada en el ERP por"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -1540,6 +1897,11 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Export XLSX"
 msgstr "Exportar XLSX"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_empresa
+msgid "External Company"
+msgstr "Empresa externa"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__external_customer_id
@@ -1636,6 +1998,29 @@ msgid "Ganancias"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,help:collection.field_res_config_settings__collection_mcp_trusted_seller_header
+msgid ""
+"HTTP header in which the MCP gateway sends the verified sender phone. When "
+"set, collection agent tools act only for the enabled seller with that phone "
+"and refuse any other seller. Leave empty to trust the seller the agent "
+"names."
+msgstr ""
+"Encabezado HTTP en el que el gateway MCP envía el teléfono verificado del "
+"remitente. Si está configurado, las herramientas del agente de cobranzas "
+"actúan solo para el vendedor habilitado con ese teléfono y rechazan "
+"cualquier otro vendedor. Déjelo vacío para confiar en el vendedor que indica"
+" el agente."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+msgid ""
+"HTTP header in which the gateway sends the verified sender phone. Empty "
+"means the agent names the seller."
+msgstr ""
+"Encabezado HTTP en el que el gateway envía el teléfono verificado del "
+"remitente. Vacío significa que el agente indica el vendedor."
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__has_message
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__has_message
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__has_message
@@ -1654,9 +2039,11 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__id
 #: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__id
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__id
 #: model:ir.model.fields,field_description:collection.field_collection_connector__id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__id
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__id
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__id
@@ -1664,6 +2051,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__id
+#: model:ir.model.fields,field_description:collection.field_ir_attachment__id
 #: model:ir.model.fields,field_description:collection.field_muk_mcp_mixin__id
 #: model:ir.model.fields,field_description:collection.field_report_collection_report_collection_sheet__id
 #: model:ir.model.fields,field_description:collection.field_res_company__id
@@ -1718,6 +2106,11 @@ msgstr "Si está seleccionado, algunos mensajes tienen error de envío."
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid "Import"
 msgstr "Importar"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Import Sellers"
+msgstr "Importar vendedores"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -1820,9 +2213,11 @@ msgstr "Clase"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__write_uid
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__write_uid
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_uid
@@ -1839,9 +2234,11 @@ msgstr "Última actualización por"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__write_date
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__write_date
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_date
@@ -1867,6 +2264,11 @@ msgid "Main Attachment"
 msgstr "Archivo adjunto principal"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Mark as Entered in the ERP"
+msgstr "Marcar como cargada en el ERP"
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__message_has_error
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__message_has_error
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__message_has_error
@@ -1884,6 +2286,17 @@ msgstr "Mensajes"
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Moneda"
 msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_allocation__total_vouchers
+msgid ""
+"Money collected for this customer: the receipt values on its receipts, plus "
+"the full amount of each voucher pointing here whose money was never placed "
+"on a receipt."
+msgstr ""
+"Dinero cobrado para este cliente: los valores de sus recibos, más el importe"
+" total de cada comprobante asignado aquí cuyo dinero nunca se cargó en un "
+"recibo."
 
 #. module: collection
 #. odoo-javascript
@@ -1922,13 +2335,6 @@ msgid "Neto a Rendir"
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_allocation__activity_calendar_event_id
-#: model:ir.model.fields,field_description:collection.field_collection_sheet__activity_calendar_event_id
-#: model:ir.model.fields,field_description:collection.field_collection_voucher__activity_calendar_event_id
-msgid "Next Activity Calendar Event"
-msgstr "Evento de calendario de la siguiente actividad"
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__activity_date_deadline
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__activity_date_deadline
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__activity_date_deadline
@@ -1954,6 +2360,14 @@ msgstr "Siguiente tipo de actividad"
 #: code:addons/collection/models/res_company.py:0
 msgid "No active collection connector is configured."
 msgstr "No hay ningún conector de cobranzas activo configurado."
+
+#. module: collection
+#. odoo-javascript
+#: code:addons/collection/static/src/document_review/document_review_action.xml:0
+msgid ""
+"No coincide con ninguna cuenta\n"
+"                                            registrada"
+msgstr ""
 
 #. module: collection
 #. odoo-javascript
@@ -1987,7 +2401,7 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/tools/seller_lookup.py:0
+#: code:addons/collection/tools/seller_identity.py:0
 msgid "No unique seller found for that mobile."
 msgstr "No se encontró un vendedor único para ese celular."
 
@@ -2065,6 +2479,16 @@ msgid "Odoo seller must be unique per connector."
 msgstr "El vendedor de Odoo debe ser único por conector."
 
 #. module: collection
+#: model:ir.model.fields,help:collection.field_collection_voucher__to_account_bank_id
+msgid ""
+"One of the company's own registered bank accounts. Optional; does not "
+"replace the free-text To Account field, which OCR keeps writing to."
+msgstr ""
+"Una de las cuentas bancarias registradas de la empresa. Opcional; no "
+"reemplaza el campo de texto libre Cuenta destino, que el OCR sigue "
+"completando."
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/tools/collection_allocation.py:0
 msgid "One or more payment documents were not found."
@@ -2073,8 +2497,61 @@ msgstr "No se encontraron uno o más documentos de pago."
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
+msgid ""
+"Only Collections Managers can close, cancel or reinstate collection sheets."
+msgstr ""
+"Solo los administradores de Cobranzas pueden cerrar, cancelar o restablecer "
+"planillas de cobranza."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_company_settings.py:0
+#: code:addons/collection/wizard/collection_connector_settings.py:0
+msgid "Only Collections Managers can configure collections."
+msgstr ""
+"Solo los administradores de Cobranzas pueden configurar las cobranzas."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Only Collections Managers can mark sheets as entered in the ERP."
+msgstr ""
+"Solo los administradores de Cobranzas pueden marcar planillas como cargadas "
+"en el ERP."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Only Collections Users can review documents or confirm sheets."
+msgstr ""
+"Solo los usuarios de Cobranzas pueden revisar documentos o confirmar "
+"planillas."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Only Collections Users can review documents."
+msgstr "Solo los usuarios de Cobranzas pueden revisar documentos."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/seller_identity.py:0
+msgid "Only Collections Users can use the collection agent tools."
+msgstr ""
+"Solo los usuarios de Cobranzas pueden usar las herramientas del agente de "
+"cobranzas."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
 msgid "Only cancelled sheets can be reinstated."
 msgstr "Solo las planillas canceladas pueden restablecerse."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Only closed sheets can be marked as entered in the ERP."
+msgstr "Solo las planillas cerradas pueden marcarse como cargadas en el ERP."
 
 #. module: collection
 #. odoo-python
@@ -2088,60 +2565,6 @@ msgstr "Solo las asignaciones en borrador pueden modificarse."
 msgid "Only draft vouchers can be validated by seller."
 msgstr ""
 "Solo los comprobantes en borrador pueden ser validados por el vendedor."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/collection_sheet_close.py:0
-msgid "Only internal users can close collection sheets."
-msgstr "Solo los usuarios internos pueden cerrar planillas de cobranza."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/collection_allocation.py:0
-msgid "Only internal users can create allocations."
-msgstr "Solo los usuarios internos pueden crear asignaciones."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/collection_seller_deposit.py:0
-msgid "Only internal users can create seller deposits."
-msgstr "Solo los usuarios internos pueden crear depósitos de vendedor."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/collection_cash_declare.py:0
-msgid "Only internal users can declare collection cash."
-msgstr "Solo los usuarios internos pueden declarar el efectivo de cobranza."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/customer_list.py:0
-msgid "Only internal users can list collection customers."
-msgstr "Solo los usuarios internos pueden listar los clientes de cobranza."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/seller_lookup.py:0
-msgid "Only internal users can look up a seller id."
-msgstr "Solo los usuarios internos pueden consultar un id de vendedor."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/sheet_report.py:0
-msgid "Only internal users can print collection sheets."
-msgstr "Solo los usuarios internos pueden imprimir planillas de cobranza."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/allocation_lookup.py:0
-msgid "Only internal users can read collection allocations."
-msgstr "Solo los usuarios internos pueden leer las asignaciones de cobranza."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/customer_debt.py:0
-msgid "Only internal users can read customer debt."
-msgstr "Solo los usuarios internos pueden leer la deuda del cliente."
 
 #. module: collection
 #: model:ir.model.constraint,message:collection.constraint_collection_allocation_sheet_partner_uniq
@@ -2197,6 +2620,32 @@ msgid "Open"
 msgstr "Abierta"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__debt_credit_total
+msgid "Open Credits"
+msgstr "Créditos pendientes"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__debt_gross_total
+msgid "Open Invoices"
+msgstr "Facturas pendientes"
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_allocation_debt_picker__debt_net_total
+msgid "Open invoices net of open credit notes."
+msgstr "Facturas pendientes, neto de las notas de crédito pendientes."
+
+#. module: collection
+#: model:res.groups,comment:collection.group_collection_user
+msgid ""
+"Operate collections in allowed companies: Document Review, allocations, the "
+"receipt proposal board and Confirm. The MCP API user belongs here; sellers "
+"do not."
+msgstr ""
+"Operar cobranzas en las empresas permitidas: Revisión de Documentos, "
+"asignaciones, el tablero de propuesta de recibos y Confirmar. El usuario de "
+"la API MCP pertenece a este grupo; los vendedores no."
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__other
 msgid "Other"
 msgstr "Otra"
@@ -2240,6 +2689,11 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__partner_id
 msgid "Partner"
 msgstr "Contacto"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_clave
+msgid "Password"
+msgstr "Contraseña"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
@@ -2387,6 +2841,11 @@ msgid "Pendiente de rendir"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_search
+msgid "Pending ERP entry"
+msgstr "Pendiente de carga en el ERP"
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__picker_id
 msgid "Picker"
 msgstr "Selector"
@@ -2419,11 +2878,9 @@ msgid "Quotation"
 msgstr "Presupuesto"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_allocation__rating_ids
-#: model:ir.model.fields,field_description:collection.field_collection_sheet__rating_ids
-#: model:ir.model.fields,field_description:collection.field_collection_voucher__rating_ids
-msgid "Ratings"
-msgstr "Valoraciones"
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_quotation_kinds
+msgid "Quotation Kinds"
+msgstr "Clases de presupuesto"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
@@ -2452,6 +2909,15 @@ msgstr "Aplicación del recibo en el índice %(index)s"
 #: code:addons/collection/tools/collection_allocation.py:0
 msgid "Receipt application at index %(index)s must be an object."
 msgstr "La aplicación del recibo en el índice %(index)s debe ser un objeto."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation_line.py:0
+msgid ""
+"Receipt applications cannot exceed funded values (%(allocation)s, %(kind)s)."
+msgstr ""
+"Las aplicaciones del recibo no pueden superar sus valores (%(allocation)s, "
+"%(kind)s)."
 
 #. module: collection
 #. odoo-python
@@ -2485,6 +2951,12 @@ msgstr "El recibo en el índice %(index)s debe ser un objeto."
 msgid "Receipt document_kind must be invoice or quotation (index %(index)s)."
 msgstr ""
 "El document_kind del recibo debe ser invoice o quotation (índice %(index)s)."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_receipt.py:0
+msgid "Receipt state can only be changed via Close or Cancel."
+msgstr "El estado del recibo solo puede cambiarse mediante Cerrar o Cancelar."
 
 #. module: collection
 #. odoo-python
@@ -2523,6 +2995,7 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_receipt_value.py:0
+#: code:addons/collection/models/collection_voucher.py:0
 msgid "Receipt values for a voucher cannot exceed the voucher amount."
 msgstr ""
 "Los valores del recibo de un comprobante no pueden superar el importe del "
@@ -2539,6 +3012,7 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_receipt_value.py:0
+#: code:addons/collection/models/collection_voucher.py:0
 msgid "Receipt values must use vouchers from the same collection sheet."
 msgstr ""
 "Los valores del recibo deben usar comprobantes de la misma planilla de "
@@ -2549,6 +3023,12 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Receipts"
 msgstr "Recibos"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Receipts of this sheet marked as entered in the ERP."
+msgstr "Recibos de esta planilla marcados como cargados en el ERP."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__name
@@ -2562,6 +3042,11 @@ msgstr "Referencia"
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Referencia"
 msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
+msgid "Refresh Debt Snapshot"
+msgstr "Actualizar instantánea de deuda"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
@@ -2603,7 +3088,17 @@ msgstr "Solicitud"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__residual
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Residual"
-msgstr ""
+msgstr "Saldo restante"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_sheet__residual_cash_value_total
+msgid "Residual Cash"
+msgstr "Efectivo residual"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Residual cash of"
+msgstr "Efectivo residual de"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__activity_user_id
@@ -2640,6 +3135,22 @@ msgstr "Certificado de retención"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__retention_kind
 msgid "Retention Kind"
 msgstr "Clase de retención"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"Retention certificate %(number)s is already registered on voucher %(name)s."
+msgstr ""
+"El certificado de retención %(number)s ya está registrado en el comprobante "
+"%(name)s."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Retention certificate %(number)s is duplicated within this request."
+msgstr ""
+"El certificado de retención %(number)s está duplicado en esta solicitud."
 
 #. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_cash_replacement__direction__reverse
@@ -2725,6 +3236,11 @@ msgid "Rotar a la izquierda"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__sqlite_path
+msgid "SQLite Path"
+msgstr "Ruta de SQLite"
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__suss
 msgid "SUSS"
 msgstr ""
@@ -2738,6 +3254,12 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Saldo Total"
 msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
+msgid "Save"
+msgstr "Guardar"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_search
@@ -2773,7 +3295,7 @@ msgstr "Buscar comprobantes de pago"
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "Select at least one payment voucher."
-msgstr "Seleccioná al menos un comprobante de pago."
+msgstr "Seleccione al menos un comprobante de pago."
 
 #. module: collection
 #. odoo-python
@@ -2819,6 +3341,12 @@ msgid "Seller Close cannot include draft vouchers: %s"
 msgstr "Cierre del vendedor no puede incluir comprobantes en borrador: %s"
 
 #. module: collection
+#: model:collection.document.type,name:collection.document_type_seller_commission
+#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__seller_commission
+msgid "Seller Commission"
+msgstr "Comisión del vendedor"
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__commission_percent
 msgid "Seller Commission %"
 msgstr "Comisión del vendedor %"
@@ -2836,6 +3364,42 @@ msgid "Seller Deposit"
 msgstr "Depósito vendedor"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_seller_scenario
+msgid "Seller Scenario"
+msgstr "Escenario de vendedores"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_seller_view
+msgid "Seller View"
+msgstr "Vista de vendedores"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Seller commission %(name)s changed from %(previous)s to %(amount)s."
+msgstr ""
+"La comisión del vendedor %(name)s cambió de %(previous)s a %(amount)s."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Seller commission %(name)s minted for %(amount)s."
+msgstr "Se generó la comisión del vendedor %(name)s por %(amount)s."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Seller commission exceeds replaceable cash."
+msgstr "La comisión del vendedor supera el efectivo reemplazable."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_voucher.py:0
+msgid "Seller commission payments cannot be allocated (index %(index)s)."
+msgstr ""
+"Los pagos de comisión del vendedor no pueden asignarse (índice %(index)s)."
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "Seller commission percent is invalid."
@@ -2845,6 +3409,19 @@ msgstr "El porcentaje de comisión del vendedor no es válido."
 #: model:ir.model.constraint,message:collection.constraint_collection_sheet_commission_percent_range
 msgid "Seller commission percent must be between 0 and 100."
 msgstr "El porcentaje de comisión del vendedor debe estar entre 0 y 100."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Seller commissions cannot use a customer identification."
+msgstr ""
+"Las comisiones del vendedor no pueden usar una identificación de cliente."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Seller commissions cannot use a customer partner."
+msgstr "Las comisiones del vendedor no pueden usar un contacto de cliente."
 
 #. module: collection
 #. odoo-python
@@ -2885,7 +3462,7 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/models/res_config_settings.py:0
+#: code:addons/collection/models/res_company.py:0
 msgid "Sellers imported"
 msgstr "Vendedores importados"
 
@@ -2935,6 +3512,16 @@ msgstr ""
 "Planeada: futuras actividades."
 
 #. module: collection
+#. odoo-python
+#: code:addons/collection/models/res_company.py:0
+msgid ""
+"Still enabled but not in the connector list: %(names)s. Disable them in the "
+"collection settings if they no longer collect."
+msgstr ""
+"Siguen habilitados pero no figuran en la lista del conector: %(names)s. "
+"Deshabilítelos en la configuración de cobranzas si ya no cobran."
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__submitted
 msgid "Submitted by Seller"
 msgstr "Rendida por el vendedor"
@@ -2963,10 +3550,25 @@ msgstr ""
 "asignación."
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
+msgid "Test Connection"
+msgstr "Probar conexión"
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
-msgid "The collection connector did not return a receipt id."
-msgstr "El conector de cobranzas no devolvió un id de recibo."
+msgid ""
+"The Entered in the ERP mark can only be changed with its Mark and Unmark "
+"actions."
+msgstr ""
+"La marca Cargada en el ERP solo puede cambiarse con sus acciones Marcar y "
+"Desmarcar."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "The Entered in the ERP mark was removed."
+msgstr "Se quitó la marca Cargada en el ERP."
 
 #. module: collection
 #. odoo-python
@@ -2994,13 +3596,67 @@ msgstr "El reporte de la planilla de cobranza no está instalado."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid ""
+"The company of a collection sheet with vouchers or allocations cannot be "
+"changed."
+msgstr ""
+"No se puede cambiar la empresa de una planilla de cobranza que tiene "
+"comprobantes o asignaciones."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_connector_settings.py:0
+msgid "The company's debt snapshot was refreshed."
+msgstr "Se actualizó la instantánea de deuda de la empresa."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+msgid ""
+"The company's own bank accounts. Used to match transfer and cash deposit "
+"destinations."
+msgstr ""
+"Cuentas bancarias propias de la empresa. Se usan para validar el destino de "
+"transferencias y depósitos en efectivo."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_company_settings.py:0
+msgid "The connector must belong to this company."
+msgstr "El conector debe pertenecer a esta empresa."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/res_company.py:0
+msgid "The connector returned no sellers. Nothing was changed."
+msgstr "El conector no devolvió vendedores. No se modificó nada."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/tools/collection_allocation.py:0
 msgid "The customer does not match the selected vouchers."
 msgstr "El cliente no coincide con los comprobantes seleccionados."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"The designated proof of a voucher on a closed or cancelled collection sheet "
+"cannot change."
+msgstr ""
+"El respaldo designado de un comprobante de una planilla de cobranza cerrada "
+"o cancelada no puede cambiar."
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_cash_replacement__deposit_voucher_id
+msgid "The replacing voucher (`seller_deposit` or `seller_commission`)."
+msgstr ""
+"El comprobante que reemplaza (`seller_deposit` o `seller_commission`)."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
+#: code:addons/collection/wizard/collection_connector_settings.py:0
 msgid "The requested connector operation is not available."
 msgstr "La operación solicitada del conector no está disponible."
 
@@ -3020,9 +3676,21 @@ msgstr "El vendedor solicitado no está disponible."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/tools/seller_identity.py:0
+msgid "The seller identity could not be verified."
+msgstr "No se pudo verificar la identidad del vendedor."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
 msgid "The sheet seller cannot be changed."
 msgstr "El vendedor de la planilla no puede cambiarse."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet_report.py:0
+msgid "The withheld commission cannot be negative."
+msgstr "La comisión retenida no puede ser negativa."
 
 #. module: collection
 #. odoo-python
@@ -3074,6 +3742,18 @@ msgstr "Este vendedor no tiene ninguna planilla de cobranza rendida."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "This sheet is already marked as entered in the ERP."
+msgstr "Esta planilla ya está marcada como cargada en el ERP."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "This sheet is not marked as entered in the ERP."
+msgstr "Esta planilla no está marcada como cargada en el ERP."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "This voucher does not belong to the selected collection sheet."
 msgstr "Este comprobante no pertenece a la planilla de cobranza seleccionada."
@@ -3083,6 +3763,11 @@ msgstr "Este comprobante no pertenece a la planilla de cobranza seleccionada."
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "This voucher is not eligible for review."
 msgstr "Este comprobante no es elegible para revisión."
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_timeout
+msgid "Timeout"
+msgstr "Tiempo de espera"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -3190,6 +3875,26 @@ msgid "Transferencias"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,help:collection.field_collection_voucher__to_account_mismatch
+msgid ""
+"True when the OCR-captured To Account does not match any of the company's "
+"registered bank accounts. Informational only: it does not block saving, "
+"because a single misread CBU digit must not stop a seller from recording a "
+"real payment. Surfaced to Document Review so a human can check it."
+msgstr ""
+"Verdadero cuando la Cuenta destino capturada por OCR no coincide con ninguna"
+" de las cuentas bancarias registradas de la empresa. Solo informativo: no "
+"impide guardar, porque un solo dígito del CBU mal leído no debe impedir que "
+"un vendedor registre un pago real. Se muestra en la Revisión de Documentos "
+"para que una persona lo verifique."
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_res_config_settings__collection_mcp_trusted_seller_header
+#: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+msgid "Trusted seller header"
+msgstr "Encabezado de vendedor de confianza"
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "Two connector sellers map to the same Odoo user."
@@ -3197,6 +3902,7 @@ msgstr "Dos vendedores del conector apuntan al mismo usuario de Odoo."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector__type
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__connector_type
 msgid "Type"
 msgstr "Tipo"
 
@@ -3206,6 +3912,11 @@ msgstr "Tipo"
 #: model:ir.model.fields,help:collection.field_collection_voucher__activity_exception_decoration
 msgid "Type of the exception activity on record."
 msgstr "Tipo de la actividad de excepción registrada."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Unmark Entered in the ERP"
+msgstr "Desmarcar cargada en el ERP"
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_unsupported
@@ -3222,6 +3933,7 @@ msgstr "Los pagos no soportados no pueden asignarse (índice %(index)s)."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__user_id
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_usuario
 msgid "User"
 msgstr "Usuario"
 
@@ -3255,6 +3967,27 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Validated by Seller"
 msgstr "Validado por el vendedor"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"Validated vouchers cannot change %(fields)s. Replace the designated proof to"
+" send the voucher back to Document Review, and correct it there."
+msgstr ""
+"Los comprobantes validados no pueden cambiar %(fields)s. Reemplace el "
+"respaldo designado para devolver el comprobante a la Revisión de Documentos "
+"y corríjalo allí."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"Validated vouchers must keep their designated proof. Replace it instead to "
+"send the voucher back to Document Review."
+msgstr ""
+"Los comprobantes validados deben conservar su respaldo designado. "
+"Reemplácelo para devolver el comprobante a la Revisión de Documentos."
 
 #. module: collection
 #. odoo-javascript
@@ -3317,11 +4050,49 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher date cannot be in the future."
+msgstr "La fecha del comprobante no puede ser futura."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
 msgid ""
 "Voucher fields cannot be changed while the collection sheet is not open."
 msgstr ""
 "Los campos del comprobante no pueden cambiarse mientras la planilla de "
 "cobranza no esté abierta."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher number %(number)s is already registered on voucher %(name)s."
+msgstr ""
+"El número de comprobante %(number)s ya está registrado en el comprobante "
+"%(name)s."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher number %(number)s is duplicated within this request."
+msgstr "El número de comprobante %(number)s está duplicado en esta solicitud."
+
+#. module: collection
+#: model:ir.model.constraint,message:collection.constraint_collection_voucher_retention_voucher_number_uniq_idx
+msgid ""
+"Voucher number must be unique per company and customer for retention "
+"certificate vouchers."
+msgstr ""
+"El número de comprobante debe ser único por empresa y cliente para los "
+"certificados de retención."
+
+#. module: collection
+#: model:ir.model.constraint,message:collection.constraint_collection_voucher_transfer_voucher_number_uniq_idx
+msgid ""
+"Voucher number must be unique per company and document type for bank "
+"transfer and cash deposit vouchers."
+msgstr ""
+"El número de comprobante debe ser único por empresa y tipo de documento para"
+" transferencias bancarias y depósitos en efectivo."
 
 #. module: collection
 #. odoo-python
@@ -3371,6 +4142,23 @@ msgid "Vto."
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_ws_url
+msgid "Web Service URL"
+msgstr "URL del servicio web"
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_sheet__erp_entered_date
+msgid ""
+"When a manager marked this closed sheet's receipts as typed into the ERP. "
+"Its applied amounts stop being subtracted from the ERP balances once a "
+"connector refresh that started after this time succeeded."
+msgstr ""
+"Momento en que un administrador marcó los recibos de esta planilla cerrada "
+"como cargados en el ERP. Sus importes aplicados dejan de descontarse de los "
+"saldos del ERP cuando finaliza con éxito una actualización del conector "
+"iniciada después de ese momento."
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid ""
 "When enabled, new vouchers with a seller and no sheet are auto-assigned."
@@ -3379,10 +4167,37 @@ msgstr ""
 "se asignan automáticamente."
 
 #. module: collection
+#: model:ir.model.fields,help:collection.field_collection_allocation_debt_picker__debt_as_of
+msgid "When the connector's copy of the ERP debt was taken."
+msgstr "Momento en que el conector tomó su copia de la deuda del ERP."
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_puesto
+msgid "Workstation"
+msgstr "Puesto de trabajo"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+msgid "X-Sender-Phone"
+msgstr ""
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "You can only delete vouchers in the Draft state."
-msgstr "Solo podés eliminar comprobantes en estado Borrador."
+msgstr "Solo se pueden eliminar comprobantes en estado Borrador."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_company_settings.py:0
+msgid "You cannot configure collections for this company."
+msgstr "No tiene permiso para configurar las cobranzas de esta empresa."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_connector_settings.py:0
+msgid "You cannot configure this company's connector."
+msgstr "No tiene permiso para configurar el conector de esta empresa."
 
 #. module: collection
 #. odoo-python
@@ -3395,6 +4210,12 @@ msgstr ""
 #: code:addons/collection/tools/collection_seller_deposit.py:0
 msgid "amount must be an amount and voucher_date must be an ISO date."
 msgstr "amount debe ser un importe y voucher_date debe ser una fecha ISO."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_seller_deposit.py:0
+msgid "amount must be greater than zero."
+msgstr "amount debe ser mayor que cero."
 
 #. module: collection
 #. odoo-python
@@ -3417,6 +4238,12 @@ msgstr ""
 #: code:addons/collection/tools/collection_cash_declare.py:0
 msgid "commission_withheld must be an amount."
 msgstr "commission_withheld debe ser un importe."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_cash_declare.py:0
+msgid "commission_withheld must be zero or more."
+msgstr "commission_withheld debe ser cero o mayor."
 
 #. module: collection
 #. odoo-python
@@ -3444,10 +4271,24 @@ msgid "declare_collection_cash"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"is still recorded on cash receipts. This does not block\n"
+"                        Confirm or Close."
+msgstr ""
+"sigue registrado en recibos de efectivo. Esto no impide Confirmar ni Cerrar."
+
+#. module: collection
 #. odoo-python
-#: code:addons/collection/tools/seller_lookup.py:0
+#: code:addons/collection/tools/seller_identity.py:0
 msgid "mobile is required."
 msgstr "mobile es obligatorio."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/wizard/collection_company_settings.py:0
+msgid "partner_id"
+msgstr ""
 
 #. module: collection
 #. odoo-python
@@ -3483,6 +4324,16 @@ msgid ""
 msgstr ""
 "seller_confirmed en el índice %(index)s debe coincidir con los campos del "
 "pago (excepto document_id)."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_voucher.py:0
+msgid ""
+"seller_confirmed check_number is required for check and echeck payments "
+"(index %(index)s)."
+msgstr ""
+"seller_confirmed check_number es obligatorio para pagos con cheque y echeq "
+"(índice %(index)s)."
 
 #. module: collection
 #. odoo-python

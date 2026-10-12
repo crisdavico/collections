@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Internal-user Document Review client: queue eligible voucher proofs, correct OCR’d
+Collections User Document Review client: queue eligible voucher proofs, correct OCR’d
 fields against the attachment, and approve/reject without mock data.
 
 ## Requirements
@@ -210,12 +210,13 @@ ignored client vals and did not rewrite current.)
 
 ### Requirement: Document Review authorization
 
-Only internal users (`base.group_user`) MUST access Document Review queue and approve
-actions.
+Only Collections Users (`collection.group_collection_user`) MUST access Document Review
+queue, approve, and rotation actions; others MUST receive `AccessError`. (Previously: any
+internal user, `base.group_user`.)
 
-#### Scenario: Non-internal user denied Document Review
+#### Scenario: User without Collections User denied Document Review
 
-- GIVEN a user without internal-user privileges
+- GIVEN a user without the Collections User group (including a plain internal user)
 - WHEN they attempt Document Review queue access or approve
 - THEN the system MUST deny access
 
@@ -244,7 +245,7 @@ operations included `action_review_reject`.)
 #### Scenario: Voucher state and audit remain
 
 - GIVEN Document Review is OFF
-- WHEN an internal user opens Payment Vouchers views
+- WHEN a Collections User opens Payment Vouchers views
 - THEN voucher `state` and review audit columns MUST still appear
 
 #### Scenario: Flag preserved when Collection Settings are saved
@@ -257,10 +258,10 @@ operations included `action_review_reject`.)
 #### Scenario: Flag still gates review when ON or OFF
 
 - GIVEN Document Review OFF
-- WHEN an internal user calls `get_review_queue`, `action_review_approve`, or
+- WHEN a Collections User calls `get_review_queue`, `action_review_approve`, or
   `action_review_set_rotation`
 - THEN MUST refuse (not empty-queue success)
-- AND when ON those operations MUST still run for internal users on an allowed-company
+- AND when ON those operations MUST still run for Collections Users on an allowed-company
   sheet
 
 ### Requirement: Document Review menu and RPCs when flag is off
@@ -268,7 +269,7 @@ operations included `action_review_reject`.)
 The Collections menu MUST NOT include Document Review, whether the flag is ON or OFF.
 When OFF, `get_review_queue`, `action_review_approve`, and `action_review_set_rotation`
 MUST refuse, including leftover `/odoo/document-review`, with or without a sheet
-identifier, and MUST NOT succeed as an empty queue. When ON, only internal users MUST
+identifier, and MUST NOT succeed as an empty queue. When ON, only Collections Users MUST
 access them. `action_review_reject` MUST NOT remain. (Previously: Gated operations
 included `action_review_reject`.)
 
@@ -281,15 +282,15 @@ included `action_review_reject`.)
 #### Scenario: Review operations refuse when off
 
 - GIVEN Document Review is OFF
-- WHEN an internal user calls `get_review_queue`, `action_review_approve`, or
+- WHEN a Collections User calls `get_review_queue`, `action_review_approve`, or
   `action_review_set_rotation`, with or without a sheet identifier, including via
   leftover `/odoo/document-review`
 - THEN the system MUST refuse (not empty-queue success)
 
-#### Scenario: Internal ACL when on
+#### Scenario: Collections User ACL when on
 
 - GIVEN Document Review is ON
-- WHEN a non-internal user attempts those review operations
+- WHEN a user without the Collections User group attempts those review operations
 - THEN the system MUST deny access
 
 ### Requirement: Sheet identifier required on review operations
@@ -345,7 +346,8 @@ identified sheet MUST be `open`.)
 ### Requirement: Three-way raw, seller, and current comparison
 
 Payment Vouchers form MUST present raw OCR, seller-confirmed, and current side by side.
-Current MUST remain the editable copy. Raw and seller-confirmed MUST be readonly.
+Current MUST remain the editable copy until the voucher is `validated_collections`
+(then frozen; see collection-vouchers). Raw and seller-confirmed MUST be readonly.
 Type-specific visibility MUST apply to all three form layers. Document Review MUST show
 one editable current control per field (OCR-prefilled) and MUST NOT show three
 side-by-side widgets or inline seller-change warnings. MUST NOT show `document_id`.
@@ -361,8 +363,9 @@ plus inline seller-change warnings.)
 
 #### Scenario: Reviewer correction diverges current only
 
-- GIVEN a voucher with stored raw and seller-confirmed copies
-- WHEN an internal user edits current on the voucher form
+- GIVEN a voucher not yet `validated_collections` with stored raw and seller-confirmed
+  copies
+- WHEN a Collections User edits current on the voucher form
 - THEN current MUST persist the edit and raw and seller-confirmed MUST stay unchanged
 
 #### Scenario: Document Review one editable OCR-prefilled control
@@ -425,7 +428,7 @@ approve MUST append a new snapshot. Earlier snapshots MUST remain unchanged.
 ### Requirement: Review snapshots isolated by company
 
 Each Document Review snapshot MUST belong to the same company as its voucher. Users MUST
-see snapshots only for companies they are allowed. Dedicated groups MUST NOT be added.
+see snapshots only for companies they are allowed, and only as Collections Users.
 Write and unlink MUST remain denied. Snapshots MUST remain in the database after the
 form History tab is removed. (Previously: Allowed-company history was listed on Payment
 Vouchers History.)
@@ -444,7 +447,7 @@ Vouchers History.)
 
 #### Scenario: Allowed-company history still readable
 
-- GIVEN an internal user allowed company A and snapshots on an A voucher
+- GIVEN a Collections User allowed company A and snapshots on an A voucher
 - WHEN they read snapshots via ACL
 - THEN those snapshots MUST be readable and MUST NOT require a Payment Vouchers History
   tab
