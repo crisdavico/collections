@@ -72,6 +72,9 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
             withheld = _collection_normalize_amount(commission_withheld)
         except ValueError as err:
             raise UserError(_("commission_withheld must be an amount.")) from err
+        currency = self.env.company.currency_id
+        if currency.compare_amounts(withheld, 0.0) < 0:
+            raise UserError(_("commission_withheld must be zero or more."))
         seller = self._collection_mcp_seller(seller_id)
         Sheet = self.env["collection.sheet"]
         Sheet._lock_open_sheet_for_seller(seller, self.env.company)

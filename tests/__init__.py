@@ -47,3 +47,4 @@ from . import test_collection_sheet_xlsx
 from . import test_collection_ui
 from . import test_collection_voucher
 from . import test_collection_split_ownership
+from . import test_collection_commission_resync
