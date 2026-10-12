@@ -16,7 +16,7 @@ class CollectionCashReplacement(models.Model):
     receipt_id = fields.Many2one(
         comodel_name="collection.receipt",
         required=True,
-        ondelete="cascade",
+        ondelete="restrict",
         index=True,
     )
     cash_voucher_id = fields.Many2one(
@@ -92,6 +92,6 @@ class CollectionCashReplacement(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_forbidden(self):
-        if is_privileged("collection_allocation_parent_unlink"):
-            return
+        # No bypass: an allocation or receipt holding cash replacements
+        # refuses its own delete, and the FK restricts the database.
         raise UserError(_("Cash replacements cannot be deleted."))

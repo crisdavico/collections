@@ -5,6 +5,8 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
+from odoo.addons.base.models.ir_model import MODULE_UNINSTALL_FLAG
+
 from .collection_common import (
     DOCUMENT_KIND_SELECTION,
     is_privileged,
@@ -150,12 +152,38 @@ class CollectionReceipt(models.Model):
             self._raise_if_sheet_frozen()
         return super().write(vals)
 
+    def unlink(self):
+        if not self:
+            return True
+        # ``value_ids`` no longer cascade in the database: refuse first, then
+        # remove the values through the ORM under the parent-unlink scope.
+        if not self.env.context.get(MODULE_UNINSTALL_FLAG):
+            self._unlink_if_issued_or_frozen()
+        with privileged("collection_allocation_parent_unlink"):
+            self.value_ids.unlink()
+        return super().unlink()
+
     @api.ondelete(at_uninstall=False)
     def _unlink_if_issued_or_frozen(self):
+        self._raise_if_issued()
+        if self._has_cash_replacements():
+            raise UserError(
+                _("Collection receipts with cash replacements cannot be deleted.")
+            )
         if is_privileged("collection_allocation_parent_unlink"):
             return
         self._raise_if_sheet_frozen()
-        self._raise_if_issued()
+
+    @api.private
+    def _has_cash_replacements(self):
+        """Return whether any cash replacement row points at these receipts."""
+        if not self:
+            return False
+        return bool(
+            self.env["collection.cash.replacement"].search_count(
+                [("receipt_id", "in", self.ids)], limit=1
+            )
+        )
 
     @api.private
     def _action_mark_closed(self):

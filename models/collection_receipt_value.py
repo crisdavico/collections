@@ -21,7 +21,7 @@ class CollectionReceiptValue(models.Model):
     receipt_id = fields.Many2one(
         comodel_name="collection.receipt",
         required=True,
-        ondelete="cascade",
+        ondelete="restrict",
         index=True,
     )
     voucher_id = fields.Many2one(
