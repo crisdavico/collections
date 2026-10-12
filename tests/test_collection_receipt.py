@@ -759,7 +759,13 @@ class TestCollectionReceipt(TransactionCase):
             other_sheet,
             other_partner,
             vouchers=other_voucher,
-            lines=[self._line_vals(amount_applied=10.0, invoice_balance=10.0)],
+            lines=[
+                self._line_vals(
+                    amount_applied=10.0,
+                    invoice_balance=10.0,
+                    external_invoice_id="INV-NULL-B",
+                )
+            ],
         )
         second_null = self._create_receipt(other_alloc, "invoice")
         self.assertFalse(second_null.external_receipt_id)

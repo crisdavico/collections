@@ -67,7 +67,9 @@ class TestCollectionPrivilegedScope(TransactionCase):
                 "line_ids": [
                     Command.create(
                         {
-                            "external_invoice_id": "SCOPE-INV-1",
+                            # One ERP document per customer: a shared id would
+                            # over-apply it across the ledgers of one test.
+                            "external_invoice_id": f"SCOPE-INV-{partner.id}",
                             "invoice_number": "A-SCOPE-1",
                             "due_date": date(2026, 1, 31),
                             "invoice_amount": amount,

@@ -219,7 +219,13 @@ class TestCollectionAllocation(TransactionCase):
             sheet,
             other_partner,
             vouchers=other_voucher,
-            lines=[self._line_vals(amount_applied=50.0, invoice_balance=50.0)],
+            lines=[
+                self._line_vals(
+                    amount_applied=50.0,
+                    invoice_balance=50.0,
+                    external_invoice_id="INV-OTHER-PARTNER",
+                )
+            ],
         )
         self.assertTrue(other_alloc.id)
         self.assertEqual(other_alloc.partner_id, other_partner)
@@ -233,7 +239,13 @@ class TestCollectionAllocation(TransactionCase):
             sheet_b,
             partner,
             vouchers=voucher_b,
-            lines=[self._line_vals(amount_applied=25.0, invoice_balance=25.0)],
+            lines=[
+                self._line_vals(
+                    amount_applied=25.0,
+                    invoice_balance=25.0,
+                    external_invoice_id="INV-OTHER-SHEET",
+                )
+            ],
         )
         self.assertTrue(alloc_b.id)
         self.assertEqual(alloc_b.sheet_id, sheet_b)
@@ -360,23 +372,33 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(allocation.state, "confirmed")
         self.assertEqual(allocation.residual, 110.0)
 
-    def test_residual_negative_saves_on_draft_and_confirmed(self):
-        """Applied exceeding debt MUST persist a negative residual."""
+    def test_applying_above_the_debt_is_refused_residual_stays_flat(self):
+        """Applied exceeding the debt MUST be refused; a full apply leaves 0.
+
+        This used to persist a negative residual. A document cannot be
+        applied above its balance any more, so residual bottoms out at zero.
+        """
         partner = self._partner("ALLOC-NEG")
         sheet = self._create_sheet()
+        with self.assertRaises(ValidationError):
+            self._create_allocation(
+                sheet,
+                partner,
+                lines=[self._line_vals(amount_applied=80.0, invoice_balance=40.0)],
+            )
         allocation = self._create_allocation(
             sheet,
             partner,
-            lines=[self._line_vals(amount_applied=80.0, invoice_balance=40.0)],
+            lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
         )
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(allocation.total_debt, 40.0)
-        self.assertEqual(allocation.total_applied, 80.0)
-        self.assertEqual(allocation.residual, -40.0)
+        self.assertEqual(allocation.total_applied, 40.0)
+        self.assertEqual(allocation.residual, 0.0)
         self.assertNotIn("residual_reason", allocation._fields)
         self._confirm(allocation)
         self.assertEqual(allocation.state, "confirmed")
-        self.assertEqual(allocation.residual, -40.0)
+        self.assertEqual(allocation.residual, 0.0)
 
     def test_totals_split_invoices_and_quotations(self):
         """total_invoices / total_quotations MUST split invoice_balance by kind."""
@@ -1331,7 +1353,13 @@ class TestCollectionAllocation(TransactionCase):
             sheet,
             other,
             vouchers=extra_voucher,
-            lines=[self._line_vals(amount_applied=15.0, invoice_balance=15.0)],
+            lines=[
+                self._line_vals(
+                    amount_applied=15.0,
+                    invoice_balance=15.0,
+                    external_invoice_id="INV-PROP-CREATE",
+                )
+            ],
         )
         self.assertTrue(extra.id)
         self.assertEqual(extra.state, "draft")

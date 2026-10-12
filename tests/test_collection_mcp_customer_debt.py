@@ -176,8 +176,10 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
                             "invoice_number": "A-0002",
                             "issue_date": "2026-04-01",
                             "due_date": "2026-09-01",
-                            "invoice_amount": 50.0,
-                            "invoice_balance": 50.0,
+                            # Snapshot taken before the ERP balance fell to
+                            # 50: a line never applies above its own balance.
+                            "invoice_amount": max(50.0, amount_applied),
+                            "invoice_balance": max(50.0, amount_applied),
                             "invoice_state": "open",
                             "amount_applied": amount_applied,
                         }
