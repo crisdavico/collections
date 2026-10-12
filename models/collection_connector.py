@@ -1,6 +1,9 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+from datetime import datetime
+
+import pytz
 from psycopg2.errors import UniqueViolation
 
 from odoo import api, fields, models
@@ -37,6 +40,25 @@ def _format_amount(value):
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def as_of_to_utc(value):
+    """Naive UTC datetime of an ``as_of`` ISO string (False when empty)."""
+    if not value:
+        return False
+    stamp = datetime.fromisoformat(value)
+    if stamp.tzinfo:
+        stamp = stamp.astimezone(pytz.utc).replace(tzinfo=None)
+    return stamp
+
+
+def company_timezone(company, user):
+    """Company timezone (company partner, else the user, else UTC)."""
+    tz_name = company.partner_id.tz or user.tz or "UTC"
+    try:
+        return pytz.timezone(tz_name)
+    except pytz.UnknownTimeZoneError:
+        return pytz.utc
 
 
 class CollectionConnector(models.Model):
@@ -331,6 +353,13 @@ class CollectionConnector(models.Model):
         overdue_balance = sum(
             row["balance"] for row in invoices if row["state"] == "overdue"
         )
+        # Decision D4: open credit notes net the customer's total; the invoice
+        # rows (what allocations target) stay gross. Adapters report the open
+        # credit as one amount, of either sign.
+        currency = self.company_id.currency_id
+        gross_total = open_balance + overdue_balance
+        credit_total = currency.round(abs(_format_amount(payload.get("credit_total"))))
+        net_total = currency.round(gross_total - credit_total)
         return {
             "customer": {
                 "external_customer_id": str(
@@ -341,11 +370,32 @@ class CollectionConnector(models.Model):
                 "customer_code": customer.get("customer_code") or "",
             },
             "summary": {
-                "total_balance": open_balance + overdue_balance,
+                # What the customer owes: open invoices net of open credits.
+                "total_balance": net_total,
                 "overdue_balance": overdue_balance,
                 "open_balance": open_balance,
                 "invoice_count": len(invoices),
+                "gross_total": gross_total,
+                "credit_total": credit_total,
+                "net_total": net_total,
             },
             "invoices": invoices,
+            "as_of": self._collection_as_of(payload.get("as_of")),
             "source": self._source_payload(),
         }
+
+    @api.private
+    def _collection_as_of(self, value):
+        """ISO 8601 time, in the company timezone, the figures were read at.
+
+        ``value`` is the adapter's naive UTC time of its copy of the ERP (a
+        snapshot refresh). An adapter that reads the ERP live gives none, so
+        the read time stands.
+        """
+        self.ensure_one()
+        stamp = fields.Datetime.to_datetime(value) if value else None
+        if not stamp:
+            stamp = fields.Datetime.now()
+        tz = company_timezone(self.company_id, self.env.user)
+        local = pytz.utc.localize(stamp.replace(microsecond=0)).astimezone(tz)
+        return local.isoformat()

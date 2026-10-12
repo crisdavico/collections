@@ -639,6 +639,7 @@ class TestCollectionConnector(TransactionCase):
         self.assertEqual(summary["overdue_balance"], 100.0)
         self.assertEqual(summary["open_balance"], 50.0)
         self.assertEqual(summary["invoice_count"], 2)
+        # Decision D4 added the gross, credit and net totals (no credits here).
         self.assertEqual(
             set(summary),
             {
@@ -646,8 +647,13 @@ class TestCollectionConnector(TransactionCase):
                 "overdue_balance",
                 "open_balance",
                 "invoice_count",
+                "gross_total",
+                "credit_total",
+                "net_total",
             },
         )
+        self.assertEqual(summary["credit_total"], 0.0)
+        self.assertEqual(summary["net_total"], summary["gross_total"])
         source = result["source"]
         self.assertEqual(source["connector_id"], connector.id)
         self.assertEqual(source["connector_type"], TEST_CONNECTOR_TYPE)
