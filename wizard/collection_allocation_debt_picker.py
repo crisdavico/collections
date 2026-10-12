@@ -89,7 +89,6 @@ class CollectionAllocationDebtPicker(models.TransientModel):
         domain="[('picker_id', '=', id)]",
     )
     debt_as_of = fields.Datetime(
-        string="Debt As Of",
         readonly=True,
         help="When the connector's copy of the ERP debt was taken.",
     )
