@@ -170,6 +170,43 @@ class TestCollectionErpEntry(TransactionCase):
                 by_id = {row["external_invoice_id"]: row for row in payload["invoices"]}
                 self.assertEqual(by_id[_INVOICE]["allocatable_balance"], allocatable)
 
+    def test_mcp_allocation_write_follows_the_rule(self):
+        """The allocation write revalidates against the same released balance.
+
+        The open invoice owes 50 and the marked sheet applied 40 to it: until a
+        refresh that started after the mark, only 10 can be applied elsewhere.
+        """
+        sheet = self._sheet("closed")
+        marked_at = self._mark(sheet)
+        rows = [
+            {
+                "external_invoice_id": _INVOICE,
+                "amount_applied": 50.0,
+                "document_kind": "invoice",
+            }
+        ]
+
+        def revalidate(since):
+            connector = self.connector.with_context(
+                collection_test_reflected_since=since
+            )
+            return self.mixin._collection_allocation_revalidate(
+                connector,
+                self.seller,
+                "20-11111111-1",
+                rows,
+                self.env["collection.allocation"],
+                self.env.company.currency_id,
+            )
+
+        with self.assertRaisesRegex(UserError, "exceeds available invoice balance"):
+            revalidate(marked_at - timedelta(seconds=1))
+        line_vals = revalidate(marked_at + timedelta(seconds=1))
+        applied = {
+            vals["external_invoice_id"]: vals["amount_applied"] for vals in line_vals
+        }
+        self.assertEqual(applied[_INVOICE], 50.0)
+
     def test_only_managers_mark_and_unmark(self):
         sheet = self._sheet("closed")
         for user in (self.plain, self.operator):
