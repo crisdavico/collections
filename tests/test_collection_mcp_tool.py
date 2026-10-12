@@ -484,10 +484,10 @@ class TestCollectionMcpAttachment(TransactionCase):
             {
                 "payments": [
                     {
-                        "customer_identification": "MCP-ATT-RETRY-OTHER",
+                        "customer_identification": "MCP-ATT-RETRY",
                         "document_id": "MCP-DOC-ATT-RETRY",
                         "document_type": "bank_transfer",
-                        "amount": 999.0,
+                        "amount": 5.0,
                         "attachment": self._nest(
                             "replacement.pdf", "application/pdf", PDF_B64
                         ),
@@ -527,7 +527,7 @@ class TestCollectionMcpAttachment(TransactionCase):
             {
                 "payments": [
                     {
-                        "customer_identification": "MCP-ATT-RETRY-EMPTY-OTHER",
+                        "customer_identification": "MCP-ATT-RETRY-EMPTY",
                         "document_id": "MCP-DOC-ATT-RETRY-EMPTY",
                         "document_type": "cash_deposit",
                         "amount": 4.0,
@@ -569,10 +569,11 @@ class TestCollectionMcpAttachment(TransactionCase):
             {
                 "payments": [
                     {
-                        "customer_identification": "MCP-ATT-RETRY-OMIT-OTHER",
+                        "customer_identification": "MCP-ATT-RETRY-OMIT",
                         "document_id": "MCP-DOC-ATT-RETRY-OMIT",
                         "document_type": "check",
                         "amount": 6.0,
+                        "check_number": "CHK-ATT-RETRY-OMIT",
                         "check_type": "common",
                     }
                 ],
@@ -632,7 +633,7 @@ class TestCollectionMcpAttachment(TransactionCase):
             {
                 "payments": [
                     {
-                        "customer_identification": "MCP-ATT-RETRY-IGN-OTHER",
+                        "customer_identification": "MCP-ATT-RETRY-IGN",
                         "document_id": "MCP-DOC-ATT-RETRY-IGN",
                         "document_type": "bank_transfer",
                         "amount": 7.0,
@@ -679,16 +680,16 @@ class TestCollectionMcpAttachment(TransactionCase):
             {
                 "payments": [
                     {
-                        "customer_identification": "MCP-ATT-RETRY-ALL-OTHER",
+                        "customer_identification": "MCP-ATT-RETRY-ALL",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-A",
                         "document_type": "bank_transfer",
-                        "amount": 99.0,
+                        "amount": 1.0,
                     },
                     {
-                        "customer_identification": "MCP-ATT-RETRY-ALL-OTHER",
+                        "customer_identification": "MCP-ATT-RETRY-ALL",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-B",
                         "document_type": "cash_deposit",
-                        "amount": 99.0,
+                        "amount": 2.0,
                         "attachment": self._nest(
                             "late.pdf", "application/pdf", PDF_B64
                         ),
@@ -1433,18 +1434,13 @@ class TestCollectionMcpProvenance(TransactionCase):
             {
                 "payments": [
                     {
-                        "customer_identification": "MCP-PROV-REPLAY-OTHER",
+                        "customer_identification": "MCP-PROV-REPLAY",
                         "document_id": "MCP-DOC-PROV-REPLAY",
-                        "document_type": "bank_transfer",
-                        "amount": 999.0,
                         "raw_ocr": {
                             "document_type": "bank_transfer",
                             "amount": 1.0,
                         },
-                        "seller_confirmed": {
-                            "document_type": "bank_transfer",
-                            "amount": 999.0,
-                        },
+                        "seller_confirmed": dict(fields_vals),
                     }
                 ],
             }
@@ -1527,13 +1523,15 @@ class TestCollectionMcpProvenance(TransactionCase):
             {
                 "payments": [
                     {
-                        "customer_identification": "MCP-PROV-REPLAY-BAD-OTHER",
+                        "customer_identification": "MCP-PROV-REPLAY-BAD",
                         "document_id": "MCP-DOC-PROV-REPLAY-BAD",
-                        "document_type": "check",
-                        "amount": 6.0,
-                        "check_type": "common",
                         "raw_ocr": "not-an-object",
-                        "seller_confirmed": {"amount": 6.0},
+                        "seller_confirmed": {
+                            "document_type": "check",
+                            "amount": 6.0,
+                            "check_number": "CHK-PROV-REPLAY-BAD",
+                            "check_type": "common",
+                        },
                     }
                 ],
             }

@@ -176,14 +176,14 @@ class CollectionAllocationMixin(models.AbstractModel):
             )
         )
         seller = self._collection_mcp_seller(seller_id)
-        replayed = self._collection_allocation_classify_request(
-            request_key, document_ids
-        )
-        if replayed is not None:
-            return replayed
         receipt_rows, payment_vals_list = self._collection_parse_allocation_form(
             payments, receipts, identification
         )
+        replayed = self._collection_allocation_classify_request(
+            request_key, document_ids, seller, receipt_rows, identification
+        )
+        if replayed is not None:
+            return replayed
         self.env.company._assert_new_work(seller.id)
         if not self.env.company.auto_create_sheet:
             raise UserError(
@@ -202,7 +202,7 @@ class CollectionAllocationMixin(models.AbstractModel):
         except UniqueViolation:
             self.env.invalidate_all()
             replayed = self._collection_allocation_classify_request(
-                request_key, document_ids
+                request_key, document_ids, seller, receipt_rows, identification
             )
             if replayed is not None:
                 return replayed
@@ -216,7 +216,7 @@ class CollectionAllocationMixin(models.AbstractModel):
         request_id: Any,
         customer_identification: Any,
     ) -> tuple[list[str], str, str]:
-        """Parse identity fields needed for request_id replay (nests ignored)."""
+        """Parse the identity fields: request_id, customer and document_ids."""
         if not isinstance(request_id, str) or not request_id.strip():
             raise UserError(_("request_id is required."))
         if (
@@ -257,8 +257,8 @@ class CollectionAllocationMixin(models.AbstractModel):
         """Validate payment and receipt bodies (do not trust schema minItems).
 
         Identity fields are already validated by
-        ``_collection_parse_allocation_identity``, which runs first so a replay
-        can be answered without parsing the bodies at all.
+        ``_collection_parse_allocation_identity``. The bodies are parsed before
+        any request_id replay, because a replay must carry the same content.
         """
         payment_vals_list = self._collection_parse_payment_vals(
             payments, identification
@@ -585,16 +585,53 @@ class CollectionAllocationMixin(models.AbstractModel):
     @api.model
     @api.private
     def _collection_allocation_classify_request(
-        self, request_id: str, document_ids: list[str]
+        self,
+        request_id: str,
+        document_ids: list[str],
+        seller,
+        receipt_rows: list[dict[str, Any]],
+        identification: str,
     ):
-        """Return replay payload, raise on other-company, or None if new."""
+        """Return the replay payload, raise the generic conflict, or None if new.
+
+        A request_id replays only for the seller that wrote it and only with
+        the same content: the same voucher set and receipts (the revision's
+        content hash) for the same customer. Anything else is the generic
+        conflict, so a request_id never reveals another seller's allocation.
+        """
         revision = self._collection_allocation_by_request_id(request_id)
         if not revision:
             return None
-        if revision.company_id != self.env.company:
+        allocation = revision.allocation_id
+        if (
+            revision.company_id != self.env.company
+            or allocation.sheet_id.seller_id != seller
+        ):
             raise self._collection_allocation_conflict_error()
-        return self._collection_allocation_payload(
-            revision.allocation_id, revision, document_ids
+        vouchers = self._collection_vouchers_by_document_ids(document_ids)
+        if (
+            len(vouchers) != len(document_ids)
+            or revision.content_hash
+            != self._collection_allocation_content_hash(vouchers, receipt_rows)
+            or not self._collection_identification_names(
+                identification, allocation.partner_id
+            )
+        ):
+            raise self._collection_allocation_conflict_error()
+        return self._collection_allocation_payload(allocation, revision, document_ids)
+
+    @api.model
+    @api.private
+    def _collection_identification_names(self, identification: str, partner) -> bool:
+        """Return whether a customer binding maps ``identification`` to ``partner``."""
+        return bool(
+            self.env["collection.connector.customer.binding"].search_count(
+                [
+                    ("partner_id", "=", partner.id),
+                    ("identification", "=", identification),
+                ],
+                limit=1,
+            )
         )
 
     @api.model
@@ -887,7 +924,9 @@ class CollectionAllocationMixin(models.AbstractModel):
     ) -> dict[str, Any]:
         """Create or reuse vouchers, revalidate ERP, then persist allocation."""
         existing_docs = self._collection_vouchers_by_document_ids(document_ids)
-        classified = self._collection_classify_visible(existing_docs, document_ids)
+        classified = self._collection_classify_visible(
+            existing_docs, document_ids, seller, payment_vals_list
+        )
         sidecars: list[tuple[str, bytes] | None] | None = None
         provenances: list[dict[str, Any] | None] | None = None
         if classified is None:
@@ -908,7 +947,9 @@ class CollectionAllocationMixin(models.AbstractModel):
                     )
                 except UniqueViolation:
                     self.env.invalidate_all()
-                    replayed = self._collection_replay_existing(document_ids)
+                    replayed = self._collection_replay_existing(
+                        document_ids, seller, payment_vals_list
+                    )
                     if replayed is None:
                         raise self._collection_document_conflict_error() from None
             vouchers, sheet = self._collection_allocation_vouchers(document_ids, seller)

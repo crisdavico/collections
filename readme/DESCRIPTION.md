@@ -57,8 +57,10 @@ installing the module does not create business companies or login credentials.
 MCP `create_collection_vouchers` still takes per-payment `customer_identification`
 strings and returns `{vouchers:[{id,name,state,document_id},...]}`. On all-new create
 only, the server lazily resolves each string into `partner_id` and MAY create a
-`res.partner` plus customer binding. Exact replay ignores a changed customer string and
-keeps the first-call partner. Each payment may nest `raw_ocr` and `seller_confirmed`
+`res.partner` plus customer binding. A replay answers only the seller that wrote it and
+only with the same content: a reused `request_id` needs the same payments, receipts and
+customer, and a reused `document_id` the same seller and payment fields; anything else
+is a generic conflict. Each payment may nest `raw_ocr` and `seller_confirmed`
 (typed review fields; both omitted leaves empty provenance). MCP `get_seller_id`
 resolves `{seller_id}` from a WhatsApp/mobile among the company's enabled sellers. MCP
 `list_collection_customers` and `customer_debt` MUST NOT create partners.

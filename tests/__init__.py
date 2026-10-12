@@ -23,6 +23,7 @@ from . import test_collection_mcp_cash_declare
 from . import test_collection_mcp_customer_debt
 from . import test_collection_mcp_customer_list
 from . import test_collection_mcp_partner_resolve
+from . import test_collection_mcp_replay_scope
 from . import test_collection_mcp_seller_deposit
 from . import test_collection_mcp_seller_identity
 from . import test_collection_mcp_seller_lookup
