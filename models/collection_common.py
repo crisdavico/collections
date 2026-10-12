@@ -45,6 +45,15 @@ def is_privileged(scope):
     return scope in _PRIVILEGED_SCOPES.get()
 
 
+class ConnectorDataStaleError(UserError):
+    """The connector's copy of the ERP is too old to be served.
+
+    A connector raises it instead of answering with stale figures. Callers that
+    turn other connector errors into "no debt" let this one through, so the
+    operator or agent sees why nothing can be offered.
+    """
+
+
 # Users + Managers role model. Back-office operators and the MCP API user are
 # Collections Users; Close, Cancel, Reinstate and configuration need a Manager.
 # Seller identity users are plain internal users and get no collection group.

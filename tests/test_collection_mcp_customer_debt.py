@@ -241,7 +241,8 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
                 "customer_identification": "20-11111111-1",
             }
         )
-        self.assertEqual(set(result), {"customer", "summary", "invoices"})
+        # T25 extended the contract with `as_of` (when the ERP was read).
+        self.assertEqual(set(result), {"customer", "summary", "invoices", "as_of"})
         self.assertNotIn("source", result)
         customer = result["customer"]
         self.assertEqual(customer["external_customer_id"], "cust-bound-active")
@@ -309,7 +310,7 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
         )
         mixin = self.env["muk_mcp.mixin"].with_context(collection_test_invoices=mixed)
         payload = mixin.customer_debt(self.seller.id, "20-11111111-1")
-        self.assertEqual(set(payload), {"customer", "summary", "invoices"})
+        self.assertEqual(set(payload), {"customer", "summary", "invoices", "as_of"})
         self.assertNotIn("source", payload)
         kinds = {
             row["external_invoice_id"]: row["document_kind"]

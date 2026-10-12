@@ -3,6 +3,8 @@
 
 from odoo import api, fields, models
 
+from ..models.collection_connector import as_of_to_utc
+
 
 class CollectionAllocationDebtCandidate(models.TransientModel):
     _name = "collection.allocation.debt.candidate"
@@ -86,6 +88,11 @@ class CollectionAllocationDebtPicker(models.TransientModel):
         string="Debts",
         domain="[('picker_id', '=', id)]",
     )
+    debt_as_of = fields.Datetime(
+        string="Debt As Of",
+        readonly=True,
+        help="When the connector's copy of the ERP debt was taken.",
+    )
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -99,12 +106,23 @@ class CollectionAllocationDebtPicker(models.TransientModel):
     def _load_missing_candidates(self):
         Candidate = self.env["collection.allocation.debt.candidate"]
         for picker in self:
+            allocation = picker.allocation_id
+            debt = allocation._fetch_customer_debt(
+                allocation.sheet_id, allocation.partner_id
+            )
             vals_list = [
                 picker._candidate_vals(line_vals)
-                for line_vals in picker.allocation_id._missing_customer_debt_lines()
+                for line_vals in allocation._missing_customer_debt_lines(debt)
             ]
             if vals_list:
                 Candidate.create(vals_list)
+            if debt:
+                picker.write(picker._debt_header_vals(debt))
+
+    @api.private
+    def _debt_header_vals(self, debt):
+        """Picker header fields from a formatted connector debt answer."""
+        return {"debt_as_of": as_of_to_utc(debt.get("as_of"))}
 
     @api.private
     def _candidate_vals(self, line_vals):

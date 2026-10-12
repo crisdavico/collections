@@ -35,10 +35,12 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
         description=(
             "Return outstanding invoices and balances for an Enabled Seller's "
             "active customer from the company's collection connector. Returns "
-            "{customer, summary, invoices} with invoice document_kind "
+            "{customer, summary, invoices, as_of} with invoice document_kind "
             "(default invoice) and allocatable_balance (gross balance minus "
-            "draft and confirmed reservations, clamped at zero). Collections "
-            "Users only."
+            "draft and confirmed reservations, clamped at zero). as_of is "
+            "when the figures were read from the ERP (ISO 8601, company "
+            "timezone). Refuses with an error when the connector's copy of "
+            "the ERP is out of date. Collections Users only."
         ),
         input_schema=_CUSTOMER_DEBT_SCHEMA,
         category="read",

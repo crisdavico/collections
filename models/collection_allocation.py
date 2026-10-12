@@ -13,6 +13,7 @@ from .collection_common import (
     CONFIRMED_SHEET_STATE,
     DRAFT_SHEET_STATES,
     FROZEN_SHEET_STATES,
+    ConnectorDataStaleError,
     is_privileged,
     privileged,
     raise_if_create_vals_frozen,
@@ -220,14 +221,19 @@ class CollectionAllocation(models.Model):
 
     @api.model
     @api.private
-    def _prepare_customer_debt_lines(self, sheet, partner):
-        """Map outstanding ERP invoices to allocation line vals (applied 0)."""
+    def _fetch_customer_debt(self, sheet, partner):
+        """Formatted connector debt of the sheet seller's customer, or None.
+
+        A connector that cannot answer leaves the debt empty, except when its
+        data is too old: that error reaches the operator instead of an empty
+        list that would read as "nothing owed".
+        """
         if not sheet or not partner:
-            return []
+            return None
         company = sheet.company_id or self.env.company
         connector = company.collection_connector_id
         if not connector or not connector.active:
-            return []
+            return None
         binding = self.env["collection.connector.customer.binding"].search(
             [
                 ("connector_id", "=", connector.id),
@@ -236,14 +242,22 @@ class CollectionAllocation(models.Model):
             limit=1,
         )
         if not binding:
-            return []
+            return None
         try:
-            debt = connector.with_company(company).get_customer_debt(
+            return connector.with_company(company).get_customer_debt(
                 sheet.seller_id.id,
                 binding.identification,
             )
+        except ConnectorDataStaleError:
+            raise
         except UserError:
-            return []
+            return None
+
+    @api.model
+    @api.private
+    def _prepare_customer_debt_lines(self, sheet, partner):
+        """Map outstanding ERP invoices to allocation line vals (applied 0)."""
+        debt = self._fetch_customer_debt(sheet, partner) or {}
         return [
             self._customer_debt_line_vals(invoice)
             for invoice in debt.get("invoices") or []
@@ -487,9 +501,15 @@ class CollectionAllocation(models.Model):
         }
 
     @api.private
-    def _missing_customer_debt_lines(self):
-        """Outstanding ERP invoices not already snapshotted on this allocation."""
+    def _missing_customer_debt_lines(self, debt=None):
+        """Outstanding ERP invoices not already snapshotted on this allocation.
+
+        ``debt`` is a formatted connector answer already fetched by the caller;
+        without it the connector is read here.
+        """
         self.ensure_one()
+        if debt is None:
+            debt = self._fetch_customer_debt(self.sheet_id, self.partner_id)
         existing = {
             line.external_invoice_id
             for line in self.line_ids
@@ -497,8 +517,9 @@ class CollectionAllocation(models.Model):
         }
         return [
             vals
-            for vals in self._prepare_customer_debt_lines(
-                self.sheet_id, self.partner_id
+            for vals in (
+                self._customer_debt_line_vals(invoice)
+                for invoice in (debt or {}).get("invoices") or []
             )
             if vals.get("external_invoice_id") not in existing
         ]

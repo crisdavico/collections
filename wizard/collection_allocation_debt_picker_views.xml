@@ -35,6 +35,7 @@
                 <group>
                     <field name="allocation_id" invisible="1" />
                     <field name="currency_id" invisible="1" />
+                    <field name="debt_as_of" invisible="not debt_as_of" />
                     <field
             name="selected_ids"
             widget="many2many"

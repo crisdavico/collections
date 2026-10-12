@@ -7,6 +7,7 @@ from odoo.orm.model_classes import add_to_registry
 from odoo.addons.collection.models.collection_common import privileged
 
 TEST_CONNECTOR_TYPE = "test"
+TEST_STALE_MESSAGE = "The customer debt is out of date."
 
 TEST_SELLERS = (
     {
@@ -155,6 +156,13 @@ class CollectionConnectorTestProvider(models.Model):
     @api.private
     def _test_get_customer_debt(self, external_seller_id, customer_identification):
         self.ensure_one()
+        if self.env.context.get("collection_test_stale"):
+            # Imported here so an older core still loads the rest of the fixtures.
+            from odoo.addons.collection.models.collection_common import (
+                ConnectorDataStaleError,
+            )
+
+            raise ConnectorDataStaleError(TEST_STALE_MESSAGE)
         customers = self.env.context.get("collection_test_customers")
         if customers is None:
             customers = TEST_CUSTOMERS
@@ -173,7 +181,7 @@ class CollectionConnectorTestProvider(models.Model):
             return {"customer": None, "invoices": []}
         customer = matches[0]
         customer_id = str(customer.get("id") or "")
-        return {
+        payload = {
             "customer": customer,
             "invoices": [
                 dict(row)
@@ -181,6 +189,10 @@ class CollectionConnectorTestProvider(models.Model):
                 if str(row.get("customer_id") or "") == customer_id
             ],
         }
+        as_of = self.env.context.get("collection_test_as_of")
+        if as_of:
+            payload["as_of"] = as_of
+        return payload
 
     @api.private
     def _test_test_connection(self):

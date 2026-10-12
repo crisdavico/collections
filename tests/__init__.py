@@ -49,3 +49,4 @@ from . import test_collection_voucher
 from . import test_collection_split_ownership
 from . import test_collection_commission_resync
 from . import test_collection_deposit_proof_swap
+from . import test_collection_debt_freshness
