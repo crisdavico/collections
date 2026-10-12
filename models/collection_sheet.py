@@ -13,6 +13,7 @@ from .collection_common import (
     COLLECTION_MANAGER_GROUP,
     COLLECTION_USER_GROUP,
     CONFIRM_REVIEW_EXEMPT_TYPES,
+    CONFIRMED_SHEET_STATE,
     SELLER_DECLARATION_STATES,
     SELLER_SHEET_STATES,
     check_collection_role,
@@ -29,6 +30,10 @@ _STATE_WRITE_ACTIONS = {
     "submitted": "_dispatch_submitted_state_write",
 }
 _VALIDATED_COLLECTIONS = "validated_collections"
+# The "Entered in the ERP" mark is set and cleared only by its actions (and by
+# Cancel), never by a plain write.
+ERP_ENTRY_SCOPE = "collection_sheet_erp_entry"
+_ERP_ENTRY_FIELDS = frozenset({"erp_entered_date", "erp_entered_uid"})
 # Enough for a Confirm-review-exempt member: the seller decided it and
 # Document Review has no proof to look at.
 _SELLER_DECIDED_STATES = frozenset({"validated_seller", _VALIDATED_COLLECTIONS})
@@ -96,6 +101,22 @@ class CollectionSheet(models.Model):
         compute="_compute_document_review_enabled",
     )
     voucher_count = fields.Integer(compute="_compute_voucher_count")
+    erp_entered_date = fields.Datetime(
+        string="Entered in the ERP",
+        readonly=True,
+        copy=False,
+        index=True,
+        help="When a manager marked this closed sheet's receipts as typed into "
+        "the ERP. Its applied amounts stop being subtracted from the ERP "
+        "balances once a connector refresh that started after this time "
+        "succeeded.",
+    )
+    erp_entered_uid = fields.Many2one(
+        comodel_name="res.users",
+        string="Entered in the ERP by",
+        readonly=True,
+        copy=False,
+    )
 
     @api.depends("voucher_ids", "voucher_ids.create_date")
     def _compute_dates(self):
@@ -170,6 +191,8 @@ class CollectionSheet(models.Model):
         sequence = self.env["ir.sequence"]
         opening_keys = set()
         for vals in vals_list:
+            if _ERP_ENTRY_FIELDS & set(vals):
+                self._raise_erp_entry_locked()
             company_id = vals.get("company_id") or self.env.company.id
             company = self.env["res.company"].browse(company_id)
             company._assert_new_work(vals.get("seller_id"))
@@ -195,6 +218,8 @@ class CollectionSheet(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
+        if _ERP_ENTRY_FIELDS & set(vals) and not is_privileged(ERP_ENTRY_SCOPE):
+            self._raise_erp_entry_locked()
         if "seller_id" in vals:
             raise UserError(_("The sheet seller cannot be changed."))
         if "company_id" in vals:
@@ -538,8 +563,14 @@ class CollectionSheet(models.Model):
             )
         self._reopen_closed_receipts()
         allocations = self.mapped("allocation_ids")
+        marked = self.filtered("erp_entered_date")
         with privileged("collection_sheet_audited_state"):
             result = self.write({"state": "cancelled"})
+        if marked:
+            # A cancelled sheet reserves nothing; Reinstate starts unmarked.
+            marked._clear_erp_entry(
+                _("Cancel removed the Entered in the ERP mark of this sheet.")
+            )
         if allocations:
             with privileged("collection_allocation_audited_state"):
                 allocations.write({"state": "draft"})
@@ -569,6 +600,66 @@ class CollectionSheet(models.Model):
             # coming back must not over-apply what another sheet took since.
             allocations.line_ids._check_invoice_not_over_applied()
         return result
+
+    @api.private
+    def _check_erp_entry_manager(self):
+        check_collection_role(
+            self.env,
+            COLLECTION_MANAGER_GROUP,
+            _("Only Collections Managers can mark sheets as entered in the ERP."),
+        )
+
+    @api.model
+    @api.private
+    def _raise_erp_entry_locked(self):
+        raise UserError(
+            _(
+                "The Entered in the ERP mark can only be changed with its "
+                "Mark and Unmark actions."
+            )
+        )
+
+    def action_mark_erp_entered(self):
+        """Record that this closed sheet's receipts were typed into the ERP.
+
+        From then on its applied amounts stop being subtracted from the ERP
+        balances once a connector refresh that started after the mark
+        succeeded (the ERP shows them by then).
+        """
+        self._check_erp_entry_manager()
+        if any(sheet.state != CONFIRMED_SHEET_STATE for sheet in self):
+            raise UserError(
+                _("Only closed sheets can be marked as entered in the ERP.")
+            )
+        if any(sheet.erp_entered_date for sheet in self):
+            raise UserError(_("This sheet is already marked as entered in the ERP."))
+        with privileged(ERP_ENTRY_SCOPE):
+            self.write(
+                {
+                    "erp_entered_date": fields.Datetime.now(),
+                    "erp_entered_uid": self.env.uid,
+                }
+            )
+        for sheet in self:
+            sheet.message_post(
+                body=_("Receipts of this sheet marked as entered in the ERP.")
+            )
+        return True
+
+    def action_unmark_erp_entered(self):
+        """Undo a mistaken mark: the applied amounts are subtracted again."""
+        self._check_erp_entry_manager()
+        if any(not sheet.erp_entered_date for sheet in self):
+            raise UserError(_("This sheet is not marked as entered in the ERP."))
+        self._clear_erp_entry(_("The Entered in the ERP mark was removed."))
+        return True
+
+    @api.private
+    def _clear_erp_entry(self, note):
+        with privileged(ERP_ENTRY_SCOPE):
+            self.write({"erp_entered_date": False, "erp_entered_uid": False})
+        for sheet in self:
+            sheet.message_post(body=note)
 
     def action_open_document_review(self):
         self.ensure_one()

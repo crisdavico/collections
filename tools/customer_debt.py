@@ -75,7 +75,8 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
                 invoice["external_invoice_id"]
                 for invoice in invoices
                 if invoice.get("external_invoice_id")
-            ]
+            ],
+            connector=connector,
         )
         total_allocatable = 0.0
         open_allocatable = 0.0

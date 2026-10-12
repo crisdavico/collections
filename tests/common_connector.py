@@ -198,6 +198,13 @@ class CollectionConnectorTestProvider(models.Model):
         return payload
 
     @api.private
+    def _collection_erp_reflected_since(self):
+        """Test type: the time a test says its data took ERP entries in."""
+        if self.type == TEST_CONNECTOR_TYPE:
+            return self.env.context.get("collection_test_reflected_since") or False
+        return super()._collection_erp_reflected_since()
+
+    @api.private
     def _test_test_connection(self):
         self.ensure_one()
         return {"ok": True}

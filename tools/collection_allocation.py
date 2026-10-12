@@ -781,10 +781,16 @@ class CollectionAllocationMixin(models.AbstractModel):
         self,
         external_invoice_ids: list[str],
         exclude_allocation_id: int | bool = False,
+        connector=None,
     ) -> dict[str, float]:
-        """Sum draft/confirmed applied amounts per external invoice.
+        """Applied amounts the ERP balances do not show yet, per external invoice.
 
-        Includes allocations on proposal, closed, and cancelled sheets.
+        Receipts are typed into the ERP by hand and a manager marks the whole
+        sheet "Entered in the ERP". An allocation's applied amount is
+        subtracted while its sheet is not cancelled AND (the sheet is not
+        marked OR the ``connector`` has not yet taken ERP entries in since the
+        mark, i.e. no successful refresh STARTED after it). Cancelled sheets
+        never reserve. Without a connector, nothing marked is released.
         Optionally exclude the destination allocation (amendments).
         """
         invoice_ids = [eid for eid in external_invoice_ids if eid]
@@ -794,7 +800,17 @@ class CollectionAllocationMixin(models.AbstractModel):
             ("external_invoice_id", "in", invoice_ids),
             ("company_id", "=", self.env.company.id),
             ("allocation_id.state", "in", ("draft", "confirmed")),
+            ("sheet_id.state", "!=", "cancelled"),
         ]
+        reflected_since = (
+            connector._collection_erp_reflected_since() if connector else False
+        )
+        if reflected_since:
+            domain += [
+                "|",
+                ("sheet_id.erp_entered_date", "=", False),
+                ("sheet_id.erp_entered_date", ">=", reflected_since),
+            ]
         if exclude_allocation_id:
             domain.append(("allocation_id", "!=", exclude_allocation_id))
         grouped = self.env["collection.allocation.line"]._read_group(
@@ -859,6 +875,7 @@ class CollectionAllocationMixin(models.AbstractModel):
         reserved = self._collection_reserved_amounts(
             list(fresh_invoices),
             exclude_allocation_id=dest_id,
+            connector=connector,
         )
         line_vals: list[dict[str, Any]] = []
         for external_id, fresh in fresh_invoices.items():
