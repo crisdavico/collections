@@ -93,6 +93,22 @@ class CollectionAllocationDebtPicker(models.TransientModel):
         readonly=True,
         help="When the connector's copy of the ERP debt was taken.",
     )
+    debt_gross_total = fields.Monetary(
+        string="Open Invoices",
+        currency_field="currency_id",
+        readonly=True,
+    )
+    debt_credit_total = fields.Monetary(
+        string="Open Credits",
+        currency_field="currency_id",
+        readonly=True,
+    )
+    debt_net_total = fields.Monetary(
+        string="Customer Owes",
+        currency_field="currency_id",
+        readonly=True,
+        help="Open invoices net of open credit notes.",
+    )
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -122,7 +138,13 @@ class CollectionAllocationDebtPicker(models.TransientModel):
     @api.private
     def _debt_header_vals(self, debt):
         """Picker header fields from a formatted connector debt answer."""
-        return {"debt_as_of": as_of_to_utc(debt.get("as_of"))}
+        summary = debt.get("summary") or {}
+        return {
+            "debt_as_of": as_of_to_utc(debt.get("as_of")),
+            "debt_gross_total": summary.get("gross_total") or 0.0,
+            "debt_credit_total": summary.get("credit_total") or 0.0,
+            "debt_net_total": summary.get("net_total") or 0.0,
+        }
 
     @api.private
     def _candidate_vals(self, line_vals):

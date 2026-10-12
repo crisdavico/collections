@@ -192,6 +192,9 @@ class CollectionConnectorTestProvider(models.Model):
         as_of = self.env.context.get("collection_test_as_of")
         if as_of:
             payload["as_of"] = as_of
+        credit_total = self.env.context.get("collection_test_credit_total")
+        if credit_total is not None:
+            payload["credit_total"] = credit_total
         return payload
 
     @api.private

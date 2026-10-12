@@ -353,6 +353,13 @@ class CollectionConnector(models.Model):
         overdue_balance = sum(
             row["balance"] for row in invoices if row["state"] == "overdue"
         )
+        # Decision D4: open credit notes net the customer's total; the invoice
+        # rows (what allocations target) stay gross. Adapters report the open
+        # credit as one amount, of either sign.
+        currency = self.company_id.currency_id
+        gross_total = open_balance + overdue_balance
+        credit_total = currency.round(abs(_format_amount(payload.get("credit_total"))))
+        net_total = currency.round(gross_total - credit_total)
         return {
             "customer": {
                 "external_customer_id": str(
@@ -363,10 +370,14 @@ class CollectionConnector(models.Model):
                 "customer_code": customer.get("customer_code") or "",
             },
             "summary": {
-                "total_balance": open_balance + overdue_balance,
+                # What the customer owes: open invoices net of open credits.
+                "total_balance": net_total,
                 "overdue_balance": overdue_balance,
                 "open_balance": open_balance,
                 "invoice_count": len(invoices),
+                "gross_total": gross_total,
+                "credit_total": credit_total,
+                "net_total": net_total,
             },
             "invoices": invoices,
             "as_of": self._collection_as_of(payload.get("as_of")),
