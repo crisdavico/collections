@@ -9,6 +9,7 @@ from .collection_common import (
     CHECK_TYPE_SELECTION,
     DOCUMENT_TYPE_SELECTION,
     RETENTION_KIND_SELECTION,
+    is_privileged,
 )
 
 
@@ -68,7 +69,7 @@ class CollectionVoucherReviewSnapshot(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if not self.env.context.get("collection_review_snapshot"):
+        if not is_privileged("collection_review_snapshot"):
             raise UserError(
                 _("Review snapshots can only be created by Document Review.")
             )

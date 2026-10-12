@@ -10,6 +10,8 @@ from .collection_common import (
     CONFIRMED_SHEET_STATE,
     DRAFT_SHEET_STATES,
     FROZEN_SHEET_STATES,
+    is_privileged,
+    privileged,
     raise_if_create_vals_frozen,
     sanitize_voucher_commands,
 )
@@ -274,9 +276,7 @@ class CollectionAllocation(models.Model):
         if "voucher_ids" in vals:
             vals = dict(vals)
             vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
-        if "state" in vals and not self.env.context.get(
-            "collection_allocation_audited_state"
-        ):
+        if "state" in vals and not is_privileged("collection_allocation_audited_state"):
             raise UserError(
                 _("Allocation state can only be changed via Close, Cancel, or Open.")
             )
@@ -307,13 +307,14 @@ class CollectionAllocation(models.Model):
     def unlink(self):
         if not self:
             return True
-        if not self.env.context.get("collection_allocation_parent_unlink"):
-            return self.with_context(collection_allocation_parent_unlink=True).unlink()
-        drafts = self.filtered(lambda allocation: allocation.state != "confirmed")
-        vouchers = drafts.mapped("voucher_ids")
-        if vouchers:
-            models.Model.write(vouchers, {"allocation_id": False})
-        return super().unlink()
+        # Child ledger rows refuse a direct unlink; only this scope lets the
+        # parent delete take them along.
+        with privileged("collection_allocation_parent_unlink"):
+            drafts = self.filtered(lambda allocation: allocation.state != "confirmed")
+            vouchers = drafts.mapped("voucher_ids")
+            if vouchers:
+                models.Model.write(vouchers, {"allocation_id": False})
+            return super().unlink()
 
     @api.constrains("partner_id", "voucher_ids")
     def _check_voucher_partners(self):
@@ -350,7 +351,10 @@ class CollectionAllocation(models.Model):
 
     @api.constrains("state", "sheet_id")
     def _check_sheet_state_iff(self):
-        if self.env.context.get("collection_allocation_audited_state"):
+        # Runs from ``write`` (``_validate_fields``), so a write issued inside
+        # the scope is checked while the scope holds; Close/Cancel/Reinstate
+        # re-run it after both state writes, outside the scope.
+        if is_privileged("collection_allocation_audited_state"):
             return
         for allocation in self:
             sheet = allocation.sheet_id

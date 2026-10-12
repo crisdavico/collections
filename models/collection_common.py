@@ -6,8 +6,44 @@ Kept free of Odoo model definitions so any model module can import it without
 creating a registry load-order dependency.
 """
 
+import contextlib
+import contextvars
+
 from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
+
+# Workflow guards (audited state writes, gated creates, cascade unlinks) open
+# only inside ``privileged(...)``. They MUST NOT read ``env.context``: JSON-RPC
+# ``call_kw`` and muk_mcp tool calls both merge a caller-supplied ``context``
+# into the environment, so any context key is client-settable. A context
+# variable is set only by server code in the same thread, around the exact
+# call that needs it, and is never part of a request payload.
+_PRIVILEGED_SCOPES = contextvars.ContextVar(
+    "collection_privileged_scopes", default=frozenset()
+)
+
+
+@contextlib.contextmanager
+def privileged(*scopes):
+    """Open ``scopes`` for the calls made inside the ``with`` block.
+
+    Nesting adds scopes; leaving a block restores the outer set even when the
+    block raises. Guards evaluate synchronously inside the ORM override, so a
+    write or unlink issued inside the block is checked while the scope holds.
+    Never ``yield`` from a generator inside the block: the scope would leak to
+    the consumer.
+    """
+    token = _PRIVILEGED_SCOPES.set(_PRIVILEGED_SCOPES.get() | frozenset(scopes))
+    try:
+        yield
+    finally:
+        _PRIVILEGED_SCOPES.reset(token)
+
+
+def is_privileged(scope):
+    """Return whether server code opened ``scope`` around the current call."""
+    return scope in _PRIVILEGED_SCOPES.get()
+
 
 # Users + Managers role model. Back-office operators and the MCP API user are
 # Collections Users; Close, Cancel, Reinstate and configuration need a Manager.
@@ -60,9 +96,9 @@ SELLER_DECLARATION_STATES = frozenset({"submitted"})
 DRAFT_SHEET_STATES = frozenset({"open", "submitted", "proposal", "cancelled"})
 CONFIRMED_SHEET_STATE = "closed"
 FROZEN_SHEET_STATES = frozenset({"closed", "cancelled"})
-# Callers MAY skip ``raise_if_sheet_frozen`` only under these keys. Chatter
-# ``message_post`` is not a bypass.
-FROZEN_SHEET_BYPASS_CONTEXTS = frozenset(
+# Callers MAY skip ``raise_if_sheet_frozen`` only under these privileged
+# scopes. Chatter ``message_post`` is not a bypass.
+FROZEN_SHEET_BYPASS_SCOPES = frozenset(
     {
         "collection_sheet_audited_state",
         "collection_allocation_audited_state",
@@ -111,10 +147,10 @@ def sanitize_voucher_commands(commands):
 def raise_if_sheet_frozen(sheets, message):
     """Raise ``UserError(message)`` when any of ``sheets`` is closed/cancelled.
 
-    This helper does not inspect ``env.context``. Callers skip it only under
-    ``FROZEN_SHEET_BYPASS_CONTEXTS`` (audited sheet/allocation/receipt state,
-    ``collection_allocation_parent_unlink``, ``collection_sheet_unlinking``).
-    ``message_post`` is not a bypass.
+    This helper checks no scope itself. Callers skip it only under a
+    ``FROZEN_SHEET_BYPASS_SCOPES`` privileged scope (audited
+    sheet/allocation/receipt state, ``collection_allocation_parent_unlink``,
+    ``collection_sheet_unlinking``). ``message_post`` is not a bypass.
     """
     if any(sheet.state in FROZEN_SHEET_STATES for sheet in sheets):
         raise UserError(message)

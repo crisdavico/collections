@@ -13,6 +13,8 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .common_connector import (
     confirm_sheet,
     force_sheet_state,
@@ -131,11 +133,8 @@ class TestCollectionAllocation(TransactionCase):
             "residual": extra.pop("residual", allocation.residual),
         }
         vals.update(extra)
-        return (
-            self.env["collection.allocation.revision"]
-            .with_context(collection_allocation_revision=True)
-            .create(vals)
-        )
+        with privileged("collection_allocation_revision"):
+            return self.env["collection.allocation.revision"].create(vals)
 
     def _create_receipt(self, allocation, document_kind="invoice", **extra):
         vals = {
@@ -155,18 +154,16 @@ class TestCollectionAllocation(TransactionCase):
         )
 
     def _confirm(self, allocation):
-        allocation.with_context(collection_allocation_audited_state=True).write(
-            {"state": "confirmed"}
-        )
+        with privileged("collection_allocation_audited_state"):
+            allocation.write({"state": "confirmed"})
         return allocation
 
     def _mark_validated(self, *vouchers):
         records = vouchers[0]
         for voucher in vouchers[1:]:
             records |= voucher
-        records.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            records.write({"state": "validated_collections"})
         return records
 
     def _revision_vals(self, allocation, **extra):
@@ -227,9 +224,8 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(other_alloc.id)
         self.assertEqual(other_alloc.partner_id, other_partner)
 
-        (other_voucher | _voucher).with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            (other_voucher | _voucher).write({"state": "validated_collections"})
         confirm_sheet(sheet)
         sheet_b = self._create_sheet(force_new=True)
         voucher_b = self._create_voucher(partner, sheet_b, amount=25.0)
@@ -538,9 +534,8 @@ class TestCollectionAllocation(TransactionCase):
     def test_iff_draft_on_proposal_passes(self):
         """draft MUST hold iff the sheet is open, proposal, or cancelled."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(allocation.state, "draft")
@@ -582,9 +577,8 @@ class TestCollectionAllocation(TransactionCase):
     def test_iff_draft_on_cancelled_passes(self):
         """Triangulation: draft on cancelled MUST satisfy the iff constraint."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
@@ -594,9 +588,8 @@ class TestCollectionAllocation(TransactionCase):
     def test_close_from_proposal_confirms_then_closes(self):
         """Close MUST confirm every allocation then close the sheet."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         self.assertEqual(allocation.state, "draft")
         sheet.action_close()
@@ -607,9 +600,8 @@ class TestCollectionAllocation(TransactionCase):
     def test_cancel_from_proposal_drafts_allocations(self):
         """Cancel MUST return every allocation to draft (no-op if already draft)."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
@@ -619,9 +611,8 @@ class TestCollectionAllocation(TransactionCase):
     def test_cancel_from_closed_drafts_allocations(self):
         """Triangulation: Cancel from closed MUST draft confirmed allocations."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         sheet.action_close()
         self.assertEqual(allocation.state, "confirmed")
@@ -633,9 +624,8 @@ class TestCollectionAllocation(TransactionCase):
     def test_open_from_cancelled_leaves_draft(self):
         """Open from cancelled MUST leave allocations draft."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         sheet.action_cancel()
         sheet.action_reinstate()
@@ -646,9 +636,8 @@ class TestCollectionAllocation(TransactionCase):
     def test_confirm_does_not_confirm_allocations(self):
         """Confirm MUST NOT change allocation state."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         self.assertEqual(allocation.state, "draft")
         confirm_sheet(sheet)
         self.assertEqual(sheet.state, "proposal")
@@ -1305,9 +1294,10 @@ class TestCollectionAllocation(TransactionCase):
         confirm_sheet(sheet)
         sheet.action_close()
         with self.assertRaises(UserError):
-            self.env["collection.allocation.revision"].with_context(
-                collection_allocation_revision=True
-            ).create(self._revision_vals(allocation, request_id="req-frz-create"))
+            with privileged("collection_allocation_revision"):
+                self.env["collection.allocation.revision"].create(
+                    self._revision_vals(allocation, request_id="req-frz-create")
+                )
         self.assertFalse(
             self.env["collection.allocation.revision"].search(
                 [("allocation_id", "=", allocation.id)]

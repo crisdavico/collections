@@ -16,6 +16,8 @@ from .collection_common import (
     SELLER_DECLARATION_STATES,
     SELLER_SHEET_STATES,
     check_collection_role,
+    is_privileged,
+    privileged,
     record_id,
     sanitize_voucher_commands,
 )
@@ -195,9 +197,7 @@ class CollectionSheet(models.Model):
     def write(self, vals):
         if "seller_id" in vals:
             raise UserError(_("The sheet seller cannot be changed."))
-        if "state" in vals and not self.env.context.get(
-            "collection_sheet_audited_state"
-        ):
+        if "state" in vals and not is_privileged("collection_sheet_audited_state"):
             target = vals["state"]
             rest = {key: value for key, value in vals.items() if key != "state"}
             if rest:
@@ -219,7 +219,7 @@ class CollectionSheet(models.Model):
                 )
             )
         if "voucher_ids" in vals:
-            if not self.env.context.get("collection_sheet_unlinking") and any(
+            if not is_privileged("collection_sheet_unlinking") and any(
                 sheet.state not in ADMIN_EDITABLE_SHEET_STATES for sheet in self
             ):
                 raise UserError(
@@ -233,9 +233,10 @@ class CollectionSheet(models.Model):
         return super().write(vals)
 
     def unlink(self):
-        if not self.env.context.get("collection_sheet_unlinking"):
-            return self.with_context(collection_sheet_unlinking=True).unlink()
-        return super().unlink()
+        # The ondelete cascade below detaches members and removes draft
+        # allocations; only this scope lets it touch membership.
+        with privileged("collection_sheet_unlinking"):
+            return super().unlink()
 
     @api.ondelete(at_uninstall=False)
     def _unlink_open_sheets_and_cascade_allocations(self):
@@ -254,9 +255,8 @@ class CollectionSheet(models.Model):
                     _("Only open collection sheets can be closed by the seller.")
                 )
         self._raise_if_draft_vouchers_block_seller_close()
-        return self.with_context(collection_sheet_audited_state=True).write(
-            {"state": "submitted"}
-        )
+        with privileged("collection_sheet_audited_state"):
+            return self.write({"state": "submitted"})
 
     @api.private
     def _cash_collected_total(self):
@@ -347,9 +347,8 @@ class CollectionSheet(models.Model):
                 )
             sheet._ensure_seller_commission_voucher()
             sheet._raise_if_allocations_over_applied()
-        return self.with_context(collection_sheet_audited_state=True).write(
-            {"state": "proposal"}
-        )
+        with privileged("collection_sheet_audited_state"):
+            return self.write({"state": "proposal"})
 
     @api.private
     def _ensure_seller_commission_voucher(self):
@@ -369,10 +368,8 @@ class CollectionSheet(models.Model):
         )
         if existing:
             return existing[:1]
-        voucher = (
-            self.env["collection.voucher"]
-            .with_context(collection_seller_commission_mint=True)
-            .create(
+        with privileged("collection_seller_commission_mint"):
+            voucher = self.env["collection.voucher"].create(
                 {
                     "document_type": "seller_commission",
                     "seller_id": self.seller_id.id,
@@ -383,10 +380,8 @@ class CollectionSheet(models.Model):
                     "state": "validated_seller",
                 }
             )
-        )
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         self.message_post(
             body=_(
                 "Seller commission %(name)s minted for %(amount)s.",
@@ -461,12 +456,10 @@ class CollectionSheet(models.Model):
         self._mark_draft_receipts_closed()
         allocations = self.mapped("allocation_ids")
         if allocations:
-            allocations.with_context(collection_allocation_audited_state=True).write(
-                {"state": "confirmed"}
-            )
-        result = self.with_context(collection_sheet_audited_state=True).write(
-            {"state": "closed"}
-        )
+            with privileged("collection_allocation_audited_state"):
+                allocations.write({"state": "confirmed"})
+        with privileged("collection_sheet_audited_state"):
+            result = self.write({"state": "closed"})
         if allocations:
             allocations._check_sheet_state_iff()
         return result
@@ -481,13 +474,11 @@ class CollectionSheet(models.Model):
             )
         self._reopen_closed_receipts()
         allocations = self.mapped("allocation_ids")
-        result = self.with_context(collection_sheet_audited_state=True).write(
-            {"state": "cancelled"}
-        )
+        with privileged("collection_sheet_audited_state"):
+            result = self.write({"state": "cancelled"})
         if allocations:
-            allocations.with_context(collection_allocation_audited_state=True).write(
-                {"state": "draft"}
-            )
+            with privileged("collection_allocation_audited_state"):
+                allocations.write({"state": "draft"})
             allocations._check_sheet_state_iff()
         return result
 
@@ -506,9 +497,8 @@ class CollectionSheet(models.Model):
         if any(sheet.state != "cancelled" for sheet in self):
             raise UserError(_("Only cancelled sheets can be reinstated."))
         allocations = self.mapped("allocation_ids")
-        result = self.with_context(collection_sheet_audited_state=True).write(
-            {"state": "submitted"}
-        )
+        with privileged("collection_sheet_audited_state"):
+            result = self.write({"state": "submitted"})
         if allocations:
             allocations._check_sheet_state_iff()
         return result

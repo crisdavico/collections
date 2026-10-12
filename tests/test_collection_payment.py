@@ -10,6 +10,8 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import SQL, mute_logger
 
+from odoo.addons.collection.models.collection_common import privileged
+
 # Minimal valid payloads (base64) for MIME triangulation.
 PNG_B64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQ"
@@ -468,9 +470,8 @@ class TestCollectionPaymentAttachment(TransactionCase):
             )
         )
         post_voucher_proof(voucher, "old.png", PNG_B64)
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         self.assertEqual(voucher.state, "validated_collections")
         replacement = self.env["ir.attachment"].create(
             {

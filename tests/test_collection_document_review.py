@@ -11,6 +11,8 @@ from lxml import etree
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .common_connector import force_sheet_state
 from .test_collection_payment import (
     PDF_B64,
@@ -109,9 +111,8 @@ class TestCollectionDocumentReview(TransactionCase):
         ]
         queued = self.env["collection.voucher"].search(domain)
         if queued:
-            queued.with_context(collection_audited_state=True).write(
-                {"state": "validated_collections"}
-            )
+            with privileged("collection_audited_state"):
+                queued.write({"state": "validated_collections"})
 
     def _assert_no_binary_in_payload(self, item):
         self.assertIsInstance(item, dict)
@@ -316,9 +317,8 @@ class TestCollectionDocumentReview(TransactionCase):
             seller_id=other.id,
             sheet_id=ineligible_sheet.id,
         )
-        approved.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            approved.write({"state": "validated_collections"})
         draft_attached = self._create_attached_voucher(
             customer_identification="CUST-SHEET-DRAFT",
             document_id="DOC-SHEET-DRAFT",
@@ -561,16 +561,14 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-APPR",
             document_id="DOC-REV-APPR-INELIG",
         )
-        approved.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            approved.write({"state": "validated_collections"})
         decided = self._create_attached_voucher(
             customer_identification="CUST-REV-DEC",
             document_id="DOC-REV-DEC",
         )
-        decided.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            decided.write({"state": "validated_collections"})
 
         queue = Voucher.get_review_queue(self.review_sheet.id)
         queued_ids = [item["id"] for item in queue]
@@ -645,9 +643,8 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-EMPTY-ATT",
             document_id="DOC-REV-EMPTY-ATT",
         )
-        attached.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            attached.write({"state": "validated_collections"})
         draft_attached = self._create_attached_voucher(
             customer_identification="CUST-REV-EMPTY-DRAFT",
             document_id="DOC-REV-EMPTY-DRAFT",
@@ -656,9 +653,8 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-EMPTY-REJ",
             document_id="DOC-REV-EMPTY-REJ",
         )
-        rejected.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            rejected.write({"state": "validated_collections"})
 
         queue = Voucher.get_review_queue(self.review_sheet.id)
         self.assertEqual(queue, [])
@@ -1242,12 +1238,13 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.state, "draft")
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
-        voucher.with_context(collection_audited_state=True).write(
-            {
-                "state": "validated_collections",
-                "reviewed_by": self.env.user.id,
-            }
-        )
+        with privileged("collection_audited_state"):
+            voucher.write(
+                {
+                    "state": "validated_collections",
+                    "reviewed_by": self.env.user.id,
+                }
+            )
         clone = voucher.copy({"document_id": "DOC-REV-DEF-CLONE"})
         self.assertEqual(clone.state, "draft")
         self.assertFalse(clone.reviewed_by)
@@ -1391,9 +1388,8 @@ class TestCollectionDocumentReview(TransactionCase):
             customer_identification="CUST-REV-STALE2",
             document_id="DOC-REV-STALE2",
         )
-        attached.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            attached.write({"state": "validated_collections"})
         with self.assertRaises(UserError):
             attached.action_review_approve(self.review_sheet.id)
         self.assertFalse(hasattr(attached, "action_review_reject"))

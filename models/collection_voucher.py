@@ -22,6 +22,8 @@ from .collection_common import (
     FROZEN_SHEET_STATES,
     RETENTION_KIND_SELECTION,
     check_collection_role,
+    is_privileged,
+    privileged,
     record_id,
 )
 
@@ -488,9 +490,8 @@ class CollectionVoucher(models.Model):
     def action_validate_seller(self):
         if any(voucher.state != "draft" for voucher in self):
             raise UserError(_("Only draft vouchers can be validated by seller."))
-        return self.with_context(collection_audited_state=True).write(
-            {"state": "validated_seller"}
-        )
+        with privileged("collection_audited_state"):
+            return self.write({"state": "validated_seller"})
 
     def action_create_collection_sheet(self):
         seller = self._seller_for_sheet_action()
@@ -614,7 +615,7 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _intercept_state_write(self, vals):
-        if "state" not in vals or self.env.context.get("collection_audited_state"):
+        if "state" not in vals or is_privileged("collection_audited_state"):
             return None
         target = vals["state"]
         if target == "validated_collections":
@@ -650,7 +651,7 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _ensure_sheet_membership_unlocked(self, new_sheet_id):
-        if self.env.context.get("collection_sheet_unlinking"):
+        if is_privileged("collection_sheet_unlinking"):
             return
         target = (
             self.env["collection.sheet"].browse(new_sheet_id)
@@ -1230,13 +1231,14 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _write_review_decision(self):
-        self.with_context(collection_audited_state=True).write(
-            {
-                "state": "validated_collections",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
-        )
+        with privileged("collection_audited_state"):
+            self.write(
+                {
+                    "state": "validated_collections",
+                    "reviewed_by": self.env.user.id,
+                    "reviewed_at": fields.Datetime.now(),
+                }
+            )
         self._append_review_snapshot("approved")
 
     @api.private
@@ -1268,7 +1270,8 @@ class CollectionVoucher(models.Model):
             }
             for name in self._REVIEW_EDITABLE_FIELDS:
                 payload[name] = voucher[name]
-            Snapshot.with_context(collection_review_snapshot=True).create(payload)
+            with privileged("collection_review_snapshot"):
+                Snapshot.create(payload)
 
     @api.private
     def _lock_and_ensure_review_eligible(self):

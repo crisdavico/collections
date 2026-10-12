@@ -9,6 +9,7 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from .common_connector import (
@@ -196,9 +197,8 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
                 "document_id": f"debt-reserve-{amount_applied}-{int(close)}",
             }
         )
-        voucher.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            voucher.write({"state": "validated_collections"})
         confirm_sheet(sheet)
         if close:
             sheet.action_close()

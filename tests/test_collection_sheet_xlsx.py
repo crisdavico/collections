@@ -14,6 +14,8 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
     create_internal_seller,
@@ -554,9 +556,8 @@ class TestCollectionSheetXlsx(TransactionCase):
         """Export XLSX MUST download in every sheet state without a state UserError."""
         sheet, _partner = self._populated_sheet()
         if sheet.voucher_ids:
-            sheet.voucher_ids.with_context(collection_audited_state=True).write(
-                {"state": "validated_collections"}
-            )
+            with privileged("collection_audited_state"):
+                sheet.voucher_ids.write({"state": "validated_collections"})
 
         def _seller_close_and_declare():
             sheet.action_seller_close()

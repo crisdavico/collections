@@ -8,6 +8,8 @@ from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .test_collection_payment import (
     dummy_customer_partner,
     ensure_enabled_seller,
@@ -114,9 +116,8 @@ class TestCollectionCashReplacement(TransactionCase):
         return sheet
 
     def _validate_collections(self, vouchers):
-        return vouchers.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            return vouchers.write({"state": "validated_collections"})
 
     def _cash_receipt(
         self,
@@ -254,12 +255,13 @@ class TestCollectionCashReplacement(TransactionCase):
         return receipt, cash, cash_value
 
     def _mark_issued(self, receipt, external_id):
-        receipt.with_context(collection_receipt_issuing=True).write(
-            {
-                "state": "issued",
-                "external_receipt_id": external_id,
-            }
-        )
+        with privileged("collection_receipt_issuing"):
+            receipt.write(
+                {
+                    "state": "issued",
+                    "external_receipt_id": external_id,
+                }
+            )
         return receipt
 
     def _stamp_create_date(self, voucher, stamped):

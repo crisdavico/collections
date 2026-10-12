@@ -6,6 +6,7 @@ from odoo.tools.translate import _
 
 from .collection_common import (
     DOCUMENT_KIND_SELECTION,
+    is_privileged,
     raise_if_create_vals_frozen,
     raise_if_sheet_frozen,
 )
@@ -88,7 +89,7 @@ class CollectionAllocationLine(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_if_sheet_frozen(self):
-        if self.env.context.get("collection_allocation_parent_unlink"):
+        if is_privileged("collection_allocation_parent_unlink"):
             return
         self._raise_if_sheet_frozen()
 

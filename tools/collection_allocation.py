@@ -14,7 +14,10 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tools import SQL
 
-from odoo.addons.collection.models.collection_common import SELLER_SHEET_STATES
+from odoo.addons.collection.models.collection_common import (
+    SELLER_SHEET_STATES,
+    privileged,
+)
 from odoo.addons.collection.tools.collection_voucher import (
     _COLLECTION_AMOUNT_SCHEMA,
     _PAYMENT_SCHEMA,
@@ -852,10 +855,8 @@ class CollectionAllocationMixin(models.AbstractModel):
         self, allocation, request_id: str, content_hash: str
     ):
         """Append an immutable revision snapshot for the current header."""
-        return (
-            self.env["collection.allocation.revision"]
-            .with_context(collection_allocation_revision=True)
-            .create(
+        with privileged("collection_allocation_revision"):
+            return self.env["collection.allocation.revision"].create(
                 {
                     "allocation_id": allocation.id,
                     "revision": allocation.revision,
@@ -871,7 +872,6 @@ class CollectionAllocationMixin(models.AbstractModel):
                     "residual": allocation.residual,
                 }
             )
-        )
 
     @api.model
     @api.private

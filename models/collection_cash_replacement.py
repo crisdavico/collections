@@ -5,7 +5,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.translate import _
 
-from .collection_common import raise_if_create_vals_frozen
+from .collection_common import is_privileged, raise_if_create_vals_frozen
 
 
 class CollectionCashReplacement(models.Model):
@@ -72,7 +72,7 @@ class CollectionCashReplacement(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if not self.env.context.get("collection_cash_replacement"):
+        if not is_privileged("collection_cash_replacement"):
             raise UserError(
                 _("Cash replacements can only be created by the replacement flow.")
             )
@@ -92,6 +92,6 @@ class CollectionCashReplacement(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_forbidden(self):
-        if self.env.context.get("collection_allocation_parent_unlink"):
+        if is_privileged("collection_allocation_parent_unlink"):
             return
         raise UserError(_("Cash replacements cannot be deleted."))

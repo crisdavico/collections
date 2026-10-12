@@ -15,6 +15,8 @@ from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .common_connector import confirm_sheet
 from .test_collection_payment import (
     PDF_B64,
@@ -94,15 +96,13 @@ class TestCollectionVoucher(TransactionCase):
         return self.env["collection.allocation"].create(vals)
 
     def _confirm(self, allocation):
-        allocation.with_context(collection_allocation_audited_state=True).write(
-            {"state": "confirmed"}
-        )
+        with privileged("collection_allocation_audited_state"):
+            allocation.write({"state": "confirmed"})
         return allocation
 
     def _mark_validated_collections(self, vouchers):
-        vouchers.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            vouchers.write({"state": "validated_collections"})
         return vouchers
 
     def _line_vals(self, amount_applied=100.0, invoice_balance=100.0, **extra):
@@ -678,9 +678,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(seller_done.state, "validated_seller")
 
         collections_done = self._create_voucher(customer_identification="R1")
-        collections_done.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            collections_done.write({"state": "validated_collections"})
         with self.assertRaises(UserError):
             collections_done.action_validate_seller()
         self.assertEqual(collections_done.state, "validated_collections")
@@ -877,9 +876,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertTrue(voucher.exists())
 
         collections_done = self._create_voucher(customer_identification="CUST-UNL-COLL")
-        collections_done.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            collections_done.write({"state": "validated_collections"})
         with self.assertRaises(UserError):
             collections_done.unlink()
         self.assertTrue(collections_done.exists())
@@ -935,13 +933,14 @@ class TestCollectionVoucher(TransactionCase):
         )
         first = post_voucher_proof(voucher, "old.png", PNG_B64)
         voucher.write({"attachment_rotation": 90})
-        voucher.with_context(collection_audited_state=True).write(
-            {
-                "state": "validated_collections",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
-        )
+        with privileged("collection_audited_state"):
+            voucher.write(
+                {
+                    "state": "validated_collections",
+                    "reviewed_by": self.env.user.id,
+                    "reviewed_at": fields.Datetime.now(),
+                }
+            )
         self.assertEqual(voucher.state, "validated_collections")
         self.assertTrue(voucher.reviewed_by)
         replacement = self.env["ir.attachment"].create(
@@ -965,13 +964,14 @@ class TestCollectionVoucher(TransactionCase):
         voucher = self._create_voucher(customer_identification="CUST-ATT-EXTRA")
         proof = post_voucher_proof(voucher, "keep.png", PNG_B64)
         voucher.write({"attachment_rotation": 180})
-        voucher.with_context(collection_audited_state=True).write(
-            {
-                "state": "validated_collections",
-                "reviewed_by": self.env.user.id,
-                "reviewed_at": fields.Datetime.now(),
-            }
-        )
+        with privileged("collection_audited_state"):
+            voucher.write(
+                {
+                    "state": "validated_collections",
+                    "reviewed_by": self.env.user.id,
+                    "reviewed_at": fields.Datetime.now(),
+                }
+            )
         extra = self.env["ir.attachment"].create(
             {
                 "name": "notes.txt",
@@ -1323,9 +1323,8 @@ class TestCollectionVoucher(TransactionCase):
             amount=10.0,
             document_id="REASSIGN-COLLECTIONS",
         )
-        collections_done.with_context(collection_audited_state=True).write(
-            {"state": "validated_collections"}
-        )
+        with privileged("collection_audited_state"):
+            collections_done.write({"state": "validated_collections"})
         collections_done.write({"partner_id": partner_r.id})
         self.assertEqual(collections_done.partner_id, partner_r)
         self.assertEqual(collections_done.state, "validated_collections")
@@ -2405,6 +2404,7 @@ class TestCollectionVoucherProvenance(TransactionCase):
             ),
             0,
         )
+
 
 class TestCollectionNewWorkHelper(TransactionCase):
     """NEW-work helper: enabled seller + allowed type; historical stays operable."""

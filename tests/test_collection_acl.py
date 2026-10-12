@@ -7,6 +7,8 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 
+from odoo.addons.collection.models.collection_common import privileged
+
 from .test_collection_payment import (
     PNG_B64,
     dummy_customer_partner,
@@ -395,9 +397,8 @@ class TestCollectionAcl(TransactionCase):
         )
         with self.assertRaises(UserError):
             Snapshot.create(self._snapshot_vals(voucher))
-        snap = Snapshot.with_context(collection_review_snapshot=True).create(
-            self._snapshot_vals(voucher)
-        )
+        with privileged("collection_review_snapshot"):
+            snap = Snapshot.create(self._snapshot_vals(voucher))
         self.assertTrue(snap.id)
         self.assertEqual(snap.voucher_id, voucher)
         self.assertEqual(snap.revision, 1)
@@ -411,9 +412,10 @@ class TestCollectionAcl(TransactionCase):
             self._voucher_vals(customer_identification="ACL-SNAP-DENY")
         )
         Snapshot = self.env["collection.voucher.review.snapshot"]
-        snap = Snapshot.with_context(collection_review_snapshot=True).create(
-            self._snapshot_vals(voucher, reviewer_id=self.env.user.id)
-        )
+        with privileged("collection_review_snapshot"):
+            snap = Snapshot.create(
+                self._snapshot_vals(voucher, reviewer_id=self.env.user.id)
+            )
         with self.assertRaises(UserError):
             snap.write({"amount": 1.0})
         with self.assertRaises(UserError):
@@ -425,11 +427,12 @@ class TestCollectionAcl(TransactionCase):
         with self.assertRaises(AccessError):
             PortalSnap.browse(snap.id).read(["revision"])
         with self.assertRaises(AccessError):
-            PortalSnap.with_context(collection_review_snapshot=True).create(
-                self._snapshot_vals(
-                    voucher, revision=2, reviewer_id=self.portal_user.id
+            with privileged("collection_review_snapshot"):
+                PortalSnap.create(
+                    self._snapshot_vals(
+                        voucher, revision=2, reviewer_id=self.portal_user.id
+                    )
                 )
-            )
 
         acls = self.env["ir.model.access"].search(
             [("model_id.model", "=", "collection.voucher.review.snapshot")]
@@ -530,11 +533,10 @@ class TestCollectionAcl(TransactionCase):
         voucher = self.env["collection.voucher"].create(
             self._voucher_vals(customer_identification="CO-REQ-SNAP")
         )
-        snap = (
-            self.env["collection.voucher.review.snapshot"]
-            .with_context(collection_review_snapshot=True)
-            .create(self._snapshot_vals(voucher, reviewer_id=self.env.user.id))
-        )
+        with privileged("collection_review_snapshot"):
+            snap = self.env["collection.voucher.review.snapshot"].create(
+                self._snapshot_vals(voucher, reviewer_id=self.env.user.id)
+            )
         self.assertEqual(snap.company_id, voucher.company_id)
         self.assertEqual(snap.company_id, self.env.company)
 
@@ -556,12 +558,12 @@ class TestCollectionAcl(TransactionCase):
                 )
             )
         )
-        snap = (
-            self.env["collection.voucher.review.snapshot"]
-            .with_user(self.internal_user)
-            .with_context(collection_review_snapshot=True)
-            .create(self._snapshot_vals(voucher))
-        )
+        with privileged("collection_review_snapshot"):
+            snap = (
+                self.env["collection.voucher.review.snapshot"]
+                .with_user(self.internal_user)
+                .create(self._snapshot_vals(voucher))
+            )
         Voucher = self.env["collection.voucher"].with_user(self.internal_user)
         Sheet = self.env["collection.sheet"].with_user(self.internal_user)
         Snapshot = self.env["collection.voucher.review.snapshot"].with_user(
@@ -607,11 +609,10 @@ class TestCollectionAcl(TransactionCase):
                 company_id=company_b.id,
             )
         )
-        snap_b = (
-            self.env["collection.voucher.review.snapshot"]
-            .with_context(collection_review_snapshot=True)
-            .create(self._snapshot_vals(voucher_b, reviewer_id=self.env.user.id))
-        )
+        with privileged("collection_review_snapshot"):
+            snap_b = self.env["collection.voucher.review.snapshot"].create(
+                self._snapshot_vals(voucher_b, reviewer_id=self.env.user.id)
+            )
         self.assertEqual(snap_b.company_id, company_b)
         self._assert_hidden_from_user(self.internal_user, snap_b, ["revision", "id"])
 
@@ -700,11 +701,12 @@ class TestCollectionAcl(TransactionCase):
         )
         with self.assertRaises(UserError):
             Replacement.create(self._replacement_vals(receipt, cash, deposit))
-        row = Replacement.with_context(collection_cash_replacement=True).create(
-            self._replacement_vals(
-                receipt, cash, deposit, created_by=self.internal_user.id
+        with privileged("collection_cash_replacement"):
+            row = Replacement.create(
+                self._replacement_vals(
+                    receipt, cash, deposit, created_by=self.internal_user.id
+                )
             )
-        )
         self.assertTrue(row.id)
         self.assertEqual(row.direction, "replace")
         self.assertEqual(row.company_id, self.env.company)
@@ -715,11 +717,10 @@ class TestCollectionAcl(TransactionCase):
     def test_cash_replacement_write_refused(self):
         """Existing replacement write MUST refuse and leave stored fields."""
         _allocation, receipt, cash, deposit = self._cash_replacement_records()
-        row = (
-            self.env["collection.cash.replacement"]
-            .with_context(collection_cash_replacement=True)
-            .create(self._replacement_vals(receipt, cash, deposit, amount=25.0))
-        )
+        with privileged("collection_cash_replacement"):
+            row = self.env["collection.cash.replacement"].create(
+                self._replacement_vals(receipt, cash, deposit, amount=25.0)
+            )
         with self.assertRaises(UserError):
             row.write({"amount": 1.0})
         self.assertAlmostEqual(row.amount, 25.0, places=2)
