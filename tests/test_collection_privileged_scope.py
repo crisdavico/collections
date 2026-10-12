@@ -220,12 +220,18 @@ class TestCollectionPrivilegedScope(TransactionCase):
         self.assertTrue(replacement.exists())
 
     def test_forged_create_keys_cannot_mint_audit_rows(self):
+        """Each refusal MUST come from the model's own scope guard.
+
+        A bare ``UserError`` would also accept an ACL refusal (``AccessError``
+        is one) or an unrelated validation, and so pass with the guard gone.
+        """
         _sheet, voucher, allocation, receipt, _value = self._ledger("open")
         now = fields.Datetime.now()
         cases = (
             (
                 "collection.allocation.revision",
                 "collection_allocation_revision",
+                "Allocation revisions can only be created by the allocation flow.",
                 {
                     "allocation_id": allocation.id,
                     "revision": 99,
@@ -238,6 +244,7 @@ class TestCollectionPrivilegedScope(TransactionCase):
             (
                 "collection.voucher.review.snapshot",
                 "collection_review_snapshot",
+                "Review snapshots can only be created by Document Review.",
                 {
                     "voucher_id": voucher.id,
                     "revision": 99,
@@ -249,6 +256,7 @@ class TestCollectionPrivilegedScope(TransactionCase):
             (
                 "collection.cash.replacement",
                 "collection_cash_replacement",
+                "Cash replacements can only be created by the replacement flow.",
                 {
                     "receipt_id": receipt.id,
                     "cash_voucher_id": voucher.id,
@@ -260,12 +268,14 @@ class TestCollectionPrivilegedScope(TransactionCase):
                 },
             ),
         )
-        for model, key, vals in cases:
+        for model, key, message, vals in cases:
             Model = self.env[model]
             before = Model.search_count([])
             with self.subTest(model=model):
-                with self.assertRaises(UserError):
+                with self.assertRaises(UserError) as error:
                     self._forged(Model, key).create(vals)
+                self.assertNotIsInstance(error.exception, AccessError)
+                self.assertEqual(str(error.exception), message)
                 self.assertEqual(Model.search_count([]), before)
 
     def test_forged_commission_mint_cannot_skip_the_new_work_gate(self):
