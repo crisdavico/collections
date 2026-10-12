@@ -7,6 +7,7 @@ from datetime import date
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools import SQL
 from odoo.tools.float_utils import float_compare
 from odoo.tools.mimetypes import guess_mimetype
 from odoo.tools.translate import _
@@ -69,6 +70,7 @@ class CollectionVoucher(models.Model):
         required=False,
         domain=[("share", "=", False)],
         tracking=True,
+        index=True,
     )
     sheet_id = fields.Many2one(
         comodel_name="collection.sheet",
@@ -76,6 +78,7 @@ class CollectionVoucher(models.Model):
         ondelete="set null",
         tracking=True,
         check_company=True,
+        index=True,
     )
     allocation_id = fields.Many2one(
         comodel_name="collection.allocation",
@@ -110,6 +113,7 @@ class CollectionVoucher(models.Model):
         required=True,
         tracking=True,
         copy=False,
+        index=True,
     )
     currency_id = fields.Many2one(
         comodel_name="res.currency",
@@ -1063,6 +1067,22 @@ class CollectionVoucher(models.Model):
     # without going through these overrides.
 
     @api.private
+    def _instrument_number_duplicate(self, domain, fname, normalized):
+        """The first voucher in ``domain`` whose ``fname`` is ``normalized``.
+
+        The match runs in SQL as ``btrim(<column>) = normalized``, the
+        expression of the paired ``UniqueIndex``, so PostgreSQL answers it from
+        that index instead of the ORM loading every same-type voucher of the
+        company to compare them in Python. ``_search`` still applies the
+        record rules, exactly as ``search`` did.
+        """
+        query = self._search(domain, order=self._order, limit=1)
+        column = self._field_to_sql(query.table, fname, query)
+        query.add_where(SQL("btrim(%s) <> ''", column))
+        query.add_where(SQL("btrim(%s) = %s", column, normalized))
+        return self.browse(query)
+
+    @api.private
     def _raise_if_check_number_duplicate(
         self, company_id, check_number, exclude_id=None
     ):
@@ -1072,13 +1092,11 @@ class CollectionVoucher(models.Model):
         domain = [
             ("company_id", "=", company_id),
             ("document_type", "in", list(self._CHECK_DOCUMENT_TYPES)),
-            ("check_number", "!=", False),
         ]
         if exclude_id:
             domain.append(("id", "!=", exclude_id))
-        duplicate = self.search(domain).filtered(
-            lambda other: self._normalize_instrument_number(other.check_number)
-            == normalized
+        duplicate = self._instrument_number_duplicate(
+            domain, "check_number", normalized
         )
         if duplicate:
             raise ValidationError(
@@ -1100,13 +1118,11 @@ class CollectionVoucher(models.Model):
         domain = [
             ("company_id", "=", company_id),
             ("document_type", "=", document_type),
-            ("voucher_number", "!=", False),
         ]
         if exclude_id:
             domain.append(("id", "!=", exclude_id))
-        duplicate = self.search(domain).filtered(
-            lambda other: self._normalize_instrument_number(other.voucher_number)
-            == normalized
+        duplicate = self._instrument_number_duplicate(
+            domain, "voucher_number", normalized
         )
         if duplicate:
             raise ValidationError(
@@ -1129,13 +1145,11 @@ class CollectionVoucher(models.Model):
             ("company_id", "=", company_id),
             ("partner_id", "=", partner_id),
             ("document_type", "=", "retention_certificate"),
-            ("voucher_number", "!=", False),
         ]
         if exclude_id:
             domain.append(("id", "!=", exclude_id))
-        duplicate = self.search(domain).filtered(
-            lambda other: self._normalize_instrument_number(other.voucher_number)
-            == normalized
+        duplicate = self._instrument_number_duplicate(
+            domain, "voucher_number", normalized
         )
         if duplicate:
             raise ValidationError(

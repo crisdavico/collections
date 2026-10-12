@@ -13,7 +13,8 @@ from odoo import fields
 from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
-from odoo.tools import mute_logger
+from odoo.tools import SQL, mute_logger
+from odoo.tools.sql import make_index_name
 
 from odoo.addons.collection.models.collection_common import privileged
 
@@ -2051,6 +2052,83 @@ class TestCollectionVoucher(TransactionCase):
         self.assertIn("collection_voucher_check_number_uniq_idx", names)
         self.assertIn("collection_voucher_transfer_voucher_number_uniq_idx", names)
         self.assertIn("collection_voucher_retention_voucher_number_uniq_idx", names)
+
+    def test_voucher_filter_columns_are_indexed(self):
+        """Sheet members, seller lists and state filters MUST use an index."""
+        self.env.cr.execute(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'collection_voucher'"
+        )
+        names = {row[0] for row in self.env.cr.fetchall()}
+        for column in ("sheet_id", "seller_id", "state"):
+            with self.subTest(column=column):
+                self.assertIn(make_index_name("collection_voucher", column), names)
+
+    def _bulk_insert_vouchers(self, document_type, number_field, count, partner):
+        """Insert ``count`` same-type vouchers in one statement.
+
+        Going through the ORM would take minutes for the volume a query-count
+        test needs; these rows only have to exist for the duplicate prechecks.
+        """
+        self.env.flush_all()
+        company = self.env.company
+        self.env.cr.execute(
+            SQL(
+                """
+                INSERT INTO collection_voucher
+                    (name, partner_id, company_id, currency_id, document_type,
+                     state, %s)
+                SELECT %s || n, %s, %s, %s, %s, 'draft', %s || n
+                  FROM generate_series(1, %s) AS n
+                """,
+                SQL.identifier(number_field),
+                f"PERF/{document_type}/",
+                partner.id,
+                company.id,
+                company.currency_id.id,
+                document_type,
+                f"PERF-{document_type}-",
+                count,
+            )
+        )
+
+    def test_duplicate_prechecks_do_not_load_every_voucher(self):
+        """Each duplicate precheck MUST be one query, however many same-type
+        vouchers the company already holds."""
+        Voucher = self.env["collection.voucher"]
+        company_id = self.env.company.id
+        partner = dummy_customer_partner(self.env, customer="PERF-PARTNER")
+        prechecks = {
+            "check": lambda: Voucher._raise_if_check_number_duplicate(
+                company_id, "PERF-NEW"
+            ),
+            "bank_transfer": lambda: (
+                Voucher._raise_if_transfer_voucher_number_duplicate(
+                    company_id, "bank_transfer", "PERF-NEW"
+                )
+            ),
+            "retention_certificate": lambda: (
+                Voucher._raise_if_retention_voucher_number_duplicate(
+                    company_id, partner.id, "PERF-NEW"
+                )
+            ),
+        }
+        for precheck in prechecks.values():
+            precheck()  # warm the access-rights and record-rule caches
+        # More rows than one ORM prefetch batch (1000): loading them all to
+        # compare in Python would take extra queries.
+        self._bulk_insert_vouchers("check", "check_number", 1001, partner)
+        self._bulk_insert_vouchers("bank_transfer", "voucher_number", 1001, partner)
+        self._bulk_insert_vouchers(
+            "retention_certificate", "voucher_number", 1001, partner
+        )
+        self.env.invalidate_all()
+        for document_type, precheck in prechecks.items():
+            with self.subTest(document_type=document_type):
+                with self.assertQueryCount(1):
+                    precheck()
+        # The narrowed query still finds a real duplicate, spaces trimmed.
+        with self.assertRaises(ValidationError):
+            Voucher._raise_if_check_number_duplicate(company_id, " PERF-check-7 ")
 
     # --- T5: company bank accounts and destination matching ---
 
