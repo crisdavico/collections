@@ -116,6 +116,7 @@
     </record>
     <record id="action_collection_company_settings" model="ir.actions.act_window">
         <field name="name">Collection Settings</field>
+        <field name="path">collection-settings</field>
         <field name="res_model">collection.company.settings</field>
         <field name="view_mode">form</field>
         <field name="target">current</field>
@@ -137,6 +138,7 @@
     </record>
     <record id="action_collection_company_banks" model="ir.actions.server">
         <field name="name">Company Bank Accounts</field>
+        <field name="path">collection-bank-accounts</field>
         <field name="model_id" ref="model_collection_company_settings" />
         <field name="state">code</field>
         <field name="code">action = model.action_bank_accounts()</field>

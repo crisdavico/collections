@@ -74,6 +74,7 @@
 
     <record id="action_collection_connector" model="ir.actions.act_window">
         <field name="name">Connectors</field>
+        <field name="path">collection-connectors</field>
         <field name="res_model">collection.connector</field>
         <field name="view_mode">list,form</field>
     </record>

@@ -5,6 +5,6 @@
     <record id="action_collection_document_review" model="ir.actions.client">
         <field name="name">Document Review</field>
         <field name="tag">collection.document_review</field>
-        <field name="path" />
+        <field name="path">collection-document-review</field>
     </record>
 </odoo>

@@ -288,7 +288,7 @@ class TestCollectionUi(TransactionCase):
             action.search_view_id,
             self.env.ref("collection.view_collection_voucher_search"),
         )
-        self.assertEqual(action.path, "payment-vouchers")
+        self.assertEqual(action.path, "collection-vouchers")
 
     def test_payment_line_xmlids_removed(self):
         """Payment Lines list/search/action/menu xmlids MUST be gone."""
@@ -1781,14 +1781,11 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(action.tag, "collection.document_review")
 
     def test_document_review_client_action_path_and_name(self):
-        """Triangulation: client action keeps English name/tag and clears path."""
+        """Client action keeps its name/tag and has a collection-scoped URL."""
         action = self.env.ref("collection.action_collection_document_review")
         self.assertEqual(action.name, "Document Review")
         self.assertEqual(action.tag, "collection.document_review")
-        self.assertFalse(
-            action.path,
-            "client action path must be cleared (no /odoo/document-review shortcut)",
-        )
+        self.assertEqual(action.path, "collection-document-review")
         self.assertNotEqual(action._name, "ir.actions.act_window")
         self.assertEqual(action._name, "ir.actions.client")
         self.assertFalse(getattr(action, "res_model", False))
@@ -1816,6 +1813,7 @@ class TestCollectionUi(TransactionCase):
             config_menu.action,
             self.env.ref("collection.action_collection_company_settings"),
         )
+        self.assertEqual(config_menu.action.path, "collection-settings")
         self.assertIn(system, config_menu.group_ids)
 
         self.assertEqual(settings_menu.name, "Collection Settings")
@@ -1827,6 +1825,7 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(action.type, "ir.actions.act_window")
         self.assertEqual(action.name, "Collection Settings")
         self.assertEqual(action.res_model, "res.config.settings")
+        self.assertEqual(action.path, "collection-system-settings")
         self.assertEqual(action.view_mode, "form")
         context = action.context or {}
         if isinstance(context, str):
@@ -2078,6 +2077,7 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(menu.action, action)
         self.assertIn(system, menu.group_ids)
         self.assertEqual(action.res_model, "collection.connector")
+        self.assertEqual(action.path, "collection-connectors")
         self.assertEqual(action.type, "ir.actions.act_window")
 
     def test_receipt_views_use_list_and_form_does_not_issue(self):
