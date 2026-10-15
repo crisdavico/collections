@@ -96,11 +96,6 @@
           domain="[('document_type', '=', 'cash_deposit')]"
         />
                 <filter
-          string="Unsupported"
-          name="filter_unsupported"
-          domain="[('document_type', '=', 'unsupported')]"
-        />
-                <filter
           string="Seller Deposit"
           name="filter_seller_deposit"
           domain="[('document_type', '=', 'seller_deposit')]"
@@ -201,7 +196,6 @@
                                 <field
                   name="amount"
                   readonly="state == 'validated_collections'"
-                  invisible="document_type == 'unsupported'"
                 />
                                 <field
                   name="from_account"
@@ -265,11 +259,7 @@
                         <page string="Raw OCR">
                             <group string="Payment">
                                 <field name="ocr_document_type" readonly="1" />
-                                <field
-                  name="ocr_amount"
-                  readonly="1"
-                  invisible="ocr_document_type == 'unsupported' and document_type == 'unsupported'"
-                />
+                                <field name="ocr_amount" readonly="1" />
                                 <field
                   name="ocr_from_account"
                   readonly="1"
@@ -320,11 +310,7 @@
                         <page string="Seller Confirmed">
                             <group string="Payment">
                                 <field name="seller_document_type" readonly="1" />
-                                <field
-                  name="seller_amount"
-                  readonly="1"
-                  invisible="seller_document_type == 'unsupported' and document_type == 'unsupported'"
-                />
+                                <field name="seller_amount" readonly="1" />
                                 <field
                   name="seller_from_account"
                   readonly="1"

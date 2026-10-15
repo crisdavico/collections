@@ -12,10 +12,6 @@
         <field name="code">cash_deposit</field>
         <field name="name">Cash Deposit</field>
     </record>
-    <record id="document_type_unsupported" model="collection.document.type">
-        <field name="code">unsupported</field>
-        <field name="name">Unsupported</field>
-    </record>
     <record id="document_type_echeck" model="collection.document.type">
         <field name="code">echeck</field>
         <field name="name">Echeck</field>

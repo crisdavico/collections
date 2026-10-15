@@ -88,7 +88,8 @@ class TestCollectionSheet(TransactionCase):
         )
         vals = {
             "partner_id": partner.id,
-            "document_type": "unsupported",
+            "document_type": "bank_transfer",
+            "amount": 100.0,
             "seller_id": seller_id or self._seller().id,
         }
         vals.update(extra)
@@ -2239,7 +2240,8 @@ class TestCollectionSheet(TransactionCase):
                     "partner_id": dummy_customer_partner(
                         self.env, customer="CUST-AA-OMIT"
                     ).id,
-                    "document_type": "unsupported",
+                    "document_type": "bank_transfer",
+                    "amount": 10.0,
                 }
             )
         self.assertEqual(self.env["collection.voucher"].search_count([]), before)
@@ -2314,21 +2316,24 @@ class TestCollectionSheet(TransactionCase):
                     "partner_id": dummy_customer_partner(
                         self.env, customer="CUST-AA-BATCH-A"
                     ).id,
-                    "document_type": "unsupported",
+                    "document_type": "bank_transfer",
+                    "amount": 10.0,
                     "seller_id": seller.id,
                 },
                 {
                     "partner_id": dummy_customer_partner(
                         self.env, customer="CUST-AA-BATCH-B"
                     ).id,
-                    "document_type": "unsupported",
+                    "document_type": "bank_transfer",
+                    "amount": 10.0,
                     "seller_id": seller.id,
                 },
                 {
                     "partner_id": dummy_customer_partner(
                         self.env, customer="CUST-AA-BATCH-C"
                     ).id,
-                    "document_type": "unsupported",
+                    "document_type": "bank_transfer",
+                    "amount": 10.0,
                     "seller_id": other.id,
                 },
             ]
@@ -2538,7 +2543,8 @@ class TestCollectionSheet(TransactionCase):
                 "partner_id": dummy_customer_partner(
                     self.env, customer="CUST-AA-COB"
                 ).id,
-                "document_type": "unsupported",
+                "document_type": "bank_transfer",
+                "amount": 10.0,
                 "seller_id": seller.id,
                 "company_id": company_b.id,
             }

@@ -8,19 +8,21 @@ from re import compile as re_compile
 from re import fullmatch
 from uuid import uuid4
 
+from odoo.exceptions import UserError
 from odoo.tests import TransactionCase
 
 from .common_connector import force_sheet_state
 from .test_collection_payment import dummy_customer_partner, ensure_enabled_seller
 
-ALL_TYPE_CODES = frozenset({"bank_transfer", "check", "cash_deposit", "unsupported"})
-SEVEN_TYPE_CODES = ALL_TYPE_CODES | {
+# ``unsupported`` was part of the original four and is gone since 19.0.1.51.0.
+ORIGINAL_TYPE_CODES = frozenset({"bank_transfer", "check", "cash_deposit"})
+PRE_143_TYPE_CODES = ORIGINAL_TYPE_CODES | {
     "echeck",
     "cash",
     "retention_certificate",
 }
-EIGHT_TYPE_CODES = SEVEN_TYPE_CODES | {"seller_deposit"}
-NINE_TYPE_CODES = EIGHT_TYPE_CODES | {"seller_commission"}
+PRE_148_TYPE_CODES = PRE_143_TYPE_CODES | {"seller_deposit"}
+CATALOG_TYPE_CODES = PRE_148_TYPE_CODES | {"seller_commission"}
 MIGRATE_PATH = (
     Path(__file__).resolve().parents[1]
     / "migrations"
@@ -174,7 +176,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         vals = dict(vals)
         partner = dummy_customer_partner(self.env, extra=vals, default="MIG-CUST")
         vals["partner_id"] = partner.id
-        if vals.get("document_type") != "unsupported" and "amount" not in vals:
+        if "amount" not in vals:
             vals["amount"] = 100.0
         if (
             vals.get("document_type")
@@ -211,11 +213,11 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_50_0(self):
+    def test_manifest_version_is_1_51_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.50.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.51.0"', manifest_text)
         self.assertNotIn('"version": "19.0.1.47.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
@@ -390,7 +392,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.50.0`", agents)
+        self.assertIn("Module metadata `19.0.1.51.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.47.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`migrations/19.0.1.43.0/`", agents)
@@ -717,12 +719,12 @@ class TestCollectionCompanyMigration(TransactionCase):
         self._run_migrate()
         self.assertEqual(
             set(company_b.allowed_document_type_ids.mapped("code")),
-            NINE_TYPE_CODES,
+            CATALOG_TYPE_CODES,
         )
         self.assertIn(extra, self.env.company.allowed_document_type_ids)
         self.assertEqual(
             set(self.env.company.allowed_document_type_ids.mapped("code")),
-            NINE_TYPE_CODES | {"wire_mig"},
+            CATALOG_TYPE_CODES | {"wire_mig"},
         )
 
     def test_upgrade_140_unions_three_types_keeps_extras(self):
@@ -742,7 +744,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         four_ids = [
             self.env.ref(f"collection.document_type_{code}").id
-            for code in ("bank_transfer", "check", "cash_deposit", "unsupported")
+            for code in ("bank_transfer", "check", "cash_deposit")
         ]
         company_b = self._create_company("Union Types Co B")
         company_b.write({"allowed_document_type_ids": [(6, 0, four_ids + [extra.id])]})
@@ -752,7 +754,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         module.migrate(self.env.cr, "19.0.1.39.0")
         self.env.invalidate_all()
         codes = set(company_b.allowed_document_type_ids.mapped("code"))
-        self.assertEqual(codes, NINE_TYPE_CODES | {"wire_140"})
+        self.assertEqual(codes, CATALOG_TYPE_CODES | {"wire_140"})
         self.assertIn(extra, company_b.allowed_document_type_ids)
 
     def test_upgrade_143_unions_seller_deposit_keeps_extras(self):
@@ -772,13 +774,13 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         seven_ids = [
             self.env.ref(f"collection.document_type_{code}").id
-            for code in SEVEN_TYPE_CODES
+            for code in PRE_143_TYPE_CODES
         ]
         company_b = self._create_company("Union Seller Deposit Co B")
         company_b.write({"allowed_document_type_ids": [(6, 0, seven_ids + [extra.id])]})
         self.assertEqual(
             set(company_b.allowed_document_type_ids.mapped("code")),
-            SEVEN_TYPE_CODES | {"wire_143"},
+            PRE_143_TYPE_CODES | {"wire_143"},
         )
         spec = spec_from_file_location("collection_143_post_migrate", migrate_path)
         module = module_from_spec(spec)
@@ -786,7 +788,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         module.migrate(self.env.cr, "19.0.1.42.0")
         self.env.invalidate_all()
         codes = set(company_b.allowed_document_type_ids.mapped("code"))
-        self.assertEqual(codes, NINE_TYPE_CODES | {"wire_143"})
+        self.assertEqual(codes, CATALOG_TYPE_CODES | {"wire_143"})
         self.assertIn(extra, company_b.allowed_document_type_ids)
         self.assertIn("seller_deposit", codes)
 
@@ -807,13 +809,13 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         eight_ids = [
             self.env.ref(f"collection.document_type_{code}").id
-            for code in EIGHT_TYPE_CODES
+            for code in PRE_148_TYPE_CODES
         ]
         company_b = self._create_company("Union Seller Commission Co B")
         company_b.write({"allowed_document_type_ids": [(6, 0, eight_ids + [extra.id])]})
         self.assertEqual(
             set(company_b.allowed_document_type_ids.mapped("code")),
-            EIGHT_TYPE_CODES | {"wire_148"},
+            PRE_148_TYPE_CODES | {"wire_148"},
         )
         spec = spec_from_file_location("collection_148_post_migrate", migrate_path)
         module = module_from_spec(spec)
@@ -821,9 +823,130 @@ class TestCollectionCompanyMigration(TransactionCase):
         module.migrate(self.env.cr, "19.0.1.47.0")
         self.env.invalidate_all()
         codes = set(company_b.allowed_document_type_ids.mapped("code"))
-        self.assertEqual(codes, NINE_TYPE_CODES | {"wire_148"})
+        self.assertEqual(codes, CATALOG_TYPE_CODES | {"wire_148"})
         self.assertIn(extra, company_b.allowed_document_type_ids)
         self.assertIn("seller_commission", codes)
+
+    def _load_151_pre_migrate(self):
+        migrate_path = (
+            Path(__file__).resolve().parents[1]
+            / "migrations"
+            / "19.0.1.51.0"
+            / "pre-migrate.py"
+        )
+        self.assertTrue(migrate_path.is_file(), "Need 19.0.1.51.0 pre-migrate")
+        spec = spec_from_file_location("collection_151_pre_migrate", migrate_path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def _plant_unsupported_catalog_row(self):
+        """Recreate the pre-1.51.0 catalog row, XMLID and allow-list link."""
+        self.env.cr.execute(
+            "SELECT id FROM collection_document_type WHERE code = 'unsupported'"
+        )
+        row = self.env.cr.fetchone()
+        if not row:
+            self.env.cr.execute(
+                """
+                INSERT INTO collection_document_type (code, name)
+                VALUES ('unsupported', '{"en_US": "Unsupported"}'::jsonb)
+                RETURNING id
+                """
+            )
+            row = self.env.cr.fetchone()
+        type_id = row[0]
+        self.env.cr.execute(
+            """
+            INSERT INTO ir_model_data (module, name, model, res_id, noupdate)
+            VALUES ('collection', 'document_type_unsupported',
+                    'collection.document.type', %s, false)
+            ON CONFLICT DO NOTHING
+            """,
+            [type_id],
+        )
+        company_ids = self.env["res.company"].search([]).ids
+        for company_id in company_ids:
+            self.env.cr.execute(
+                """
+                INSERT INTO res_company_collection_allowed_document_type_rel
+                    (company_id, document_type_id)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                [company_id, type_id],
+            )
+        self.env.invalidate_all()
+        return type_id
+
+    def _unsupported_leftovers(self, type_id):
+        cr = self.env.cr
+        cr.execute(
+            "SELECT count(*) FROM collection_document_type WHERE code = 'unsupported'"
+        )
+        catalog = cr.fetchone()[0]
+        cr.execute(
+            """
+            SELECT count(*) FROM ir_model_data
+             WHERE module = 'collection' AND name = 'document_type_unsupported'
+            """
+        )
+        xmlids = cr.fetchone()[0]
+        cr.execute(
+            """
+            SELECT count(*) FROM res_company_collection_allowed_document_type_rel
+             WHERE document_type_id = %s
+            """,
+            [type_id],
+        )
+        links = cr.fetchone()[0]
+        return catalog, xmlids, links
+
+    def test_upgrade_151_removes_unsupported_catalog_row(self):
+        """1.51.0 MUST drop the unsupported row, its XMLID and allow-list links."""
+        type_id = self._plant_unsupported_catalog_row()
+        self.assertEqual(self._unsupported_leftovers(type_id)[0], 1)
+        self._load_151_pre_migrate().migrate(self.env.cr, "19.0.1.50.0")
+        self.env.invalidate_all()
+        self.assertEqual(self._unsupported_leftovers(type_id), (0, 0, 0))
+        codes = set(self.env.company.allowed_document_type_ids.mapped("code"))
+        self.assertEqual(codes, CATALOG_TYPE_CODES)
+
+    def test_upgrade_151_is_a_noop_without_unsupported_data(self):
+        """Triangulation: a database that never had the row upgrades cleanly."""
+        before = set(self.env.company.allowed_document_type_ids.mapped("code"))
+        self._load_151_pre_migrate().migrate(self.env.cr, "19.0.1.50.0")
+        self.env.invalidate_all()
+        after = set(self.env.company.allowed_document_type_ids.mapped("code"))
+        self.assertEqual(after, before)
+
+    def test_upgrade_151_aborts_on_stored_unsupported_values(self):
+        """Any stored unsupported value MUST abort the upgrade and change nothing."""
+        module = self._load_151_pre_migrate()
+        type_id = self._plant_unsupported_catalog_row()
+        voucher = self._create_voucher({"document_type": "bank_transfer"})
+        cases = (
+            ("collection_voucher", "document_type"),
+            ("collection_voucher", "ocr_document_type"),
+            ("collection_voucher", "seller_document_type"),
+        )
+        for table, column in cases:
+            with self.subTest(column=column):
+                with self.env.cr.savepoint(flush=False) as savepoint:
+                    self.env.cr.execute(
+                        f"UPDATE {table} SET {column} = 'unsupported' WHERE id = %s",
+                        [voucher.id],
+                    )
+                    with self.assertRaises(UserError) as caught:
+                        module.migrate(self.env.cr, "19.0.1.50.0")
+                    self.assertIn(column, str(caught.exception))
+                    self.assertIn("unsupported", str(caught.exception))
+                    self.assertEqual(
+                        self._unsupported_leftovers(type_id)[0],
+                        1,
+                        "an aborted upgrade must not delete the catalog row",
+                    )
+                    savepoint.rollback()
 
     def test_migrate_binds_null_sequences_to_main_and_copies_others(self):
         main = self.env.ref("base.main_company")
@@ -880,7 +1003,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         voucher_b2 = self._create_voucher(
             {
                 "customer_identification": "ISO-B2",
-                "document_type": "unsupported",
+                "document_type": "bank_transfer",
                 "company_id": company_b.id,
             }
         )
@@ -938,7 +1061,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertFalse(company.enabled_seller_ids)
         self.assertEqual(
             set(company.allowed_document_type_ids.mapped("code")),
-            NINE_TYPE_CODES,
+            CATALOG_TYPE_CODES,
         )
         for code, prefix in (
             ("collection.voucher", "COL"),

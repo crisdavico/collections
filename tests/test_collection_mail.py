@@ -34,8 +34,7 @@ class TestCollectionMail(TransactionCase):
             "document_type": "bank_transfer",
             "seller_id": seller,
         }
-        document_type = extra.get("document_type", vals["document_type"])
-        if document_type != "unsupported" and "amount" not in extra:
+        if "amount" not in extra:
             vals["amount"] = 100.0
         vals.update(extra)
         voucher = self.env["collection.voucher"].create(vals)

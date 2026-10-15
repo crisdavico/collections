@@ -66,7 +66,6 @@ DOCUMENT_TYPE_SELECTION = (
     ("bank_transfer", "Bank Transfer"),
     ("check", "Check"),
     ("cash_deposit", "Cash Deposit"),
-    ("unsupported", "Unsupported"),
     ("echeck", "Echeck"),
     ("cash", "Cash"),
     ("retention_certificate", "Retention Certificate"),

@@ -212,9 +212,6 @@
                                         <option value="cash_deposit">
                                             Depósito en efectivo
                                         </option>
-                                        <option value="unsupported">
-                                            No soportado
-                                        </option>
                                     </select>
                                 </div>
                             </div>

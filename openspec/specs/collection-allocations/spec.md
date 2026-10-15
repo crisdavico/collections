@@ -19,13 +19,14 @@ row). Input MUST be:
 | seller_id               | int > 0                                                                                                                                                                                                                                                                  |
 | customer_identification | stripped string; top-level only; MUST NOT on payment items                                                                                                                                                                                                               |
 | request_id              | required                                                                                                                                                                                                                                                                 |
-| payments[]              | minItems 1; each item requires `document_id` and `seller_confirmed`; optional `raw_ocr` and `attachment`; voucher fields MUST come from `seller_confirmed`; `seller_confirmed.document_type` MUST be one of the seven catalog codes; amount MUST accept a decimal string |
+| payments[]              | minItems 1; each item requires `document_id` and `seller_confirmed`; optional `raw_ocr` and `attachment`; voucher fields MUST come from `seller_confirmed`; `seller_confirmed.document_type` MUST be one of the six dump codes; amount MUST accept a decimal string |
 | receipts[]              | REQUIRED; minItems 1; each item requires `document_kind` and `values[]`; `applications[]` MAY be empty (on account); amounts MUST accept decimal strings                                                                                                                 |
 
 MUST NOT accept `invoices`, `splits`, `total_debt`, or `residual_reason`. Unknown keys
 at any nested level MUST be rejected (see Strict nested-key parse).
 
-`seller_confirmed.document_type` `unsupported` MUST raise `UserError` with no writes.
+A nest `document_type` outside the six dump types (including the removed
+`unsupported`) MUST raise `UserError` with no writes.
 The six dump types `bank_transfer`, `check`, `echeck`, `cash_deposit`,
 `retention_certificate`, and `cash` MUST persist when otherwise valid. Seller-declared
 `cash` MUST persist with `attachment` and `raw_ocr` omitted or null.
@@ -90,9 +91,9 @@ stated on this requirement; extra nested keys were ignored on payment objects.)
 - WHEN create runs
 - THEN MUST raise and MUST write zero vouchers and zero allocation
 
-#### Scenario: Unsupported payment write rejected
+#### Scenario: Unknown payment type rejected
 
-- GIVEN a payment whose `seller_confirmed.document_type` is `unsupported`
+- GIVEN a payment whose `seller_confirmed` or `raw_ocr` `document_type` is `unsupported`
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise `UserError`
 - AND MUST write zero vouchers, receipts, and allocations

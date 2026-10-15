@@ -447,7 +447,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         cases = (
             ("xlsx_banner_bal", "bank_transfer", 0.0, "balanced"),
             ("xlsx_banner_fav", "bank_transfer", 50.0, "in_favor"),
-            ("xlsx_banner_out", "unsupported", 0.0, "outstanding"),
+            ("xlsx_banner_out", "bank_transfer", -50.0, "outstanding"),
         )
         for login, document_type, surplus, status in cases:
             seller = create_internal_seller(self.env, login)
@@ -459,8 +459,9 @@ class TestCollectionSheetXlsx(TransactionCase):
             )
             payload = sheet._collection_report_data()
             if surplus:
-                # in_favor is unreachable once cash_on_hand is derived from the
-                # vouchers; bump tendered so the banner branch still renders.
+                # in_favor and outstanding are unreachable once cash_on_hand is
+                # derived from the vouchers; shift tendered so the banner branch
+                # still renders.
                 tendered = dict(payload["tendered"])
                 tendered["total"] += surplus
                 payload["tendered"] = tendered

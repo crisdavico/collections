@@ -1272,7 +1272,7 @@ class TestCollectionMcpProvenance(TransactionCase):
                 {
                     "document_id": "MCP-DOC-PROV-MISMATCH",
                     "seller_confirmed": {
-                        "document_type": "unsupported",
+                        "document_type": "seller_deposit",
                         "amount": 3.0,
                     },
                 },
