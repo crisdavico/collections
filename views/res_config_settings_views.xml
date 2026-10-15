@@ -119,12 +119,11 @@
     sequence="100"
     groups="base.group_system,collection.group_collection_manager"
   />
-    <menuitem
-    id="menu_collection_settings"
-    name="Collection Settings"
-    parent="menu_collection_config"
-    action="action_collection_config_settings"
-    sequence="0"
-    groups="base.group_system"
-  />
+    <record id="menu_collection_settings" model="ir.ui.menu">
+        <field name="name">Collection Settings</field>
+        <field name="parent_id" ref="menu_collection_config" />
+        <field name="action" ref="action_collection_config_settings" />
+        <field name="group_ids" eval="[(6, 0, [ref('base.group_system')])]" />
+        <field name="active" eval="False" />
+    </record>
 </odoo>

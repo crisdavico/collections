@@ -20,6 +20,22 @@
    until they are added to Collections User or Collections Manager. Assign the groups as
    part of the upgrade.
 
+## Collection configuration
+
+Open **Collections → Configuration** for the current company's full settings page:
+
+- **General:** automatic sheet creation, document review and allowed document types.
+- **Sellers:** enabled sellers, imported commission rates and **Import Sellers**.
+- **Bank Accounts:** company accounts and **Manage Bank Accounts**.
+- **Integration:** active connector, **Configure Connection**, **Test Connection** and
+  **Manage Connectors and Mappings** for seller/customer mappings.
+
+Use the normal **Save** and **Discard** controls. Collection Managers can configure
+their company without system administration rights. Administrators also see the advanced
+trusted seller header; connector credentials remain administrator-only. The header
+applies to all companies. The old configuration submenu entries are inactive after
+upgrade; their actions remain available for existing links.
+
 ## Trusted seller header (MCP agent)
 
 By default every collection MCP tool acts for the `seller_id` the agent sends (for
@@ -28,9 +44,9 @@ trustworthy as the conversation that produced it. The MCP API key's user must be
 Collections User; any other caller is refused.
 
 To bind the tools to the verified WhatsApp sender instead, an administrator sets
-**Settings → Collections → Agent (MCP) → Trusted seller header** (`ir.config_parameter`
-key `collection.mcp_trusted_seller_header`) to the name of an HTTP header, for example
-`X-Sender-Phone`. Empty, the default, keeps the behavior above.
+**Collections → Configuration → Integration → Advanced → Trusted seller header**
+(`ir.config_parameter` key `collection.mcp_trusted_seller_header`) to the name of an
+HTTP header, for example `X-Sender-Phone`. Empty, the default, keeps the behavior above.
 
 Contract for the gateway (Nebula) once a header name is set:
 

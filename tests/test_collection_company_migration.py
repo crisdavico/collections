@@ -213,11 +213,11 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_51_0(self):
+    def test_manifest_version_is_1_53_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.51.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.53.0"', manifest_text)
         self.assertNotIn('"version": "19.0.1.47.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
@@ -392,7 +392,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.51.0`", agents)
+        self.assertIn("Module metadata `19.0.1.53.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.47.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`migrations/19.0.1.43.0/`", agents)

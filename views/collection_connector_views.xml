@@ -78,12 +78,14 @@
         <field name="view_mode">list,form</field>
     </record>
 
-    <menuitem
-    id="menu_collection_connector"
-    name="Connectors"
-    parent="menu_collection_config"
-    action="action_collection_connector"
-    sequence="10"
-    groups="base.group_system,collection.group_collection_manager"
-  />
+    <record id="menu_collection_connector" model="ir.ui.menu">
+        <field name="name">Connectors</field>
+        <field name="parent_id" ref="menu_collection_config" />
+        <field name="action" ref="action_collection_connector" />
+        <field
+      name="group_ids"
+      eval="[(6, 0, [ref('base.group_system'), ref('group_collection_manager')])]"
+    />
+        <field name="active" eval="False" />
+    </record>
 </odoo>

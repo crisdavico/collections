@@ -74,7 +74,7 @@
           type="object"
           string="Connector Settings"
           class="btn-primary"
-          groups="collection.group_collection_manager"
+          groups="base.group_system,collection.group_collection_manager"
         />
             </xpath>
         </field>

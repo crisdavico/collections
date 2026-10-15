@@ -1803,7 +1803,7 @@ class TestCollectionUi(TransactionCase):
     )
 
     def test_configuration_settings_menu_and_action(self):
-        """Collections → Configuration → Collection Settings must keep XMLID."""
+        """Configuration opens the company page; legacy XMLIDs stay inactive."""
         root_menu = self.env.ref("collection.menu_collection_root")
         config_menu = self.env.ref("collection.menu_collection_config")
         settings_menu = self.env.ref("collection.menu_collection_settings")
@@ -1812,11 +1812,15 @@ class TestCollectionUi(TransactionCase):
 
         self.assertEqual(config_menu.name, "Configuration")
         self.assertEqual(config_menu.parent_id, root_menu)
-        self.assertFalse(config_menu.action)
+        self.assertEqual(
+            config_menu.action,
+            self.env.ref("collection.action_collection_company_settings"),
+        )
         self.assertIn(system, config_menu.group_ids)
 
         self.assertEqual(settings_menu.name, "Collection Settings")
         self.assertEqual(settings_menu.parent_id, config_menu)
+        self.assertFalse(settings_menu.active)
         self.assertEqual(settings_menu.action, action)
         self.assertIn(system, settings_menu.group_ids)
 
@@ -1832,7 +1836,7 @@ class TestCollectionUi(TransactionCase):
             self.assertEqual(context.get("module"), "collections")
 
     def test_load_menus_includes_configuration_settings(self):
-        """Admin load_menus MUST include Collections → Collection Settings."""
+        """Admin navigation exposes one Configuration entry without children."""
         root_menu = self.env.ref("collection.menu_collection_root")
         config_menu = self.env.ref("collection.menu_collection_config")
         settings_menu = self.env.ref("collection.menu_collection_settings")
@@ -1844,20 +1848,16 @@ class TestCollectionUi(TransactionCase):
             menus,
             "Configuration menu must be present in load_menus for admin",
         )
-        self.assertIn(
-            settings_menu.id,
-            menus,
-            "Collection Settings menu must be present in load_menus for admin",
-        )
+        self.assertNotIn(settings_menu.id, menus)
         self.assertEqual(menus[config_menu.id].get("name"), "Configuration")
-        self.assertEqual(menus[settings_menu.id].get("name"), "Collection Settings")
+        self.assertFalse(menus[config_menu.id]["children"])
         self.assertEqual(
-            menus[settings_menu.id].get("action_model"),
+            menus[config_menu.id].get("action_model"),
             "ir.actions.act_window",
         )
         self.assertEqual(
-            menus[settings_menu.id].get("action_id"),
-            self.env.ref("collection.action_collection_config_settings").id,
+            menus[config_menu.id].get("action_id"),
+            self.env.ref("collection.action_collection_company_settings").id,
         )
 
     def test_settings_arch_has_collections_app_and_flag_field(self):
@@ -2067,13 +2067,14 @@ class TestCollectionUi(TransactionCase):
         self.assertEqual(list_root.tag, "list")
         self.assertNotEqual(list_root.tag, "tree")
 
-    def test_connector_menu_and_action_are_system_only(self):
-        """Triangulation: Connectors live under Configuration for Settings users."""
+    def test_legacy_connector_menu_is_inactive_and_retains_action(self):
+        """Legacy connector links stay available without a navigation entry."""
         config_menu = self.env.ref("collection.menu_collection_config")
         menu = self.env.ref("collection.menu_collection_connector")
         action = self.env.ref("collection.action_collection_connector")
         system = self.env.ref("base.group_system")
         self.assertEqual(menu.parent_id, config_menu)
+        self.assertFalse(menu.active)
         self.assertEqual(menu.action, action)
         self.assertIn(system, menu.group_ids)
         self.assertEqual(action.res_model, "collection.connector")

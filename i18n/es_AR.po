@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 07:40+0000\n"
+"POT-Creation-Date: 2026-10-15 19:04+0000\n"
 "PO-Revision-Date: 2026-10-12 07:40+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -163,6 +163,11 @@ msgstr "Agregar deuda del cliente"
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Add Debt"
 msgstr "Agregar deuda"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Advanced"
+msgstr "Avanzado"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
@@ -545,6 +550,11 @@ msgid "Banco"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Bank Accounts"
+msgstr "Cuentas bancarias"
+
+#. module: collection
 #: model:collection.document.type,name:collection.document_type_bank_transfer
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__bank_transfer
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
@@ -552,6 +562,7 @@ msgid "Bank Transfer"
 msgstr "Transferencia bancaria"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__bank_ids
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__bank_ids
 msgid "Banks"
 msgstr "Bancos"
@@ -575,7 +586,6 @@ msgstr "Paquete de certificados CA"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_debt_picker_form
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Cancel"
@@ -1082,6 +1092,7 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__commission_percent
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
 msgid "Commission %"
 msgstr "Comisión %"
 
@@ -1186,6 +1197,11 @@ msgstr "Ajustes de configuración"
 #: model:ir.ui.menu,name:collection.menu_collection_config
 msgid "Configuration"
 msgstr "Configuración"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Configure Connection"
+msgstr "Configurar conexión"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
@@ -1998,6 +2014,11 @@ msgid "Ganancias"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "General"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,help:collection.field_res_config_settings__collection_mcp_trusted_seller_header
 msgid ""
 "HTTP header in which the MCP gateway sends the verified sender phone. When "
@@ -2019,6 +2040,16 @@ msgid ""
 msgstr ""
 "Encabezado HTTP en el que el gateway envía el teléfono verificado del "
 "remitente. Vacío significa que el agente indica el vendedor."
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_company_settings__collection_mcp_trusted_seller_header
+msgid ""
+"HTTP header in which the gateway sends the verified sender phone. Empty "
+"means the agent names the seller. This setting applies to all companies."
+msgstr ""
+"Cabecera HTTP en la que la pasarela envía el teléfono verificado del "
+"remitente. Si está vacía, el agente indica el vendedor. Este ajuste se "
+"aplica a todas las empresas."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__has_message
@@ -2116,6 +2147,11 @@ msgstr "Importar vendedores"
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Importe"
 msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Integration"
+msgstr "Integración"
 
 #. module: collection
 #. odoo-python
@@ -2262,6 +2298,16 @@ msgstr "Mixin de herramienta MCP"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__message_main_attachment_id
 msgid "Main Attachment"
 msgstr "Archivo adjunto principal"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Manage Bank Accounts"
+msgstr "Administrar cuentas bancarias"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Manage Connectors and Mappings"
+msgstr "Administrar conectores y vinculaciones"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
@@ -3250,7 +3296,6 @@ msgid "Saldo Total"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
 msgid "Save"
 msgstr "Guardar"
@@ -3287,6 +3332,12 @@ msgstr "Buscar comprobantes de pago"
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/wizard/collection_company_settings.py:0
+msgid "Select a collection connector first."
+msgstr "Seleccione primero un conector de cobranzas."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "Select at least one payment voucher."
 msgstr "Seleccione al menos un comprobante de pago."
@@ -3305,6 +3356,7 @@ msgid "Seller"
 msgstr "Vendedor"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__seller_binding_ids
 #: model:ir.model.fields,field_description:collection.field_collection_connector__seller_binding_ids
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__seller_binding_ids
 msgid "Seller Binding"
@@ -3447,6 +3499,11 @@ msgstr ""
 "planilla de cobranza rendida."
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
+msgid "Sellers"
+msgstr "Vendedores"
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid ""
 "Sellers allowed to register new collection work. An empty list means none."
@@ -3544,6 +3601,7 @@ msgstr ""
 "asignación."
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
 msgid "Test Connection"
 msgstr "Probar conexión"
@@ -3883,6 +3941,7 @@ msgstr ""
 "para que una persona lo verifique."
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_company_settings__collection_mcp_trusted_seller_header
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__collection_mcp_trusted_seller_header
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid "Trusted seller header"
@@ -4159,6 +4218,7 @@ msgstr "Puesto de trabajo"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
 msgid "X-Sender-Phone"
 msgstr ""
 

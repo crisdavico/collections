@@ -26,12 +26,26 @@ class CollectionCompanySettings(models.TransientModel):
     collection_connector_id = fields.Many2one(
         "collection.connector", domain="[('company_id', '=', company_id)]"
     )
+    seller_binding_ids = fields.One2many(
+        related="collection_connector_id.seller_binding_ids", related_sudo=False
+    )
+    bank_ids = fields.One2many(related="company_id.bank_ids", related_sudo=False)
+    collection_mcp_trusted_seller_header = fields.Char(
+        string="Trusted seller header",
+        groups="base.group_system",
+        help="HTTP header in which the gateway sends the verified sender phone. "
+        "Empty means the agent names the seller. "
+        "This setting applies to all companies.",
+    )
 
     @api.private
     def _checked_company(self):
         self.ensure_one()
         self.check_access("write")
-        if not self.env.user.has_group("collection.group_collection_manager"):
+        if not (
+            self.env.user.has_group("collection.group_collection_manager")
+            or self.env.user.has_group("base.group_system")
+        ):
             raise AccessError(_("Only Collections Managers can configure collections."))
         company = self.company_id
         if (
@@ -66,7 +80,22 @@ class CollectionCompanySettings(models.TransientModel):
                     if self._fields[name].type == "many2one"
                     else value
                 )
+        if (
+            "collection_mcp_trusted_seller_header" in field_names
+            and self.env.user.has_group("base.group_system")
+        ):
+            vals["collection_mcp_trusted_seller_header"] = (
+                self.env["ir.config_parameter"]
+                .sudo()
+                .get_param("collection.mcp_trusted_seller_header", "")
+            )
         return vals
+
+    def web_save(self, vals, specification, next_id=None):
+        """Apply the normal form Save atomically with the transient write."""
+        result = super().web_save(vals, specification, next_id=next_id)
+        self.browse(result[0]["id"]).action_save()
+        return result
 
     @api.model
     @api.private
@@ -103,11 +132,51 @@ class CollectionCompanySettings(models.TransientModel):
                 "collection_connector_id": connector.id,
             }
         )
+        if self.env.user.has_group("base.group_system"):
+            self.env["ir.config_parameter"].sudo().set_param(
+                "collection.mcp_trusted_seller_header",
+                self.collection_mcp_trusted_seller_header or "",
+            )
         return {"type": "ir.actions.act_window_close"}
+
+    def action_open_bank_accounts(self):
+        company = self._checked_company()
+        return self.with_company(company).action_bank_accounts()
+
+    def action_manage_connectors(self):
+        company = self._checked_company()
+        action = self.env["ir.actions.actions"]._for_xml_id(
+            "collection.action_collection_connector"
+        )
+        action.update(
+            domain=[("company_id", "=", company.id)],
+            context={"default_company_id": company.id},
+        )
+        return action
+
+    @api.private
+    def _checked_connector(self):
+        company = self._checked_company()
+        connector = self.collection_connector_id
+        if not connector:
+            raise UserError(_("Select a collection connector first."))
+        connector.check_access("read")
+        if connector.company_id != company:
+            raise UserError(_("The connector must belong to this company."))
+        return connector
+
+    def action_open_connector_settings(self):
+        return self._checked_connector().action_collection_connector_settings()
+
+    def action_test_connection(self):
+        return self._checked_connector().test_connection()
 
     @api.model
     def action_bank_accounts(self):
-        if not self.env.user.has_group("collection.group_collection_manager"):
+        if not (
+            self.env.user.has_group("collection.group_collection_manager")
+            or self.env.user.has_group("base.group_system")
+        ):
             raise AccessError(_("Only Collections Managers can configure collections."))
         company = self.env.company
         return {

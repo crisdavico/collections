@@ -138,7 +138,10 @@ class CollectionConnector(models.Model):
     @api.private
     def _check_collection_management_access(self):
         self.ensure_one()
-        if not self.env.user.has_group("collection.group_collection_manager"):
+        if not (
+            self.env.user.has_group("collection.group_collection_manager")
+            or self.env.user.has_group("base.group_system")
+        ):
             raise AccessError(_("Only Collections Managers can configure collections."))
         self.check_access("write")
         if (

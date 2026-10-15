@@ -3,6 +3,8 @@
 
 from unittest.mock import patch
 
+from lxml import etree
+
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase, tagged
@@ -259,13 +261,120 @@ class TestCollectionManager(TransactionCase):
         for xmlid in (
             "menu_collection_root",
             "menu_collection_config",
-            "menu_collection_connector",
-            "menu_collection_company_settings",
-            "menu_collection_company_banks",
         ):
             self.assertIn(self.env.ref(f"collection.{xmlid}").id, visible)
-        self.assertNotIn(
-            self.env.ref("collection.menu_collection_settings").id, visible
+        config = self.env.ref("collection.menu_collection_config")
+        self.assertEqual(
+            config.action, self.env.ref("collection.action_collection_company_settings")
+        )
+        self.assertFalse(Menu.search([("parent_id", "=", config.id)]))
+
+    def test_full_settings_page_has_four_tabs_and_no_manager_secrets(self):
+        Wizard = self.env["collection.company.settings"].with_user(self.manager)
+        arch = etree.fromstring(Wizard.get_view(view_type="form")["arch"])
+        self.assertEqual(
+            arch.xpath("//notebook/page/@name"),
+            ["general", "sellers", "bank_accounts", "integration"],
+        )
+        self.assertFalse(
+            arch.xpath("//field[@name='collection_mcp_trusted_seller_header']")
+        )
+        self.assertEqual(
+            self.env.ref("collection.action_collection_company_settings").target,
+            "current",
+        )
+
+    def test_native_settings_save_persists_company_and_keeps_other_company(self):
+        parameter = self.env["ir.config_parameter"].sudo()
+        parameter.set_param("collection.mcp_trusted_seller_header", "X-Existing-Sender")
+        Wizard = (
+            self.env["collection.company.settings"]
+            .with_user(self.manager)
+            .with_context(**self.ctx)
+        )
+        other_auto = self.other.auto_create_sheet
+        result = Wizard.web_save(
+            {"auto_create_sheet": False, "document_review_enabled": True},
+            {"company_id": {"fields": {"display_name": {}}}},
+        )
+        self.assertFalse(self.company.auto_create_sheet)
+        self.assertTrue(self.company.document_review_enabled)
+        self.assertEqual(self.other.auto_create_sheet, other_auto)
+        self.assertEqual(
+            parameter.get_param("collection.mcp_trusted_seller_header"),
+            "X-Existing-Sender",
+        )
+        settings = Wizard.browse(result[0]["id"])
+        settings.web_save({"auto_create_sheet": True}, {})
+        self.assertTrue(self.company.auto_create_sheet)
+
+    def test_spanish_settings_tab_labels(self):
+        if not self.env["res.lang"].search_count([("code", "=", "es_AR")]):
+            self.skipTest("Argentine Spanish is not installed")
+        arch = (
+            self.env["collection.company.settings"]
+            .with_user(self.manager)
+            .with_context(**self.ctx, lang="es_AR")
+            .get_view(view_type="form")["arch"]
+        )
+        self.assertEqual(
+            etree.fromstring(arch).xpath("//notebook/page/@string"),
+            ["General", "Vendedores", "Cuentas bancarias", "Integración"],
+        )
+
+    def test_integration_shortcuts_use_only_settings_company(self):
+        connector = self.env["collection.connector"].create(
+            {"name": "Settings source", "company_id": self.company.id}
+        )
+        settings = self._settings(collection_connector_id=connector.id)
+        action = settings.action_open_connector_settings()
+        self.assertEqual(action["context"]["default_connector_id"], connector.id)
+        action = settings.action_manage_connectors()
+        self.assertEqual(action["domain"], [("company_id", "=", self.company.id)])
+        action = settings.action_open_bank_accounts()
+        self.assertEqual(
+            action["domain"], [("partner_id", "=", self.company.partner_id.id)]
+        )
+        with patch.object(type(connector), "test_connection", return_value={}) as test:
+            settings.action_test_connection()
+        test.assert_called_once()
+        foreign = self.env["collection.connector"].create(
+            {"name": "Foreign settings source", "company_id": self.other.id}
+        )
+        settings.collection_connector_id = foreign
+        with self.assertRaises(AccessError):
+            settings.action_open_connector_settings()
+
+    def test_manager_cannot_read_or_forge_trusted_header(self):
+        settings = self._settings()
+        with self.assertRaises(AccessError):
+            settings.read(["collection_mcp_trusted_seller_header"])
+        with self.assertRaises(AccessError):
+            settings.web_save({"collection_mcp_trusted_seller_header": "Forged"}, {})
+
+    def test_system_admin_without_collection_role_can_configure(self):
+        admin = self.manager.copy(
+            {
+                "login": "settings_system_admin",
+                "group_ids": [Command.set([self.env.ref("base.group_system").id])],
+            }
+        )
+        self.assertFalse(admin.has_group("collection.group_collection_manager"))
+        Wizard = (
+            self.env["collection.company.settings"]
+            .with_user(admin)
+            .with_context(**self.ctx)
+        )
+        Wizard.web_save({"collection_mcp_trusted_seller_header": "X-Test-Sender"}, {})
+        self.assertEqual(
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("collection.mcp_trusted_seller_header"),
+            "X-Test-Sender",
+        )
+        self.assertIn(
+            self.env.ref("collection.menu_collection_config").id,
+            self.env["ir.ui.menu"].with_user(admin)._visible_menu_ids(),
         )
 
     def test_manager_connector_crud_is_company_scoped(self):

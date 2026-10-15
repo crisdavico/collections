@@ -80,7 +80,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 | Path                                              | Role                                                                                                                                                                                                |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `__manifest__.py`                                 | Module metadata `19.0.1.51.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                                                                             |
+| `__manifest__.py`                                 | Module metadata `19.0.1.53.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                                                                             |
 | `models/res_company.py`                           | Collection Settings fields + `_assert_new_work`; partial-safe seller Import (`_sync_enabled_sellers_from_connector`); seq copy; type seed                                                           |
 | `models/res_config_settings.py`                   | Related writable Collection Settings + Import action                                                                                                                                                |
 | `models/collection_connector.py`                  | Company-scoped connector + `_dispatch` allowlist; operations `@api.private`; manager-checked `test_connection`; debt `as_of` and net credit totals; `_collection_erp_reflected_since()`             |
@@ -140,10 +140,17 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 ## Domain rules (do not break)
 
-- **Collection Settings:** stored on `res.company` with related writable
-  `res.config.settings`. Menu/action label is **Collection Settings**; keep XMLID
-  `collection.action_collection_config_settings`. Fields: `enabled_seller_ids` (M2M
-  internal users; empty = none for NEW work), `auto_create_sheet` (default True),
+- **Collection Settings:** stored on `res.company`; **Collections → Configuration**
+  opens `collection.company.settings` as a full page with General, Sellers, Bank
+  Accounts, and Integration tabs. Native `web_save` applies the checked settings in the
+  same transaction; Discard does not apply edits. The form model disables cached
+  defaults and loads a fresh transient on each visit. Administrators and Collections
+  Managers use the same page. Legacy submenu XMLIDs stay inactive; retain their actions,
+  including `collection.action_collection_config_settings`, and the global
+  `res.config.settings` integration for existing links. Connector credentials and the
+  global trusted seller header remain system-only. Bank accounts are shown read-only
+  with a company-scoped management action. Fields: `enabled_seller_ids` (M2M internal
+  users; empty = none for NEW work), `auto_create_sheet` (default True),
   `allowed_document_type_ids` (catalog M2M), keep `document_review_enabled`,
   `collection_connector_id` (company-scoped active connector). **Import** (Settings
   admins, or a Collections Manager from Company Collection Settings) runs one
@@ -204,7 +211,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `base.main_company` (`seq_collection_allocation`). `res.company.create` copies all
   three sequences (`number_next=1` on copies) and unions all eight types
   (`COLLECTION_TYPE_CODES` follows `DOCUMENT_TYPE_CODES`); new companies start with
-  empty enabled sellers. Manifest `19.0.1.51.0`; migrate folders
+  empty enabled sellers. Manifest `19.0.1.53.0`; migrate folders
   `migrations/19.0.1.17.0/` (COL/CS stamp/repair), `migrations/19.0.1.25.0/` (`CA/`
   copy), `migrations/19.0.1.28.0/` (allocation state remap; no `CA/`),
   `migrations/19.0.1.31.0/` (voucher state SQL remap; no snapshot `decision` rewrite),
@@ -684,7 +691,7 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_ui.py`                       | View arch; Add Debt picker; Customer Debt `create="false"`; Collection Settings; menus 10/30/40; Receipts page; receipt Applied Debt; form does not issue                                                                                                                                                                                                                                                                                                                                                       |
 | `tests/test_collection_document_review.py`          | Queue `validated_seller`+proof; one editable OCR-prefilled OWL control; Approve rewrites current; no Reject; snapshots `decision` approved/rejected                                                                                                                                                                                                                                                                                                                                                             |
 | `tests/test_collection_company_settings.py`         | Catalog, empty sellers, defaults, Collection Settings fields                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `tests/test_collection_company_migration.py`        | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; `19.0.1.28.0` remap; `19.0.1.31.0` voucher remap; manifest `19.0.1.51.0`; `19.0.1.51.0` drops `unsupported` or aborts; keep `19.0.1.46.0` cash_on_hand recompute; leftover pin no `migrations/19.0.1.44.0/` / `19.0.1.45.0/` / `19.0.1.47.0/` / `19.0.1.49.0/`; `19.0.1.40.0` union-all; keep 1.31–1.34 / 1.43.0 / 1.48.0; no 1.26–1.30 / 1.35 / 1.36 / 1.37 / 1.38 / 1.39 / 1.40.1 / 1.41.0 / 1.42.0 / 1.44.0 / 1.45.0 / 1.47.0 / 1.49.0 migrate |
+| `tests/test_collection_company_migration.py`        | Stamp/repair/seed/four-types; per-company `COL/` `CS/` `CA/`; `19.0.1.28.0` remap; `19.0.1.31.0` voucher remap; manifest `19.0.1.53.0`; `19.0.1.51.0` drops `unsupported` or aborts; keep `19.0.1.46.0` cash_on_hand recompute; leftover pin no `migrations/19.0.1.44.0/` / `19.0.1.45.0/` / `19.0.1.47.0/` / `19.0.1.49.0/`; `19.0.1.40.0` union-all; keep 1.31–1.34 / 1.43.0 / 1.48.0; no 1.26–1.30 / 1.35 / 1.36 / 1.37 / 1.38 / 1.39 / 1.40.1 / 1.41.0 / 1.42.0 / 1.44.0 / 1.45.0 / 1.47.0 / 1.49.0 migrate |
 | `tests/test_collection_allocation_document_kind.py` | Line `document_kind` default/selection/parent-arch `<list>`; MCP receipt kind; get returns kind                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `tests/test_collection_sheet_report_data.py`        | Recon fields, payload primitives, freeze Closed+Cancelled, Proposal editable, four-state PDF payload, mismatch, mixed currency, no sudo                                                                                                                                                                                                                                                                                                                                                                         |
 | `tests/test_collection_sheet_report.py`             | Bound `qweb-pdf` + A4 portrait; HTML names/banner/`t-out`; company-B AccessError                                                                                                                                                                                                                                                                                                                                                                                                                                |

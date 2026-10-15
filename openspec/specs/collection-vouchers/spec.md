@@ -874,17 +874,24 @@ Upgrade MUST add nullable provenance with no backfill or fabricated snapshots.
 ### Requirement: Collection Settings persistence
 
 Each company MUST persist Collection Settings: enabled sellers, `auto_create_sheet`
-(default ON), and allowed document types (all eight catalog codes). Settings action and
-menu labels MUST be **Collection Settings**. An empty enabled-seller list MUST mean none
+(default ON), and allowed document types (all eight catalog codes). The **Configuration**
+menu MUST open the full **Collection Settings** page directly. An empty enabled-seller list MUST mean none
 for NEW work. All eight types MUST start enabled. Each type MUST remain independently
 configurable. Saving these fields MUST NOT clear `document_review_enabled`. (Previously:
 Defaults enabled seven catalog codes.)
 
-#### Scenario: Collection Settings labels
+#### Scenario: Unified collection configuration
 
 - GIVEN the module is installed
-- WHEN an internal Settings admin opens Collections settings
-- THEN the action and menu labels MUST be Collection Settings
+- WHEN a Collections Manager or system administrator opens Collections → Configuration
+- THEN a full page MUST show General, Sellers, Bank Accounts and Integration tabs
+- AND the active company MUST be visible
+- AND native Save MUST apply settings only to that company; Discard MUST not apply edits
+- AND legacy configuration submenu entries MUST be inactive after upgrade
+- AND seller import, company bank account management and company connector management
+  MUST remain reachable from the page
+- AND credentials and the global trusted seller header MUST remain system-only
+- AND ordinary Collections Users MUST NOT gain configuration access
 
 #### Scenario: Empty enabled sellers means none for new work
 
