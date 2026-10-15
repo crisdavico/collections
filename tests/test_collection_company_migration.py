@@ -902,13 +902,39 @@ class TestCollectionCompanyMigration(TransactionCase):
         links = cr.fetchone()[0]
         return catalog, xmlids, links
 
+    def _kept_catalog_state(self, type_id):
+        """Catalog rows and allow-list pairs other than the planted type."""
+        cr = self.env.cr
+        cr.execute(
+            "SELECT id, code FROM collection_document_type WHERE id != %s",
+            [type_id],
+        )
+        rows = set(cr.fetchall())
+        cr.execute(
+            """
+            SELECT company_id, document_type_id
+              FROM res_company_collection_allowed_document_type_rel
+             WHERE document_type_id != %s
+            """,
+            [type_id],
+        )
+        return rows, set(cr.fetchall())
+
     def test_upgrade_151_removes_unsupported_catalog_row(self):
         """1.51.0 MUST drop the unsupported row, its XMLID and allow-list links."""
         type_id = self._plant_unsupported_catalog_row()
         self.assertEqual(self._unsupported_leftovers(type_id)[0], 1)
+        rows_before, links_before = self._kept_catalog_state(type_id)
+        self.assertEqual({code for _id, code in rows_before}, CATALOG_TYPE_CODES)
+        self.assertTrue(links_before)
         self._load_151_pre_migrate().migrate(self.env.cr, "19.0.1.50.0")
         self.env.invalidate_all()
         self.assertEqual(self._unsupported_leftovers(type_id), (0, 0, 0))
+        rows_after, links_after = self._kept_catalog_state(type_id)
+        self.assertEqual(rows_after, rows_before, "other catalog rows must not change")
+        self.assertEqual(
+            links_after, links_before, "other allow-list links must not change"
+        )
         codes = set(self.env.company.allowed_document_type_ids.mapped("code"))
         self.assertEqual(codes, CATALOG_TYPE_CODES)
 
@@ -924,27 +950,43 @@ class TestCollectionCompanyMigration(TransactionCase):
         """Any stored unsupported value MUST abort the upgrade and change nothing."""
         module = self._load_151_pre_migrate()
         type_id = self._plant_unsupported_catalog_row()
+        planted = self._unsupported_leftovers(type_id)
+        self.assertEqual(planted[:2], (1, 1))
+        self.assertTrue(planted[2], "the planted row must have allow-list links")
         voucher = self._create_voucher({"document_type": "bank_transfer"})
         cases = (
             ("collection_voucher", "document_type"),
             ("collection_voucher", "ocr_document_type"),
             ("collection_voucher", "seller_document_type"),
+            ("collection_voucher_review_snapshot", "document_type"),
         )
         for table, column in cases:
-            with self.subTest(column=column):
+            with self.subTest(table=table, column=column):
                 with self.env.cr.savepoint(flush=False) as savepoint:
-                    self.env.cr.execute(
-                        f"UPDATE {table} SET {column} = 'unsupported' WHERE id = %s",
-                        [voucher.id],
-                    )
+                    if table == "collection_voucher":
+                        self.env.cr.execute(
+                            f"UPDATE {table} SET {column} = 'unsupported' "
+                            "WHERE id = %s",
+                            [voucher.id],
+                        )
+                    else:
+                        self.env.cr.execute(
+                            """
+                            INSERT INTO collection_voucher_review_snapshot
+                                (voucher_id, revision, reviewer_id, company_id,
+                                 decision, reviewed_at, document_type)
+                            VALUES (%s, 1, %s, %s, 'approved', now(), 'unsupported')
+                            """,
+                            [voucher.id, self.env.uid, voucher.company_id.id],
+                        )
                     with self.assertRaises(UserError) as caught:
                         module.migrate(self.env.cr, "19.0.1.50.0")
-                    self.assertIn(column, str(caught.exception))
+                    self.assertIn(f"{table}.{column}", str(caught.exception))
                     self.assertIn("unsupported", str(caught.exception))
                     self.assertEqual(
-                        self._unsupported_leftovers(type_id)[0],
-                        1,
-                        "an aborted upgrade must not delete the catalog row",
+                        self._unsupported_leftovers(type_id),
+                        planted,
+                        "an aborted upgrade must keep the row, XMLID and links",
                     )
                     savepoint.rollback()
 
