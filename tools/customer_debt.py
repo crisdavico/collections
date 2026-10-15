@@ -17,7 +17,10 @@ _CUSTOMER_DEBT_SCHEMA = {
         "customer_identification": {
             "type": "string",
             "minLength": 1,
-            "description": "Customer identification from the connector.",
+            "description": (
+                "Customer CUIT, customer code, or the numeric part of the code "
+                "when only one of this seller's customers has that number."
+            ),
         },
     },
     "required": ["seller_id", "customer_identification"],
