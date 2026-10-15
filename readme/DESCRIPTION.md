@@ -1,8 +1,8 @@
 ## Manual payment vouchers for cobranzas
 
 Backend app to register one payment voucher per proof (bank transfer, check, echeck,
-cash deposit, retention certificate, cash, unsupported, seller deposit, or seller
-commission). Each voucher owns sequence, chatter, optional image/PDF designated proof
+cash deposit, retention certificate, cash, seller deposit, or seller commission). Each
+voucher owns sequence, chatter, optional image/PDF designated proof
 (`message_main_attachment_id` on chatter `ir.attachment`; no Binary `attachment` field),
 a required Customer (`partner_id` on `res.partner`; Char identification is gone;
 `seller_deposit` and `seller_commission` stamp seeded sentinel partners), and a `draft`

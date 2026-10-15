@@ -1844,6 +1844,21 @@ class TestCollectionMcpAllocation(TransactionCase):
             before,
         )
 
+    def test_unsupported_document_type_rejected_in_every_nest(self):
+        """``unsupported`` is no document type: no nest may carry it, nothing writes."""
+        self.assertNotIn("unsupported", _DOCUMENT_TYPES)
+        before = self._counts()
+        for nest in ("raw_ocr", "seller_confirmed"):
+            with self.subTest(nest=nest):
+                payment = self._payment(10.0)
+                payment[nest] = {"document_type": "unsupported", "amount": 10.0}
+                self._assert_user_error_no_writes(
+                    lambda payment=payment, nest=nest: self._call(
+                        self._payload([payment], request_id=f"req-unsup-{nest}")
+                    ),
+                    before,
+                )
+
     def test_seller_commission_seller_confirmed_rejected(self):
         """MCP write MUST reject seller_commission; it MUST NOT join the nest enum."""
         self.assertNotIn("seller_commission", _DOCUMENT_TYPES)

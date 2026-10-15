@@ -10,7 +10,6 @@ CATALOG_XMLIDS = (
     ("collection.document_type_bank_transfer", "bank_transfer", "Bank Transfer"),
     ("collection.document_type_check", "check", "Check"),
     ("collection.document_type_cash_deposit", "cash_deposit", "Cash Deposit"),
-    ("collection.document_type_unsupported", "unsupported", "Unsupported"),
     ("collection.document_type_echeck", "echeck", "Echeck"),
     ("collection.document_type_cash", "cash", "Cash"),
     (
@@ -42,13 +41,31 @@ class TestCollectionCompanySettings(TransactionCase):
             self.assertEqual(rec.code, code, f"{xmlid} must store code {code}")
             self.assertEqual(rec.name, name, f"{xmlid} must store name {name}")
 
-    def test_catalog_has_exactly_nine_seeded_types(self):
-        """Install data seeds the nine catalog codes including seller_commission."""
+    def test_catalog_has_exactly_eight_seeded_types(self):
+        """Install data seeds the eight catalog codes including seller_commission."""
         types = self.env["collection.document.type"].search([])
         self.assertEqual(set(types.mapped("code")), ALL_TYPE_CODES)
-        self.assertEqual(len(types), 9)
-        self.assertEqual(len(CATALOG_XMLIDS), 9)
+        self.assertEqual(len(types), 8)
+        self.assertEqual(len(CATALOG_XMLIDS), 8)
         self.assertIn("seller_commission", ALL_TYPE_CODES)
+
+    def test_catalog_has_no_unsupported_type(self):
+        """The removed ``unsupported`` kind MUST be gone from catalog and allow-list."""
+        self.assertFalse(
+            self.env.ref("collection.document_type_unsupported", False),
+            "the unsupported catalog XMLID must not exist",
+        )
+        self.assertFalse(
+            self.env["collection.document.type"].search_count(
+                [("code", "=", "unsupported")]
+            )
+        )
+        for company in self.env["res.company"].search([]):
+            self.assertNotIn(
+                "unsupported",
+                company.allowed_document_type_ids.mapped("code"),
+                f"{company.name} allow-list must not offer unsupported",
+            )
 
     def test_catalog_duplicate_code_raises_integrity_error(self):
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
@@ -84,32 +101,19 @@ class TestCollectionCompanySettings(TransactionCase):
         company = self.env["res.company"].new({"name": "Auto Sheet Default Co"})
         self.assertTrue(company.auto_create_sheet)
 
-    def test_env_company_allows_all_nine_document_types(self):
+    def test_env_company_allows_all_eight_document_types(self):
         codes = set(self.env.company.allowed_document_type_ids.mapped("code"))
         self.assertEqual(
             codes,
             ALL_TYPE_CODES,
-            "all nine document types must start enabled on the company",
+            "all eight document types must start enabled on the company",
         )
 
-    def test_new_company_enables_all_nine_document_types(self):
-        """Triangulation: a company with no prior settings enables all nine types."""
+    def test_new_company_enables_all_eight_document_types(self):
+        """Triangulation: a company with no prior settings enables all eight types."""
         company = self.env["res.company"].new({"name": "Catalog Default Co"})
         codes = set(company.allowed_document_type_ids.mapped("code"))
         self.assertEqual(codes, ALL_TYPE_CODES)
-
-    def test_unsupported_can_be_disabled_independently(self):
-        unsupported = self.env.ref("collection.document_type_unsupported")
-        others = self.env.company.allowed_document_type_ids - unsupported
-        self.env.company.write({"allowed_document_type_ids": [(6, 0, others.ids)]})
-        self.assertNotIn(
-            unsupported,
-            self.env.company.allowed_document_type_ids,
-            "Unsupported must remain independently configurable",
-        )
-        remaining = set(self.env.company.allowed_document_type_ids.mapped("code"))
-        self.assertNotIn("unsupported", remaining)
-        self.assertTrue(remaining)
 
     def test_enabled_seller_ids_default_empty(self):
         """Empty enabled sellers means none, not all. Field has no 'all' default."""

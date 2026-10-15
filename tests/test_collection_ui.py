@@ -110,7 +110,6 @@ class TestCollectionUi(TransactionCase):
         "bank_transfer",
         "check",
         "cash_deposit",
-        "unsupported",
         "seller_deposit",
     )
     ATTACHMENT_ACCEPT = "image/*,.pdf"
@@ -624,7 +623,10 @@ class TestCollectionUi(TransactionCase):
             self.assertTrue(nodes, f"form must include shared field {field_name}")
 
         amount = self._field_nodes(form_root, "amount")[0]
-        self._assert_invisible_for_document_type(amount, "unsupported", "amount")
+        self.assertIsNone(
+            amount.get("invisible"),
+            "every document type owns an amount, so it is never hidden",
+        )
 
         for field_name in BANK_TRANSFER_FIELDS:
             nodes = self._field_nodes(form_root, field_name)
@@ -705,9 +707,7 @@ class TestCollectionUi(TransactionCase):
         form_root = self._arch_root("collection.view_collection_voucher_form")
         current = self._notebook_page(form_root, NOTEBOOK_CURRENT)
         current_amount = current.xpath('.//field[@name="amount"]')[0]
-        self._assert_invisible_for_document_type(
-            current_amount, "unsupported", "amount"
-        )
+        self.assertIsNone(current_amount.get("invisible"), "amount is never hidden")
         for page_string, prefix, type_field in PROVENANCE_LAYERS:
             page = self._notebook_page(form_root, page_string)
             amount_name = f"{prefix}amount"
@@ -716,19 +716,9 @@ class TestCollectionUi(TransactionCase):
                 amount_nodes,
                 f"{page_string} must include {amount_name}",
             )
-            amount_invisible = amount_nodes[0].get("invisible") or ""
-            self.assertIn(
-                type_field,
-                amount_invisible,
-                f"{amount_name} invisible= must use {type_field}",
-            )
-            self.assertIn(
-                " and document_type ==",
-                amount_invisible,
-                f"{amount_name} must stay visible when Current type is not unsupported",
-            )
-            self._assert_invisible_for_document_type(
-                amount_nodes[0], "unsupported", amount_name
+            self.assertIsNone(
+                amount_nodes[0].get("invisible"),
+                f"{amount_name} is owned by every type, so it is never hidden",
             )
             self._assert_readonly_field(amount_nodes[0], amount_name)
             for field_name in BANK_TRANSFER_FIELDS:
@@ -890,34 +880,15 @@ class TestCollectionUi(TransactionCase):
         ):
             self._assert_create_edit_enabled(self._arch_root(xmlid), label)
 
-    def test_unsupported_filter_lists_unsupported_vouchers(self):
-        """Payment Vouchers search MUST list unsupported via document_type filter."""
-        search_root = self._arch_root("collection.view_collection_voucher_search")
-        unsupported_filters = search_root.xpath(
-            '//filter[contains(@domain, "unsupported")]'
-        )
-        self.assertTrue(
-            unsupported_filters,
-            "Payment Vouchers search must filter document_type=unsupported",
-        )
-        domain = unsupported_filters[0].get("domain") or ""
-        self.assertIn("document_type", domain)
-        self.assertIn("unsupported", domain)
-
-        voucher = self.env["collection.voucher"].create(
-            {
-                "partner_id": dummy_customer_partner(
-                    self.env, customer="UI-UNSUPPORTED-MENU-001"
-                ).id,
-                "document_type": "unsupported",
-                "document_id": "UI-UNSUP-DOC-002",
-                "seller_id": ensure_enabled_seller(self.env).id,
-            }
-        )
-        found = self.env["collection.voucher"].search(
-            [("document_type", "=", "unsupported"), ("id", "=", voucher.id)]
-        )
-        self.assertEqual(found, voucher)
+    def test_no_view_mentions_unsupported(self):
+        """The removed ``unsupported`` kind MUST leave no filter or invisible=."""
+        for xmlid in (
+            "collection.view_collection_voucher_search",
+            "collection.view_collection_voucher_form",
+            "collection.view_collection_voucher_list",
+        ):
+            arch = self.env.ref(xmlid).arch
+            self.assertNotIn("unsupported", arch, f"{xmlid} still mentions it")
 
     def test_ui_create_may_omit_document_id(self):
         """UI-style create may omit document_id on a standalone voucher."""

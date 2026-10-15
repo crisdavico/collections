@@ -15,7 +15,6 @@ _VOUCHER_BLOCK_LABELS = {
     "bank_transfer": "Transferencia bancaria",
     "check": "Cheque",
     "cash_deposit": "Depósito en efectivo",
-    "unsupported": "Otros",
 }
 _SHEET_STATE_LABELS = {
     "open": "Abierta",

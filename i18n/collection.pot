@@ -2278,12 +2278,6 @@ msgid "No se pudo cargar el documento."
 msgstr ""
 
 #. module: collection
-#. odoo-javascript
-#: code:addons/collection/static/src/document_review/document_review_action.xml:0
-msgid "No soportado"
-msgstr ""
-
-#. module: collection
 #. odoo-python
 #: code:addons/collection/tools/seller_identity.py:0
 msgid "No unique seller found for that mobile."
@@ -3711,19 +3705,6 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Unmark Entered in the ERP"
-msgstr ""
-
-#. module: collection
-#: model:collection.document.type,name:collection.document_type_unsupported
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__unsupported
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
-msgid "Unsupported"
-msgstr ""
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/collection_voucher.py:0
-msgid "Unsupported payments cannot be allocated (index %(index)s)."
 msgstr ""
 
 #. module: collection

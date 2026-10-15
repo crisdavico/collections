@@ -896,8 +896,6 @@ class CollectionVoucher(models.Model):
     @api.constrains("amount", "document_type")
     def _check_amount_positive(self):
         for voucher in self:
-            if voucher.document_type == "unsupported":
-                continue
             compared = voucher.currency_id.compare_amounts(voucher.amount or 0.0, 0.0)
             if compared > 0 or (compared == 0 and voucher._is_void_seller_commission()):
                 continue

@@ -58,10 +58,9 @@ class TestCollectionVoucher(TransactionCase):
             "document_type": "bank_transfer",
         }
         document_type = extra.get("document_type", vals["document_type"])
-        if document_type != "unsupported" and "amount" not in extra:
-            # Positive-amount rule exempts `unsupported`; every other fixture
-            # needs a sensible default so it does not have to spell out an
-            # amount just to satisfy `_check_amount_positive`.
+        if "amount" not in extra:
+            # Every fixture needs a sensible default so it does not have to
+            # spell out an amount just to satisfy `_check_amount_positive`.
             vals["amount"] = 100.0
         if document_type in ("check", "echeck") and "check_number" not in extra:
             # check_number is mandatory at save for check/echeck
@@ -182,7 +181,11 @@ class TestCollectionVoucher(TransactionCase):
         self.assertTrue(field.index)
         self.assertEqual(field.ondelete, "restrict")
         seller = self._ensure_enabled_seller()
-        vals = {"document_type": "unsupported", "seller_id": seller.id}
+        vals = {
+            "document_type": "bank_transfer",
+            "amount": 100.0,
+            "seller_id": seller.id,
+        }
         with mute_logger("odoo.sql_db"):
             try:
                 Voucher.create(vals)
@@ -203,7 +206,8 @@ class TestCollectionVoucher(TransactionCase):
                     "partner_id": dummy_customer_partner(
                         self.env, customer="CUST-NO-RECV"
                     ).id,
-                    "document_type": "unsupported",
+                    "document_type": "bank_transfer",
+                    "amount": 100.0,
                     "seller_id": ensure_enabled_seller(self.env).id,
                     "received_date": fields.Date.today(),
                 }
@@ -217,7 +221,8 @@ class TestCollectionVoucher(TransactionCase):
                 "partner_id": dummy_customer_partner(
                     self.env, customer="CUST-CREATE-DATE"
                 ).id,
-                "document_type": "unsupported",
+                "document_type": "bank_transfer",
+                "amount": 100.0,
                 "seller_id": ensure_enabled_seller(self.env).id,
                 "create_date": forged,
             }
@@ -340,11 +345,7 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(deposit.voucher_number, "CASH-1")
         self.assertEqual(deposit.voucher_date, date(2026, 4, 1))
 
-    def test_unsupported_and_partial_payment_fields(self):
-        unsupported = self._create_voucher(
-            customer_identification="CUST-UNSUP",
-            document_type="unsupported",
-        )
+    def test_partial_payment_fields(self):
         partial = self._create_voucher(
             customer_identification="CUST-PARTIAL",
             document_type="bank_transfer",
@@ -352,16 +353,11 @@ class TestCollectionVoucher(TransactionCase):
             from_account="ONLY-FROM",
         )
 
-        self.assertEqual(unsupported.document_type, "unsupported")
-        self.assertFalse(unsupported.amount)
-        self.assertFalse(unsupported.from_account)
-        self.assertFalse(unsupported.check_number)
-
         self.assertEqual(partial.document_type, "bank_transfer")
         self.assertEqual(partial.from_account, "ONLY-FROM")
         self.assertFalse(partial.to_account)
         # amount is unrelated to the partial-instrument-fields concern this
-        # test exercises, but it is mandatory for every non-unsupported type
+        # test exercises, but it is mandatory for every type
         # (`_check_amount_positive`), so it must be a real positive value here.
         self.assertAlmostEqual(partial.amount, 75.0, places=2)
 
@@ -376,8 +372,8 @@ class TestCollectionVoucher(TransactionCase):
         self.assertEqual(check.check_type, "common")
         self.assertEqual(check.check_number, "CHK-COMMON")
 
-    def test_document_type_selection_includes_nine_codes(self):
-        """Voucher Selection MUST include seller_commission as ninth catalog code."""
+    def test_document_type_selection_includes_eight_codes(self):
+        """Voucher Selection MUST hold the eight catalog codes, never unsupported."""
         keys = {
             key
             for key, _label in self.env["collection.voucher"]._DOCUMENT_TYPE_SELECTION
@@ -388,7 +384,6 @@ class TestCollectionVoucher(TransactionCase):
                 "bank_transfer",
                 "check",
                 "cash_deposit",
-                "unsupported",
                 "echeck",
                 "cash",
                 "retention_certificate",
@@ -396,7 +391,7 @@ class TestCollectionVoucher(TransactionCase):
                 "seller_commission",
             },
         )
-        self.assertEqual(len(keys), 9)
+        self.assertEqual(len(keys), 8)
         from odoo.addons.collection.models.collection_common import (
             CASH_REPLACEMENT_TYPES,
             CONFIRM_REVIEW_EXEMPT_TYPES,
@@ -421,6 +416,43 @@ class TestCollectionVoucher(TransactionCase):
             "retention_kind",
             self.env["collection.voucher"]._REVIEW_EDITABLE_FIELD_ORDER,
         )
+
+    def test_no_selection_offers_unsupported(self):
+        """Current, Raw OCR, Seller Confirmed and snapshot types drop unsupported."""
+        Voucher = self.env["collection.voucher"]
+        Snapshot = self.env["collection.voucher.review.snapshot"]
+        choices = {
+            "document_type": Voucher._selection_document_type(),
+            "ocr_document_type": Voucher._fields["ocr_document_type"].selection,
+            "seller_document_type": Voucher._fields["seller_document_type"].selection,
+            "snapshot document_type": Snapshot._fields["document_type"].selection,
+        }
+        for name, selection in choices.items():
+            codes = {code for code, _label in selection}
+            self.assertNotIn("unsupported", codes, f"{name} must not offer it")
+            self.assertIn("bank_transfer", codes, name)
+
+    def test_create_with_unsupported_document_type_fails(self):
+        """A voucher typed ``unsupported`` MUST be refused and write nothing."""
+        Voucher = self.env["collection.voucher"]
+        seller = self._ensure_enabled_seller()
+        partner = dummy_customer_partner(self.env, customer="CUST-NO-UNSUP")
+        before = Voucher.search_count([])
+        refused = None
+        try:
+            with self.env.cr.savepoint():
+                Voucher.create(
+                    {
+                        "partner_id": partner.id,
+                        "document_type": "unsupported",
+                        "amount": 10.0,
+                        "seller_id": seller.id,
+                    }
+                )
+        except (UserError, ValueError) as err:
+            refused = err
+        self.assertIsNotNone(refused, "document_type=unsupported must be refused")
+        self.assertEqual(Voucher.search_count([]), before)
 
     def test_persist_echeck_cash_and_retention_certificate(self):
         """ORM MUST persist echeck, cash, and retention_certificate plus
@@ -1566,7 +1598,7 @@ class TestCollectionVoucher(TransactionCase):
     # --- T1: positive amount and voucher/check date coherence ---
 
     def test_amount_must_be_positive_for_owned_types(self):
-        """amount <= 0 MUST be rejected for every type except unsupported."""
+        """amount <= 0 MUST be rejected for every owned type."""
         partner = dummy_customer_partner(self.env, customer="AMT-POS")
         seller = self._ensure_enabled_seller()
         with self.assertRaises(ValidationError):
@@ -1609,16 +1641,6 @@ class TestCollectionVoucher(TransactionCase):
             voucher.write({"amount": 0.0})
         voucher.invalidate_recordset()
         self.assertAlmostEqual(voucher.amount, 10.0, places=2)
-
-    def test_unsupported_amount_zero_stays_exempt(self):
-        """unsupported keeps zero amount; it owns no instrument fields."""
-        voucher = self._create_voucher(
-            customer_identification="AMT-UNSUP",
-            document_type="unsupported",
-        )
-        self.assertFalse(voucher.amount)
-        voucher.write({"amount": 0.0})
-        self.assertFalse(voucher.amount)
 
     def test_check_date_issue_after_payment_rejected(self):
         """check_issue_date after check_payment_date MUST be rejected."""
@@ -2030,18 +2052,6 @@ class TestCollectionVoucher(TransactionCase):
         )
         self.assertNotEqual(first.id, second.id)
         self.assertEqual(first.amount, second.amount)
-
-    def test_unsupported_exempt_from_duplicate_rules(self):
-        """unsupported MUST remain creatable with no instrument identity."""
-        first = self._create_voucher(
-            customer_identification="UNSUP-DUP-A",
-            document_type="unsupported",
-        )
-        second = self._create_voucher(
-            customer_identification="UNSUP-DUP-B",
-            document_type="unsupported",
-        )
-        self.assertNotEqual(first.id, second.id)
 
     def test_duplicate_identity_unique_indexes_exist(self):
         """The three race-safety UniqueIndex objects MUST be materialized."""
@@ -2572,7 +2582,7 @@ class TestCollectionNewWorkHelper(TransactionCase):
             "partner_id": partner.id,
             "document_type": document_type,
         }
-        if document_type != "unsupported" and "amount" not in extra:
+        if "amount" not in extra:
             vals["amount"] = 100.0
         vals.update(extra)
         return vals
@@ -2613,17 +2623,17 @@ class TestCollectionNewWorkHelper(TransactionCase):
         self.assertTrue(voucher.id)
 
     def test_disallowed_type_rejects_voucher_create(self):
-        unsupported = self.env.ref("collection.document_type_unsupported")
+        disabled = self.env.ref("collection.document_type_cash_deposit")
         seller = self._admin_seller()
         self._enable_sellers(seller)
-        others = self.env.company.allowed_document_type_ids - unsupported
+        others = self.env.company.allowed_document_type_ids - disabled
         self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
         before = self.env["collection.voucher"].search_count([])
         with self.assertRaises(UserError):
             self._create_voucher(
                 customer_identification="CUST-NW-BAD-TYPE",
                 seller_id=seller.id,
-                document_type="unsupported",
+                document_type="cash_deposit",
             )
         self.assertEqual(self.env["collection.voucher"].search_count([]), before)
 
@@ -2640,7 +2650,7 @@ class TestCollectionNewWorkHelper(TransactionCase):
         self.assertEqual(voucher.seller_id, enabled)
 
     def test_document_type_write_to_disallowed_type_rejected(self):
-        unsupported = self.env.ref("collection.document_type_unsupported")
+        disabled = self.env.ref("collection.document_type_cash_deposit")
         seller = self._admin_seller()
         self._enable_sellers(seller)
         voucher = self._create_voucher(
@@ -2648,10 +2658,10 @@ class TestCollectionNewWorkHelper(TransactionCase):
             seller_id=seller.id,
             document_type="bank_transfer",
         )
-        others = self.env.company.allowed_document_type_ids - unsupported
+        others = self.env.company.allowed_document_type_ids - disabled
         self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
         with self.assertRaises(UserError):
-            voucher.write({"document_type": "unsupported"})
+            voucher.write({"document_type": "cash_deposit"})
         self.assertEqual(voucher.document_type, "bank_transfer")
 
     def test_disabled_seller_voucher_stays_visible_and_validatable(self):
@@ -2683,15 +2693,15 @@ class TestCollectionNewWorkHelper(TransactionCase):
 
     def test_document_type_selection_is_allowed_union_current(self):
         """Type choices MUST be allowed types plus the current value if dropped."""
-        unsupported = self.env.ref("collection.document_type_unsupported")
+        disabled = self.env.ref("collection.document_type_cash_deposit")
         seller = self._admin_seller()
         self._enable_sellers(seller)
         voucher = self._create_voucher(
             customer_identification="CUST-NW-TYPE-UNION",
             seller_id=seller.id,
-            document_type="unsupported",
+            document_type="cash_deposit",
         )
-        others = self.env.company.allowed_document_type_ids - unsupported
+        others = self.env.company.allowed_document_type_ids - disabled
         self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
 
         new_codes = {code for code, _label in voucher._selection_document_type()}
@@ -2702,21 +2712,21 @@ class TestCollectionNewWorkHelper(TransactionCase):
             ]._selection_document_type()
         }
         self.assertNotIn(
-            "unsupported",
+            "cash_deposit",
             empty_codes,
             "new work must not offer a disabled document type",
         )
         self.assertIn("bank_transfer", empty_codes)
         self.assertIn(
-            "unsupported",
+            "cash_deposit",
             new_codes,
             "historical current type must remain in choices",
         )
 
     def test_document_type_selection_empty_recordset_excludes_disabled(self):
         """Triangulation: empty recordset type choices follow the company allow-list."""
-        unsupported = self.env.ref("collection.document_type_unsupported")
-        others = self.env.company.allowed_document_type_ids - unsupported
+        disabled = self.env.ref("collection.document_type_cash_deposit")
+        others = self.env.company.allowed_document_type_ids - disabled
         self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
         empty_codes = {
             code
@@ -2724,7 +2734,7 @@ class TestCollectionNewWorkHelper(TransactionCase):
                 "collection.voucher"
             ]._selection_document_type()
         }
-        self.assertNotIn("unsupported", empty_codes)
+        self.assertNotIn("cash_deposit", empty_codes)
         self.assertIn("bank_transfer", empty_codes)
 
     def test_document_type_selection_labels_come_from_the_catalog(self):
@@ -2741,32 +2751,32 @@ class TestCollectionNewWorkHelper(TransactionCase):
 
     def test_document_type_selection_label_follows_a_dropped_current_type(self):
         """A type kept only as a record's current value still gets its catalog label."""
-        unsupported = self.env.ref("collection.document_type_unsupported")
-        unsupported.name = "No soportado"
+        disabled = self.env.ref("collection.document_type_cash_deposit")
+        disabled.name = "Depósito en efectivo"
         seller = self._admin_seller()
         self._enable_sellers(seller)
         voucher = self._create_voucher(
             customer_identification="CUST-NW-TYPE-LABEL",
             seller_id=seller.id,
-            document_type="unsupported",
+            document_type="cash_deposit",
         )
-        others = self.env.company.allowed_document_type_ids - unsupported
+        others = self.env.company.allowed_document_type_ids - disabled
         self.env.company.write({"allowed_document_type_ids": [Command.set(others.ids)]})
 
         labels = dict(voucher._selection_document_type())
-        self.assertEqual(labels["unsupported"], "No soportado")
+        self.assertEqual(labels["cash_deposit"], "Depósito en efectivo")
 
     def test_document_type_selection_falls_back_when_no_catalog_row(self):
         """No catalog row for a current code: the constant label is the fallback."""
-        unsupported = self.env.ref("collection.document_type_unsupported")
+        disabled = self.env.ref("collection.document_type_cash_deposit")
         seller = self._admin_seller()
         self._enable_sellers(seller)
         voucher = self._create_voucher(
             customer_identification="CUST-NW-TYPE-GONE",
             seller_id=seller.id,
-            document_type="unsupported",
+            document_type="cash_deposit",
         )
-        unsupported.unlink()
+        disabled.unlink()
 
         labels = dict(voucher._selection_document_type())
-        self.assertEqual(labels["unsupported"], "Unsupported")
+        self.assertEqual(labels["cash_deposit"], "Cash Deposit")

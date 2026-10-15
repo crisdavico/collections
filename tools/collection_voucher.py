@@ -23,7 +23,6 @@ _DOCUMENT_TYPES = (
     "cash_deposit",
     "retention_certificate",
     "cash",
-    "unsupported",
 )
 _CHECK_TYPES = ("common", "deferred")
 _CHECK_DOCUMENT_TYPES = frozenset({"check", "echeck"})
@@ -64,7 +63,6 @@ _TYPE_OWNED_FIELDS: dict[str, frozenset[str]] = {
         {"amount", "voucher_number", "voucher_date", "retention_kind"}
     ),
     "cash": frozenset({"amount", "voucher_date"}),
-    "unsupported": frozenset(),
 }
 
 _PAYMENT_OPTIONAL_FIELDS = (
@@ -323,13 +321,6 @@ class CollectionMcpMixin(models.AbstractModel):
                 seller, index, "seller_confirmed"
             )
             document_type = parsed["document_type"]
-            if document_type == "unsupported":
-                raise UserError(
-                    _(
-                        "Unsupported payments cannot be allocated (index %(index)s).",
-                        index=index,
-                    )
-                )
             if (
                 document_type in _CHECK_DOCUMENT_TYPES
                 and not (parsed.get("check_number") or "").strip()

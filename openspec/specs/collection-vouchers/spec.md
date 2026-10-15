@@ -346,12 +346,13 @@ refused.)
 ### Requirement: Payment field contract
 
 Each voucher MUST persist `document_type` as one of `bank_transfer`, `check`, `echeck`,
-`cash_deposit`, `retention_certificate`, `cash`, `unsupported`, or `seller_deposit`,
+`cash_deposit`, `retention_certificate`, `cash`, or `seller_deposit`,
 plus nullable payment fields (OCR validators NOT required): `amount`, `from_account`,
 `to_account`, `voucher_number`, `voucher_date`, `check_number`, `check_bank`,
 `check_issue_date`, `check_payment_date`, `check_type` Selection `common`/`deferred`,
 and `retention_kind` Selection `iva`/`ganancias`/`iibb`/`suss`/`other` (nullable).
-`unsupported` MUST persist without other payment fields. `cash` MUST persist with
+Every type owns `amount`, which MUST be positive; there is no `unsupported` type and
+any unknown code MUST be refused. `cash` MUST persist with
 `amount` and optional `voucher_date` and MUST NOT require designated proof.
 `seller_deposit` MUST persist with `amount`, `voucher_number`, and `voucher_date`, MAY
 have designated proof, and MUST use the sentinel partner.
@@ -364,10 +365,10 @@ have designated proof, and MUST use the sentinel partner.
 | `cash_deposit`          | `amount`, `to_account`, `voucher_number`, `voucher_date`                                       |
 | `retention_certificate` | `amount`, `voucher_number`, `voucher_date`, `retention_kind`                                   |
 | `cash`                  | `amount`, `voucher_date`; no proof                                                             |
-| `unsupported`           | discriminator only                                                                             |
 | `seller_deposit`        | `amount`, `voucher_number`, `voucher_date`; sentinel partner                                   |
 
-(Previously: Seven types only; no `seller_deposit`.)
+(Previously: an `unsupported` discriminator-only type existed; removed in
+`19.0.1.51.0`. Before that: Seven types only; no `seller_deposit`.)
 
 #### Scenario: Persist type-specific fields
 
@@ -376,11 +377,17 @@ have designated proof, and MUST use the sentinel partner.
 - WHEN saved
 - THEN each voucher MUST persist those values
 
-#### Scenario: Unsupported and partial entry
+#### Scenario: Partial entry
 
-- GIVEN an `unsupported` voucher plus a partial supported-type voucher
+- GIVEN a supported-type voucher with only some of its type-owned fields filled
 - WHEN saved
-- THEN both MUST persist
+- THEN it MUST persist
+
+#### Scenario: Unknown type refused
+
+- GIVEN a new voucher with `document_type` `unsupported`
+- WHEN saved
+- THEN the create MUST be rejected with no write
 
 #### Scenario: Persist echeck cash and retention_certificate
 
@@ -494,17 +501,21 @@ rejected.)
 - WHEN `sheet_id` is cleared or changed on the form
 - THEN the write MUST be rejected and membership MUST be unchanged
 
-### Requirement: Unsupported vouchers remain persistable
+### Requirement: No unsupported document type
 
-`unsupported` vouchers MUST remain persistable (e.g. MCP) and MUST be findable via
-Collections → Payment Vouchers (e.g. filter `document_type=unsupported`).
+`unsupported` MUST NOT be a document type: no Selection, catalog row, allow-list entry,
+search filter, or `invisible=` condition may offer or reference it. Upgrade to
+`19.0.1.51.0` MUST delete the `unsupported` catalog row, its XMLID, and its allow-list
+links, and MUST abort without rewriting data when any voucher or review snapshot still
+stores `unsupported`.
 
-#### Scenario: Unsupported voucher visible in Payment Vouchers
+#### Scenario: Upgrade with stored unsupported data
 
-- GIVEN an `unsupported` voucher exists
-- WHEN a Collections User opens Collections → Payment Vouchers and filters to
-  `unsupported`
-- THEN that voucher MUST be listed
+- GIVEN a voucher whose `document_type`, `ocr_document_type`, or
+  `seller_document_type` is `unsupported`
+- WHEN the module upgrades to `19.0.1.51.0`
+- THEN the upgrade MUST fail naming the column
+- AND the catalog row MUST remain until the data is fixed
 
 ### Requirement: Optional image or PDF attachment per voucher
 
@@ -754,12 +765,13 @@ omitted `retention_kind`.)
 
 `create_collection_allocation` MUST require nested `seller_confirmed` and MAY accept
 nested `raw_ocr` with the same typed keys as current fields, including `retention_kind`
-and the seven `document_type` codes. Voucher fields MUST be derived from
+and the six `document_type` codes. Voucher fields MUST be derived from
 `seller_confirmed`. Amounts in those nests MUST accept decimal strings. Explicit JSON
 `null` or empty string on optional nest fields MUST be treated as omit. When `raw_ocr`
 is present, it MUST persist as submitted; when omitted or null, `ocr_*` MUST stay empty.
-Stamp `seller_*` always on all-new create. Reject `unsupported` and non-positive
-`seller_confirmed` amount. Seller-declared `cash` MUST succeed with `raw_ocr` omitted or
+Stamp `seller_*` always on all-new create. Reject any unknown nest `document_type`
+(including the removed `unsupported`) and non-positive `seller_confirmed` amount.
+Seller-declared `cash` MUST succeed with `raw_ocr` omitted or
 null. UI/ORM create without nests MUST remain allowed. Malformed nests, raw without
 seller, or seller≠ derived current (minus `document_id`) MUST fail the batch with no
 writes. Exact same-company, same-seller `document_id` reuse MUST require
@@ -862,9 +874,9 @@ Upgrade MUST add nullable provenance with no backfill or fabricated snapshots.
 ### Requirement: Collection Settings persistence
 
 Each company MUST persist Collection Settings: enabled sellers, `auto_create_sheet`
-(default ON), and allowed document types (all nine catalog codes). Settings action and
+(default ON), and allowed document types (all eight catalog codes). Settings action and
 menu labels MUST be **Collection Settings**. An empty enabled-seller list MUST mean none
-for NEW work. All nine types MUST start enabled. Unsupported MUST remain independently
+for NEW work. All eight types MUST start enabled. Each type MUST remain independently
 configurable. Saving these fields MUST NOT clear `document_review_enabled`. (Previously:
 Defaults enabled seven catalog codes.)
 
@@ -880,20 +892,20 @@ Defaults enabled seven catalog codes.)
 - WHEN a new voucher is created via UI, ORM, import, or MCP
 - THEN the create MUST be rejected with no write
 
-#### Scenario: Defaults enable auto-create and all nine types
+#### Scenario: Defaults enable auto-create and all eight types
 
 - GIVEN a fresh install or a company with no prior Collection Settings
 - WHEN settings are read
 - THEN `auto_create_sheet` MUST be ON
 - AND `bank_transfer`, `check`, `echeck`, `cash_deposit`, `retention_certificate`,
-  `cash`, `unsupported`, `seller_deposit`, and `seller_commission` MUST all be enabled
+  `cash`, `seller_deposit`, and `seller_commission` MUST all be enabled
 
-#### Scenario: Unsupported is configurable
+#### Scenario: A disabled type is configurable
 
-- GIVEN Unsupported is disabled for the company
-- WHEN a new voucher is created with `document_type` `unsupported`
+- GIVEN Cash Deposit is disabled for the company
+- WHEN a new voucher is created with `document_type` `cash_deposit`
 - THEN the create MUST be rejected
-- AND existing `unsupported` vouchers MUST remain visible
+- AND existing `cash_deposit` vouchers MUST remain visible
 
 ### Requirement: Company ownership of vouchers
 
@@ -1217,14 +1229,13 @@ while `open`; freeze while `proposal`, `closed`, or `cancelled`.)
 
 ### Requirement: Catalog XMLIDs and 19.0.1.40.0 allow-list union
 
-The catalog MUST include exactly these nine codes, each with a stable XMLID:
+The catalog MUST include exactly these eight codes, each with a stable XMLID:
 
 | Code                    | XMLID                                            |
 | ----------------------- | ------------------------------------------------ |
 | `bank_transfer`         | `collection.document_type_bank_transfer`         |
 | `check`                 | `collection.document_type_check`                 |
 | `cash_deposit`          | `collection.document_type_cash_deposit`          |
-| `unsupported`           | `collection.document_type_unsupported`           |
 | `echeck`                | `collection.document_type_echeck`                |
 | `cash`                  | `collection.document_type_cash`                  |
 | `retention_certificate` | `collection.document_type_retention_certificate` |
@@ -1232,19 +1243,21 @@ The catalog MUST include exactly these nine codes, each with a stable XMLID:
 | `seller_commission`     | `collection.document_type_seller_commission`     |
 
 Voucher `document_type`, `ocr_document_type`, `seller_document_type`, and review
-snapshot type Selection MUST include the same nine codes, sourced from the shared
+snapshot type Selection MUST include the same eight codes, sourced from the shared
 `DOCUMENT_TYPE_SELECTION` tuple. `COLLECTION_TYPE_CODES` MUST keep following
 `DOCUMENT_TYPE_CODES` so catalog unions cover every Selection code. Upgrade to
 `19.0.1.40.0` MUST union the then-seven codes onto every company’s
 `allowed_document_type_ids` and MUST NOT remove custom extra types. Upgrade to
 `19.0.1.43.0` MUST union all eight codes onto every company via
 `_collection_enable_all_document_types` and MUST NOT remove extras. Upgrade to
-`19.0.1.48.0` MUST union all nine codes onto every company via
-`_collection_enable_all_document_types` and MUST NOT remove extras. Manifest MUST be
-`19.0.1.48.0`. `migrations/19.0.1.42.0/` MUST NOT exist. `migrations/19.0.1.49.0/` MUST
+`19.0.1.48.0` MUST union all nine then-current codes onto every company via
+`_collection_enable_all_document_types` and MUST NOT remove extras. Upgrade to
+`19.0.1.51.0` MUST drop `unsupported` (see No unsupported document type). Manifest MUST
+be `19.0.1.51.0`. `migrations/19.0.1.42.0/` MUST NOT exist. `migrations/19.0.1.49.0/` MUST
 NOT exist. Empty-only seed MUST NOT be the upgrade path. New companies MUST start with
-all nine enabled. MCP write MUST still reject `unsupported`, and MUST NOT accept
-`seller_commission` from any caller: only Confirm mints it. (Previously: Eight rows,
+all eight enabled. MCP write MUST reject `unsupported` as an unknown type, and MUST
+NOT accept `seller_commission` from any caller: only Confirm mints it. (Previously: Nine
+rows including `unsupported`. Before that: Eight rows,
 without `seller_commission`. Before that: Exactly seven catalog codes; last allow-list
 union was `19.0.1.40.0`.)
 

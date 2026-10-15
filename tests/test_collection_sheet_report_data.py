@@ -755,13 +755,11 @@ class TestCollectionSheetReportData(TransactionCase):
                 self.assertEqual(row["commission"], 0.0)
 
     def test_catalog_order_and_empty_drop(self):
-        """Voucher blocks MUST be check then unsupported; empty types dropped."""
+        """Voucher blocks MUST be check then cash; empty types dropped."""
         sheet = self._create_sheet()
         partner = dummy_customer_partner(self.env, customer="RPT-VOUCHERS")
         check = self._create_voucher(partner, sheet, amount=15.0, document_type="check")
-        other = self._create_voucher(
-            partner, sheet, amount=25.0, document_type="unsupported"
-        )
+        other = self._create_voucher(partner, sheet, amount=25.0, document_type="cash")
         self._create_allocation(
             sheet,
             partner,
@@ -770,14 +768,14 @@ class TestCollectionSheetReportData(TransactionCase):
         )
         payload = sheet._collection_report_data()
         codes = [block["code"] for block in payload["voucher_blocks"]]
-        self.assertEqual(codes, ["check", "unsupported"])
+        self.assertEqual(codes, ["check", "cash"])
         self.assertNotIn("bank_transfer", codes)
         self.assertNotIn("cash_deposit", codes)
         check_type = self.env["collection.document.type"].search(
             [("code", "=", "check")], limit=1
         )
         self.assertEqual(payload["voucher_blocks"][0]["label"], "Cheque")
-        self.assertEqual(payload["voucher_blocks"][1]["label"], "Otros")
+        self.assertEqual(payload["voucher_blocks"][1]["label"], "Cash")
         self.assertEqual(check_type.name, "Check")
         self.assertEqual(
             payload["collected_total"],
@@ -1089,11 +1087,12 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertNotEqual(tendered["seller_deposits"], tendered["deposits"])
 
     def test_recon_reachable_states(self):
-        """Computed cash makes the sheet balance; only unsupported leaves a gap.
+        """Computed cash makes the sheet balance.
 
-        ``in_favor`` is unreachable once ``cash_on_hand`` is derived: the cash
-        the seller brings is defined as the remainder, so tendered can never
-        exceed net due. The branch is covered directly below.
+        ``in_favor`` and ``outstanding`` are unreachable once ``cash_on_hand`` is
+        derived: the cash the seller brings is defined as the remainder, and
+        every collected type is tendered. Both branches are covered directly
+        below.
         """
         statuses = []
         # balanced: transfer 100, no cash, withheld 0 → tendered 100, net_due 100
@@ -1119,18 +1118,7 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertEqual(sheet_b.cash_on_hand, 50.0)
         statuses.append(sheet_b._collection_report_data()["recon"]["status"])
 
-        # outstanding: unsupported 100 never reaches tendered → tendered 0
-        seller_c = create_internal_seller(self.env, "rpt-recon-c")
-        sheet_c = self._create_sheet(seller=seller_c, force_new=True)
-        self._balanced(
-            amount=100.0,
-            sheet=sheet_c,
-            customer="RPT-OUT",
-            voucher_extra={"document_type": "unsupported"},
-        )
-        statuses.append(sheet_c._collection_report_data()["recon"]["status"])
-
-        self.assertEqual(statuses, ["balanced", "balanced", "outstanding"])
+        self.assertEqual(statuses, ["balanced", "balanced"])
         recon = sheet_b._collection_report_data()["recon"]
         for key in (
             "collected",
@@ -1155,6 +1143,18 @@ class TestCollectionSheetReportData(TransactionCase):
         recon = sheet._collection_report_recon(100.0, tendered)
         self.assertEqual(recon["difference"], 50.0)
         self.assertEqual(recon["status"], "in_favor")
+
+    def test_recon_outstanding_branch(self):
+        """A tendered total below net due MUST still map to outstanding."""
+        _allocation, _voucher, sheet, _partner = self._balanced(
+            amount=100.0,
+            customer="RPT-OUTSTANDING",
+            voucher_extra={"document_type": "bank_transfer"},
+        )
+        tendered = dict(sheet._collection_report_tendered(), total=60.0)
+        recon = sheet._collection_report_recon(100.0, tendered)
+        self.assertEqual(recon["difference"], -40.0)
+        self.assertEqual(recon["status"], "outstanding")
 
     def test_unallocated_voucher_mismatch(self):
         """Unallocated sheet voucher MUST set mismatch and still count in collected."""
@@ -1424,39 +1424,26 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertAlmostEqual(payload["tendered"]["total"], 40.0, places=2)
 
     def test_recon_unchanged_by_commission_mint(self):
-        """Minting seller_commission MUST leave recon keys, including -unsupported."""
+        """Minting seller_commission MUST leave every recon key unchanged."""
         allocation, cash, sheet, _partner = self._balanced(
             amount=500.0,
             customer="RPT-SC-RECON-CASH",
             voucher_extra={"document_type": "cash"},
-        )
-        unsupported = self._create_voucher(
-            dummy_customer_partner(self.env, customer="RPT-SC-RECON-UNSUP"),
-            sheet,
-            amount=40.0,
-            document_type="unsupported",
-        )
-        self._create_allocation(
-            sheet,
-            unsupported.partner_id,
-            vouchers=unsupported,
-            lines=[self._line_vals(amount_applied=40.0, invoice_balance=40.0)],
         )
         self._enable_seller_commission_type(company=sheet.company_id)
         self._funded_cash_receipt(allocation, cash)
         self._mark_validated_collections(sheet.voucher_ids)
         self._submit_declared_cash(sheet, 300.0)
         before = dict(sheet._collection_report_data()["recon"])
-        self.assertAlmostEqual(before["difference"], -40.0, places=2)
-        self.assertEqual(before["status"], "outstanding")
+        self.assertAlmostEqual(before["difference"], 0.0, places=2)
+        self.assertEqual(before["status"], "balanced")
         sheet.action_confirm()
         self.assertEqual(len(self._commission_vouchers(sheet)), 1)
         after = sheet._collection_report_data()["recon"]
         self.assertEqual(set(after), set(before))
         for key, value in before.items():
             self.assertEqual(after[key], value, key)
-        self.assertAlmostEqual(after["difference"], -40.0, places=2)
-        self.assertAlmostEqual(after["difference"], -unsupported.amount, places=2)
+        self.assertAlmostEqual(after["difference"], 0.0, places=2)
 
     def test_cash_banked_excludes_seller_commission(self):
         """cash_banked MUST sum seller_deposit only, never seller_commission."""

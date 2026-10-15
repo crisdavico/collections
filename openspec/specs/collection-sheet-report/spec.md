@@ -182,8 +182,8 @@ Voucher blocks that feed `collected_total` MUST group member `voucher_ids` by
 `document_type` and MUST exclude both `seller_deposit` and `seller_commission`. Labels
 MUST come from `collection.document.type` keyed by `code` (MUST NOT use
 company-dependent `_selection_document_type`). Order MUST be `bank_transfer`, `check`,
-`cash_deposit`, then remaining codes alphabetically (`unsupported` last as Otros, only
-when non-empty). Empty blocks MUST be dropped. `collected_total` MUST equal those
+`cash_deposit`, then remaining codes alphabetically (only when non-empty). Empty
+blocks MUST be dropped. `collected_total` MUST equal those
 voucher-block subtotals and MUST NOT include `seller_deposit` or `seller_commission`.
 
 `tendered` MUST include `cash_on_hand` plus `cash_deposit`, `check`, `bank_transfer`,
@@ -193,12 +193,12 @@ accident of the type dispatch falling through.
 
 Recon algebra MUST remain `net_due = collected − withheld` and
 `difference = tendered − net_due`. Every existing `recon` key MUST remain. Because
-`cash_on_hand` is now derived as the remainder, `difference` MUST be 0 for any sheet
-without `unsupported` vouchers: the banner balances by construction and `in_favor` is
-unreachable from real sheet data. The `in_favor` branch MUST stay in
-`_collection_report_recon` and MUST still map a positive `difference`. Because the
+`cash_on_hand` is now derived as the remainder and every collected type is tendered,
+`difference` MUST be 0: the banner balances by construction and both `in_favor` and
+`outstanding` are unreachable from real sheet data. Both branches MUST stay in
+`_collection_report_recon` and MUST still map a non-zero `difference`. Because the
 commission amount is excluded from both `collected_total` and `tendered` while
-`commission_withheld` still carries it, `difference` MUST remain `−unsupported`: minting
+`commission_withheld` still carries it, `difference` MUST remain unchanged: minting
 a `seller_commission` voucher MUST NOT change any `recon` value. Counting the commission
 in either total would deduct it twice and drive `cash_on_hand` negative by exactly the
 commission amount. (Previously: `seller_deposit` was the only excluded code, and
@@ -208,9 +208,9 @@ and transfers — no echeck, retention, or `seller_deposit`.)
 
 #### Scenario: Catalog order and empty drop
 
-- GIVEN vouchers of types `check` and `unsupported` only
+- GIVEN vouchers of types `check` and `cash` only
 - WHEN voucher blocks are built
-- THEN order MUST be check then unsupported
+- THEN order MUST be check then cash
 - AND transfer and cash-deposit blocks MUST be absent
 
 #### Scenario: Tendered includes cash on hand
@@ -251,7 +251,7 @@ and transfers — no echeck, retention, or `seller_deposit`.)
 - GIVEN a submitted sheet whose report `recon` is R
 - WHEN Confirm mints and promotes the `seller_commission` voucher
 - THEN every key of `recon` MUST still equal its value in R
-- AND `difference` MUST remain `−unsupported`
+- AND `difference` MUST remain unchanged
 
 ### Requirement: Reconciliation status and mismatch
 
@@ -271,10 +271,9 @@ remittance, set `mismatch` and was included in `collected_total`.)
 
 #### Scenario: Derived cash balances the banner
 
-- GIVEN a sheet whose vouchers carry no `unsupported` code
+- GIVEN a sheet of collected vouchers
 - WHEN recon is built from the derived `cash_on_hand`
 - THEN `difference` MUST be 0 and `status` MUST be `balanced`
-- AND an `unsupported` voucher MUST make `status` `outstanding`
 
 #### Scenario: Unallocated voucher mismatch
 

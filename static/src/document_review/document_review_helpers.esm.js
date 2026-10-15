@@ -22,7 +22,6 @@ export const DOCUMENT_TYPE_LABELS = {
   bank_transfer: "Transferencia bancaria",
   check: "Cheque",
   cash_deposit: "Depósito en efectivo",
-  unsupported: "No soportado",
   seller_deposit: "Depósito del vendedor",
 };
 export const CHECK_TYPE_LABELS = {
