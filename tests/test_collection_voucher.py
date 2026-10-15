@@ -1078,10 +1078,13 @@ class TestCollectionVoucher(TransactionCase):
     # --- Chatter designated proof ---
 
     def _inherit_names(self):
-        inherit = self.env["collection.voucher"]._inherit
-        if isinstance(inherit, str):
-            return [inherit]
-        return list(inherit)
+        # Installed extension addons replace the topmost _inherit declaration.
+        # Include the full model hierarchy when checking the attachment mixin.
+        names = []
+        for model_class in type(self.env["collection.voucher"]).__mro__:
+            inherit = model_class.__dict__.get("_inherit", [])
+            names.extend([inherit] if isinstance(inherit, str) else inherit)
+        return names
 
     def test_proof_is_message_main_attachment_id(self):
         """Designated proof MUST be message_main_attachment_id, not Binary fields."""

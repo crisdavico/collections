@@ -80,7 +80,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 | Path                                              | Role                                                                                                                                                                                                |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `__manifest__.py`                                 | Module metadata `19.0.1.53.0`; depends `base`, `mail`, `muk_mcp`, `web`                                                                                                                             |
+| `__manifest__.py`                                 | Module metadata `19.0.1.53.0`; depends `base`, `calendar`, `mail`, `muk_mcp`, `web`                                                                                                                 |
 | `models/res_company.py`                           | Collection Settings fields + `_assert_new_work`; partial-safe seller Import (`_sync_enabled_sellers_from_connector`); seq copy; type seed                                                           |
 | `models/res_config_settings.py`                   | Related writable Collection Settings + Import action                                                                                                                                                |
 | `models/collection_connector.py`                  | Company-scoped connector + `_dispatch` allowlist; operations `@api.private`; manager-checked `test_connection`; debt `as_of` and net credit totals; `_collection_erp_reflected_since()`             |
@@ -435,6 +435,19 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   lock). Cash replacement and snapshot: Collections User `1,0,1,0`. Never `sudo()`.
   Upgrading a database that already had `collection` cuts plain internal users off until
   they get a collection group.
+- **Collections company boundary (1.52.0):** non-system Collections Users (Managers
+  included) see only Discuss, Calendar, and Collections app trees. `ir.ui.menu`
+  intersects native visibility with these three trees, including in debug mode.
+  `ir.rule._compute_domain` intersects native rules with the user's profile `company_id`
+  on every model carrying a searchable company field; empty companies are excluded,
+  extra groups and caller context cannot widen access. Delegated parents retain native
+  rules; the added boundary uses the requested model's own company field. Calendar
+  events and Discuss channels have optional company fields with create-time defaults (no
+  automatic backfill); attendees/members inherit their parent's company. Models without
+  a company field keep native permissions. Upgrade data assigns only known company/user
+  identity contacts; shared customers remain hidden. New customer contacts default to
+  the operator's profile company. System administrators and superuser operations retain
+  native access.
 - **Attachment:** optional one image/PDF designated proof per voucher
   (`message_main_attachment_id`, chatter `ir.attachment`, `copy=False` on rotation);
   extras do not steal proof; server validates base64 and detected MIME on MCP nest; omit

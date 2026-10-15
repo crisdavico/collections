@@ -1,5 +1,19 @@
 ## Production setup
 
+Collections Users (including Collections Managers) without system administration rights
+see only **Discuss**, **Calendar**, and **Collections**. Their record access is
+restricted to `company_id` equal to the company on their user profile, even if other
+companies or roles are enabled. Records with no company are hidden. The restriction also
+applies to direct ORM/RPC access and cannot be widened by an additional group rule.
+
+Calendar events and Discuss channels now carry a company, as do their attendees and
+memberships. New events/channels default to the operator's profile company; existing
+unassigned events/channels stay unassigned and hidden from this role. Administrators can
+assign their company on their configuration forms. Existing customer contacts are not
+reassigned automatically. Company identity contacts and unassigned contacts belonging to
+Collections users receive their known company on upgrade. Newly created customer
+contacts default to the operator's company.
+
 1. **API user.** Give the user behind the agent's MCP API key **Collections User** only.
    The agent's tools never need Collections Manager (Close, Cancel, Reinstate,
    connectors, settings) and never need administrator rights.

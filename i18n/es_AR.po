@@ -585,6 +585,16 @@ msgid "CA Bundle"
 msgstr "Paquete de certificados CA"
 
 #. module: collection
+#: model:ir.model,name:collection.model_calendar_attendee
+msgid "Calendar Attendee Information"
+msgstr "Información del asistente al calendario"
+
+#. module: collection
+#: model:ir.model,name:collection.model_calendar_event
+msgid "Calendar Event"
+msgstr "Evento del calendario"
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_debt_picker_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
@@ -710,6 +720,11 @@ msgid ""
 msgstr ""
 "El efectivo a administración se calcula a partir de los comprobantes de la "
 "planilla y la comisión retenida; no se puede escribir."
+
+#. module: collection
+#: model:ir.model,name:collection.model_discuss_channel_member
+msgid "Channel Member"
+msgstr "Miembro del canal"
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_check
@@ -1120,6 +1135,8 @@ msgid "Companies"
 msgstr "Empresas"
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_calendar_attendee__company_id
+#: model:ir.model.fields,field_description:collection.field_calendar_event__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__company_id
@@ -1134,6 +1151,8 @@ msgstr "Empresas"
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__company_id
+#: model:ir.model.fields,field_description:collection.field_discuss_channel__company_id
+#: model:ir.model.fields,field_description:collection.field_discuss_channel_member__company_id
 msgid "Company"
 msgstr "Empresa"
 
@@ -1305,6 +1324,11 @@ msgstr "Al vendedor del conector le falta un id externo."
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_list
 msgid "Connectors"
 msgstr "Conectores"
+
+#. module: collection
+#: model:ir.model,name:collection.model_res_partner
+msgid "Contact"
+msgstr "Contacto"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__content_hash
@@ -1605,6 +1629,13 @@ msgid "Direction"
 msgstr "Sentido"
 
 #. module: collection
+#: model:ir.model,name:collection.model_discuss_channel
+msgid "Discussion Channel"
+msgstr "Canal de conversación"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_calendar_attendee__display_name
+#: model:ir.model.fields,field_description:collection.field_calendar_event__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__display_name
@@ -1623,11 +1654,17 @@ msgstr "Sentido"
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__display_name
+#: model:ir.model.fields,field_description:collection.field_discuss_channel__display_name
+#: model:ir.model.fields,field_description:collection.field_discuss_channel_member__display_name
 #: model:ir.model.fields,field_description:collection.field_ir_attachment__display_name
+#: model:ir.model.fields,field_description:collection.field_ir_rule__display_name
+#: model:ir.model.fields,field_description:collection.field_ir_ui_menu__display_name
 #: model:ir.model.fields,field_description:collection.field_muk_mcp_mixin__display_name
 #: model:ir.model.fields,field_description:collection.field_report_collection_report_collection_sheet__display_name
 #: model:ir.model.fields,field_description:collection.field_res_company__display_name
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__display_name
+#: model:ir.model.fields,field_description:collection.field_res_partner__display_name
+#: model:ir.model.fields,field_description:collection.field_res_users__display_name
 msgid "Display Name"
 msgstr "Nombre en pantalla"
 
@@ -2064,6 +2101,8 @@ msgid "Hasta"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_calendar_attendee__id
+#: model:ir.model.fields,field_description:collection.field_calendar_event__id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__id
@@ -2082,11 +2121,17 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__id
+#: model:ir.model.fields,field_description:collection.field_discuss_channel__id
+#: model:ir.model.fields,field_description:collection.field_discuss_channel_member__id
 #: model:ir.model.fields,field_description:collection.field_ir_attachment__id
+#: model:ir.model.fields,field_description:collection.field_ir_rule__id
+#: model:ir.model.fields,field_description:collection.field_ir_ui_menu__id
 #: model:ir.model.fields,field_description:collection.field_muk_mcp_mixin__id
 #: model:ir.model.fields,field_description:collection.field_report_collection_report_collection_sheet__id
 #: model:ir.model.fields,field_description:collection.field_res_company__id
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__id
+#: model:ir.model.fields,field_description:collection.field_res_partner__id
+#: model:ir.model.fields,field_description:collection.field_res_users__id
 msgid "ID"
 msgstr ""
 
@@ -2315,6 +2360,11 @@ msgid "Mark as Entered in the ERP"
 msgstr "Marcar como cargada en el ERP"
 
 #. module: collection
+#: model:ir.model,name:collection.model_ir_ui_menu
+msgid "Menu"
+msgstr "Menú"
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__message_has_error
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__message_has_error
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__message_has_error
@@ -2379,6 +2429,13 @@ msgstr "Nombre"
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Neto a Rendir"
 msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation__activity_calendar_event_id
+#: model:ir.model.fields,field_description:collection.field_collection_sheet__activity_calendar_event_id
+#: model:ir.model.fields,field_description:collection.field_collection_voucher__activity_calendar_event_id
+msgid "Next Activity Calendar Event"
+msgstr "Evento del calendario de la próxima actividad"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__activity_date_deadline
@@ -3069,6 +3126,11 @@ msgstr "Recibos"
 #: code:addons/collection/models/collection_sheet.py:0
 msgid "Receipts of this sheet marked as entered in the ERP."
 msgstr "Recibos de esta planilla marcados como cargados en el ERP."
+
+#. module: collection
+#: model:ir.model,name:collection.model_ir_rule
+msgid "Record Rule"
+msgstr "Regla de registro"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__name
@@ -3972,6 +4034,7 @@ msgid "Unmark Entered in the ERP"
 msgstr "Desmarcar cargada en el ERP"
 
 #. module: collection
+#: model:ir.model,name:collection.model_res_users
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__user_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_usuario
 msgid "User"

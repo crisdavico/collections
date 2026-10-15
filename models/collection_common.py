@@ -60,6 +60,25 @@ class ConnectorDataStaleError(UserError):
 COLLECTION_USER_GROUP = "collection.group_collection_user"
 COLLECTION_MANAGER_GROUP = "collection.group_collection_manager"
 
+
+def is_company_restricted(env):
+    """Collections roles have a fixed company boundary; system admins do not."""
+    return (
+        not env.su
+        and env.user.has_group(COLLECTION_USER_GROUP)
+        and not env.user.has_group("base.group_system")
+    )
+
+
+def default_record_company(env):
+    """Keep native sudo-created events/channels in their operator's company."""
+    if env.user.has_group(COLLECTION_USER_GROUP) and not env.user.has_group(
+        "base.group_system"
+    ):
+        return env.user.company_id
+    return env.company
+
+
 # Catalog codes, mirrored by ``data/collection_document_type_data.xml`` and by
 # ``collection.voucher`` / ``collection.voucher.review.snapshot`` selections.
 DOCUMENT_TYPE_SELECTION = (

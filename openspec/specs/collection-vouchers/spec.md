@@ -917,7 +917,56 @@ Defaults enabled seven catalog codes.)
 ### Requirement: Company ownership of vouchers
 
 Every voucher MUST have a required company. Users MUST see and operate only vouchers of
-companies they are allowed, and only as Collections Users.
+companies they are allowed, and only as Collections Users. Collections Users without
+system administration rights MUST additionally be restricted to their profile company.
+
+### Requirement: Collections operator menu and company boundary
+
+Non-system Collections Users, including implied membership through Collections Manager,
+MUST see only the Discuss, Calendar, and Collections app trees. Debug mode and extra
+groups MUST NOT reveal additional apps. Native permissions inside these trees MUST
+still apply. System administrators MUST retain their native access.
+
+For every model carrying a searchable `company_id` relation to `res.company`, native record rules
+MUST be intersected with `company_id = user.company_id` for these users. Empty company
+values MUST NOT match. The company MUST come from the user's profile, independent of
+caller context and the company switcher. This boundary MUST apply to search, direct
+read, create, write, and unlink, and additional group rules MUST NOT widen it. For
+delegated inheritance the added boundary MUST use the requested model's own company
+field; native parent rules MUST remain enforced.
+
+Calendar events and Discuss channels MUST carry optional company fields; attendees and
+memberships MUST inherit their parent's company. New events/channels MUST default to
+the operator's profile company. Existing unassigned events/channels MUST remain
+unassigned, and consequently hidden from this role. Administrators MUST be able to
+assign company on their forms. Other models without company fields keep native
+permissions.
+
+Computed, nonsearchable company summaries MUST NOT be used as ownership columns.
+Transient wizards MUST retain native access to operate on business
+records already protected by the company boundary.
+
+Upgrade MUST assign unassigned company identity contacts and Collections user identity
+contacts to their known company, without guessing ownership of shared customer
+contacts. New customer contacts created by this role MUST default to its profile
+company. Explicitly empty or other-company ownership MUST be refused.
+
+#### Scenario: Additional company and group do not widen access
+
+- GIVEN a Collections User with profile company A, access to A and B, and an additional
+  group granting all contacts
+- WHEN they select B and search or directly read records in A, B, or with no company
+- THEN only records with company A MAY be accessible
+- AND records in B or with no company MUST be inaccessible
+
+#### Scenario: Only allowed apps initialize
+
+- GIVEN a Collections User without system administration rights
+- WHEN they load the authenticated web client and Discuss
+- THEN the menu roots MUST be Discuss, Calendar, and Collections
+- AND messaging MUST initialize without exposing unassigned or other-company channels
+
+### Requirement: Voucher company required and isolated
 
 #### Scenario: Company required on create
 

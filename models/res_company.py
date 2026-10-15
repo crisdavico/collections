@@ -616,9 +616,24 @@ class ResCompany(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         companies = super().create(vals_list)
+        companies._collection_assign_company_contacts()
         companies._collection_copy_sequences()
         companies._collection_enable_all_document_types()
         return companies
+
+    def _collection_assign_company_contacts(self):
+        for company in self:
+            if not company.partner_id.company_id:
+                company.partner_id.company_id = company
+
+    @api.model
+    def _collection_assign_identity_companies(self):
+        """Assign known identity contacts, without guessing customer ownership."""
+        self.search([])._collection_assign_company_contacts()
+        self.env.ref(
+            COLLECTION_USER_GROUP
+        ).all_user_ids._collection_assign_identity_company()
+        return True
 
     def write(self, vals):
         result = super().write(vals)

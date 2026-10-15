@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo.exceptions import AccessError
-from odoo.tests import TransactionCase
+from odoo.tests import TransactionCase, tagged
 
 from .common_connector import (
     TEST_CONNECTOR_TYPE,
@@ -40,6 +40,7 @@ COLLECTION_MODELS = (
 MANAGER_SHEET_ACTIONS = ("action_close", "action_cancel", "action_reinstate")
 
 
+@tagged("post_install", "-at_install")
 class TestCollectionRoles(TransactionCase):
     """Users + Managers: plain internal users see no collection data."""
 

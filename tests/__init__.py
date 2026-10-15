@@ -2,6 +2,8 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from . import test_collection_acl
+from . import test_collection_user_scope
+from . import test_collection_user_scope_http
 from . import test_collection_allocation
 from . import test_collection_allocation_acl
 from . import test_collection_allocation_debt_picker
