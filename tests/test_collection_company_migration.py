@@ -213,11 +213,64 @@ class TestCollectionCompanyMigration(TransactionCase):
         self.assertIn("seq_collection_allocation", text)
         self.assertIn("CA/%(year)s/", text)
 
-    def test_manifest_version_is_1_53_0(self):
+    def test_connector_popup_migration_preserves_connection_values(self):
+        connector = self.env["collection.connector"].create({"name": "Existing source"})
+        fields = ["name", "company_id", "type", "active"]
+        if "bejerman_clave" in connector._fields:
+            connector.write({"type": "bejerman", "bejerman_clave": "stored-secret"})
+            fields.append("bejerman_clave")
+        before = connector.read(fields)
+        views = self.env["ir.ui.view"]
+        for name in (
+            "view_collection_connector_form_management",
+            "view_collection_connector_settings_form",
+        ):
+            view = self.env["ir.ui.view"].create(
+                {
+                    "name": name,
+                    "model": "collection.connector",
+                    "arch": '<form><field name="name"/></form>',
+                }
+            )
+            self.env["ir.model.data"].create(
+                {
+                    "module": "collection",
+                    "name": name,
+                    "model": "ir.ui.view",
+                    "res_id": view.id,
+                }
+            )
+            views |= view
+        self.env.flush_all()
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "migrations"
+            / "19.0.1.54.0"
+            / "pre-migrate.py"
+        )
+        spec = spec_from_file_location("collection_connector_form_pre_migrate", path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.migrate(self.cr, "19.0.1.53.0")
+        module.migrate(self.cr, "19.0.1.53.0")
+        self.env.invalidate_all()
+        self.assertFalse(views.exists())
+        self.assertFalse(
+            self.env["ir.model.data"].search(
+                [
+                    ("module", "=", "collection"),
+                    ("model", "=", "ir.ui.view"),
+                    ("res_id", "in", views.ids),
+                ]
+            )
+        )
+        self.assertEqual(connector.read(fields), before)
+
+    def test_manifest_version_is_1_54_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.53.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.54.0"', manifest_text)
         self.assertNotIn('"version": "19.0.1.47.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
@@ -392,7 +445,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.53.0`", agents)
+        self.assertIn("Module metadata `19.0.1.54.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.47.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`migrations/19.0.1.43.0/`", agents)

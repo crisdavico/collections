@@ -18,6 +18,16 @@
         <field name="model">collection.connector</field>
         <field name="arch" type="xml">
             <form string="Connector">
+                <header>
+                    <button
+            name="test_connection"
+            type="object"
+            string="Test Connection"
+            class="btn-primary"
+            invisible="not type"
+            groups="base.group_system,collection.group_collection_manager"
+          />
+                </header>
                 <sheet>
                     <group>
                         <group>

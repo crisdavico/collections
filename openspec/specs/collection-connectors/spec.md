@@ -782,17 +782,30 @@ allocation helpers). `test_connection` MUST stay public for the form button and 
 check server-side that the caller is an administrator or a Collections Manager of the
 connector's company. Connector credentials (user, password) and system settings (web
 service URL, insecure TLS, CA bundle, SQLite path) MUST be returned and written only for
-`base.group_system`, on the connector settings wizard too; a Collections Manager's save
-MUST leave them untouched rather than blank them. (Previously: those methods were
-callable over JSON-RPC by anyone who could read a connector, and the wizard read every
-adapter setting with `sudo()`, returning the password to managers.)
+`base.group_system`; a Collections Manager's save MUST leave them untouched.
+**Configure Connection** MUST open the persistent connector form in the current page.
+The connector form MUST be the single configuration interface, using native Save and
+Discard controls, with no separate settings transient or popup button. Managers MUST
+be able to edit Bejerman company, workstation, branch, timeout and debt query options
+on this form. The session deadline MUST remain system-only. Unused seller scenario/view
+fields MUST NOT appear. Test Connection and Bejerman Refresh Debt MUST each appear once
+for managers and administrators; refresh MUST check management access to the connector's
+company before elevating the fixed operation.
 
 #### Scenario: Manager never sees the password
 
-- GIVEN a Collections Manager opens the connector settings wizard
-- WHEN the wizard loads and is saved
+- GIVEN a Collections Manager opens the connector form
+- WHEN the form loads and is saved
 - THEN the credential and system fields MUST be absent from what the manager reads
 - AND the stored values MUST be unchanged after the save
+- AND direct RPC reads, creates and writes of system fields MUST be refused
+
+#### Scenario: Existing connectors survive consolidation
+
+- GIVEN a connector configured before the settings popup was removed
+- WHEN the collection and adapter addons are upgraded
+- THEN connector values MUST be preserved and the retired popup views MUST be removed
+- AND Configure Connection MUST open that connector's form
 
 ### Requirement: Debt freshness
 

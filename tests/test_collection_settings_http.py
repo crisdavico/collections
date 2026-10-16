@@ -40,6 +40,8 @@ class TestCollectionSettingsHttp(HttpCase):
                 const checkbox = document.querySelector(
                     '.o_field_widget[name="auto_create_sheet"] input');
                 checkbox.click();
+                await waitFor(() => !document.querySelector(
+                    '.o_form_status_indicator_buttons.invisible'));
                 const save = await waitFor(() => document.querySelector(
                     '.o_form_button_save'));
                 save.click();
@@ -88,3 +90,99 @@ class TestCollectionSettingsHttp(HttpCase):
         )
         company.invalidate_recordset(["auto_create_sheet"])
         self.assertFalse(company.auto_create_sheet)
+
+    def test_configure_connection_opens_native_form_and_saves(self):
+        if "bejerman_empresa" not in self.env["collection.connector"]._fields:
+            self.skipTest("Bejerman adapter is not installed")
+        manager = create_collection_user(
+            self.env, "connector_browser_manager", manager=True
+        )
+        manager.lang = "en_US"
+        connector = self.env["collection.connector"].create(
+            {
+                "name": "Browser connector",
+                "company_id": manager.company_id.id,
+                "type": "bejerman",
+                "bejerman_empresa": "Original",
+                "bejerman_clave": "stored-secret",
+            }
+        )
+        manager.company_id.collection_connector_id = connector
+        action = self.env.ref("collection.action_collection_company_settings")
+        self.browser_js(
+            f"/odoo/action-{action.id}",
+            """
+            (async () => {
+                const waitFor = async (predicate) => {
+                    for (let i = 0; i < 200; i++) {
+                        const value = predicate();
+                        if (value) return value;
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                    throw new Error('Connector form did not become ready');
+                };
+                const tabs = await waitFor(() => {
+                    const nodes = document.querySelectorAll('.o_notebook .nav-link');
+                    return nodes.length === 4 && nodes;
+                });
+                tabs[3].click();
+                const configure = await waitFor(() => document.querySelector(
+                    'button[name="action_open_connector_settings"]'));
+                configure.click();
+                let input = await waitFor(() => document.querySelector(
+                    '[name="bejerman_empresa"] input'));
+                if (document.querySelector('.modal .o_form_view') ||
+                    document.querySelector(
+                        'button[name="action_collection_connector_settings"]')) {
+                    throw new Error('Expected the single native connector form');
+                }
+                for (const name of ['bejerman_clave', 'bejerman_ws_url',
+                    'bejerman_seller_view', 'bejerman_seller_scenario']) {
+                    if (document.querySelector(`[name="${name}"]`)) {
+                        throw new Error('Unexpected field: ' + name);
+                    }
+                }
+                for (const name of [
+                    'test_connection', 'action_bejerman_refresh_snapshot']) {
+                    const buttons = document.querySelectorAll(`button[name="${name}"]`);
+                    if (buttons.length !== 1) {
+                        throw new Error('Expected one button: ' + name);
+                    }
+                }
+                await new Promise(resolve => requestAnimationFrame(
+                    () => requestAnimationFrame(resolve)));
+                input.value = 'Saved company';
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+                await waitFor(() => !document.querySelector(
+                    '.o_form_status_indicator_buttons.invisible'));
+                const save = await waitFor(() => document.querySelector(
+                    '.o_form_button_save'));
+                save.click();
+                await waitFor(() => document.querySelector(
+                    '.o_form_status_indicator_buttons.invisible'));
+                input = document.querySelector('[name="bejerman_empresa"] input');
+                await new Promise(resolve => requestAnimationFrame(
+                    () => requestAnimationFrame(resolve)));
+                input.value = 'Discarded company';
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+                await waitFor(() => !document.querySelector(
+                    '.o_form_status_indicator_buttons.invisible'));
+                document.querySelector('.o_form_button_cancel').click();
+                await waitFor(() => document.querySelector(
+                    '[name="bejerman_empresa"] input').value === 'Saved company')
+                    .catch(() => {
+                        const value = document.querySelector(
+                            '[name="bejerman_empresa"] input').value;
+                        throw new Error('Unexpected value after Discard: ' + value);
+                    });
+                console.log('test successful');
+            })();
+            """,
+            login=manager.login,
+            timeout=60,
+        )
+        connector.invalidate_recordset()
+        self.assertEqual(connector.bejerman_empresa, "Saved company")
+        self.assertEqual(connector.bejerman_clave, "stored-secret")

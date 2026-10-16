@@ -60,19 +60,21 @@ Collections Manager, and the server checks the role, not only the button. The
 Collections User and grants collection configuration without system administration; the
 administrator is a manager on install. Under Collections → Configuration, **Company
 Collection Settings** edits only the current company's collection options and imports
-sellers within that company. **Connectors** provides company-scoped CRUD and a
-**Connector Settings** dialog for SQLite/Bejerman settings, connection testing, and
-Bejerman snapshot refresh. Credentials, the web service URL, TLS options, the CA bundle,
-and the SQLite path are shown and written only for administrators. Connector operations
-are server-side only (`@api.private`); Test Connection checks for an administrator or a
-Collections Manager. **Company Bank Accounts** manages only bank accounts belonging to
-the user's allowed companies. Company record rules continue to apply to vouchers,
-sheets, allocations, receipts, and connector bindings. Privileged configuration writes
-use fixed field lists after checking the caller's manager group and company access;
-collection operations and MCP tools never elevate. Workflow guards are internal
-server-side scopes: a context key sent over RPC or by an MCP tool cannot open them.
-Creating a company or user is an explicit database setup step, so installing the module
-does not create business companies or login credentials.
+sellers within that company. **Configure Connection** opens the same connector form used
+by **Manage Connectors and Mappings**, with company-scoped CRUD, SQLite/Bejerman
+settings, connection testing, and Bejerman snapshot refresh. Use the form's native
+**Save** and **Discard** controls; there is no separate connector settings dialog.
+Credentials, the web service URL, TLS options, the CA bundle, and the SQLite path are
+shown and written only for administrators. Connector operations are server-side only
+(`@api.private`); Test Connection checks for an administrator or a Collections Manager.
+**Company Bank Accounts** manages only bank accounts belonging to the user's allowed
+companies. Company record rules continue to apply to vouchers, sheets, allocations,
+receipts, and connector bindings. Privileged configuration writes use fixed field lists
+after checking the caller's manager group and company access; collection operations and
+MCP tools never elevate. Workflow guards are internal server-side scopes: a context key
+sent over RPC or by an MCP tool cannot open them. Creating a company or user is an
+explicit database setup step, so installing the module does not create business
+companies or login credentials.
 
 Receipts are typed into the ERP by hand. Once that is done for a closed sheet, a
 Collections Manager marks it **Entered in the ERP** (undo allowed; Cancel clears it),

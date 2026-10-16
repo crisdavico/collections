@@ -105,17 +105,10 @@ class TestCollectionManager(TransactionCase):
         connector = self.env["collection.connector"].create(
             {"name": "Private source", "company_id": self.other.id}
         )
-        Wizard = (
-            self.env["collection.connector.settings"]
-            .with_user(self.manager)
-            .with_context(**self.ctx)
-        )
         with self.assertRaises(AccessError):
-            Wizard.with_context(default_connector_id=connector.id).default_get(
-                ["connector_id", "bejerman_clave"]
-            )
-        with self.assertRaises(AccessError):
-            Wizard.create({"connector_id": connector.id}).action_save()
+            connector.with_user(self.manager).with_context(
+                **self.ctx
+            ).action_collection_connector_settings()
 
     def _bejerman_connector(self):
         Connector = self.env["collection.connector"]
@@ -128,13 +121,6 @@ class TestCollectionManager(TransactionCase):
                 "type": "bejerman",
                 **STORED_BEJERMAN_SETTINGS,
             }
-        )
-
-    def _connector_wizard(self, connector, user):
-        return (
-            self.env["collection.connector.settings"]
-            .with_user(user)
-            .with_context(**self.ctx, default_connector_id=connector.id)
         )
 
     def _connector_admin(self):
@@ -152,63 +138,70 @@ class TestCollectionManager(TransactionCase):
             }
         )
 
-    def test_wizard_system_settings_are_admin_only_fields(self):
-        """Credentials, endpoint, TLS and file path never reach a manager."""
-        Wizard = self.env["collection.connector.settings"]
-        for name in SYSTEM_SETTING_FIELDS:
-            with self.subTest(field=name):
-                self.assertEqual(Wizard._fields[name].groups, "base.group_system")
-        arch = (
-            Wizard.with_user(self.manager)
-            .with_context(**self.ctx)
-            .get_view(view_type="form")["arch"]
+    def test_connector_form_is_the_only_settings_interface(self):
+        Connector = self.env["collection.connector"].with_user(self.manager)
+        arch = etree.fromstring(Connector.get_view(view_type="form")["arch"])
+        self.assertFalse(
+            arch.xpath("//button[@name='action_collection_connector_settings']")
         )
-        for name in SYSTEM_SETTING_FIELDS:
-            with self.subTest(view_field=name):
-                self.assertNotIn(f'name="{name}"', arch)
-        connector = self.env["collection.connector"].create(
-            {"name": "Forged settings", "company_id": self.company.id}
+        self.assertEqual(len(arch.xpath("//button[@name='test_connection']")), 1)
+        self.assertNotIn("collection.connector.settings", self.env.registry)
+        self.assertFalse(
+            self.env.ref(
+                "collection.view_collection_connector_settings_form",
+                raise_if_not_found=False,
+            )
         )
-        ManagerWizard = Wizard.with_user(self.manager).with_context(**self.ctx)
-        for name, value in FORGED_SYSTEM_SETTINGS.items():
-            with self.subTest(forged=name), self.assertRaises(AccessError):
-                ManagerWizard.create({"connector_id": connector.id, name: value})
 
-    def test_manager_wizard_never_returns_connector_credentials(self):
+    def test_manager_connector_form_never_returns_system_settings(self):
         connector = self._bejerman_connector()
-        Wizard = self._connector_wizard(connector, self.manager)
-        defaults = Wizard.default_get(list(Wizard._fields))
+        managed = connector.with_user(self.manager).with_context(**self.ctx)
+        names = managed.fields_get()
+        arch = managed.get_view(view_type="form")["arch"]
         for name in SYSTEM_SETTING_FIELDS:
-            with self.subTest(field=name):
-                self.assertNotIn(name, defaults)
-        self.assertEqual(defaults["bejerman_empresa"], "old-company")
-
-    def test_manager_saves_settings_without_touching_system_ones(self):
-        connector = self._bejerman_connector()
-        Wizard = self._connector_wizard(connector, self.manager)
-        defaults = Wizard.default_get(list(Wizard._fields))
-        defaults["bejerman_empresa"] = "new-company"
-        settings = Wizard.create(defaults)
-        settings.action_save()
-        self.assertEqual(connector.bejerman_empresa, "new-company")
-        for name, value in STORED_BEJERMAN_SETTINGS.items():
-            if name == "bejerman_empresa":
+            if name not in connector._fields:
                 continue
             with self.subTest(field=name):
-                self.assertEqual(connector[name], value)
-        with self.assertRaises(AccessError):
-            connector.with_user(self.manager).read(["bejerman_clave"])
-        with patch.object(type(connector), "_bejerman_refresh_snapshot") as refresh:
-            settings.action_refresh_snapshot()
-        refresh.assert_called_once()
+                self.assertNotIn(name, names)
+                self.assertNotIn(f'name="{name}"', arch)
+                with self.assertRaises(AccessError):
+                    managed.read([name])
+                with self.assertRaises(AccessError):
+                    managed.write({name: FORGED_SYSTEM_SETTINGS[name]})
+                with self.assertRaises(AccessError), self.cr.savepoint():
+                    managed.create(
+                        {"name": "Forged connector", name: FORGED_SYSTEM_SETTINGS[name]}
+                    )
 
-    def test_admin_manages_connector_credentials_through_wizard(self):
+    def test_manager_saves_connector_without_touching_system_settings(self):
         connector = self._bejerman_connector()
-        Wizard = self._connector_wizard(connector, self._connector_admin())
-        defaults = Wizard.default_get(list(Wizard._fields))
-        self.assertEqual(defaults["bejerman_clave"], "stored-secret")
-        self.assertEqual(defaults["bejerman_ws_url"], "https://erp.example.com/ws")
-        defaults.update(
+        managed = connector.with_user(self.manager).with_context(**self.ctx)
+        self.assertEqual(
+            managed.read(["bejerman_empresa"])[0]["bejerman_empresa"], "old-company"
+        )
+        managed.write({"bejerman_empresa": "new-company", "bejerman_timeout": 90})
+        self.assertEqual(connector.bejerman_empresa, "new-company")
+        for name, value in STORED_BEJERMAN_SETTINGS.items():
+            if name != "bejerman_empresa":
+                self.assertEqual(connector[name], value)
+        with patch.object(type(connector), "_bejerman_refresh_snapshot") as refresh:
+            managed.action_bejerman_refresh_snapshot()
+        refresh.assert_called_once()
+        foreign = connector.copy({"company_id": self.other.id})
+        with patch.object(type(connector), "_bejerman_refresh_snapshot") as refresh:
+            with self.assertRaises(AccessError):
+                foreign.with_user(self.manager).with_context(
+                    **self.ctx
+                ).action_bejerman_refresh_snapshot()
+        refresh.assert_not_called()
+
+    def test_admin_manages_credentials_on_connector_form(self):
+        connector = self._bejerman_connector()
+        managed = connector.with_user(self._connector_admin()).with_context(**self.ctx)
+        self.assertEqual(
+            managed.read(["bejerman_clave"])[0]["bejerman_clave"], "stored-secret"
+        )
+        managed.write(
             {
                 "bejerman_clave": "rotated-secret",
                 "bejerman_ws_url": "https://erp2.example.com/ws",
@@ -216,7 +209,6 @@ class TestCollectionManager(TransactionCase):
                 "bejerman_ca_bundle": "/srv/new-ca.pem",
             }
         )
-        Wizard.create(defaults).action_save()
         self.assertEqual(connector.bejerman_clave, "rotated-secret")
         self.assertEqual(connector.bejerman_ws_url, "https://erp2.example.com/ws")
         self.assertTrue(connector.bejerman_allow_insecure)
@@ -328,7 +320,13 @@ class TestCollectionManager(TransactionCase):
         )
         settings = self._settings(collection_connector_id=connector.id)
         action = settings.action_open_connector_settings()
-        self.assertEqual(action["context"]["default_connector_id"], connector.id)
+        self.assertEqual(action["res_model"], "collection.connector")
+        self.assertEqual(action["res_id"], connector.id)
+        self.assertEqual(action["target"], "current")
+        self.assertEqual(
+            action["views"],
+            [(self.env.ref("collection.view_collection_connector_form").id, "form")],
+        )
         action = settings.action_manage_connectors()
         self.assertEqual(action["domain"], [("company_id", "=", self.company.id)])
         action = settings.action_open_bank_accounts()

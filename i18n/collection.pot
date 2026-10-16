@@ -6,8 +6,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-15 19:04+0000\n"
-"PO-Revision-Date: 2026-10-15 19:04+0000\n"
+"POT-Creation-Date: 2026-10-15 19:58+0000\n"
+"PO-Revision-Date: 2026-10-15 19:58+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "MIME-Version: 1.0\n"
@@ -292,11 +292,6 @@ msgid ""
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_allow_insecure
-msgid "Allow Insecure HTTP/TLS"
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__allowed_document_type_ids
 #: model:ir.model.fields,field_description:collection.field_res_company__allowed_document_type_ids
 #: model:ir.model.fields,field_description:collection.field_res_config_settings__allowed_document_type_ids
@@ -527,16 +522,6 @@ msgid "Binding company must match the connector company."
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_sucursal
-msgid "Branch"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_ca_bundle
-msgid "CA Bundle"
-msgstr ""
-
-#. module: collection
 #: model:ir.model,name:collection.model_calendar_attendee
 msgid "Calendar Attendee Information"
 msgstr ""
@@ -548,7 +533,6 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_debt_picker_form
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Cancel"
 msgstr ""
@@ -1086,11 +1070,6 @@ msgid "Company Bank Accounts"
 msgstr ""
 
 #. module: collection
-#: model:ir.model,name:collection.model_collection_connector_settings
-msgid "Company Collection Connector Settings"
-msgstr ""
-
-#. module: collection
 #: model:ir.model,name:collection.model_collection_company_settings
 #: model:ir.ui.menu,name:collection.menu_collection_company_settings
 msgid "Company Collection Settings"
@@ -1211,17 +1190,8 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__connector_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__connector_id
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__connector_id
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_form
 msgid "Connector"
-msgstr ""
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/wizard/collection_connector_settings.py:0
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_form_management
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
-msgid "Connector Settings"
 msgstr ""
 
 #. module: collection
@@ -1299,7 +1269,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__create_uid
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_uid
@@ -1320,7 +1289,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__create_date
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_date
@@ -1398,11 +1366,6 @@ msgid "Customer Debt"
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_debt_filter_field
-msgid "Customer Filter Column"
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__debt_net_total
 msgid "Customer Owes"
 msgstr ""
@@ -1436,22 +1399,6 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__debt_as_of
 msgid "Debt As Of"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_debt_scenario
-msgid "Debt Scenario"
-msgstr ""
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/wizard/collection_connector_settings.py:0
-msgid "Debt Snapshot Refreshed"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_debt_view
-msgid "Debt View"
 msgstr ""
 
 #. module: collection
@@ -1556,7 +1503,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__display_name
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__display_name
@@ -1849,11 +1795,6 @@ msgid "Export XLSX"
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_empresa
-msgid "External Company"
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__external_customer_id
 msgid "External Customer"
 msgstr ""
@@ -2000,7 +1941,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector__id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__id
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__id
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__id
@@ -2182,7 +2122,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__write_uid
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_uid
@@ -2203,7 +2142,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__write_date
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_date
@@ -2476,8 +2414,8 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_connector.py:0
 #: code:addons/collection/wizard/collection_company_settings.py:0
-#: code:addons/collection/wizard/collection_connector_settings.py:0
 msgid "Only Collections Managers can configure collections."
 msgstr ""
 
@@ -2644,11 +2582,6 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__partner_id
 msgid "Partner"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_clave
-msgid "Password"
 msgstr ""
 
 #. module: collection
@@ -2821,11 +2754,6 @@ msgid "Quotation"
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_quotation_kinds
-msgid "Quotation Kinds"
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
 msgid "Raw OCR"
 msgstr ""
@@ -2975,11 +2903,6 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Referencia"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
-msgid "Refresh Debt Snapshot"
 msgstr ""
 
 #. module: collection
@@ -3165,11 +3088,6 @@ msgid "Rotar a la izquierda"
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__sqlite_path
-msgid "SQLite Path"
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__suss
 msgid "SUSS"
 msgstr ""
@@ -3182,11 +3100,6 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Saldo Total"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
-msgid "Save"
 msgstr ""
 
 #. module: collection
@@ -3294,16 +3207,6 @@ msgstr ""
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__seller_deposit
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Seller Deposit"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_seller_scenario
-msgid "Seller Scenario"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_seller_view
-msgid "Seller View"
 msgstr ""
 
 #. module: collection
@@ -3470,7 +3373,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_settings_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_connector_form
 msgid "Test Connection"
 msgstr ""
 
@@ -3521,12 +3424,6 @@ msgid ""
 msgstr ""
 
 #. module: collection
-#. odoo-python
-#: code:addons/collection/wizard/collection_connector_settings.py:0
-msgid "The company's debt snapshot was refreshed."
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid ""
 "The company's own bank accounts. Used to match transfer and cash deposit "
@@ -3567,7 +3464,6 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
-#: code:addons/collection/wizard/collection_connector_settings.py:0
 msgid "The requested connector operation is not available."
 msgstr ""
 
@@ -3673,11 +3569,6 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "This voucher is not eligible for review."
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_timeout
-msgid "Timeout"
 msgstr ""
 
 #. module: collection
@@ -3809,7 +3700,6 @@ msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector__type
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__connector_type
 msgid "Type"
 msgstr ""
 
@@ -3828,7 +3718,6 @@ msgstr ""
 #. module: collection
 #: model:ir.model,name:collection.model_res_users
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__user_id
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_usuario
 msgid "User"
 msgstr ""
 
@@ -4020,11 +3909,6 @@ msgid "Vto."
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_ws_url
-msgid "Web Service URL"
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,help:collection.field_collection_sheet__erp_entered_date
 msgid ""
 "When a manager marked this closed sheet's receipts as typed into the ERP. "
@@ -4041,11 +3925,6 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,help:collection.field_collection_allocation_debt_picker__debt_as_of
 msgid "When the connector's copy of the ERP debt was taken."
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_connector_settings__bejerman_puesto
-msgid "Workstation"
 msgstr ""
 
 #. module: collection
@@ -4068,7 +3947,7 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/wizard/collection_connector_settings.py:0
+#: code:addons/collection/models/collection_connector.py:0
 msgid "You cannot configure this company's connector."
 msgstr ""
 

@@ -39,11 +39,4 @@
         <field name="model_id" ref="model_collection_company_settings" />
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
-    <record id="collection_connector_settings_company_rule" model="ir.rule">
-        <field name="name">Collection Connector Settings: multi-company</field>
-        <field name="model_id" ref="model_collection_connector_settings" />
-        <field
-      name="domain_force"
-    >[('connector_id.company_id', 'in', company_ids)]</field>
-    </record>
 </odoo>

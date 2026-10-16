@@ -8,7 +8,7 @@ import pytz
 from psycopg2.errors import UniqueViolation
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.tools.translate import _
 
 _DISPATCH_OPS = frozenset(
@@ -95,11 +95,42 @@ class CollectionConnector(models.Model):
         inverse_name="connector_id",
     )
 
+    @api.private
+    def _check_collection_management_access(self):
+        self.ensure_one()
+        if not (
+            self.env.user.has_group("collection.group_collection_manager")
+            or self.env.user.has_group("base.group_system")
+        ):
+            raise AccessError(_("Only Collections Managers can configure collections."))
+        self.check_access("write")
+        if (
+            self.company_id not in self.env.companies
+            or self.company_id not in self.env.user.company_ids
+        ):
+            raise AccessError(_("You cannot configure this company's connector."))
+
+    def action_collection_connector_settings(self):
+        """Keep existing callers on the connector's single configuration form."""
+        self._check_collection_management_access()
+        return {
+            "type": "ir.actions.act_window",
+            "name": self.display_name,
+            "res_model": self._name,
+            "res_id": self.id,
+            "views": [
+                (self.env.ref("collection.view_collection_connector_form").id, "form")
+            ],
+            "target": "current",
+        }
+
     def test_connection(self):
         """Form button: stays public, so it checks who may manage the connector."""
         self.ensure_one()
+        self.check_access("read")
         self._check_connection_test_access()
-        self._dispatch("test_connection")
+        # The checked manager may test stored credentials without reading them.
+        self.sudo()._dispatch("test_connection")
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",

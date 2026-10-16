@@ -3,4 +3,3 @@
 
 from . import collection_allocation_debt_picker
 from . import collection_company_settings
-from . import collection_connector_settings

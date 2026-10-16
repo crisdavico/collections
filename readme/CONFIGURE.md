@@ -42,7 +42,12 @@ Open **Collections → Configuration** for the current company's full settings p
 - **Sellers:** enabled sellers, imported commission rates and **Import Sellers**.
 - **Bank Accounts:** company accounts and **Manage Bank Accounts**.
 - **Integration:** active connector, **Configure Connection**, **Test Connection** and
-  **Manage Connectors and Mappings** for seller/customer mappings.
+  **Manage Connectors and Mappings** for seller/customer mappings. **Configure
+  Connection** opens the connector's full form, which is the single place to edit
+  connection settings. Use its native **Save** and **Discard** controls. Managers can
+  edit company, workstation, branch, timeout and debt query options and run connection
+  tests or refresh debt. Credentials, endpoint, TLS, server paths and the session
+  deadline remain administrator-only. Unused Bejerman seller query settings are hidden.
 
 Use the normal **Save** and **Discard** controls. Collection Managers can configure
 their company without system administration rights. Administrators also see the advanced
