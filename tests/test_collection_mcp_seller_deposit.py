@@ -278,9 +278,7 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         self.assertEqual(deposit.state, "validated_collections")
         self.assertEqual(deposit.reviewed_by, self.env.user)
         self.assertTrue(deposit.reviewed_at)
-        rows = cash.cash_replacement_ids
-        self.assertEqual(rows.mapped("direction"), ["replace"])
-        self.assertEqual(rows.deposit_voucher_id, deposit)
+        self.assertAlmostEqual(deposit.replacing_amount, 40.0, places=2)
         self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
         self.assertAlmostEqual(cash_value.amount, 60.0, places=2)
         deposit_value = sheet.allocation_ids.receipt_ids.value_ids.filtered(

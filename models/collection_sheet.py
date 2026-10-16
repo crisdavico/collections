@@ -416,7 +416,7 @@ class CollectionSheet(models.Model):
         Only a reinstated sheet holds one before Confirm. Its cash replacement
         is reversed and run again for the new amount, so the voucher, the cash
         it replaced and ``cash_on_hand`` agree. A zero declaration leaves the
-        voucher at zero: its replacement rows are immutable and keep naming it.
+        voucher at zero.
         """
         self.ensure_one()
         commission = self._seller_commission_voucher()

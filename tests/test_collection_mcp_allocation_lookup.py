@@ -143,7 +143,10 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         return {
             "allocations": self.env["collection.allocation"].search_count([]),
             "lines": self.env["collection.allocation.line"].search_count([]),
-            "revisions": self.env["collection.allocation.revision"].search_count([]),
+            "requests": sum(
+                len(allocation.request_log or {})
+                for allocation in self.env["collection.allocation"].search([])
+            ),
             "vouchers": self.env["collection.voucher"].search_count([]),
             "sheets": self.env["collection.sheet"].search_count([]),
             "partners": self.env["res.partner"].search_count([]),

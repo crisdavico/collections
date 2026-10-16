@@ -64,16 +64,15 @@ class TestCollectionAllocationUnlink(TransactionCase):
         vals.update(extra)
         return self.env["collection.voucher"].create(vals)
 
-    def _revision(self):
-        with privileged("collection_allocation_revision"):
-            return self.env["collection.allocation.revision"].create(
+    def _agent_request(self):
+        """Record an agent request on the allocation, as the MCP tool does."""
+        request_id = f"req-{self._testMethodName}"
+        with privileged("collection_allocation_request"):
+            self.allocation.write(
                 {
-                    "allocation_id": self.allocation.id,
-                    "revision": 1,
-                    "request_id": f"req-{self._testMethodName}",
+                    "request_id": request_id,
                     "content_hash": "hash",
-                    "confirmed_by": self.env.user.id,
-                    "confirmed_at": "2026-09-01 12:00:00",
+                    "request_log": {request_id: {"revision": 1}},
                 }
             )
 
@@ -97,9 +96,11 @@ class TestCollectionAllocationUnlink(TransactionCase):
                 "voucher_date": date(2026, 9, 8),
             }
         )
-        return self.env["collection.receipt.value"]._cash_replace(
+        moved = self.env["collection.receipt.value"]._cash_replace(
             self.receipt, cash, deposit, 20.0
         )
+        self.assertAlmostEqual(moved, 20.0, places=2)
+        return deposit
 
     def _validate_members(self):
         with privileged("collection_audited_state"):
@@ -139,22 +140,23 @@ class TestCollectionAllocationUnlink(TransactionCase):
         self._assert_ledger_kept()
         self.assertEqual(self.receipt.external_receipt_id, "ERP-1")
 
-    def test_cash_replacement_blocks_the_delete(self):
-        """Cash replacement rows are an audit trail, not cascade fodder."""
-        replacement = self._cash_replacement()
-        self.assertTrue(replacement)
-        with self.assertRaises(UserError):
-            self.allocation.unlink()
-        self.assertTrue(replacement.exists())
-        self._assert_ledger_kept()
+    def test_cash_swap_does_not_block_the_delete(self):
+        """A cash swap on its receipt MUST NOT pin the draft allocation."""
+        deposit = self._cash_replacement()
+        receipt_id = self.receipt.id
+        self.allocation.unlink()
+        self.assertFalse(self.allocation.exists())
+        self.assertFalse(self.env["collection.receipt"].browse(receipt_id).exists())
+        self.assertTrue(deposit.exists())
+        self.assertFalse(deposit.receipt_value_ids)
 
-    def test_revision_blocks_the_delete(self):
-        """Immutable revisions MUST NOT disappear with their allocation."""
-        revision = self._revision()
-        with self.assertRaises(UserError):
-            self.allocation.unlink()
-        self.assertTrue(revision.exists())
-        self._assert_ledger_kept()
+    def test_agent_request_does_not_block_the_delete(self):
+        """An allocation the agent wrote MUST delete like any draft allocation."""
+        self._agent_request()
+        self.allocation.unlink()
+        self.assertFalse(self.allocation.exists())
+        self.assertTrue(self.voucher.exists())
+        self.assertFalse(self.voucher.allocation_id)
 
     def test_open_sheet_delete_takes_receipts_and_values_along(self):
         """A plain draft allocation on an open sheet still deletes cleanly."""
@@ -177,14 +179,13 @@ class TestCollectionAllocationUnlink(TransactionCase):
         )
         self.assertFalse(self.voucher.allocation_id)
 
-    def test_sheet_delete_refuses_an_allocation_with_revisions(self):
-        """Deleting an open sheet MUST NOT wipe an agent-written revision."""
-        revision = self._revision()
-        with self.assertRaises(UserError):
-            self.sheet.unlink()
-        self.assertTrue(self.sheet.exists())
-        self.assertTrue(revision.exists())
-        self._assert_ledger_kept()
+    def test_sheet_delete_takes_an_agent_allocation_along(self):
+        """Deleting an open sheet MUST also delete an agent-written allocation."""
+        self._agent_request()
+        self.sheet.unlink()
+        self.assertFalse(self.sheet.exists())
+        self.assertFalse(self.allocation.exists())
+        self.assertTrue(self.voucher.exists())
 
     def test_receipt_delete_takes_its_values_along(self):
         """A draft receipt on an open sheet removes its values explicitly."""
@@ -193,25 +194,18 @@ class TestCollectionAllocationUnlink(TransactionCase):
         self.assertFalse(self.receipt.exists())
         self.assertFalse(self.env["collection.receipt.value"].browse(value_id).exists())
 
-    def test_receipt_with_cash_replacement_cannot_be_deleted(self):
-        """Rebuilding receipts MUST NOT drop the cash replacement trail."""
-        replacement = self._cash_replacement()
-        with self.assertRaises(UserError):
-            self.allocation.write({"receipt_ids": [Command.clear()]})
-        self.assertTrue(self.receipt.exists())
-        self.assertTrue(replacement.exists())
+    def test_receipt_with_a_cash_swap_can_be_rebuilt(self):
+        """Rebuilding receipts MUST NOT be blocked by a cash swap on them."""
+        self._cash_replacement()
+        self.allocation.write({"receipt_ids": [Command.clear()]})
+        self.assertFalse(self.receipt.exists())
 
-    def test_ledger_children_restrict_their_parent_delete(self):
-        """The database itself MUST refuse to cascade ledger and audit rows."""
-        restrict = (
-            ("collection.receipt.value", "receipt_id"),
-            ("collection.cash.replacement", "receipt_id"),
-            ("collection.allocation.revision", "allocation_id"),
+    def test_receipt_values_restrict_their_parent_delete(self):
+        """The database itself MUST refuse to cascade receipt values."""
+        self.assertEqual(
+            self.env["collection.receipt.value"]._fields["receipt_id"].ondelete,
+            "restrict",
         )
-        for model, name in restrict:
-            with self.subTest(model=model):
-                self.assertEqual(self.env[model]._fields[name].ondelete, "restrict")
-        self._revision()
         self.env.flush_all()
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
             with self.env.cr.savepoint():

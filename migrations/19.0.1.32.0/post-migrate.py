@@ -12,7 +12,7 @@ def migrate(cr, version):
     )
     cr.execute(
         """
-        ALTER TABLE collection_allocation_revision
+        ALTER TABLE IF EXISTS collection_allocation_revision
             DROP COLUMN IF EXISTS residual_reason
         """
     )

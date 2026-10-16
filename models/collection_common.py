@@ -80,7 +80,7 @@ def default_record_company(env):
 
 
 # Catalog codes, mirrored by ``data/collection_document_type_data.xml`` and by
-# ``collection.voucher`` / ``collection.voucher.review.snapshot`` selections.
+# ``collection.voucher`` selections.
 DOCUMENT_TYPE_SELECTION = (
     ("bank_transfer", "Bank Transfer"),
     ("check", "Check"),

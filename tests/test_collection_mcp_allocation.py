@@ -340,7 +340,10 @@ class TestCollectionMcpAllocation(TransactionCase):
         return {
             "allocations": self.env["collection.allocation"].search_count([]),
             "lines": self.env["collection.allocation.line"].search_count([]),
-            "revisions": self.env["collection.allocation.revision"].search_count([]),
+            "requests": sum(
+                len(allocation.request_log or {})
+                for allocation in self.env["collection.allocation"].search([])
+            ),
             "vouchers": self.env["collection.voucher"].search_count([]),
             "sheets": self.env["collection.sheet"].search_count([]),
         }
@@ -439,29 +442,24 @@ class TestCollectionMcpAllocation(TransactionCase):
             partner = Partner.create(partner_vals)
         return self.env["res.company"].create({"name": name, "partner_id": partner.id})
 
-    def _patch_revision_search_miss_once(self, request_id):
-        Revision = self.env["collection.allocation.revision"]
-        empty_revision = Revision.browse()
-        real_search = type(Revision).search
+    def _patch_request_lookup_miss_once(self, request_id):
+        mixin_cls = type(self.env["muk_mcp.mixin"])
+        real_lookup = mixin_cls._collection_allocation_by_request_id
         calls = {"n": 0}
 
-        def search_proxy(model_self, domain=None, *args, **kwargs):
-            domain = domain or []
-            is_req = any(
-                isinstance(term, (list, tuple))
-                and len(term) >= 3
-                and term[0] == "request_id"
-                and term[1] == "="
-                and term[2] == request_id
-                for term in domain
-            )
-            if model_self._name == "collection.allocation.revision" and is_req:
+        def lookup_proxy(model_self, key):
+            if key == request_id:
                 calls["n"] += 1
                 if calls["n"] == 1:
-                    return empty_revision
-            return real_search(model_self, domain, *args, **kwargs)
+                    return model_self.env["collection.allocation"]
+            return real_lookup(model_self, key)
 
-        return patch("odoo.models.Model.search", search_proxy), calls
+        return (
+            patch.object(
+                mixin_cls, "_collection_allocation_by_request_id", lookup_proxy
+            ),
+            calls,
+        )
 
     def _confirm(self, allocation):
         with privileged("collection_allocation_audited_state"):
@@ -636,13 +634,13 @@ class TestCollectionMcpAllocation(TransactionCase):
                 INVOICE_OPEN["external_invoice_id"]: 0.0,
             },
         )
-        self.assertEqual(len(allocation.revision_ids), 1)
-        self.assertEqual(allocation.revision_ids.revision, 1)
+        self.assertEqual(list(allocation.request_log), [allocation.request_id])
+        self.assertEqual(allocation.request_log[allocation.request_id]["revision"], 1)
         self._assert_payload(
             result, allocation, revision=1, document_ids=[payment["document_id"]]
         )
         self.assertEqual(self._counts()["allocations"], before["allocations"] + 1)
-        self.assertEqual(self._counts()["revisions"], before["revisions"] + 1)
+        self.assertEqual(self._counts()["requests"], before["requests"] + 1)
         self.assertEqual(self._counts()["vouchers"], before["vouchers"] + 1)
 
     def test_response_shape_freeze_ordered_vouchers(self):
@@ -675,7 +673,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         first = self._call(arguments)
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
         write_date = allocation.write_date
-        revision_count = len(allocation.revision_ids)
+        request_log = dict(allocation.request_log)
         before = self._counts()
         second = self._call(arguments)
         self.assertEqual(second, first)
@@ -684,7 +682,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         )
         allocation.invalidate_recordset()
         self.assertEqual(allocation.write_date, write_date)
-        self.assertEqual(len(allocation.revision_ids), revision_count)
+        self.assertEqual(allocation.request_log, request_log)
         self.assertEqual(self._counts(), before)
         self.assertEqual(allocation.total_applied, 100.0)
 
@@ -701,8 +699,8 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(second["allocation"]["revision"], 1)
         self.assertEqual(second["sheet_id"], first["sheet_id"])
         allocation.invalidate_recordset()
-        self.assertEqual(len(allocation.revision_ids), 1)
-        self.assertEqual(allocation.revision_ids.request_id, "req-hash-1")
+        self.assertEqual(list(allocation.request_log), ["req-hash-1"])
+        self.assertEqual(allocation.request_id, "req-hash-1")
         self.assertEqual(allocation.write_date, write_date)
         self.assertEqual(self._counts(), before)
 
@@ -721,7 +719,10 @@ class TestCollectionMcpAllocation(TransactionCase):
         vouchers = allocation.voucher_ids
         mixin = self.env["muk_mcp.mixin"]
         digest = mixin._collection_allocation_content_hash(vouchers, receipts)
-        self.assertEqual(allocation.revision_ids.content_hash, digest)
+        self.assertEqual(allocation.content_hash, digest)
+        self.assertEqual(
+            allocation.request_log["req-receipt-hash"]["content_hash"], digest
+        )
         expected_payload = {
             "receipts": [
                 {
@@ -769,7 +770,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         allocation = self.env["collection.allocation"].browse(
             second["allocation"]["id"]
         )
-        self.assertEqual(len(allocation.revision_ids), 2)
+        self.assertEqual(len(allocation.request_log), 2)
 
     def test_exact_document_id_reuse_continues_to_allocation(self):
         """Exact same-company document_id set MUST reuse rows and persist allocation."""
@@ -829,6 +830,71 @@ class TestCollectionMcpAllocation(TransactionCase):
             {first_payment["document_id"], new_payment["document_id"]},
         )
         self.assertEqual(allocation.total_vouchers, 150.0)
+
+    def test_agent_draft_allocation_can_be_deleted_on_an_open_sheet(self):
+        """A draft allocation the agent wrote MUST go while its sheet is open."""
+        result = self._call(
+            self._payload(
+                [self._payment(100.0)],
+                [self._applied(INVOICE_OVERDUE, 100.0)],
+                request_id="req-unlink-agent",
+            )
+        )
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        vouchers = allocation.voucher_ids
+        receipts = allocation.receipt_ids
+        self.assertEqual(allocation.sheet_id.state, "open")
+        self.assertTrue(receipts)
+        allocation.unlink()
+        self.assertFalse(allocation.exists())
+        self.assertFalse(receipts.exists())
+        self.assertTrue(vouchers.exists())
+        self.assertFalse(vouchers.allocation_id)
+
+    def test_earlier_request_id_still_replays_after_an_amend(self):
+        """An amend MUST keep the earlier vouchers and earlier request_ids."""
+        first_payment = self._payment(100.0)
+        first_args = self._payload(
+            [first_payment],
+            [self._applied(INVOICE_OVERDUE, 100.0)],
+            request_id="req-earlier-1",
+        )
+        first = self._call(first_args)
+        new_payment = self._payment(50.0)
+        second = self._call(
+            self._payload(
+                [first_payment, new_payment],
+                [
+                    self._applied(INVOICE_OVERDUE, 100.0),
+                    self._applied(INVOICE_OPEN, 50.0),
+                ],
+                request_id="req-earlier-2",
+            )
+        )
+        allocation = self.env["collection.allocation"].browse(
+            second["allocation"]["id"]
+        )
+        self.assertEqual(second["allocation"]["revision"], 2)
+        self.assertEqual(
+            set(allocation.voucher_ids.mapped("document_id")),
+            {first_payment["document_id"], new_payment["document_id"]},
+        )
+        before = self._counts()
+        replayed = self._call(first_args)
+        self.assertEqual(replayed["allocation"], first["allocation"])
+        self.assertEqual(replayed["sheet_id"], first["sheet_id"])
+        self.assertEqual(self._counts(), before)
+        self.assertEqual(allocation.revision, 2)
+        changed = self._payload(
+            [first_payment],
+            [self._applied(INVOICE_OVERDUE, 90.0)],
+            request_id="req-earlier-1",
+        )
+        changed["payments"][0]["seller_confirmed"]["amount"] = 100.0
+        err = self._assert_user_error_no_writes(lambda: self._call(changed), before)
+        self._assert_generic_conflict(err, allocation)
 
     def test_new_non_cash_payment_without_file_refused_no_writes(self):
         """A new non-cash payment without its voucher file MUST be refused."""
@@ -1115,8 +1181,8 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])
         self.assertEqual(allocation.revision, 1)
         self.assertEqual(second["allocation"]["revision"], 1)
-        self.assertEqual(len(allocation.revision_ids), 1)
-        self.assertEqual(allocation.revision_ids.request_id, "req-reason-1")
+        self.assertEqual(list(allocation.request_log), ["req-reason-1"])
+        self.assertEqual(allocation.request_id, "req-reason-1")
         self.assertEqual(allocation.write_date, write_date)
         self.assertEqual(self._counts(), before)
 
@@ -1262,7 +1328,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(allocation.residual, 0.0)
         self.assertEqual(allocation.state, "draft")
         self.assertEqual(second["allocation"]["state"], "draft")
-        self.assertEqual(len(allocation.revision_ids), 2)
+        self.assertEqual(len(allocation.request_log), 2)
         self._assert_payload(
             second,
             allocation,
@@ -1327,7 +1393,7 @@ class TestCollectionMcpAllocation(TransactionCase):
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
         write_date = allocation.write_date
         before = self._counts()
-        search_patch, calls = self._patch_revision_search_miss_once("req-uv-replay")
+        search_patch, calls = self._patch_request_lookup_miss_once("req-uv-replay")
         mixin_cls = type(self.env["muk_mcp.mixin"])
 
         def raise_unique(*_args, **_kwargs):
@@ -1374,19 +1440,20 @@ class TestCollectionMcpAllocation(TransactionCase):
                 }
             )
         )
-        with privileged("collection_allocation_revision"):
-            self.env["collection.allocation.revision"].with_company(company_b).create(
+        with privileged("collection_allocation_request"):
+            foreign.write(
                 {
-                    "allocation_id": foreign.id,
-                    "revision": 1,
                     "request_id": "req-uv-hidden",
                     "content_hash": "foreign-hash",
-                    "confirmed_by": self.env.user.id,
-                    "confirmed_at": "2026-09-01 12:00:00",
-                    "total_vouchers": 40.0,
-                    "total_applied": 0.0,
-                    "total_debt": 0.0,
-                    "residual": 40.0,
+                    "request_log": {
+                        "req-uv-hidden": {
+                            "revision": 1,
+                            "content_hash": "foreign-hash",
+                            "total_vouchers": 40.0,
+                            "total_applied": 0.0,
+                            "residual": 40.0,
+                        }
+                    },
                 }
             )
         self.internal_user.write(
@@ -1396,11 +1463,11 @@ class TestCollectionMcpAllocation(TransactionCase):
             }
         )
         hidden = (
-            self.env["collection.allocation.revision"]
+            self.env["collection.allocation"]
             .with_user(self.internal_user)
             .search([("request_id", "=", "req-uv-hidden")])
         )
-        self.assertFalse(hidden, "Caller must not see company B's revision")
+        self.assertFalse(hidden, "Caller must not see company B's allocation")
         before = self._counts()
         with mute_logger("odoo.sql_db"):
             err = self._assert_user_error_no_writes(

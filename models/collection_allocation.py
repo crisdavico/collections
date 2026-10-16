@@ -23,6 +23,8 @@ from .collection_common import (
 _FROZEN_FIELDS = frozenset(
     {"line_ids", "voucher_ids", "receipt_ids", "partner_id", "sheet_id"}
 )
+# What an agent request wrote; only the allocation tool records it.
+_REQUEST_FIELDS = frozenset({"request_id", "content_hash", "request_log"})
 
 
 class CollectionAllocation(models.Model):
@@ -98,12 +100,23 @@ class CollectionAllocation(models.Model):
         inverse_name="allocation_id",
         string="Receipts",
     )
-    revision_ids = fields.One2many(
-        comodel_name="collection.allocation.revision",
-        inverse_name="allocation_id",
-        string="Revisions",
+    request_id = fields.Char(
         copy=False,
         readonly=True,
+        index=True,
+        help="The agent request that last wrote this allocation.",
+    )
+    content_hash = fields.Char(
+        copy=False,
+        readonly=True,
+        help="Hash of the vouchers and receipts that request sent.",
+    )
+    request_log = fields.Json(
+        copy=False,
+        readonly=True,
+        help="Every agent request that wrote this allocation, by request id: "
+        "the revision it made, its content hash and the totals it answered "
+        "with, so a retried request gets its first answer back.",
     )
     total_vouchers = fields.Monetary(
         compute="_compute_total_vouchers",
@@ -154,12 +167,16 @@ class CollectionAllocation(models.Model):
         "UNIQUE(sheet_id, partner_id)",
         "Only one allocation is allowed per customer per sheet.",
     )
+    _request_id_uniq = models.Constraint(
+        "UNIQUE(request_id)",
+        "Allocation request id must be unique.",
+    )
 
     @api.depends(
         "receipt_ids.value_ids.amount",
         "voucher_ids.amount",
         "voucher_ids.receipt_value_ids",
-        "voucher_ids.cash_replacement_ids",
+        "voucher_ids.replaced_amount",
     )
     def _compute_total_vouchers(self):
         """Collected money: where the receipt values put it, else the pointer.
@@ -170,7 +187,7 @@ class CollectionAllocation(models.Model):
         can, and cash replacement only swaps the voucher behind a value, so
         the sum is unchanged by it.
 
-        A voucher with no receipt value at all and no cash replacement never
+        A voucher with no receipt value at all and no replaced cash never
         had its money placed on a receipt: an allocation built in the UI, or
         before receipts exist. Only such a voucher counts, in full, on the
         allocation it points at. A voucher that has values counts only
@@ -183,7 +200,7 @@ class CollectionAllocation(models.Model):
                 value.amount or 0.0 for value in allocation.receipt_ids.value_ids
             )
             for voucher in allocation.voucher_ids:
-                if voucher.receipt_value_ids or voucher.cash_replacement_ids:
+                if voucher.receipt_value_ids or voucher.replaced_amount:
                     continue
                 total += voucher.amount or 0.0
             allocation.total_vouchers = total
@@ -295,6 +312,8 @@ class CollectionAllocation(models.Model):
         raise_if_create_vals_frozen(
             self.env, vals_list, self._frozen_allocation_error_message()
         )
+        if any(_REQUEST_FIELDS & set(vals) for vals in vals_list):
+            self._raise_unless_request_writer()
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
             if "voucher_ids" in vals:
@@ -321,6 +340,8 @@ class CollectionAllocation(models.Model):
             return True
         if _FROZEN_FIELDS & set(vals) and self._membership_is_frozen():
             self._raise_membership_frozen()
+        if _REQUEST_FIELDS & set(vals):
+            self._raise_unless_request_writer()
         if "voucher_ids" in vals:
             vals = dict(vals)
             vals["voucher_ids"] = sanitize_voucher_commands(vals["voucher_ids"])
@@ -333,6 +354,15 @@ class CollectionAllocation(models.Model):
                 self, lambda: super(CollectionAllocation, self).write(vals)
             )
         return super().write(vals)
+
+    @api.model
+    @api.private
+    def _raise_unless_request_writer(self):
+        """Only the agent allocation flow records what a request wrote."""
+        if not is_privileged("collection_allocation_request"):
+            raise UserError(
+                _("Allocation request fields can only be written by the agent flow.")
+            )
 
     @api.model
     @api.private
@@ -359,11 +389,11 @@ class CollectionAllocation(models.Model):
     def unlink(self):
         if not self:
             return True
-        # Refuse before any child is touched. The database no longer cascades
-        # receipt values, cash replacements or revisions, so the children
-        # that may go are removed here, through the ORM and their own guards.
+        # Refuse before any child is touched. The database does not cascade
+        # receipt values, so the children that may go are removed here,
+        # through the ORM and their own guards.
         if not self.env.context.get(MODULE_UNINSTALL_FLAG):
-            self._unlink_except_frozen_or_ledger()
+            self._unlink_except_frozen_or_issued()
         with privileged("collection_allocation_parent_unlink"):
             vouchers = self.voucher_ids
             if vouchers:
@@ -428,13 +458,12 @@ class CollectionAllocation(models.Model):
                 )
 
     @api.ondelete(at_uninstall=False)
-    def _unlink_except_frozen_or_ledger(self):
-        """Only a draft allocation of an editable sheet, with no ledger, goes.
+    def _unlink_except_frozen_or_issued(self):
+        """Only a draft allocation of an editable sheet goes.
 
         Proposal, closed and cancelled sheets are frozen (only open sheets
         can be deleted, Document Review stops after submitted). Issued
-        receipts were sent to the ERP; cash replacements and revisions are
-        the audit trail of what moved money and what the agent wrote.
+        receipts were sent to the ERP.
         """
         if any(allocation.state == "confirmed" for allocation in self):
             raise UserError(_("Confirmed allocations cannot be deleted."))
@@ -455,15 +484,6 @@ class CollectionAllocation(models.Model):
         ):
             raise UserError(
                 _("Allocations with issued collection receipts cannot be deleted.")
-            )
-        if receipts._has_cash_replacements():
-            raise UserError(_("Allocations with cash replacements cannot be deleted."))
-        if self.revision_ids:
-            raise UserError(
-                _(
-                    "Allocations with revisions cannot be deleted: the revisions "
-                    "are the audit trail of the agent's writes."
-                )
             )
 
     @api.private

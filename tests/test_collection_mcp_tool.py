@@ -930,10 +930,6 @@ class TestCollectionMcpProvenance(TransactionCase):
     def _voucher(self, result):
         return self.env["collection.voucher"].browse(result["vouchers"][0]["id"])
 
-    def _snapshot_count(self, voucher):
-        Snapshot = self.env["collection.voucher.review.snapshot"]
-        return Snapshot.search_count([("voucher_id", "=", voucher.id)])
-
     def _assert_empty_provenance(self, voucher):
         for name in voucher._REVIEW_EDITABLE_FIELDS:
             ocr_value = voucher[f"ocr_{name}"]
@@ -1062,7 +1058,6 @@ class TestCollectionMcpProvenance(TransactionCase):
                 self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
             else:
                 self.assertFalse(ocr_value, f"ocr_{name}")
-        self.assertEqual(self._snapshot_count(voucher), 0)
 
     def test_orm_create_without_nests_leaves_null_provenance(self):
         """Triangulation: UI/ORM create MUST remain allowed with empty provenance."""
@@ -1081,7 +1076,6 @@ class TestCollectionMcpProvenance(TransactionCase):
         self.assertEqual(voucher.document_type, "check")
         self.assertEqual(voucher.check_number, "CHK-ORM")
         self._assert_empty_provenance(voucher)
-        self.assertEqual(self._snapshot_count(voucher), 0)
 
     def test_omitted_nests_with_attachment_keep_base64_out_of_provenance(self):
         """Attachment + omitted nests MUST NOT copy base64 into provenance fields."""
@@ -1430,7 +1424,6 @@ class TestCollectionMcpProvenance(TransactionCase):
         )
         voucher = self._voucher(first)
         self._assert_layer_matches(voucher, "ocr", fields_vals)
-        before_snaps = self._snapshot_count(voucher)
         write_date = voucher.write_date
 
         second = self._call(
@@ -1453,7 +1446,6 @@ class TestCollectionMcpProvenance(TransactionCase):
         self._assert_layer_matches(voucher, "", fields_vals)
         self._assert_layer_matches(voucher, "ocr", fields_vals)
         self._assert_layer_matches(voucher, "seller", fields_vals)
-        self.assertEqual(self._snapshot_count(voucher), before_snaps)
         self.assertEqual(voucher.write_date, write_date)
 
         empty_ident = "MCP-PROV-REPLAY-EMPTY"
@@ -1503,7 +1495,6 @@ class TestCollectionMcpProvenance(TransactionCase):
         self.assertEqual(retried["vouchers"][0]["id"], empty.id)
         empty.invalidate_recordset()
         self._assert_empty_provenance(empty)
-        self.assertEqual(self._snapshot_count(empty), 0)
 
     def test_exact_replay_ignores_malformed_nests(self):
         """Triangulation: exact-retry MUST ignore malformed nests and still replay."""
@@ -1622,7 +1613,6 @@ class TestCollectionMcpProvenance(TransactionCase):
                 self.assertEqual(ocr_value, 0.0, f"ocr_{name}")
             else:
                 self.assertFalse(ocr_value, f"ocr_{name}")
-        self.assertEqual(self._snapshot_count(voucher), 0)
 
     def test_json_null_optional_nest_fields_are_omit(self):
         """Dump-style JSON null on unused typed nest fields MUST omit, not fail."""

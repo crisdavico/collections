@@ -23,7 +23,7 @@ def _source_without_comments(method):
 
 
 class TestCollectionAllocationAcl(TransactionCase):
-    """RED: allocation/line CRUD ACL, revision 1,0,1,1, parent-unlink, company
+    """Allocation/line CRUD ACL, request replay guard, parent-unlink, company
     ir.rule.
     """
 
@@ -233,18 +233,6 @@ class TestCollectionAllocationAcl(TransactionCase):
             lambda line: line.external_invoice_id == external_invoice_id
         )
 
-    def _revision_vals(self, allocation, **extra):
-        vals = {
-            "allocation_id": allocation.id,
-            "revision": 1,
-            "request_id": extra.pop("request_id", f"req-acl-{allocation.id}"),
-            "content_hash": "hash",
-            "confirmed_by": extra.pop("confirmed_by", self.env.user.id),
-            "confirmed_at": "2026-09-01 12:00:00",
-        }
-        vals.update(extra)
-        return vals
-
     def test_debt_picker_acl_full_crud(self):
         """Picker transients MUST be 1,1,1,1 for Collections Users."""
         self._assert_acl("collection.allocation.debt.picker", (1, 1, 1, 1))
@@ -308,57 +296,44 @@ class TestCollectionAllocationAcl(TransactionCase):
         allocation.unlink()
         self.assertFalse(Alloc.browse(allocation_id).exists())
 
-    def test_revision_acl_read_create_unlink_no_write(self):
-        """revision MUST be 1,0,1,1; create gated; write denied; direct unlink
-        UserError.
-        """
-        self._assert_acl("collection.allocation.revision", (1, 0, 1, 1))
+    def test_request_fields_refuse_direct_writes(self):
+        """Only the agent flow MUST write the allocation's request replay data."""
         allocation = self._create_allocation()
-        Revision = self.env["collection.allocation.revision"].with_user(
-            self.internal_user
-        )
+        Alloc = self.env["collection.allocation"].with_user(self.internal_user)
+        for vals in (
+            {"request_id": "req-forged"},
+            {"content_hash": "forged"},
+            {"request_log": {"req-forged": {"revision": 1}}},
+        ):
+            with self.subTest(vals=vals):
+                with self.assertRaises(UserError):
+                    Alloc.browse(allocation.id).write(vals)
         with self.assertRaises(UserError):
-            Revision.create(self._revision_vals(allocation))
-        with privileged("collection_allocation_revision"):
-            rev = Revision.create(
-                self._revision_vals(allocation, confirmed_by=self.internal_user.id)
+            Alloc.create(
+                {
+                    "sheet_id": allocation.sheet_id.id,
+                    "partner_id": dummy_customer_partner(
+                        self.env, customer="ACL-REQ-FORGED"
+                    ).id,
+                    "request_id": "req-forged-create",
+                }
             )
-        self.assertTrue(rev.id)
-        read = Revision.browse(rev.id).read(["request_id", "revision"])
-        self.assertEqual(read[0]["revision"], 1)
-        with self.assertRaises(UserError):
-            self.env["collection.allocation.revision"].browse(rev.id).write(
-                {"content_hash": "nope"}
-            )
-        with self.assertRaises(UserError):
-            self.env["collection.allocation.revision"].browse(rev.id).unlink()
-        with self.assertRaises(UserError):
-            Revision.browse(rev.id).write({"content_hash": "acl-nope"})
-        with self.assertRaises(UserError):
-            Revision.browse(rev.id).unlink()
-        self.assertTrue(rev.exists())
-        self.assertTrue(allocation.exists())
+        self.assertFalse(allocation.request_id)
+        self.assertFalse(allocation.request_log)
 
-    def test_parent_unlink_refused_on_draft_with_revisions(self):
-        """Draft parent unlink MUST keep revisions: they block the delete.
-
-        Revisions used to be deleted under the parent-unlink scope; they are
-        the immutable audit trail of the agent's writes.
-        """
+    def test_draft_allocation_with_agent_request_can_be_deleted(self):
+        """A draft allocation the agent wrote MUST be deletable by a user."""
         allocation = self._create_allocation()
-        self.assertEqual(allocation.state, "draft")
-        with privileged("collection_allocation_revision"):
-            rev = self.env["collection.allocation.revision"].create(
-                self._revision_vals(
-                    allocation,
-                    request_id="req-parent-unlink",
-                    confirmed_by=self.internal_user.id,
-                )
+        with privileged("collection_allocation_request"):
+            allocation.write(
+                {
+                    "request_id": "req-parent-unlink",
+                    "content_hash": "hash",
+                    "request_log": {"req-parent-unlink": {"revision": 1}},
+                }
             )
-        with self.assertRaises(UserError):
-            allocation.with_user(self.internal_user).unlink()
-        self.assertTrue(allocation.exists())
-        self.assertTrue(rev.exists())
+        allocation.with_user(self.internal_user).unlink()
+        self.assertFalse(allocation.exists())
 
     def _enable_seller_deposit_type(self):
         catalog = self.env.ref("collection.document_type_seller_deposit")
@@ -396,70 +371,41 @@ class TestCollectionAllocationAcl(TransactionCase):
         )
         return allocation, receipt, cash, deposit
 
-    def test_cash_replacement_acl_read_create_no_write_unlink(self):
-        """collection.cash.replacement MUST be 1,0,1,0 for Collections Users."""
-        self._assert_acl("collection.cash.replacement", (1, 0, 1, 0))
-
-    def test_draft_allocation_unlink_refused_with_replacements(self):
-        """Draft allocation unlink MUST keep replacement rows: they block it.
-
-        The delete used to cascade the cash replacement audit rows away.
-        """
+    def test_draft_allocation_unlink_allowed_after_a_cash_swap(self):
+        """A cash swap on its receipt MUST NOT block the draft allocation delete."""
         allocation, receipt, cash, deposit = self._cash_replacement_records()
-        with privileged("collection_cash_replacement"):
-            row = self.env["collection.cash.replacement"].create(
-                {
-                    "receipt_id": receipt.id,
-                    "cash_voucher_id": cash.id,
-                    "deposit_voucher_id": deposit.id,
-                    "amount": 10.0,
-                    "direction": "replace",
-                    "created_by": self.internal_user.id,
-                    "created_at": "2026-09-01 12:00:00",
-                }
-            )
-        with self.assertRaises(UserError):
-            allocation.with_user(self.internal_user).unlink()
-        self.assertTrue(row.exists())
-        self.assertTrue(allocation.exists())
+        self.env["collection.receipt.value"].create(
+            {"receipt_id": receipt.id, "voucher_id": cash.id, "amount": 100.0}
+        )
+        moved = self.env["collection.receipt.value"]._cash_replace(
+            receipt, cash, deposit, 10.0
+        )
+        self.assertAlmostEqual(moved, 10.0, places=2)
+        allocation.with_user(self.internal_user).unlink()
+        self.assertFalse(allocation.exists())
+        self.assertFalse(receipt.exists())
         self.assertTrue(deposit.exists())
-        self.assertEqual(cash.allocation_id, allocation)
+        self.assertTrue(cash.exists())
+        self.assertFalse(cash.allocation_id)
 
     def test_parent_unlink_refused_when_confirmed(self):
-        """Confirmed parent unlink MUST be refused; revisions MUST remain."""
+        """Confirmed parent unlink MUST be refused."""
         allocation = self._create_allocation()
-        with privileged("collection_allocation_revision"):
-            rev = self.env["collection.allocation.revision"].create(
-                self._revision_vals(
-                    allocation,
-                    request_id="req-parent-confirmed",
-                    confirmed_by=self.internal_user.id,
-                )
-            )
         with privileged("collection_allocation_audited_state"):
             allocation.write({"state": "confirmed"})
         allocation_id = allocation.id
-        rev_id = rev.id
         with self.assertRaises(UserError):
             allocation.with_user(self.internal_user).unlink()
         self.assertTrue(
             self.env["collection.allocation"].browse(allocation_id).exists()
         )
-        self.assertTrue(
-            self.env["collection.allocation.revision"].browse(rev_id).exists()
-        )
 
     def test_portal_denied_on_allocation_models(self):
         allocation = self._create_allocation()
         line = self._add_line(allocation, "INV-PORTAL", amount=5.0)
-        with privileged("collection_allocation_revision"):
-            rev = self.env["collection.allocation.revision"].create(
-                self._revision_vals(allocation, request_id="req-portal")
-            )
         for record, fields in (
             (allocation, ["name", "state"]),
             (line, ["amount_applied"]),
-            (rev, ["request_id"]),
         ):
             Model = self.env[record._name].with_user(self.portal_user)
             with self.assertRaises(AccessError):
@@ -469,22 +415,12 @@ class TestCollectionAllocationAcl(TransactionCase):
         for model_name in (
             "collection.allocation",
             "collection.allocation.line",
-            "collection.allocation.revision",
-            "collection.cash.replacement",
         ):
             self._assert_global_company_rule(model_name)
 
         self._restrict_user_to_company(self.internal_user, self.env.company)
         visible = self._create_allocation(user=self.internal_user)
         visible_line = self._add_line(visible, "INV-VIS")
-        with privileged("collection_allocation_revision"):
-            visible_rev = self.env["collection.allocation.revision"].create(
-                self._revision_vals(
-                    visible,
-                    request_id="req-vis",
-                    confirmed_by=self.internal_user.id,
-                )
-            )
 
         company_b = self._create_company("Alloc Hidden Co")
         seller_b = self._create_user("alloc_acl_seller_b", "base.group_user")
@@ -496,14 +432,6 @@ class TestCollectionAllocationAcl(TransactionCase):
         )
         hidden = self._create_allocation(user=seller_b, company=company_b)
         hidden_line = self._add_line(hidden, "INV-HID")
-        with privileged("collection_allocation_revision"):
-            hidden_rev = self.env["collection.allocation.revision"].create(
-                self._revision_vals(
-                    hidden,
-                    request_id="req-hid",
-                    confirmed_by=seller_b.id,
-                )
-            )
 
         Alloc = self.env["collection.allocation"].with_user(self.internal_user)
         self.assertTrue(Alloc.search([("id", "=", visible.id)]))
@@ -511,9 +439,7 @@ class TestCollectionAllocationAcl(TransactionCase):
         self._assert_hidden_from_user(
             self.internal_user, hidden_line, ["amount_applied"]
         )
-        self._assert_hidden_from_user(self.internal_user, hidden_rev, ["request_id"])
         self.assertEqual(visible_line.company_id, self.env.company)
-        self.assertEqual(visible_rev.company_id, self.env.company)
 
     def test_allocation_models_have_no_sudo(self):
         models_root = Path(__file__).resolve().parents[1] / "models"
@@ -522,22 +448,17 @@ class TestCollectionAllocationAcl(TransactionCase):
             for name in (
                 "collection_allocation.py",
                 "collection_allocation_line.py",
-                "collection_allocation_revision.py",
                 "collection_voucher.py",
                 "collection_sheet.py",
             )
         ]
         alloc_cls = type(self.env["collection.allocation"])
-        rev_cls = type(self.env["collection.allocation.revision"])
         voucher_cls = type(self.env["collection.voucher"])
         sources.extend(
             [
                 inspect.getsource(alloc_cls.create),
                 inspect.getsource(alloc_cls.write),
                 inspect.getsource(alloc_cls.unlink),
-                inspect.getsource(rev_cls.create),
-                inspect.getsource(rev_cls.write),
-                inspect.getsource(rev_cls._unlink_forbidden),
                 inspect.getsource(voucher_cls.write),
             ]
         )
@@ -563,8 +484,3 @@ class TestCollectionAllocationAcl(TransactionCase):
         self.assertTrue(line_field.store)
         self.assertTrue(line_field.required)
         self.assertTrue(line_field.precompute)
-        rev_field = self.env["collection.allocation.revision"]._fields["company_id"]
-        self.assertEqual(rev_field.related, "allocation_id.company_id")
-        self.assertTrue(rev_field.store)
-        self.assertTrue(rev_field.required)
-        self.assertTrue(rev_field.precompute)

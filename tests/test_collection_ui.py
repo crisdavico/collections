@@ -1294,9 +1294,10 @@ class TestCollectionUi(TransactionCase):
             form_root.xpath('//header/button[@name="action_reject"]'),
             "form must not keep action_reject",
         )
-        revision_lists = form_root.xpath('//field[@name="revision_ids"]//list')
-        self.assertTrue(revision_lists, "form must embed revision_ids <list>")
-        self.assertEqual(revision_lists[0].get("delete"), "false")
+        self.assertFalse(
+            form_root.xpath('//notebook/page[@string="Revisions"]'),
+            "form must not keep the dropped Revisions page",
+        )
         chatter = form_root.xpath("//chatter")
         self.assertTrue(
             chatter,

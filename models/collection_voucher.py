@@ -29,6 +29,9 @@ from .collection_common import (
     record_id,
 )
 
+# Booked only by the cash replacement flow (``_book_replaced_cash``).
+_REPLACED_CASH_FIELDS = frozenset({"replaced_amount", "replacing_amount"})
+
 
 class CollectionVoucher(models.Model):
     _name = "collection.voucher"
@@ -93,15 +96,18 @@ class CollectionVoucher(models.Model):
         string="Receipt Values",
         readonly=True,
     )
-    cash_replacement_ids = fields.One2many(
-        comodel_name="collection.cash.replacement",
-        inverse_name="cash_voucher_id",
-        string="Cash Replacements",
-        readonly=True,
-    )
     replaced_amount = fields.Monetary(
-        compute="_compute_replaced_amount",
         currency_field="currency_id",
+        copy=False,
+        readonly=True,
+        help="Cash of this voucher that an approved seller deposit or "
+        "commission currently replaces.",
+    )
+    replacing_amount = fields.Monetary(
+        currency_field="currency_id",
+        copy=False,
+        readonly=True,
+        help="Cash this seller deposit or commission currently replaces.",
     )
     state = fields.Selection(
         selection=[
@@ -180,13 +186,6 @@ class CollectionVoucher(models.Model):
         copy=False,
     )
     reviewed_at = fields.Datetime(copy=False)
-    review_snapshot_ids = fields.One2many(
-        comodel_name="collection.voucher.review.snapshot",
-        inverse_name="voucher_id",
-        string="Review History",
-        copy=False,
-        readonly=True,
-    )
     ocr_document_type = fields.Selection(
         selection=_DOCUMENT_TYPE_SELECTION,
         string="Document Type",
@@ -256,7 +255,7 @@ class CollectionVoucher(models.Model):
     )
     _REVIEW_EDITABLE_FIELDS = frozenset(_REVIEW_EDITABLE_FIELD_ORDER)
     # What an approval vouches for. The review fields are what Document Review
-    # checked against the proof and snapshotted; the others decide whose debt
+    # checked against the proof; the others decide whose debt
     # the money pays, in which company and currency, and into which account.
     _APPROVED_LOCKED_FIELDS = _REVIEW_EDITABLE_FIELDS | frozenset(
         {"partner_id", "company_id", "currency_id", "to_account_bank_id"}
@@ -301,21 +300,6 @@ class CollectionVoucher(models.Model):
         "Voucher number must be unique per company and customer for "
         "retention certificate vouchers.",
     )
-
-    @api.depends("cash_replacement_ids.amount", "cash_replacement_ids.direction")
-    def _compute_replaced_amount(self):
-        for voucher in self:
-            replace = 0.0
-            reverse = 0.0
-            for row in voucher.cash_replacement_ids:
-                if row.direction == "replace":
-                    replace += row.amount or 0.0
-                elif row.direction == "reverse":
-                    reverse += row.amount or 0.0
-            net = replace - reverse
-            voucher.replaced_amount = (
-                voucher.currency_id.round(net) if voucher.currency_id else net
-            )
 
     @api.depends(
         "to_account",
@@ -463,6 +447,12 @@ class CollectionVoucher(models.Model):
             raise UserError(
                 _("OCR and seller-confirmed fields cannot be modified after create.")
             )
+        if _REPLACED_CASH_FIELDS & set(vals) and not is_privileged(
+            "collection_cash_replacement"
+        ):
+            raise UserError(
+                _("Replaced cash can only be changed by the cash replacement flow.")
+            )
         self._ensure_sheet_business_fields_unlocked(vals)
         vals, split_result = self._prepare_partner_reassign_write(vals)
         if split_result is not None:
@@ -592,11 +582,10 @@ class CollectionVoucher(models.Model):
                 if not cash_value.exists():
                     continue
                 slice_amount = min(remaining, cash_value.amount or 0.0)
-                row = Value._cash_replace(
+                moved = Value._cash_replace(
                     receipt, cash_value.voucher_id, replacer, slice_amount
                 )
-                if row:
-                    remaining = currency.round(remaining - row.amount)
+                remaining = currency.round(remaining - moved)
             if (
                 replacer.document_type == "seller_commission"
                 and currency.compare_amounts(remaining, 0.0) != 0
@@ -645,87 +634,108 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _reverse_cash_replacement(self):
-        """Give back the cash this deposit or commission replaced.
+        """Give back the cash these deposits or commissions replaced.
 
-        Nets the ledger per (receipt, cash voucher) and moves each net slice
-        from this voucher's value back to the cash voucher through
-        ``_cash_reverse``, which writes the reverse rows. A slice goes back on
-        the receipt it was taken from first; what the board moved elsewhere
-        comes back from any receipt this voucher still funds. Money the board
-        returned to the unassigned pool sits on no receipt, so no value can
-        move: its share is reversed in the ledger alone and the cash voucher
-        holds it as free money instead. Issued receipts are never touched.
-        Afterwards ``replaced_amount`` of the cash nets to zero for what could
-        be given back, and a later approval replaces again from scratch.
+        No ledger is kept: the cash a replacing voucher took is its
+        ``replacing_amount``, booked on the cash vouchers as their
+        ``replaced_amount``. The undo works from the current receipt values:
+        each value the voucher holds on a receipt that is not issued moves
+        back to cash vouchers of the sheet that still have replaced cash,
+        first the cash already on that receipt, then the receipt customer's
+        cash, oldest upload first. Money the board returned to the unassigned
+        pool sits on no receipt, so its share is given back on the counters
+        alone and the cash holds it as free money. Issued receipts are never
+        touched, so what they hold stays replaced. Afterwards a later approval
+        replaces again from scratch.
+
+        Every path that leaves ``validated_collections`` for a deposit or a
+        commission (a new proof, a commission resync) calls this.
         """
+        for voucher in self.sorted("id"):
+            voucher._reverse_one_cash_replacement()
+
+    @api.private
+    def _reverse_one_cash_replacement(self):
         self.ensure_one()
         if self.document_type not in CASH_REPLACEMENT_TYPES:
             return
         currency = self.currency_id
+        owed = currency.round(self.replacing_amount or 0.0)
+        if currency.compare_amounts(owed, 0.0) <= 0:
+            return
         # Read before any slice moves: what this voucher holds on no receipt.
         unplaced = currency.round(
             (self.amount or 0.0) - sum(self.receipt_value_ids.mapped("amount"))
         )
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", self.id)], order="id"
-        )
-        owed = {}
-        for row in rows:
-            sign = 1.0 if row.direction == "replace" else -1.0
-            key = (row.receipt_id, row.cash_voucher_id)
-            owed[key] = owed.get(key, 0.0) + sign * (row.amount or 0.0)
-        pending = {}
-        origin = {}
-        for (receipt, cash), net in owed.items():
-            net = currency.round(net)
-            if currency.compare_amounts(net, 0.0) <= 0:
+        Value = self.env["collection.receipt.value"]
+        for value in self.receipt_value_ids.sorted("id"):
+            receipt = value.receipt_id
+            if receipt.state == "issued":
                 continue
-            left = currency.round(net - self._reverse_cash_onto(receipt, cash, net))
-            if currency.compare_amounts(left, 0.0) > 0:
-                pending[cash] = currency.round(pending.get(cash, 0.0) + left)
-                origin.setdefault(cash, receipt)
-        for cash, left in pending.items():
-            for value in self.receipt_value_ids.sorted("id"):
+            held = currency.round(value.amount or 0.0)
+            for cash in self._replaced_cash_by_preference(receipt):
+                left = min(owed, held, cash.replaced_amount or 0.0)
                 if currency.compare_amounts(left, 0.0) <= 0:
+                    continue
+                moved = Value._cash_reverse(receipt, cash, self, left)
+                owed = currency.round(owed - moved)
+                held = currency.round(held - moved)
+                if currency.compare_amounts(min(owed, held), 0.0) <= 0:
                     break
-                moved = self._reverse_cash_onto(value.receipt_id, cash, left)
-                left = currency.round(left - moved)
-            unreturned = currency.round(min(left, unplaced))
-            if currency.compare_amounts(unreturned, 0.0) > 0:
-                self._reverse_unplaced_cash(origin[cash], cash, unreturned)
-                unplaced = currency.round(unplaced - unreturned)
+            if currency.compare_amounts(owed, 0.0) <= 0:
+                return
+        unreturned = currency.round(min(owed, unplaced))
+        for cash in self._replaced_cash_by_preference():
+            if currency.compare_amounts(unreturned, 0.0) <= 0:
+                break
+            share = currency.round(min(unreturned, cash.replaced_amount or 0.0))
+            self._book_replaced_cash(cash, -share)
+            unreturned = currency.round(unreturned - share)
 
     @api.private
-    def _reverse_unplaced_cash(self, receipt, cash, amount):
-        """Ledger-only reverse row for a share the board left in the pool."""
+    def _replaced_cash_by_preference(self, receipt=None):
+        """Cash vouchers of this sheet with replaced cash, in give-back order.
+
+        Cash already on ``receipt`` first, then the receipt customer's cash,
+        then the rest; oldest upload first within each group.
+        """
         self.ensure_one()
+        cash = self.sheet_id.voucher_ids.filtered(
+            lambda voucher: voucher.document_type == "cash"
+            and voucher.currency_id.compare_amounts(voucher.replaced_amount, 0.0) > 0
+        )
+        on_receipt = receipt.value_ids.voucher_id if receipt else self.browse()
+        partner = receipt.allocation_id.partner_id if receipt else False
+        epoch = fields.Datetime.from_string("1970-01-01 00:00:00")
+        return cash.sorted(
+            key=lambda voucher: (
+                voucher not in on_receipt,
+                not partner or voucher.partner_id != partner,
+                voucher.create_date or epoch,
+                voucher.id,
+            )
+        )
+
+    @api.private
+    def _book_replaced_cash(self, cash, amount):
+        """Book ``amount`` of ``cash`` as replaced by this voucher (< 0 gives back)."""
+        self.ensure_one()
+        currency = self.currency_id
         with privileged("collection_cash_replacement"):
-            return self.env["collection.cash.replacement"].create(
+            cash.write(
                 {
-                    "receipt_id": receipt.id,
-                    "cash_voucher_id": cash.id,
-                    "deposit_voucher_id": self.id,
-                    "amount": amount,
-                    "direction": "reverse",
-                    "created_by": self.env.user.id,
-                    "created_at": fields.Datetime.now(),
+                    "replaced_amount": currency.round(
+                        (cash.replaced_amount or 0.0) + amount
+                    )
                 }
             )
-
-    @api.private
-    def _reverse_cash_onto(self, receipt, cash, amount):
-        """Move up to ``amount`` of this voucher's value on ``receipt`` to cash."""
-        self.ensure_one()
-        if receipt.state == "issued":
-            return 0.0
-        value = receipt.value_ids.filtered(lambda row: row.voucher_id == self)[:1]
-        if not value:
-            return 0.0
-        slice_amount = min(amount, value.amount or 0.0)
-        row = self.env["collection.receipt.value"]._cash_reverse(
-            receipt, cash, self, slice_amount
-        )
-        return row.amount if row else 0.0
+            self.write(
+                {
+                    "replacing_amount": currency.round(
+                        (self.replacing_amount or 0.0) + amount
+                    )
+                }
+            )
 
     @api.private
     def _resync_seller_commission(self, amount):
@@ -733,7 +743,7 @@ class CollectionVoucher(models.Model):
 
         Returns whether the voucher changed. The old replacement is reversed
         first, so the amount never sits below the values it holds; zero leaves
-        a void voucher that still anchors its immutable replacement rows.
+        a void voucher at zero.
         """
         self.ensure_one()
         currency = self.currency_id
@@ -903,17 +913,16 @@ class CollectionVoucher(models.Model):
 
     @api.private
     def _is_void_seller_commission(self):
-        """A commission set to zero after it replaced cash (see Declare Cash).
+        """A minted commission set to zero by a zero declaration (Declare Cash).
 
-        Its replacement rows cannot be deleted, so the voucher stays at zero
-        to anchor them. A commission that never replaced anything has no such
-        reason and still needs a positive amount.
+        Confirm mints a commission straight into ``validated_collections`` and
+        never at zero, so only a resync can bring it there. Any other
+        commission still needs a positive amount.
         """
         self.ensure_one()
-        return self.document_type == "seller_commission" and bool(
-            self.env["collection.cash.replacement"].search_count(
-                [("deposit_voucher_id", "=", self.id)], limit=1
-            )
+        return (
+            self.document_type == "seller_commission"
+            and self.state == "validated_collections"
         )
 
     @api.constrains(
@@ -974,24 +983,13 @@ class CollectionVoucher(models.Model):
 
     @api.constrains("sheet_id")
     def _check_receipt_rows_on_sheet(self):
-        """Receipt values and cash replacements MUST keep their voucher's sheet.
+        """Receipt values MUST keep their voucher's sheet.
 
         Mirrors ``collection.receipt.value._check_same_allocation``, which
         only runs when a value row is written.
         """
-        rows = self.env["collection.cash.replacement"].search(
-            [
-                "|",
-                ("cash_voucher_id", "in", self.ids),
-                ("deposit_voucher_id", "in", self.ids),
-            ]
-        )
         for voucher in self:
             sheets = voucher.receipt_value_ids.receipt_id.sheet_id
-            sheets |= rows.filtered(
-                lambda row, current=voucher: current
-                in (row.cash_voucher_id | row.deposit_voucher_id)
-            ).sheet_id
             if sheets and sheets != voucher.sheet_id:
                 raise ValidationError(
                     _(
@@ -1581,7 +1579,6 @@ class CollectionVoucher(models.Model):
                     "reviewed_at": fields.Datetime.now(),
                 }
             )
-        self._append_review_snapshot("approved")
 
     @api.private
     def _editable_review_vals(self, vals):
@@ -1593,27 +1590,6 @@ class CollectionVoucher(models.Model):
             for name in self._REVIEW_EDITABLE_FIELD_ORDER
             if name in vals
         }
-
-    @api.private
-    def _append_review_snapshot(self, decision):
-        Snapshot = self.env["collection.voucher.review.snapshot"]
-        for voucher in self:
-            last = Snapshot.search(
-                [("voucher_id", "=", voucher.id)],
-                order="revision desc",
-                limit=1,
-            )
-            payload = {
-                "voucher_id": voucher.id,
-                "revision": (last.revision or 0) + 1,
-                "reviewer_id": voucher.reviewed_by.id,
-                "reviewed_at": voucher.reviewed_at,
-                "decision": decision,
-            }
-            for name in self._REVIEW_EDITABLE_FIELDS:
-                payload[name] = voucher[name]
-            with privileged("collection_review_snapshot"):
-                Snapshot.create(payload)
 
     @api.private
     def _lock_and_ensure_review_eligible(self):

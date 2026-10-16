@@ -127,7 +127,6 @@ class TestCollectionConsistency(TransactionCase):
         models_ = (
             "collection.voucher",
             "collection.receipt.value",
-            "collection.cash.replacement",
             "collection.connector.seller.binding",
             "collection.connector.customer.binding",
         )
@@ -138,8 +137,6 @@ class TestCollectionConsistency(TransactionCase):
             ("collection.voucher", "sheet_id"),
             ("collection.voucher", "allocation_id"),
             ("collection.receipt.value", "voucher_id"),
-            ("collection.cash.replacement", "cash_voucher_id"),
-            ("collection.cash.replacement", "deposit_voucher_id"),
         )
         for name, field in checked:
             with self.subTest(model=name, field=field):

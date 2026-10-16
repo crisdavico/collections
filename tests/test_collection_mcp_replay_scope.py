@@ -116,7 +116,6 @@ class TestCollectionMcpReplayScope(TransactionCase):
                 "collection.voucher",
                 "collection.allocation",
                 "collection.allocation.line",
-                "collection.allocation.revision",
                 "collection.receipt",
             )
         }

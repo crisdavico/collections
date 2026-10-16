@@ -827,13 +827,8 @@ class TestCollectionSheet(TransactionCase):
         self.assertRegex(commission.document_id, r"^sc-[0-9a-f]{32}$")
         self.assertEqual(commission.seller_id, sheet.seller_id)
         self.assertEqual(commission.sheet_id, sheet)
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", commission.id)]
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows.direction, "replace")
-        self.assertAlmostEqual(rows.amount, 300.0, places=2)
-        self.assertEqual(rows.cash_voucher_id, cash)
+        self.assertAlmostEqual(commission.replacing_amount, 300.0, places=2)
+        self.assertAlmostEqual(cash.replaced_amount, 300.0, places=2)
         self.assertAlmostEqual(cash_value.amount, 100.0, places=2)
         commission_value = receipt.value_ids.filtered(
             lambda value: value.voucher_id == commission
@@ -875,11 +870,7 @@ class TestCollectionSheet(TransactionCase):
             sheet.action_confirm()
         self.assertEqual(sheet.state, "submitted")
         self.assertFalse(self._commission_vouchers(sheet))
-        self.assertFalse(
-            self.env["collection.cash.replacement"].search(
-                [("sheet_id", "=", sheet.id)]
-            )
-        )
+        self.assertFalse(sheet.voucher_ids.filtered("replaced_amount"))
 
     def test_undeclared_cash_gate_refused_confirm_mints_nothing(self):
         """The Declare Cash gate MUST mint nothing and leave submitted."""
@@ -898,29 +889,26 @@ class TestCollectionSheet(TransactionCase):
         self.assertFalse(self._commission_vouchers(sheet))
 
     def test_reconfirm_after_reinstate_mints_no_second_commission(self):
-        """Confirm → Cancel → Reinstate → Confirm MUST keep one voucher and row."""
+        """Confirm → Cancel → Reinstate → Confirm MUST keep one voucher and swap."""
         sheet = self._create_sheet()
         self._enable_seller_commission_type()
-        cash, _allocation, _receipt, _cash_value = self._funded_cash_on_sheet(
+        cash, _allocation, _receipt, cash_value = self._funded_cash_on_sheet(
             sheet, amount=400.0, customer="CUST-SC-MINT-RECONF"
         )
         self._submit_declared_cash(sheet, cash, 300.0)
         sheet.action_confirm()
         commission = self._commission_vouchers(sheet)
         self.assertEqual(len(commission), 1)
-        Replacement = self.env["collection.cash.replacement"]
-        first_rows = Replacement.search([("deposit_voucher_id", "=", commission.id)])
-        self.assertEqual(len(first_rows), 1)
-        first_ids = first_rows.ids
+        self.assertAlmostEqual(cash.replaced_amount, 300.0, places=2)
         sheet.action_cancel()
         sheet.action_reinstate()
         self.assertEqual(sheet.state, "submitted")
         sheet.action_confirm()
         self.assertEqual(sheet.state, "proposal")
         self.assertEqual(self._commission_vouchers(sheet), commission)
-        leftover = Replacement.search([("deposit_voucher_id", "=", commission.id)])
-        self.assertEqual(leftover.ids, first_ids)
-        self.assertFalse(leftover.filtered(lambda row: row.direction == "reverse"))
+        self.assertAlmostEqual(cash.replaced_amount, 300.0, places=2)
+        self.assertAlmostEqual(commission.replacing_amount, 300.0, places=2)
+        self.assertAlmostEqual(cash_value.amount, 100.0, places=2)
 
     def test_disabled_seller_confirm_still_mints_commission(self):
         """Confirm MUST still mint after the seller leaves enabled_seller_ids."""

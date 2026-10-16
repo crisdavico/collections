@@ -9,7 +9,7 @@ from typing import Any
 
 from psycopg2.errors import UniqueViolation
 
-from odoo import _, api, fields, models
+from odoo import _, api, models
 from odoo.exceptions import UserError
 from odoo.fields import Command
 from odoo.tools import SQL
@@ -27,6 +27,12 @@ from odoo.addons.collection.tools.collection_voucher import (
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 
 _DOCUMENT_KINDS = ("invoice", "quotation")
+
+
+class _CollectionRequestTaken(Exception):
+    """The locked allocation already recorded this request_id."""
+
+
 _RECEIPT_KEYS = frozenset({"document_kind", "values", "applications"})
 _RECEIPT_VALUE_KEYS = frozenset({"document_id", "amount"})
 _RECEIPT_APPLICATION_KEYS = frozenset(
@@ -199,7 +205,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                 payments,
                 payment_vals_list,
             )
-        except UniqueViolation:
+        except (UniqueViolation, _CollectionRequestTaken):
             self.env.invalidate_all()
             replayed = self._collection_allocation_classify_request(
                 request_key, document_ids, seller, receipt_rows, identification
@@ -577,10 +583,26 @@ class CollectionAllocationMixin(models.AbstractModel):
     @api.model
     @api.private
     def _collection_allocation_by_request_id(self, request_id: str):
-        """Return the revision matching ``request_id``, if visible."""
-        return self.env["collection.allocation.revision"].search(
-            [("request_id", "=", request_id)], limit=1
+        """Return the visible allocation that recorded ``request_id``, if any.
+
+        The allocation's own ``request_id`` is the last request that wrote it;
+        earlier requests of an amended allocation live in its ``request_log``.
+        """
+        Allocation = self.env["collection.allocation"]
+        allocation = Allocation.search([("request_id", "=", request_id)], limit=1)
+        if allocation:
+            return allocation
+        Allocation.flush_model(["request_log"])
+        self.env.cr.execute(
+            SQL(
+                "SELECT id FROM collection_allocation WHERE request_log ? %s",
+                request_id,
+            )
         )
+        ids = [row[0] for row in self.env.cr.fetchall()]
+        if not ids:
+            return Allocation
+        return Allocation.search([("id", "in", ids)], limit=1)
 
     @api.model
     @api.private
@@ -595,30 +617,31 @@ class CollectionAllocationMixin(models.AbstractModel):
         """Return the replay payload, raise the generic conflict, or None if new.
 
         A request_id replays only for the seller that wrote it and only with
-        the same content: the same voucher set and receipts (the revision's
-        content hash) for the same customer. Anything else is the generic
-        conflict, so a request_id never reveals another seller's allocation.
+        the same content: the same voucher set and receipts (the content hash
+        that request recorded) for the same customer. Anything else is the
+        generic conflict, so a request_id never reveals another seller's
+        allocation.
         """
-        revision = self._collection_allocation_by_request_id(request_id)
-        if not revision:
+        allocation = self._collection_allocation_by_request_id(request_id)
+        if not allocation:
             return None
-        allocation = revision.allocation_id
+        recorded = (allocation.request_log or {}).get(request_id) or {}
         if (
-            revision.company_id != self.env.company
+            allocation.company_id != self.env.company
             or allocation.sheet_id.seller_id != seller
         ):
             raise self._collection_allocation_conflict_error()
         vouchers = self._collection_vouchers_by_document_ids(document_ids)
         if (
             len(vouchers) != len(document_ids)
-            or revision.content_hash
+            or recorded.get("content_hash")
             != self._collection_allocation_content_hash(vouchers, receipt_rows)
             or not self._collection_identification_names(
                 identification, allocation.partner_id
             )
         ):
             raise self._collection_allocation_conflict_error()
-        return self._collection_allocation_payload(allocation, revision, document_ids)
+        return self._collection_allocation_payload(allocation, recorded, document_ids)
 
     @api.model
     @api.private
@@ -637,9 +660,13 @@ class CollectionAllocationMixin(models.AbstractModel):
     @api.model
     @api.private
     def _collection_allocation_payload(
-        self, allocation, revision, document_ids: list[str]
+        self, allocation, recorded: dict[str, Any], document_ids: list[str]
     ) -> dict[str, Any]:
-        """Build the MCP allocation response with sheet_id and ordered vouchers."""
+        """Build the MCP allocation response with sheet_id and ordered vouchers.
+
+        ``recorded`` is the request's ``request_log`` entry: the revision it
+        made and the totals it answered with.
+        """
         found = self._collection_vouchers_by_document_ids(document_ids)
         voucher_payload = self._collection_vouchers_payload(found, document_ids)
         return {
@@ -649,10 +676,10 @@ class CollectionAllocationMixin(models.AbstractModel):
                 "id": allocation.id,
                 "name": allocation.name,
                 "state": allocation.state,
-                "revision": int(revision.revision),
-                "total_vouchers": revision.total_vouchers,
-                "total_applied": revision.total_applied,
-                "residual": revision.residual,
+                "revision": int(recorded["revision"]),
+                "total_vouchers": recorded["total_vouchers"],
+                "total_applied": recorded["total_applied"],
+                "residual": recorded["residual"],
             },
         }
 
@@ -905,27 +932,35 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_allocation_insert_revision(
+    def _collection_allocation_record_request(
         self, allocation, request_id: str, content_hash: str
-    ):
-        """Append an immutable revision snapshot for the current header."""
-        with privileged("collection_allocation_revision"):
-            return self.env["collection.allocation.revision"].create(
+    ) -> dict[str, Any]:
+        """Record what ``request_id`` wrote on the allocation; return the entry.
+
+        The entry keeps the revision and the totals this request answers with,
+        so a replay of it (even after a later amend) answers the same.
+        """
+        recorded = {
+            "revision": allocation.revision,
+            "content_hash": content_hash,
+            "total_vouchers": allocation.total_vouchers,
+            "total_applied": allocation.total_applied,
+            "residual": allocation.residual,
+        }
+        with privileged("collection_allocation_request"):
+            allocation.write(
                 {
-                    "allocation_id": allocation.id,
-                    "revision": allocation.revision,
                     "request_id": request_id,
                     "content_hash": content_hash,
-                    "confirmed_by": self.env.user.id,
-                    "confirmed_at": fields.Datetime.now(),
-                    "total_vouchers": allocation.total_vouchers,
-                    "total_applied": allocation.total_applied,
-                    "total_debt": allocation.total_debt,
-                    "total_invoices": allocation.total_invoices,
-                    "total_quotations": allocation.total_quotations,
-                    "residual": allocation.residual,
+                    "request_log": {
+                        **(allocation.request_log or {}),
+                        request_id: recorded,
+                    },
                 }
             )
+            # UNIQUE(request_id) must fire here, inside the caller's savepoint.
+            allocation.flush_recordset(["request_id"])
+        return recorded
 
     @api.model
     @api.private
@@ -1011,6 +1046,10 @@ class CollectionAllocationMixin(models.AbstractModel):
                 if existing.state != "draft":
                     raise UserError(_("Only draft allocations can be amended."))
                 self._collection_lock_allocation_row(existing)
+                if request_id in (existing.request_log or {}):
+                    # A concurrent call with this request_id got here first:
+                    # roll back and answer as its replay (or the conflict).
+                    raise _CollectionRequestTaken()
                 current_ids = set(existing.voucher_ids.ids)
                 if not current_ids <= set(vouchers.ids):
                     raise UserError(
@@ -1022,9 +1061,9 @@ class CollectionAllocationMixin(models.AbstractModel):
             content_hash = self._collection_allocation_content_hash(
                 vouchers, receipt_rows
             )
-            if existing:
-                last = existing.revision_ids.sorted("revision")[-1:]
-                if last and last.content_hash == content_hash:
+            if existing and existing.content_hash == content_hash:
+                last = (existing.request_log or {}).get(existing.request_id)
+                if last:
                     return self._collection_allocation_payload(
                         existing, last, document_ids
                     )
@@ -1051,13 +1090,13 @@ class CollectionAllocationMixin(models.AbstractModel):
                         "line_ids": line_commands,
                     }
                 )
-            revision = self._collection_allocation_insert_revision(
+            recorded = self._collection_allocation_record_request(
                 allocation, request_id, content_hash
             )
             self._collection_allocation_rebuild_receipts(
                 allocation, vouchers, receipt_rows
             )
-        return self._collection_allocation_payload(allocation, revision, document_ids)
+        return self._collection_allocation_payload(allocation, recorded, document_ids)
 
     @api.model
     @api.private

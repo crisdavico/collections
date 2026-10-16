@@ -266,11 +266,11 @@ class TestCollectionCompanyMigration(TransactionCase):
         )
         self.assertEqual(connector.read(fields), before)
 
-    def test_manifest_version_is_1_54_0(self):
+    def test_manifest_version_is_1_55_0(self):
         module_root = Path(__file__).resolve().parents[1]
         manifest = module_root / "__manifest__.py"
         manifest_text = manifest.read_text(encoding="utf-8")
-        self.assertIn('"version": "19.0.1.54.0"', manifest_text)
+        self.assertIn('"version": "19.0.1.55.0"', manifest_text)
         self.assertNotIn('"version": "19.0.1.47.0"', manifest_text)
         for leftover in (
             "19.0.1.26.0",
@@ -445,7 +445,7 @@ class TestCollectionCompanyMigration(TransactionCase):
         agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Module metadata `19.0.1.54.0`", agents)
+        self.assertIn("Module metadata `19.0.1.55.0`", agents)
         self.assertNotIn("Module metadata `19.0.1.47.0`", agents)
         self.assertIn("`migrations/19.0.1.33.0/`", agents)
         self.assertIn("`migrations/19.0.1.43.0/`", agents)
@@ -1011,27 +1011,14 @@ class TestCollectionCompanyMigration(TransactionCase):
             ("collection_voucher", "document_type"),
             ("collection_voucher", "ocr_document_type"),
             ("collection_voucher", "seller_document_type"),
-            ("collection_voucher_review_snapshot", "document_type"),
         )
         for table, column in cases:
             with self.subTest(table=table, column=column):
                 with self.env.cr.savepoint(flush=False) as savepoint:
-                    if table == "collection_voucher":
-                        self.env.cr.execute(
-                            f"UPDATE {table} SET {column} = 'unsupported' "
-                            "WHERE id = %s",
-                            [voucher.id],
-                        )
-                    else:
-                        self.env.cr.execute(
-                            """
-                            INSERT INTO collection_voucher_review_snapshot
-                                (voucher_id, revision, reviewer_id, company_id,
-                                 decision, reviewed_at, document_type)
-                            VALUES (%s, 1, %s, %s, 'approved', now(), 'unsupported')
-                            """,
-                            [voucher.id, self.env.uid, voucher.company_id.id],
-                        )
+                    self.env.cr.execute(
+                        f"UPDATE {table} SET {column} = 'unsupported' WHERE id = %s",
+                        [voucher.id],
+                    )
                     with self.assertRaises(UserError) as caught:
                         module.migrate(self.env.cr, "19.0.1.50.0")
                     self.assertIn(f"{table}.{column}", str(caught.exception))

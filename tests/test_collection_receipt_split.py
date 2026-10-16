@@ -547,4 +547,4 @@ class TestCollectionReceiptSplit(TransactionCase):
         allocation = self.env["collection.allocation"].browse(
             second["allocation"]["id"]
         )
-        self.assertEqual(len(allocation.revision_ids), 2)
+        self.assertEqual(allocation.revision, 2)
