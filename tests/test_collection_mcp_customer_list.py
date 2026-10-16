@@ -24,6 +24,48 @@ _LEAK_TOKENS = (
     "/tmp",
     "/home",
 )
+SEARCH_CUSTOMERS = (
+    {
+        "id": "cust-search-a",
+        "seller_id": "ext-bound",
+        "name": "González Hnos. S.R.L.",
+        "identification": "30-71234567-8",
+        "customer_code": "NS0160",
+        "active": 1,
+    },
+    {
+        "id": "cust-search-b",
+        "seller_id": "ext-bound",
+        "name": "Gonzalo Pérez",
+        "identification": "20-28765432-1",
+        "customer_code": "NS0161",
+        "active": 1,
+    },
+    {
+        "id": "cust-search-c",
+        "seller_id": "ext-bound",
+        "name": "Distribuidora del Sur SA",
+        "identification": "30-70000001-5",
+        "customer_code": "AB0900",
+        "active": 1,
+    },
+    {
+        "id": "cust-search-inactive",
+        "seller_id": "ext-bound",
+        "name": "Inactive Gonzalez",
+        "identification": "20-66666666-6",
+        "customer_code": "NS0999",
+        "active": 0,
+    },
+    {
+        "id": "cust-search-other",
+        "seller_id": "ext-unbound",
+        "name": "Unbound Gonzalez",
+        "identification": "20-77777777-7",
+        "customer_code": "NS0777",
+        "active": 1,
+    },
+)
 
 
 class TestCollectionMcpCustomerList(TransactionCase):
@@ -289,6 +331,147 @@ class TestCollectionMcpCustomerList(TransactionCase):
             ["cust-bound-active"],
         )
         self.assertNotEqual(other_connector.id, self.connector.id)
+
+    def _search(self, query, rows=SEARCH_CUSTOMERS):
+        """Run the tool with ``query`` over ``rows`` for the bound seller."""
+        self.env = self.env(
+            context=dict(self.env.context, collection_test_customers=rows)
+        )
+        return self._call({"seller_id": self.seller.id, "query": query})
+
+    @staticmethod
+    def _found(result):
+        return [(row["customer_code"], row["match"]) for row in result["customers"]]
+
+    def test_query_is_an_optional_string_argument(self):
+        """The schema MUST offer an optional string ``query``."""
+        by_name = {
+            entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
+        }
+        schema = by_name[TOOL_NAME]["inputSchema"]
+        self.assertEqual(schema["required"], ["seller_id"])
+        self.assertEqual(schema["properties"]["query"]["type"], "string")
+
+    def test_query_by_cuit_with_or_without_hyphens(self):
+        """A full CUIT MUST select its customer as an exact match."""
+        for query in ("30-71234567-8", "30712345678", " 30712345678 "):
+            with self.subTest(query=query):
+                result = self._search(query)
+                self.assertEqual(self._found(result), [("NS0160", "exact")])
+                self.assertEqual(result["total_matches"], 1)
+                self.assertFalse(result["truncated"])
+
+    def test_query_by_partial_cuit(self):
+        """Part of the CUIT digits MUST select the customer as a partial match."""
+        result = self._search("71234567")
+        self.assertEqual(self._found(result), [("NS0160", "partial")])
+
+    def test_query_by_customer_code_ignores_case(self):
+        """A full code, any case, MUST select its customer as an exact match."""
+        for query in ("NS0160", "ns0160"):
+            with self.subTest(query=query):
+                self.assertEqual(
+                    self._found(self._search(query)), [("NS0160", "exact")]
+                )
+
+    def test_query_by_numeric_tail_of_the_code(self):
+        """The numeric part of a code MUST select it as an exact match."""
+        self.assertEqual(self._found(self._search("0160")), [("NS0160", "exact")])
+        self.assertEqual(self._found(self._search("900")), [("AB0900", "exact")])
+
+    def test_query_by_partial_customer_code(self):
+        """Part of a code MUST select every customer whose code contains it."""
+        result = self._search("ns01")
+        self.assertEqual(
+            self._found(result), [("NS0160", "partial"), ("NS0161", "partial")]
+        )
+
+    def test_query_by_partial_name_ignores_case_accents_and_punctuation(self):
+        """Every word of the query MUST appear in the name, accents ignored."""
+        self.assertEqual(
+            self._found(self._search("gonz")),
+            [("NS0160", "partial"), ("NS0161", "partial")],
+        )
+        self.assertEqual(
+            self._found(self._search("GONZALEZ srl")), [("NS0160", "partial")]
+        )
+        self.assertEqual(self._found(self._search("perez")), [("NS0161", "partial")])
+
+    def test_query_with_a_typo_falls_back_to_similar_names(self):
+        """With no exact or partial match, close names MUST be suggested."""
+        result = self._search("gonzales hnos")
+        self.assertEqual(self._found(result), [("NS0160", "similar")])
+
+    def test_exact_matches_rank_before_partial_matches(self):
+        """Exact identifier matches MUST come first, whatever the name."""
+        rows = (
+            *SEARCH_CUSTOMERS,
+            {
+                "id": "cust-search-longer-code",
+                "seller_id": "ext-bound",
+                "name": "Aaa Partial Holder",
+                "identification": "20-44444444-4",
+                "customer_code": "NS01601",
+                "active": 1,
+            },
+        )
+        result = self._search("0160", rows=rows)
+        self.assertEqual(
+            self._found(result), [("NS0160", "exact"), ("NS01601", "partial")]
+        )
+
+    def test_query_without_matches_returns_no_customers(self):
+        """An unknown query MUST return an empty list, not every customer."""
+        result = self._search("zzzz")
+        self.assertEqual(
+            result, {"customers": [], "total_matches": 0, "truncated": False}
+        )
+
+    def test_query_results_are_capped(self):
+        """More than the cap MUST be cut and flagged as truncated."""
+        rows = tuple(
+            {
+                "id": f"cust-many-{index}",
+                "seller_id": "ext-bound",
+                "name": f"Many Customer {index:02d}",
+                "identification": f"20-5555{index:04d}-1",
+                "customer_code": f"MC{index:04d}",
+                "active": 1,
+            }
+            for index in range(12)
+        )
+        result = self._search("many", rows=rows)
+        self.assertEqual(len(result["customers"]), 10)
+        self.assertEqual(result["total_matches"], 12)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["customers"][0]["customer_code"], "MC0000")
+
+    def test_query_rows_keep_the_customer_fields(self):
+        """Matched rows MUST keep the list fields plus ``match``, no partner."""
+        before_partners = self.env["res.partner"].search_count([])
+        row = self._search("NS0160")["customers"][0]
+        self.assertEqual(
+            row,
+            {
+                "external_customer_id": "cust-search-a",
+                "name": "González Hnos. S.R.L.",
+                "identification": "30-71234567-8",
+                "customer_code": "NS0160",
+                "match": "exact",
+            },
+        )
+        self.assertEqual(self.env["res.partner"].search_count([]), before_partners)
+
+    def test_query_skips_inactive_and_other_seller_customers(self):
+        """The query MUST only search the seller's active customers."""
+        self.assertEqual(self._found(self._search("inactive")), [])
+        self.assertEqual(self._found(self._search("unbound")), [])
+
+    def test_blank_query_returns_the_full_list(self):
+        """A blank query MUST behave like no query."""
+        result = self._search("   ")
+        self.assertEqual(set(result), {"customers"})
+        self.assertEqual(len(result["customers"]), 3)
 
     def test_customer_list_source_omits_sudo(self):
         """tools/customer_list.py MUST NOT use sudo."""

@@ -94,15 +94,18 @@ is a generic conflict. Each payment may nest `raw_ocr` and `seller_confirmed` (t
 review fields; both omitted leaves empty provenance). MCP `get_seller_id` resolves
 `{seller_id}` from a WhatsApp/mobile among the company's enabled sellers. MCP
 `list_collection_customers` and `customer_debt` MUST NOT create partners.
-`list_collection_customers` returns `{customers}`. `customer_debt` returns
-`{customer, summary, invoices, as_of}`: `as_of` says when the connector's copy of the
-ERP was taken, and a copy older than the connector allows is refused. The summary's
-`total_balance` is net of open credit notes (`gross_total`, `credit_total`,
-`net_total`), with `overdue_balance` and `open_balance`; invoice rows keep their gross
-`balance` and add `allocatable_balance`, with summary `total_allocatable_balance`,
-`open_allocatable_balance`, and `overdue_allocatable_balance` (gross minus the
-reservations described above, clamped at zero). MCP `get_collection_sheet_pdf` takes
-only `seller_id` and returns the seller's open (else submitted) Planilla de Cobranza as
+`list_collection_customers` returns `{customers}`; with an optional `query` (a name,
+CUIT, or customer code, whole or in part) it returns at most 10 matches as
+`{customers, total_matches, truncated}`, each tagged `match` `exact`, `partial`, or
+`similar`. `customer_debt` returns `{customer, summary, invoices, as_of}`: `as_of` says
+when the connector's copy of the ERP was taken, and a copy older than the connector
+allows is refused. The summary's `total_balance` is net of open credit notes
+(`gross_total`, `credit_total`, `net_total`), with `overdue_balance` and `open_balance`;
+invoice rows keep their gross `balance` and add `allocatable_balance`, with summary
+`total_allocatable_balance`, `open_allocatable_balance`, and
+`overdue_allocatable_balance` (gross minus the reservations described above, clamped at
+zero). MCP `get_collection_sheet_pdf` takes only `seller_id` and returns the seller's
+open (else submitted) Planilla de Cobranza as
 `{sheet, filename, mimetype, content_base64}`, or `{sheet: null}` when there is neither.
 Every tool requires a Collections User caller and can be bound to a trusted seller
 header (see Configure).
