@@ -21,6 +21,37 @@ PDF_B64 = "JVBERi0xLjEKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK"
 TXT_B64 = "aGVsbG8gd29ybGQ="
 INVALID_B64 = "!!!not-base64!!!"
 
+
+def voucher_file(name="voucher.png"):
+    """Return a valid PNG attachment nest for an MCP payment or deposit."""
+    return {"name": name, "mimetype": "image/png", "datas": PNG_B64}
+
+
+def with_voucher_files(arguments):
+    """Return MCP arguments whose non-cash payments carry a voucher file.
+
+    MCP writes need a file for every new non-cash payment. Tests that do not
+    exercise attachments get a valid PNG; a payment that sets ``attachment``
+    (even to an empty value) keeps it, so attachment tests stay explicit.
+    """
+    payments = arguments.get("payments")
+    if not isinstance(payments, list):
+        return dict(arguments)
+    filled = []
+    for payment in payments:
+        confirmed = (
+            payment.get("seller_confirmed") if isinstance(payment, dict) else None
+        )
+        if (
+            isinstance(confirmed, dict)
+            and "attachment" not in payment
+            and confirmed.get("document_type") != "cash"
+        ):
+            payment = {**payment, "attachment": voucher_file()}
+        filled.append(payment)
+    return {**arguments, "payments": filled}
+
+
 COLLECTION_USER_GROUP = "collection.group_collection_user"
 COLLECTION_MANAGER_GROUP = "collection.group_collection_manager"
 

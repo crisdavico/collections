@@ -36,9 +36,15 @@ _CREATE_SELLER_DEPOSIT_SCHEMA = {
             "type": "string",
             "description": "ISO date",
         },
-        "attachment": _ATTACHMENT_NEST_SCHEMA,
+        "attachment": {
+            **_ATTACHMENT_NEST_SCHEMA,
+            "description": (
+                "File of the deposit slip (required). "
+                "Required keys: name, mimetype, datas."
+            ),
+        },
     },
-    "required": ["seller_id", "amount", "voucher_number", "voucher_date"],
+    "required": ["seller_id", "amount", "voucher_number", "voucher_date", "attachment"],
 }
 
 
@@ -97,9 +103,9 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
             ) from err
         if self.env.company.currency_id.compare_amounts(parsed_amount, 0.0) <= 0:
             raise UserError(_("amount must be greater than zero."))
-        sidecar = None
-        if attachment not in _OMIT_VALUES:
-            sidecar = self._collection_parse_attachment_nest(attachment, 0)
+        if attachment in _OMIT_VALUES:
+            raise UserError(_("A seller deposit needs the file of its deposit slip."))
+        sidecar = self._collection_parse_attachment_nest(attachment, 0)
         seller = self._collection_mcp_seller(seller_id)
         self.env.company._assert_new_work(seller, "seller_deposit")
         Sheet = self.env["collection.sheet"]

@@ -523,17 +523,18 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
     sellers MAY still declare. No `sudo()`, no `sheet_id`, no report bytes.
   - Method-discovered `@mcp_tool` `create_seller_deposit` (`category=write`,
     `registry=mcp`) in `tools/collection_seller_deposit.py`. Required integer
-    `seller_id`, `amount`, `voucher_number`, `voucher_date` (ISO); optional nested
-    `attachment`. MUST NOT accept `customer_identification` or `sheet_id`. Internal
-    caller; `_assert_new_work(seller, "seller_deposit")`, lock,
-    `_submitted_sheets_for_seller` (MUST NOT `_open_sheets_for_seller`),
-    `check_access("write")`. Mints `sd-<uuid4 hex>`; stamps sentinel +
-    `validated_seller` + explicit `sheet_id`. MUST NOT write `validated_collections`:
-    the slip is designated proof, so the deposit enters `get_review_queue` and only
-    Document Review Approve promotes it (and runs cash replacement). Success
-    `{sheet:{...}, voucher:{id,name,state,document_id}}` with sheet `submitted`. 0 or
-    `>1` submitted → `UserError`. Non-Collections-User caller → `AccessError`. Do
-    **not** add `seller_deposit` to allocation `_DOCUMENT_TYPES`. No `sudo()`.
+    `seller_id`, `amount`, `voucher_number`, `voucher_date` (ISO) and nested
+    `attachment` (the deposit slip; refused without it). MUST NOT accept
+    `customer_identification` or `sheet_id`. Internal caller;
+    `_assert_new_work(seller, "seller_deposit")`, lock, `_submitted_sheets_for_seller`
+    (MUST NOT `_open_sheets_for_seller`), `check_access("write")`. Mints
+    `sd-<uuid4 hex>`; stamps sentinel + `validated_seller` + explicit `sheet_id`. MUST
+    NOT write `validated_collections`: the slip is designated proof, so the deposit
+    enters `get_review_queue` and only Document Review Approve promotes it (and runs
+    cash replacement). Success `{sheet:{...}, voucher:{id,name,state,document_id}}` with
+    sheet `submitted`. 0 or `>1` submitted → `UserError`. Non-Collections-User caller →
+    `AccessError`. Do **not** add `seller_deposit` to allocation `_DOCUMENT_TYPES`. No
+    `sudo()`.
   - Method-discovered `@mcp_tool` `list_collection_customers` (`category=read`,
     `registry=mcp`) in `tools/customer_list.py`. Required integer `seller_id` (internal
     `res.users` id). Collections User caller; the seller must be on
@@ -606,8 +607,9 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   - **Never** `sudo()` (except reading the trusted-header parameter); never add a DB
     `muk_mcp.tool` record for these tools.
   - Payment items omit `customer_identification`; helpers take top-level identification
-    and replicate it per payment. Optional nested `attachment` per payment (`name`,
-    `mimetype`, base64 `datas`); validate MIME vs content; create atomically inside the
+    and replicate it per payment. Nested `attachment` per payment (`name`, `mimetype`,
+    base64 `datas`), required for every new payment except `cash` (reused vouchers of an
+    amend are not re-checked); validate MIME vs content; create atomically inside the
     existing savepoint. Required nested `seller_confirmed` (typed
     `_REVIEW_EDITABLE_FIELDS`; nest `document_type` required; no
     `document_id`/attachment/base64). Optional nested `raw_ocr` (same nest shape).

@@ -17,6 +17,7 @@ from .common_connector import (
 from .test_collection_payment import (
     dummy_customer_partner,
     ensure_enabled_seller,
+    with_voucher_files,
 )
 
 TOOL_NAME = "create_collection_allocation"
@@ -147,7 +148,9 @@ class TestCollectionMcpAttachment(TransactionCase):
         env = mcp_env_with_listable_customers(
             self.env, echo_args, user, self.internal_user
         )
-        text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
+        text, _info = self.tool_model._call(
+            TOOL_NAME, with_voucher_files(arguments), env
+        )
         return json.loads(text)
 
     def _voucher_attachments(self, voucher):
@@ -244,17 +247,15 @@ class TestCollectionMcpAttachment(TransactionCase):
         self.assertEqual(self._voucher_attachments(voucher).datas, PDF_B64.encode())
 
     def test_create_omitting_nest_still_creates(self):
-        """Omit nest remains valid and creates a voucher without a file."""
+        """Omitting the nest MUST stay valid for cash (a voucher without a file)."""
         result = self._call(
             {
                 "payments": [
                     {
                         "customer_identification": "MCP-ATT-OMIT",
                         "document_id": "MCP-DOC-ATT-OMIT",
-                        "document_type": "check",
+                        "document_type": "cash",
                         "amount": 3.0,
-                        "check_number": "CHK-ATT-OMIT",
-                        "check_type": "common",
                     }
                 ],
             },
@@ -513,7 +514,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                     {
                         "customer_identification": "MCP-ATT-RETRY-EMPTY",
                         "document_id": "MCP-DOC-ATT-RETRY-EMPTY",
-                        "document_type": "cash_deposit",
+                        "document_type": "cash",
                         "amount": 4.0,
                     }
                 ],
@@ -529,7 +530,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                     {
                         "customer_identification": "MCP-ATT-RETRY-EMPTY",
                         "document_id": "MCP-DOC-ATT-RETRY-EMPTY",
-                        "document_type": "cash_deposit",
+                        "document_type": "cash",
                         "amount": 4.0,
                         "attachment": self._nest("late.png", "image/png", PNG_B64),
                     }
@@ -664,7 +665,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                     {
                         "customer_identification": "MCP-ATT-RETRY-ALL",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-B",
-                        "document_type": "cash_deposit",
+                        "document_type": "cash",
                         "amount": 2.0,
                     },
                 ],
@@ -688,7 +689,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                     {
                         "customer_identification": "MCP-ATT-RETRY-ALL",
                         "document_id": "MCP-DOC-ATT-RETRY-ALL-B",
-                        "document_type": "cash_deposit",
+                        "document_type": "cash",
                         "amount": 2.0,
                         "attachment": self._nest(
                             "late.pdf", "application/pdf", PDF_B64
@@ -714,7 +715,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                     {
                         "customer_identification": "MCP-ATT-UV",
                         "document_id": "MCP-DOC-ATT-UV",
-                        "document_type": "bank_transfer",
+                        "document_type": "cash",
                         "amount": 13.0,
                     }
                 ],
@@ -734,7 +735,7 @@ class TestCollectionMcpAttachment(TransactionCase):
                         {
                             "customer_identification": "MCP-ATT-UV",
                             "document_id": "MCP-DOC-ATT-UV",
-                            "document_type": "bank_transfer",
+                            "document_type": "cash",
                             "amount": 13.0,
                             "attachment": self._nest("race.png", "image/png", PNG_B64),
                         }
@@ -921,7 +922,9 @@ class TestCollectionMcpProvenance(TransactionCase):
         env = mcp_env_with_listable_customers(
             self.env, echo_args, user, self.internal_user
         )
-        text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
+        text, _info = self.tool_model._call(
+            TOOL_NAME, with_voucher_files(arguments), env
+        )
         return json.loads(text)
 
     def _voucher(self, result):
@@ -1637,7 +1640,11 @@ class TestCollectionMcpProvenance(TransactionCase):
                     {
                         "customer_identification": "MCP-PROV-NULL-DUMP",
                         "document_id": "MCP-DOC-PROV-NULL-DUMP",
-                        "attachment": None,
+                        "attachment": {
+                            "name": "null.png",
+                            "mimetype": "image/png",
+                            "datas": PNG_B64,
+                        },
                         "raw_ocr": None,
                         "seller_confirmed": dict(nest),
                     }

@@ -20,6 +20,7 @@ from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
+    with_voucher_files,
 )
 
 TOOL_NAME = "create_collection_allocation"
@@ -66,7 +67,9 @@ class TestCollectionMcpPartnerResolve(TransactionCase):
         env = mcp_env_with_listable_customers(
             self.env, echo_args, user, self.internal_user
         )
-        text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
+        text, _info = self.tool_model._call(
+            TOOL_NAME, with_voucher_files(arguments), env
+        )
         return json.loads(text)
 
     def _payload(self, customer, payments, **extra):

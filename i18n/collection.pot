@@ -53,6 +53,12 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/tools/collection_seller_deposit.py:0
+msgid "A seller deposit needs the file of its deposit slip."
+msgstr ""
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "A seller is required."
 msgstr ""
@@ -2643,6 +2649,14 @@ msgstr ""
 #: code:addons/collection/tools/collection_allocation.py:0
 #: code:addons/collection/tools/collection_voucher.py:0
 msgid "Payment at index %(index)s must be an object."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_allocation.py:0
+msgid ""
+"Payment at index %(index)s needs its voucher file; only cash payments may "
+"come without one."
 msgstr ""
 
 #. module: collection

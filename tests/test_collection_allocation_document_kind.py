@@ -26,6 +26,7 @@ from .test_collection_payment import (
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
+    with_voucher_files,
 )
 
 IDENT = "20-11111111-1"
@@ -176,7 +177,9 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
                 echoed.append(item)
             echo_args = {**arguments, "payments": echoed}
         env = mcp_env_with_listable_customers(self.env, echo_args, uid, uid)
-        text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
+        text, _info = self.tool_model._call(
+            TOOL_NAME, with_voucher_files(arguments), env
+        )
         return json.loads(text)
 
     def _mcp_get(self, user=None):

@@ -94,6 +94,7 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
             "amount": 80.5,
             "voucher_number": "SD-MCP-1",
             "voucher_date": "2026-09-08",
+            "attachment": self._proof(),
         }
         payload.update(extra)
         return payload
@@ -175,8 +176,8 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
             "create_seller_deposit must not have a DB muk_mcp.tool row",
         )
 
-    def test_input_schema_requires_seller_amount_number_date(self):
-        """Schema MUST require seller_id, amount, number, date; omit sheet_id."""
+    def test_input_schema_requires_seller_amount_number_date_and_file(self):
+        """Schema MUST require seller_id, amount, number, date, file; omit sheet_id."""
         by_name = {
             entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
         }
@@ -184,7 +185,7 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         self.assertEqual(schema["type"], "object")
         self.assertEqual(
             set(schema["required"]),
-            {"seller_id", "amount", "voucher_number", "voucher_date"},
+            {"seller_id", "amount", "voucher_number", "voucher_date", "attachment"},
         )
         self.assertEqual(
             set(schema["properties"]),
@@ -232,6 +233,18 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         self.assertFalse(voucher.reviewed_at)
         self.assertFalse(voucher.allocation_id)
         self.assertNotIn("content_base64", result)
+
+    def test_deposit_without_proof_is_refused_no_writes(self):
+        """A deposit MUST carry the file of its deposit slip."""
+        sheet = self._create_sheet()
+        sheet.action_seller_close()
+        before = self.env["collection.voucher"].search_count([])
+        args = self._args()
+        args.pop("attachment", None)
+        with self.assertRaises(UserError) as ctx:
+            self._call(args)
+        self.assertIn("deposit slip", str(ctx.exception))
+        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
 
     def test_optional_proof_becomes_designated_proof_awaiting_review(self):
         """Optional nested attachment MUST become reviewable designated proof."""

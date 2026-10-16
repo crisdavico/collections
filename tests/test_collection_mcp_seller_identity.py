@@ -16,7 +16,12 @@ from .common_connector import (
     mcp_env_with_listable_customers,
 )
 from .test_collection_acl import TestCollectionAcl
-from .test_collection_payment import create_internal_seller, ensure_enabled_seller
+from .test_collection_payment import (
+    create_internal_seller,
+    ensure_enabled_seller,
+    voucher_file,
+    with_voucher_files,
+)
 
 HEADER_PARAM = "collection.mcp_trusted_seller_header"
 HEADER_NAME = "X-Nebula-Sender"
@@ -50,6 +55,7 @@ def _tool_arguments(seller_id):
             "amount": 10.0,
             "voucher_number": "SD-IDENTITY-1",
             "voucher_date": "2026-09-01",
+            "attachment": voucher_file("slip.png"),
         },
         "create_collection_allocation": {
             **seller,
@@ -112,7 +118,9 @@ class TestCollectionMcpSellerIdentity(TransactionCase):
             f"{IDENTITY_MODULE}.request_header",
             side_effect=lambda name: headers.get(name, ""),
         ):
-            text, _info = self.tool_model._call(tool, dict(arguments), env)
+            text, _info = self.tool_model._call(
+                tool, with_voucher_files(arguments), env
+            )
         return json.loads(text)
 
     def _counts(self):

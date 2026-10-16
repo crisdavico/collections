@@ -56,6 +56,13 @@ msgstr "Un vínculo de vendedor pertenece a otra empresa."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/tools/collection_seller_deposit.py:0
+msgid "A seller deposit needs the file of its deposit slip."
+msgstr ""
+"Un depósito del vendedor necesita el archivo de su boleta de depósito."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "A seller is required."
 msgstr "Se requiere un vendedor."
@@ -2787,6 +2794,16 @@ msgstr "Pago en el índice %(index)s"
 #: code:addons/collection/tools/collection_voucher.py:0
 msgid "Payment at index %(index)s must be an object."
 msgstr "El pago en el índice %(index)s debe ser un objeto."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_allocation.py:0
+msgid ""
+"Payment at index %(index)s needs its voucher file; only cash payments may "
+"come without one."
+msgstr ""
+"El pago en el índice %(index)s necesita el archivo del comprobante; solo los"
+" pagos en efectivo pueden ir sin él."
 
 #. module: collection
 #. odoo-python
