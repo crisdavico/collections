@@ -67,7 +67,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 
 1. Keep edits **inside** `odoo/custom/src/crisdavico/collection/` unless `repos.yaml` /
    `addons.yaml` / Doodba deps must change. The parent image gets this repository
-   through git-aggregate, pinned to a commit in `odoo/custom/src/repos.yaml`.
+   through git-aggregate, which tracks `main` in `odoo/custom/src/repos.yaml`: every
+   image build takes the latest merged code, with no commit to bump.
 2. Prefer OpenSpec change flow when altering behavior (`openspec/config.yaml`:
    `strict_tdd: true`).
 3. After model/view/security/data changes: upgrade the module, then run tests.

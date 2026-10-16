@@ -39,7 +39,7 @@ through `collection_common.privileged()` scopes only.
 ## Install
 
 This repository is aggregated into the Seedian Doodba project by
-`odoo/custom/src/repos.yaml` (`./crisdavico/collection`, pinned to a commit). From the
+`odoo/custom/src/repos.yaml` (`./crisdavico/collection`, tracking `main`). From the
 Seedian repo root:
 
 ```bash
