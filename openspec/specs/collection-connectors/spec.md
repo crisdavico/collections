@@ -185,9 +185,10 @@ Import case.)
 
 The system MUST expose `list_collection_customers` via `@mcp_tool` on `muk_mcp.mixin`
 (`category=read`, `registry=mcp`), method-discovered; MUST NOT add a DB `muk_mcp.tool`
-record. Input MUST require integer `seller_id` (an internal `res.users` id). Calls MUST
-use the authenticated user and MUST NOT `sudo()`. Success MUST return
-`{customers: [...]}` with no `source` and no `partner_id`. The tool MUST NOT create
+record. Input MUST require integer `seller_id` (an internal `res.users` id) and MAY take
+an optional string `query` (see Customer search). Calls MUST use the authenticated user
+and MUST NOT `sudo()`. Success without a `query` MUST return `{customers: [...]}` with
+no `source` and no `partner_id`. The tool MUST NOT create
 `res.partner` records or customer bindings. Payload keys and values MUST remain
 byte-identical to the prior contract. (Previously: Success forbade partner create as a
 global customer rule, without stating the payload stays without `partner_id`.)
@@ -263,6 +264,49 @@ and binding creates.)
 - THEN the payload MUST include that customer and MUST NOT include `source` or
   `partner_id`
 - AND MUST NOT create partners or customer bindings
+
+### Requirement: Customer search
+
+`list_collection_customers` MUST accept an optional string `query`: a customer name,
+CUIT, or customer code, whole or in part. A blank `query` MUST behave as no `query`. A
+non-blank `query` MUST search only the active customers the list would return and MUST
+return `{customers, total_matches, truncated}`, where each customer keeps the list
+fields plus `match`:
+
+- `exact`: the CUIT (with or without hyphens), the customer code (case and leading
+  zeros ignored), or the numeric tail of the code, as `customer_debt` accepts them.
+- `partial`: every query word appears in the name, or the query appears in the customer
+  code or in the CUIT digits. Case, accents, and punctuation MUST be ignored.
+- `similar`: only when nothing is `exact` or `partial`, every query word is close to a
+  word of the name, so a misspelt name still finds the customer.
+
+Results MUST be ordered `exact`, then `partial`, then `similar` (closest first), then by
+name, and MUST be capped at 10 rows; `total_matches` counts every match and `truncated`
+says whether rows were cut. A query nothing matches MUST return no customers. The search
+MUST NOT create partners or customer bindings.
+
+#### Scenario: Search by CUIT, code, or part of them
+
+- GIVEN active customers `González Hnos. S.R.L.` (`30-71234567-8`, `NS0160`) and
+  `Gonzalo Pérez` (`20-28765432-1`, `NS0161`) for the bound seller
+- WHEN `list_collection_customers` runs with `query` `30712345678`, `ns0160`, or `0160`
+- THEN only `NS0160` MUST come back, with `match` `exact`
+- AND with `query` `ns01` both MUST come back with `match` `partial`
+- AND with `query` `71234567` only `NS0160` MUST come back with `match` `partial`
+
+#### Scenario: Search by part of the name
+
+- GIVEN the same customers
+- WHEN `list_collection_customers` runs with `query` `gonz`
+- THEN both MUST come back with `match` `partial`
+- AND with `query` `GONZALEZ srl` only `NS0160` MUST come back
+- AND with `query` `gonzales hnos` only `NS0160` MUST come back with `match` `similar`
+
+#### Scenario: Capped results
+
+- GIVEN 12 active customers whose names contain `many`
+- WHEN `list_collection_customers` runs with `query` `many`
+- THEN 10 customers MUST come back with `total_matches` 12 and `truncated` true
 
 ### Requirement: Read-only MCP tool customer_debt
 

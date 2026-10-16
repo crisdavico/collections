@@ -5,9 +5,15 @@
 
 Callers still require exactly one seller-scoped row. This predicate is true
 for every row the query could mean, including an ambiguous numeric tail.
+``search_customers`` ranks the rows a looser query (part of a name, code or
+CUIT) may mean, so the agent can ask the seller to pick one.
 """
 
 from __future__ import annotations
+
+import difflib
+import re
+import unicodedata
 
 
 def trim_code(value: object) -> str:
@@ -72,3 +78,76 @@ def matches_customer_query(
         if suffix and trim_code(suffix) == trim_code(text):
             return True
     return False
+
+
+CUSTOMER_SEARCH_LIMIT = 10
+_SIMILAR_RATIO = 0.8
+
+
+def _fold(value: object) -> str:
+    """Lowercase words without accents; dots join (``S.R.L.`` is ``srl``)."""
+    if value in (None, False):
+        return ""
+    text = unicodedata.normalize("NFKD", str(value))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = text.casefold().replace(".", "")
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", text).split())
+
+
+def _is_partial_match(customer: dict, words: list[str]) -> bool:
+    """Every word is inside the name, or the query is inside the code or CUIT."""
+    name = _fold(customer.get("name"))
+    if all(word in name for word in words):
+        return True
+    compact = "".join(words)
+    if compact in _fold(customer.get("customer_code")).replace(" ", ""):
+        return True
+    identification = _fold(customer.get("identification")).replace(" ", "")
+    return compact.isdigit() and compact in identification
+
+
+def _similarity(customer: dict, words: list[str]) -> float:
+    """How close the furthest query word is to its nearest name word."""
+    names = _fold(customer.get("name")).split()
+    if not names:
+        return 0.0
+    return min(
+        max(difflib.SequenceMatcher(None, word, name).ratio() for name in names)
+        for word in words
+    )
+
+
+def search_customers(
+    customers: list[dict], query: object, limit: int = CUSTOMER_SEARCH_LIMIT
+) -> dict:
+    """Return the customers ``query`` may mean, best first.
+
+    ``exact`` is a CUIT, code, or numeric code tail (``matches_customer_query``).
+    ``partial`` has every query word inside the name, or the query inside the
+    code or the CUIT digits; case, accents and punctuation are ignored.
+    ``similar`` is only tried when nothing else matched: every query word is
+    close to a name word, so a typo still finds the customer. Each row gains
+    ``match``; at most ``limit`` rows come back, with ``total_matches`` and
+    ``truncated``.
+    """
+    words = _fold(query).split()
+    ranked = []
+    for customer in customers:
+        if matches_customer_query(
+            customer.get("identification"), customer.get("customer_code"), query
+        ):
+            ranked.append((0, 0.0, customer, "exact"))
+        elif words and _is_partial_match(customer, words):
+            ranked.append((1, 0.0, customer, "partial"))
+    if not ranked and words:
+        for customer in customers:
+            score = _similarity(customer, words)
+            if score >= _SIMILAR_RATIO:
+                ranked.append((2, -score, customer, "similar"))
+    ranked.sort(key=lambda item: (item[0], item[1], _fold(item[2].get("name"))))
+    matches = [{**customer, "match": kind} for _tier, _score, customer, kind in ranked]
+    return {
+        "customers": matches[:limit],
+        "total_matches": len(matches),
+        "truncated": len(matches) > limit,
+    }
