@@ -238,7 +238,7 @@ def _provenance_nest_schema() -> dict[str, Any]:
 _ATTACHMENT_NEST_SCHEMA = {
     "type": "object",
     "description": (
-        "Optional proof file for this payment. "
+        "Proof file for this payment, required unless document_type is cash. "
         "Required keys when present: name, mimetype, datas."
     ),
     "properties": {

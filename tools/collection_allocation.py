@@ -959,6 +959,18 @@ class CollectionAllocationMixin(models.AbstractModel):
             new_payments = [payments[index] for index in new_indexes]
             new_vals_list = [payment_vals_list[index] for index in new_indexes]
             sidecars = self._collection_parse_payment_attachments(new_payments)
+            for index, sidecar in zip(new_indexes, sidecars, strict=True):
+                if (
+                    sidecar is None
+                    and payment_vals_list[index]["document_type"] != "cash"
+                ):
+                    raise UserError(
+                        _(
+                            "Payment at index %(index)s needs its voucher file; "
+                            "only cash payments may come without one.",
+                            index=index,
+                        )
+                    )
             provenances = self._collection_parse_payment_provenance(
                 new_payments, new_vals_list
             )

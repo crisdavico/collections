@@ -93,10 +93,12 @@ Cross-company document_id reject not replay.)
 - WHEN saved
 - THEN the voucher MUST persist
 
-### Requirement: MCP optional payment attachment on create
+### Requirement: MCP payment attachment on create
 
-`create_collection_allocation` MAY accept one optional nested attachment per payment
-with required `name`, `mimetype`, and base64 `datas` when present. Declared `mimetype`
+`create_collection_allocation` MUST receive one nested attachment for every new payment
+whose `document_type` is not `cash`, and MUST otherwise raise `UserError` naming the
+payment index with no writes; cash MAY omit it. Reused vouchers of an amend MUST NOT be
+re-checked. The nest has required `name`, `mimetype`, and base64 `datas`. Declared `mimetype`
 MUST match content detection (`image/*` or PDF only); `image/jpg` MUST be treated as
 equivalent to `image/jpeg` (case-insensitive) when comparing declared vs detected MIME.
 Mismatch or bad base64 MUST raise `UserError` with no writes. Explicit JSON `null`,
@@ -1535,7 +1537,7 @@ queue. Before that: No MCP path could create a no-customer remittance voucher.)
 
 - GIVEN a Collections User caller and an internal seller with exactly one `submitted`
   sheet
-- WHEN `create_seller_deposit` runs with amount, number, date, and optional proof
+- WHEN `create_seller_deposit` runs with amount, number, date, and the deposit slip file
 - THEN one `seller_deposit` voucher MUST persist on that sheet
 - AND `partner_id` MUST be the sentinel
 - AND `state` MUST be `validated_seller`

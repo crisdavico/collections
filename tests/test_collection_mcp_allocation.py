@@ -25,9 +25,11 @@ from .common_connector import (
 )
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
+    PNG_B64,
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
+    with_voucher_files,
 )
 
 TOOL_NAME = "create_collection_allocation"
@@ -329,7 +331,9 @@ class TestCollectionMcpAllocation(TransactionCase):
         env = mcp_env_with_listable_customers(self.env, echo_args, uid, uid)
         if context:
             env = env(context={**env.context, **context})
-        text, _info = self.tool_model._call(TOOL_NAME, arguments, env)
+        text, _info = self.tool_model._call(
+            TOOL_NAME, with_voucher_files(arguments), env
+        )
         return json.loads(text)
 
     def _counts(self):
@@ -825,6 +829,54 @@ class TestCollectionMcpAllocation(TransactionCase):
             {first_payment["document_id"], new_payment["document_id"]},
         )
         self.assertEqual(allocation.total_vouchers, 150.0)
+
+    def test_new_non_cash_payment_without_file_refused_no_writes(self):
+        """A new non-cash payment without its voucher file MUST be refused."""
+        before = self._counts()
+        err = self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    [self._payment(100.0, attachment=None)],
+                    [self._applied(INVOICE_OVERDUE, 100.0)],
+                    request_id="req-no-file",
+                )
+            ),
+            before,
+        )
+        self.assertIn("file", str(err))
+        self.assertIn("index 0", str(err))
+
+    def test_new_cash_payment_without_file_is_accepted(self):
+        """A cash payment MUST NOT need a voucher file."""
+        payment = self._payment(100.0, document_type="cash")
+        payment["seller_confirmed"] = {"document_type": "cash", "amount": 100.0}
+        result = self._call(
+            self._payload(
+                [payment],
+                [self._applied(INVOICE_OVERDUE, 100.0)],
+                request_id="req-cash-no-file",
+            )
+        )
+        self.assertEqual(result["allocation"]["revision"], 1)
+
+    def test_reused_voucher_without_file_still_amends(self):
+        """An amend MUST NOT re-check files of the seller's existing vouchers."""
+        existing = self._create_vouchers([100.0])
+        new_payment = self._payment(
+            50.0,
+            attachment={"name": "v.png", "mimetype": "image/png", "datas": PNG_B64},
+        )
+        result = self._call(
+            self._payload(
+                self._payments_from_vouchers(existing) + [new_payment],
+                [
+                    self._applied(INVOICE_OVERDUE, 100.0),
+                    self._applied(INVOICE_OPEN, 50.0),
+                ],
+                request_id="req-reuse-no-file",
+            )
+        )
+        self.assertEqual(result["allocation"]["total_vouchers"], 150.0)
 
     def test_partial_overlap_with_changed_fields_conflicts_no_writes(self):
         """Partial overlap whose existing payment changed fields MUST conflict."""
