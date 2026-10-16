@@ -2298,11 +2298,6 @@ msgid "Monto"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Motivo del Remanente"
-msgstr ""
-
-#. module: collection
 #. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "Multiple Odoo users share the same seller phone."

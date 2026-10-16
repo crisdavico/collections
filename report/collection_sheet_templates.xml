@@ -81,9 +81,8 @@
                         white-space: nowrap;
                     }
                     .o_cs_customers th:nth-child(1), .o_cs_customers td:nth-child(1) { width: 7%; }
-                    .o_cs_customers th:nth-child(2), .o_cs_customers td:nth-child(2) { width: 21%; }
-                    .o_cs_customers th:nth-child(n+3), .o_cs_customers td:nth-child(n+3) { width: 15%; }
-                    .o_cs_customers th:nth-child(7), .o_cs_customers td:nth-child(7) { width: 12%; }
+                    .o_cs_customers th:nth-child(2), .o_cs_customers td:nth-child(2) { width: 25%; }
+                    .o_cs_customers th:nth-child(n+3), .o_cs_customers td:nth-child(n+3) { width: 17%; }
                     .o_cs_docs th:nth-child(1), .o_cs_docs td:nth-child(1) { width: 7%; }
                     .o_cs_docs th:nth-child(2), .o_cs_docs td:nth-child(2) { width: 20%; }
                     .o_cs_docs th:nth-child(3), .o_cs_docs td:nth-child(3) { width: 16%; }
@@ -257,7 +256,6 @@
                                 <th class="o_cs_num">Cobrado</th>
                                 <th class="o_cs_num">Aplicado</th>
                                 <th class="o_cs_num">Remanente</th>
-                                <th>Motivo del Remanente</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -276,7 +274,6 @@
                                 <td class="o_cs_num">
                                     <span t-out="row['residual']" t-options="money" />
                                 </td>
-                                <td t-out="row['residual_reason']" />
                             </tr>
                             <tr class="o_cs_customers_total o_cs_total">
                                 <td colspan="2">Total</td>
@@ -304,7 +301,6 @@
                     t-options="money"
                   />
                                 </td>
-                                <td />
                             </tr>
                         </tbody>
                     </table>

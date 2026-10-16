@@ -1075,6 +1075,28 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIn("el cliente depositó en la cuenta de la empresa", note)
         self.assertIn("el vendedor depositó en el banco el efectivo cobrado", note)
 
+    def test_xlsx_clientes_has_no_motivo_column(self):
+        """Clientes MUST end at Remanente: no Motivo del Remanente column."""
+        sheet, _partner = self._populated_sheet()
+        content, _payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        self.assertIsNone(self._cell_with_value(worksheet, "Motivo del Remanente"))
+        saldo = self._cell_with_value(worksheet, "Saldo Total")
+        header = [worksheet.cell(saldo.row, col).value for col in range(1, 9)]
+        self.assertEqual(
+            header,
+            [
+                "Código",
+                "Cliente",
+                "Saldo Total",
+                "Cobrado",
+                "Aplicado",
+                "Remanente",
+                None,
+                None,
+            ],
+        )
+
     def test_xlsx_flat_sheets_are_filterable_tables(self):
         """Documentos and Comprobantes MUST be one-row-per-line tables, no merges."""
         partner = dummy_customer_partner(self.env, customer="Flat Sheets SA")

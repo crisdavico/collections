@@ -577,7 +577,6 @@ class TestCollectionSheetReportData(TransactionCase):
         )
         self.assertEqual(payload["customers"][0]["applied"], allocation.total_applied)
         self.assertEqual(payload["customers"][0]["residual"], allocation.residual)
-        self.assertEqual(payload["customers"][0]["residual_reason"], "")
         self.assertEqual(payload["customer_totals"]["debt"], allocation.total_debt)
         self.assertEqual(
             payload["customer_totals"]["collected"], allocation.total_vouchers
@@ -586,20 +585,8 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertIs(payload["sheet"], sheet)
         self.assertEqual(payload["currency"], sheet.currency_id)
 
-    def test_payload_residual_reason_is_empty_without_field_read(self):
-        """Report MUST emit residual_reason '' without reading the dropped field."""
-        allocation, _voucher, sheet, _partner = self._balanced(amount=80.0)
-        payload = sheet._collection_report_data()
-        self.assertEqual(payload["customers"][0]["residual_reason"], "")
-        self.assertNotIn("residual_reason", allocation._fields)
-        source = inspect.getsource(type(sheet)._collection_report_customers)
-        self.assertNotIn('_fields["residual_reason"]', source)
-        self.assertNotIn("_fields['residual_reason']", source)
-        self.assertNotIn("allocation.residual_reason", source)
-        self.assertIn('"residual_reason": ""', source)
-
-    def test_payload_residual_reason_empty_for_each_customer(self):
-        """Every customer row MUST carry residual_reason as empty string."""
+    def test_payload_customer_rows_carry_no_residual_reason(self):
+        """Customer rows MUST NOT carry residual_reason: the field was dropped."""
         sheet = self._create_sheet()
         first_partner = dummy_customer_partner(self.env, customer="RPT-REASON-A")
         second_partner = dummy_customer_partner(self.env, customer="RPT-REASON-B")
@@ -619,8 +606,8 @@ class TestCollectionSheetReportData(TransactionCase):
         )
         payload = sheet._collection_report_data()
         self.assertEqual(len(payload["customers"]), 2)
-        reasons = [row["residual_reason"] for row in payload["customers"]]
-        self.assertEqual(reasons, ["", ""])
+        for row in payload["customers"]:
+            self.assertNotIn("residual_reason", row)
 
     def test_open_sheet_prints_drafts(self):
         """Open-sheet payload MUST include draft allocations and mixed vouchers."""

@@ -363,7 +363,6 @@ class TestCollectionSheetReport(TransactionCase):
             "% Comisión Vendedor",
             "Cantidad de Clientes",
             "Cantidad de Comprobantes",
-            "Motivo del Remanente",
             "Documento",
             "Vencimiento",
             "Fecha de Emisión",
@@ -381,7 +380,8 @@ class TestCollectionSheetReport(TransactionCase):
                 self.assertIn(label, document.arch)
         for old in (
             "Comisión %",
-            "<th>Motivo</th>",
+            "Motivo",
+            "residual_reason",
             "<th>Número</th>",
             "Vto.",
             "<th>Emisión</th>",

@@ -561,7 +561,6 @@ def _write_customers(ws, fmt, payload, start):
             ("Cobrado", 3, 3),
             ("Aplicado", 4, 4),
             ("Remanente", 5, 5),
-            ("Motivo del Remanente", 6, 7),
         ),
     )
     for index, item in enumerate(rows):
@@ -601,14 +600,6 @@ def _write_customers(ws, fmt, payload, start):
             fmt["data_money"],
             item.get("residual") or 0.0,
         )
-        _merge(
-            ws,
-            row,
-            6,
-            7,
-            item.get("residual_reason") or "",
-            fmt["data"],
-        )
     _merge(ws, total_row, 0, 1, "Total", fmt["total"])
     _sum_or_zero(
         ws,
@@ -646,7 +637,6 @@ def _write_customers(ws, fmt, payload, start):
         fmt["total_money"],
         totals.get("residual") or 0.0,
     )
-    _merge(ws, total_row, 6, 7, "", fmt["total"])
     return next_row, _a1(total_row, 5)
 
 

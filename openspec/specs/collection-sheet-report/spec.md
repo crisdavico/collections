@@ -388,12 +388,16 @@ banner MUST NOT repeat below the Conciliación. "Resumen" MUST be split into **D
 Planilla** (Referencia, Estado, Vendedor, Desde, Hasta, Moneda, Cantidad de Clientes,
 Cantidad de Comprobantes, % Comisión Vendedor) and **Totales** (Total Cobrado, Total
 Aplicado, Remanente, Total Comisión Devengada). Both formats MUST use the same labels:
-Motivo del Remanente, Documento, Vencimiento, Fecha de Emisión, Fecha de Pago,
+Documento, Vencimiento, Fecha de Emisión, Fecha de Pago,
 Nº Comprobante, Conciliación del Vendedor, Composición de lo Rendido, (−) Comisión
 Retenida por el Vendedor, (=) Neto a Rendir, Total Rendido, (=) Diferencia, Depósitos de
 clientes, Depósitos del vendedor. Customer deposits MUST be explained as "el cliente
 depositó en la cuenta de la empresa" and seller deposits as "el vendedor depositó en el
 banco el efectivo cobrado" (PDF hint column; XLSX note row under the composition).
+
+Clientes MUST end at Remanente in both formats; customer rows MUST NOT carry
+`residual_reason` (the field was dropped in 19.0.1.32.0). (Previously: an always-empty
+Motivo / Motivo del Remanente column.)
 
 The PDF MUST print grand totals: a Clientes **Total** row, a **Total Aplicado** row after
 the Facturas/Presupuestos blocks (applied and commission), and a **Total Cobrado** row

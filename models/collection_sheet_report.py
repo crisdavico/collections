@@ -408,7 +408,6 @@ class CollectionSheetReport(models.Model):
                         "collected": allocation.total_vouchers or 0.0,
                         "applied": allocation.total_applied or 0.0,
                         "residual": allocation.residual or 0.0,
-                        "residual_reason": "",
                     },
                 )
             )
