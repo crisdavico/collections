@@ -636,10 +636,11 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
     writes.
   - Exact same-company `document_id` set of the **same seller** with the **same payment
     fields** (`seller_confirmed`) MUST reuse rows and continue to allocation (MUST NOT
-    voucher-only early-return). Partial overlap, other-company or other-seller hits and
-    changed payment fields stay generic conflict with no writes (never a raw
-    `KeyError`). Exact reuse MUST NOT add, replace, or compare attachments and MUST
-    ignore `raw_ocr` (no backfill).
+    voucher-only early-return). A partial overlap with the same seller's own unchanged
+    vouchers reuses them and creates only the new payments (how an amend adds a
+    payment). Other-company or other-seller hits and changed payment fields stay generic
+    conflict with no writes (never a raw `KeyError`). Exact reuse MUST NOT add, replace,
+    or compare attachments and MUST ignore `raw_ocr` (no backfill).
   - Handle `UniqueViolation` races with invalidate + classify (nests ignored). Hidden
     other-company / no same-company exact set → generic `UserError`
     `Payment document_id conflict could not be resolved.` (no ids). Keep global

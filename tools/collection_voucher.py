@@ -674,7 +674,7 @@ class CollectionMcpMixin(models.AbstractModel):
         seller,
         payment_vals_list: list[dict[str, Any]],
     ):
-        """Return replay payload, raise a conflict, or None if every row is new.
+        """Return replay payload, raise a conflict, or None if any row is new.
 
         A visible document_id replays only for the seller that owns it: other
         company and other seller are the same generic conflict, so the answer
@@ -698,25 +698,22 @@ class CollectionMcpMixin(models.AbstractModel):
         existing,
         document_ids: list[str],
         payment_vals_list: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Replay when every document_id exists with the same payment fields."""
-        if len(existing) != len(document_ids):
-            raise UserError(
-                _(
-                    "Partial document_id conflict: some payments already exist "
-                    "on another voucher."
-                )
-            )
-        # Exact set of existing document_ids succeeds even across vouchers.
+    ) -> dict[str, Any] | None:
+        """Replay when every document_id exists with the same payment fields.
+
+        Every existing document_id must keep the payment fields of its voucher.
+        When some document_ids are new (an amend that adds payments to the
+        seller's own vouchers), return None so the caller creates only those.
+        """
         # Customer identification, nested attachments and provenance nests are
         # ignored; the seller_confirmed fields must match each voucher.
         by_doc = {voucher.document_id: voucher for voucher in existing}
         for vals in payment_vals_list:
             voucher = by_doc.get(vals["document_id"])
-            if not voucher or not self._collection_voucher_matches_payment(
-                voucher, vals
-            ):
+            if voucher and not self._collection_voucher_matches_payment(voucher, vals):
                 raise self._collection_document_conflict_error()
+        if len(existing) != len(document_ids):
+            return None
         return self._collection_vouchers_payload(existing, document_ids)
 
     @api.model

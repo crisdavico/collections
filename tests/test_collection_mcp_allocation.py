@@ -792,10 +792,71 @@ class TestCollectionMcpAllocation(TransactionCase):
         )
         self.assertEqual(self._counts()["allocations"], before["allocations"] + 1)
 
-    def test_partial_overlap_conflict_no_writes(self):
-        """Partial same-company document_id overlap MUST generic-conflict."""
+    def test_amend_reuses_own_vouchers_and_creates_new_payments(self):
+        """Own existing vouchers plus new payments MUST amend, creating only the new."""
+        first_payment = self._payment(100.0)
+        first = self._call(
+            self._payload(
+                [first_payment],
+                [self._applied(INVOICE_OVERDUE, 100.0)],
+                request_id="req-reuse-1",
+            )
+        )
+        new_payment = self._payment(50.0)
+        before = self._counts()
+        second = self._call(
+            self._payload(
+                [first_payment, new_payment],
+                [
+                    self._applied(INVOICE_OVERDUE, 100.0),
+                    self._applied(INVOICE_OPEN, 50.0),
+                ],
+                request_id="req-reuse-2",
+            )
+        )
+        allocation = self.env["collection.allocation"].browse(
+            second["allocation"]["id"]
+        )
+        self.assertEqual(allocation.id, first["allocation"]["id"])
+        self.assertEqual(allocation.revision, 2)
+        self.assertEqual(self._counts()["vouchers"], before["vouchers"] + 1)
+        self.assertEqual(
+            set(allocation.voucher_ids.mapped("document_id")),
+            {first_payment["document_id"], new_payment["document_id"]},
+        )
+        self.assertEqual(allocation.total_vouchers, 150.0)
+
+    def test_partial_overlap_with_changed_fields_conflicts_no_writes(self):
+        """Partial overlap whose existing payment changed fields MUST conflict."""
         existing = self._create_vouchers([100.0])
-        payments = self._payments_from_vouchers(existing) + [self._payment(50.0)]
+        changed = self._payments_from_vouchers(existing)
+        changed[0]["seller_confirmed"]["amount"] = 90.0
+        payments = changed + [self._payment(50.0)]
+        before = self._counts()
+        err = self._assert_user_error_no_writes(
+            lambda: self._call(
+                self._payload(
+                    payments,
+                    [
+                        self._applied(INVOICE_OVERDUE, 90.0),
+                        self._applied(INVOICE_OPEN, 50.0),
+                    ],
+                    request_id="req-partial-changed",
+                )
+            ),
+            before,
+        )
+        self._assert_generic_conflict(err, existing)
+
+    def test_partial_overlap_with_other_sellers_voucher_conflicts_no_writes(self):
+        """Partial overlap with another seller's voucher MUST generic-conflict."""
+        other_seller = create_internal_seller(self.env, "collection_mcp_alloc_partial")
+        ensure_enabled_seller(self.env, other_seller)
+        other_sheet = self._create_sheet(seller=other_seller, force_new=True)
+        foreign = self._create_vouchers(
+            [100.0], sheet=other_sheet, seller=other_seller, prefix="ALLOC-PF"
+        )
+        payments = self._payments_from_vouchers(foreign) + [self._payment(50.0)]
         before = self._counts()
         err = self._assert_user_error_no_writes(
             lambda: self._call(
@@ -805,12 +866,12 @@ class TestCollectionMcpAllocation(TransactionCase):
                         self._applied(INVOICE_OVERDUE, 100.0),
                         self._applied(INVOICE_OPEN, 50.0),
                     ],
-                    request_id="req-partial",
+                    request_id="req-partial-foreign",
                 )
             ),
             before,
         )
-        self._assert_generic_conflict(err, existing)
+        self._assert_generic_conflict(err, foreign)
 
     def test_other_company_document_id_conflict(self):
         """Other-company document_id hit MUST generic-conflict with no writes."""
