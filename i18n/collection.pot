@@ -16,6 +16,11 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "% Comisión Vendedor"
+msgstr ""
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "%(count)s sellers imported and enabled."
@@ -30,6 +35,38 @@ msgstr ""
 #. module: collection
 #: model:ir.actions.report,print_report_name:collection.action_report_collection_sheet
 msgid "'Planilla de Cobranza - %s' % (object.name)"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "(=) Diferencia"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "(=) Neto a Rendir"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "(−) Comisión Retenida por el Vendedor"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid ") no coincide con el total de comprobantes de la planilla ("
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "). Diferencia:"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid ""
+"<span style=\"float: right;\">Página <span class=\"page\"/> de <span "
+"class=\"topage\"/></span>"
 msgstr ""
 
 #. module: collection
@@ -443,6 +480,11 @@ msgid "Archived"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Atención: lo cobrado según las asignaciones ("
+msgstr ""
+
+#. module: collection
 #: model:ir.model,name:collection.model_ir_attachment
 msgid "Attachment"
 msgstr ""
@@ -558,6 +600,16 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "Cannot reopen a decided voucher without replacing the attachment."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Cantidad de Clientes"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Cantidad de Comprobantes"
 msgstr ""
 
 #. module: collection
@@ -1011,11 +1063,6 @@ msgid "Comisión"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Comisión %"
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__commission_percent
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
@@ -1092,6 +1139,11 @@ msgid "Company bank accounts"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Composición de lo Rendido"
+msgstr ""
+
+#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Comprobante PDF"
@@ -1110,7 +1162,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Conciliación"
+msgid "Conciliación del Vendedor"
 msgstr ""
 
 #. module: collection
@@ -1397,6 +1449,11 @@ msgid "Date To"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Datos de la Planilla"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__debt_line_ids
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Debt"
@@ -1438,12 +1495,12 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Depósitos"
+msgid "Depósitos de clientes"
 msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Depósitos vendedor"
+msgid "Depósitos del vendedor"
 msgstr ""
 
 #. module: collection
@@ -1598,6 +1655,11 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid "Document types allowed for new collection work."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Documento"
 msgstr ""
 
 #. module: collection
@@ -1757,11 +1819,6 @@ msgid "Efectivo en Caja"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Emisión"
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid "Enable Document Review for this company"
 msgstr ""
@@ -1849,6 +1906,16 @@ msgid "Fecha"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Fecha de Emisión"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Fecha de Pago"
+msgstr ""
+
+#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Fecha de emisión"
@@ -1858,6 +1925,11 @@ msgstr ""
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Fecha de pago"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Firma del vendedor"
 msgstr ""
 
 #. module: collection
@@ -2226,11 +2298,6 @@ msgid "Monto"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Motivo"
-msgstr ""
-
-#. module: collection
 #. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "Multiple Odoo users share the same seller phone."
@@ -2374,12 +2441,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Nº Compr."
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Número"
+msgid "Nº Comprobante"
 msgstr ""
 
 #. module: collection
@@ -2570,11 +2632,6 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Outstanding balances classified as quotations."
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Pago"
 msgstr ""
 
 #. module: collection
@@ -2902,6 +2959,11 @@ msgid "Receipts of this sheet marked as entered in the ERP."
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Recibió — firma y aclaración"
+msgstr ""
+
+#. module: collection
 #: model:ir.model,name:collection.model_ir_rule
 msgid "Record Rule"
 msgstr ""
@@ -2936,7 +2998,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Rendido"
+msgid "Rendido − Neto a Rendir"
 msgstr ""
 
 #. module: collection
@@ -2980,17 +3042,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Resumen"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Retenciones"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Retenido"
 msgstr ""
 
 #. module: collection
@@ -3612,6 +3664,11 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Total"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Total Aplicado"
 msgstr ""
 
@@ -3629,7 +3686,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Total Comisión"
+msgid "Total Comisión Devengada"
 msgstr ""
 
 #. module: collection
@@ -3652,6 +3709,11 @@ msgid "Total Quotations"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Total Rendido"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__total_values
 msgid "Total Values"
 msgstr ""
@@ -3668,15 +3730,13 @@ msgid "Total Vouchers Applied"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid ""
-"Total cobrado (asignaciones) no coincide con los\n"
-"                        comprobantes impresos."
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
+msgid "Total debt minus total applied. May be negative."
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
-msgid "Total debt minus total applied. May be negative."
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Totales"
 msgstr ""
 
 #. module: collection
@@ -3790,6 +3850,11 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__value_ids
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_form
 msgid "Values"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Vencimiento"
 msgstr ""
 
 #. module: collection
@@ -3918,11 +3983,6 @@ msgid "Vouchers must share a single customer."
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Vto."
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,help:collection.field_collection_sheet__erp_entered_date
 msgid ""
 "When a manager marked this closed sheet's receipts as typed into the ERP. "
@@ -3984,6 +4044,11 @@ msgid "amount must be greater than zero."
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "certificados de retención del cliente"
+msgstr ""
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/tools/collection_voucher.py:0
 msgid ""
@@ -4035,10 +4100,46 @@ msgid "declare_collection_cash"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid ""
+"efectivo cobrado, menos lo que depositó el vendedor y la comisión retenida"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "el cliente depositó en la cuenta de la empresa"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "el vendedor depositó en el banco el efectivo cobrado"
+msgstr ""
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid ""
 "is still recorded on cash receipts. This does not block\n"
 "                        Confirm or Close."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "la que descuenta en el acto; 0 si se liquida aparte"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "lo que entregó; detalle abajo"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "lo que pagaron los clientes"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "lo que tenía que entregar a la empresa"
 msgstr ""
 
 #. module: collection
@@ -4115,4 +4216,9 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/tools/collection_seller_deposit.py:0
 msgid "voucher_number is required."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "· Impreso el"
 msgstr ""
