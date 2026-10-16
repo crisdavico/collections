@@ -534,7 +534,7 @@ class TestCollectionSheetXlsx(TransactionCase):
             self.assertIn(f"payload['tendered']['{key}']", arch, key)
         self.assertIn("Echeqs", arch)
         self.assertIn("Retenciones", arch)
-        self.assertIn("Depósitos vendedor", arch)
+        self.assertIn("Depósitos del vendedor", arch)
 
     def test_action_print_xlsx_act_url_and_attachment(self):
         """action_print_xlsx MUST return act_url download and one xlsx attachment."""

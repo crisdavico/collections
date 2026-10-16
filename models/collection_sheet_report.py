@@ -327,6 +327,7 @@ class CollectionSheetReport(models.Model):
             "tendered": tendered,
             "recon": recon,
             "mismatch": mismatch,
+            "allocated_collected": alloc_collected,
             "sheet": self,
             "currency": currency,
         }

@@ -47,6 +47,7 @@ PAYLOAD_KEYS = (
     "tendered",
     "recon",
     "mismatch",
+    "allocated_collected",
     "sheet",
     "currency",
     "currency_name",

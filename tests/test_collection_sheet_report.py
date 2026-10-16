@@ -227,7 +227,7 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertEqual(paper.orientation, "Portrait")
         self.assertEqual(paper.margin_top, 20)
         self.assertEqual(paper.header_spacing, 5)
-        self.assertEqual(paper.margin_bottom, 8)
+        self.assertEqual(paper.margin_bottom, 14)
         self.assertEqual(paper.margin_left, 6)
         self.assertEqual(paper.margin_right, 6)
         self.assertEqual(paper.dpi, 90)
@@ -337,17 +337,16 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertNotIn("web.external_layout", combined)
         self.assertNotIn("web.internal_layout", combined)
         self.assertNotIn("layout_document_title", combined)
-        self.assertNotIn("printed_on", combined)
-        self.assertNotIn("Impreso el", combined)
         self.assertIn('class="article"', document.arch)
         self.assertIn("web.html_container", wrapper.arch)
         self.assertNotIn("t-esc", combined)
         self.assertIn("t-out", combined)
-        self.assertIn("Resumen", document.arch)
+        self.assertIn("Datos de la Planilla", document.arch)
+        self.assertIn("Totales", document.arch)
         self.assertIn("Clientes", document.arch)
         self.assertIn("Documentos Aplicados", document.arch)
         self.assertIn("Comprobantes", document.arch)
-        self.assertIn("Conciliaci", document.arch)
+        self.assertIn("Conciliación del Vendedor", document.arch)
         self.assertIn("Moneda", document.arch)
         self.assertIn("Saldo Total", document.arch)
         self.assertIn("Saldo", document.arch)
@@ -355,20 +354,163 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn("o_cs_date", document.arch)
         self.assertIn("o_cs_title", document.arch)
         self.assertIn("table-layout: fixed", document.arch)
-        self.assertIn("Total Comisión", document.arch)
+        self.assertIn("Total Comisión Devengada", document.arch)
 
-    def test_html_has_title_but_no_company_header_or_printed_date(self):
-        """HTML MUST show the Planilla title, not the company header nor Impreso."""
+    def test_qweb_arch_uses_the_xlsx_vocabulary(self):
+        """PDF labels MUST match the XLSX names; the old short forms MUST go."""
+        document = self.env.ref(DOCUMENT_XMLID)
+        for label in (
+            "% Comisión Vendedor",
+            "Cantidad de Clientes",
+            "Cantidad de Comprobantes",
+            "Motivo del Remanente",
+            "Documento",
+            "Vencimiento",
+            "Fecha de Emisión",
+            "Fecha de Pago",
+            "Nº Comprobante",
+            "Composición de lo Rendido",
+            "(−) Comisión Retenida por el Vendedor",
+            "(=) Neto a Rendir",
+            "Total Rendido",
+            "(=) Diferencia",
+            "Depósitos de clientes",
+            "Depósitos del vendedor",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, document.arch)
+        for old in (
+            "Comisión %",
+            "<th>Motivo</th>",
+            "<th>Número</th>",
+            "Vto.",
+            "<th>Emisión</th>",
+            "<th>Pago</th>",
+            "Nº Compr.",
+            "<th>Retenido</th>",
+            "Depósitos vendedor",
+        ):
+            with self.subTest(old=old):
+                self.assertNotIn(old, document.arch)
+
+    def test_html_footer_has_printed_date_and_pages_but_no_company(self):
+        """Footer MUST show Impreso el and Página X de Y; never the company name."""
         sheet, _partner = self._populated_sheet()
+        payload = sheet._collection_report_data()
         html = self._render_html(sheet)
         self.assertIn("o_cs_title", html)
         self.assertIn(f"Planilla de Cobranza — {sheet.name}", html)
-        self.assertNotIn("Impreso el", html)
+        printed = payload["printed_on"].strftime("%d/%m/%Y")
+        self.assertIn(f"Impreso el {printed}", html)
+        self.assertIn('class="footer o_cs_footer"', html)
+        self.assertIn("Página", html)
+        self.assertIn('class="page"', html)
+        self.assertIn('class="topage"', html)
         company_name = sheet.company_id.name
         self.assertNotIn(company_name, html)
         self.assertNotIn(escape(company_name), html)
         self.assertNotIn('class="header"', html)
-        self.assertNotIn('class="footer', html)
+
+    def test_html_verdict_comes_before_the_detail(self):
+        """Neto a Rendir, Total Rendido, Diferencia and the banner MUST lead."""
+        sheet, _partner = self._populated_sheet()
+        payload = sheet._collection_report_data()
+        html = self._render_html(sheet)
+        verdict = html.index('class="o_cs_verdict"')
+        for label in ("Neto a Rendir", "Total Rendido", "Diferencia"):
+            with self.subTest(label=label):
+                self.assertLess(verdict, html.index(label, verdict))
+        banner = html.index(payload["recon"]["status_message"])
+        self.assertLess(verdict, banner)
+        self.assertLess(banner, html.index("Datos de la Planilla"))
+        self.assertLess(html.index("Datos de la Planilla"), html.index("Totales"))
+        self.assertLess(html.index("Totales"), html.index('class="o_cs_customers"'))
+
+    def test_html_has_grand_totals(self):
+        """Clientes total, Total Aplicado across kinds, and Total Cobrado MUST print."""
+        partner = dummy_customer_partner(self.env, customer="Grand Totals SA")
+        sheet = self._create_sheet(force_new=True)
+        transfer = self._create_voucher(partner, sheet, amount=111.25)
+        check = self._create_voucher(
+            partner,
+            sheet,
+            amount=222.5,
+            document_type="check",
+            check_number="CHK-GT",
+            check_type="common",
+            check_issue_date=date(2026, 3, 1),
+            check_payment_date=date(2026, 3, 1),
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=transfer | check,
+            lines=[
+                self._line_vals(amount_applied=300.0, invoice_balance=300.0),
+                self._line_vals(
+                    amount_applied=33.75,
+                    invoice_balance=40.0,
+                    document_kind="quotation",
+                ),
+            ],
+        )
+        payload = sheet._collection_report_data()
+        self.assertEqual(len(payload["document_blocks"]), 2)
+        self.assertEqual(len(payload["voucher_blocks"]), 2)
+        html = self._render_html(sheet)
+        # 333.75 is neither block subtotal: only a grand total prints it.
+        applied = html[html.index('class="o_cs_grand_applied') :]
+        self.assertIn("333.75", applied[: applied.index("</tr>")])
+        collected = html[html.index('class="o_cs_grand_collected') :]
+        self.assertIn("333.75", collected[: collected.index("</tr>")])
+        customers = html[html.index('class="o_cs_customers_total') :]
+        self.assertIn("340.00", customers[: customers.index("</tr>")])
+
+    def test_html_reconciliation_reads_as_a_calculation(self):
+        """Recon MUST read Cobrado, (−) Retenida, (=) Neto, Rendido, (=) Diferencia."""
+        sheet, _partner = self._populated_sheet()
+        html = self._render_html(sheet)
+        recon = html[html.index("Conciliación del Vendedor") :]
+        positions = [
+            recon.index(label)
+            for label in (
+                "Total Cobrado",
+                "(−) Comisión Retenida por el Vendedor",
+                "(=) Neto a Rendir",
+                "Total Rendido",
+                "(=) Diferencia",
+                "Composición de lo Rendido",
+            )
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("el cliente depositó en la cuenta de la empresa", recon)
+        self.assertIn("el vendedor depositó en el banco el efectivo cobrado", recon)
+
+    def test_html_has_signature_lines(self):
+        """The PDF MUST end with seller and receiver signature lines."""
+        sheet, _partner = self._populated_sheet()
+        html = self._render_html(sheet)
+        self.assertIn("Firma del vendedor", html)
+        self.assertIn("Recibió", html)
+        self.assertLess(
+            html.index("Conciliación del Vendedor"),
+            html.index('class="o_cs_signatures"'),
+        )
+
+    def test_html_mismatch_names_both_amounts_and_gap(self):
+        """Mismatch MUST print the allocated total, the voucher total and the gap."""
+        sheet, partner = self._populated_sheet(amount=100.0)
+        self._create_voucher(partner, sheet, amount=40.0)
+        payload = sheet._collection_report_data()
+        self.assertTrue(payload["mismatch"])
+        self.assertEqual(payload["allocated_collected"], 100.0)
+        self.assertEqual(payload["collected_total"], 140.0)
+        html = self._render_html(sheet)
+        warning = html[html.index('class="o_cs_mismatch"') :]
+        warning = warning[: warning.index("</div>")]
+        self.assertIn("100.00", warning)
+        self.assertIn("140.00", warning)
+        self.assertIn("40.00", warning)
 
     def test_html_prints_currency_saldo_and_comprobante_fields(self):
         """HTML MUST include Moneda, Facturas saldo, voucher/check numbers."""
