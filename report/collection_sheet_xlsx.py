@@ -28,6 +28,35 @@ WORKBOOK_OPTIONS = {"strings_to_formulas": False, "strings_to_urls": False}
 # holding the SUMIF wildcards * and ?).
 KEY_COL = len(COLUMN_WIDTHS)
 _KIND_TITLES = {"invoice": "Facturas", "quotation": "Presupuestos"}
+_KIND_LABELS = {"invoice": "Factura", "quotation": "Presupuesto"}
+# The verdict block opens the sheet right below the frozen header (rows 1-5).
+VERDICT_START = 6
+_DEPOSITS_NOTE = (
+    "Depósitos de clientes: el cliente depositó en la cuenta de la empresa. "
+    "Depósitos del vendedor: el vendedor depositó en el banco el efectivo cobrado."
+)
+# Flat sheets: one row per line, no merges, so they filter, sort and copy cleanly.
+_DOCUMENT_TABLE_COLUMNS = (
+    ("Código", 12, "data"),
+    ("Cliente", 36, "data"),
+    ("Tipo", 14, "data"),
+    ("Documento", 18, "data"),
+    ("Vencimiento", 13, "data_date"),
+    ("Saldo", 15, "data_money"),
+    ("Aplicado", 15, "data_money"),
+    ("Comisión", 15, "data_money"),
+)
+_VOUCHER_TABLE_COLUMNS = (
+    ("Código", 12, "data"),
+    ("Cliente", 36, "data"),
+    ("Medio de Pago", 22, "data"),
+    ("Fecha", 13, "data_date"),
+    ("Nº Comprobante", 20, "data"),
+    ("Banco", 20, "data"),
+    ("Tipo de Cheque", 15, "data"),
+    ("Fecha de Pago", 14, "data_date"),
+    ("Importe", 15, "data_money"),
+)
 _BANNER_FILL = {
     "balanced": ("#C6EFCE", "#006100"),
     "in_favor": ("#FFEB9C", "#9C6500"),
@@ -141,6 +170,34 @@ def _formats(workbook):
             align="right",
             border=1,
             border_color=NAVY,
+        ),
+        "verdict_label": fmt(
+            bold=True,
+            font_color=NAVY_DARK,
+            bg_color=HDR_BLUE,
+            align="center",
+            valign="vcenter",
+            border=1,
+            border_color="#8EA9DB",
+        ),
+        "verdict_value": fmt(
+            bold=True,
+            font_size=16,
+            font_color=NAVY_DARK,
+            num_format=MONEY_BIG,
+            align="center",
+            valign="vcenter",
+            border=1,
+            border_color="#8EA9DB",
+        ),
+        "mismatch": fmt(
+            bold=True,
+            font_color="#9C6500",
+            bg_color="#FFEB9C",
+            text_wrap=True,
+            valign="vcenter",
+            border=1,
+            border_color="#9C6500",
         ),
         "recon_label": fmt(bold=True, font_size=12, font_color=NAVY_DARK, **thin),
         "recon_hint": fmt(italic=True, font_size=9, font_color="#808080", **thin),
@@ -283,9 +340,35 @@ def _write_membrete(ws, fmt, payload):
     ws.set_row(1, 14)
     _merge(ws, 3, 0, 7, "", fmt["bar"])
     ws.set_row(2, 4)
-    _merge(ws, 4, 0, 7, "", fmt["muted"])
+    _merge(ws, 4, 0, 7, _seller_period(payload), fmt["muted"])
     ws.set_row(3, 14)
     ws.set_row(4, 8)
+
+
+def _seller_period(payload):
+    """Row 4 of the repeated print header: who and which dates."""
+    parts = []
+    if payload.get("seller_name"):
+        parts.append(f"Vendedor: {payload['seller_name']}")
+    if payload.get("date_from") or payload.get("date_to"):
+        period = f"{_text(payload.get('date_from'))} – {_text(payload.get('date_to'))}"
+        parts.append(f"Período: {period}")
+    return " · ".join(parts)
+
+
+def _money_text(amount):
+    return f"{amount or 0.0:,.2f}"
+
+
+def _mismatch_message(payload):
+    allocated = payload.get("allocated_collected") or 0.0
+    collected = payload.get("collected_total") or 0.0
+    return (
+        f"Atención: lo cobrado según las asignaciones ({_money_text(allocated)}) "
+        "no coincide con el total de comprobantes de la planilla "
+        f"({_money_text(collected)}). "
+        f"Diferencia: {_money_text(abs(collected - allocated))}."
+    )
 
 
 def _write_field_row(
@@ -311,14 +394,56 @@ def _write_headers(ws, fmt, row, cells):
     ws.set_row(row - 1, 26)
 
 
-def _write_resumen(
-    ws, fmt, payload, applied_ref, collected_ref, commission_refs, residual_ref
+def _verdict_rows(payload):
+    """Rows the verdict block takes: section, headers, values, banner, mismatch."""
+    return 5 if payload.get("mismatch") else 4
+
+
+def _write_verdict(ws, workbook, fmt, payload, refs):
+    """The answer first: what was due, what was handed in, and the banner."""
+    recon = payload.get("recon") or {}
+    _write_section(ws, fmt, VERDICT_START, "Resultado")
+    columns = ((0, 1), (2, 4), (5, 7))
+    labels = ("Neto a Rendir", "Total Rendido", "Diferencia")
+    keys = ("net_due", "tendered", "difference")
+    for (c1, c2), label in zip(columns, labels, strict=True):
+        _merge(ws, VERDICT_START + 1, c1, c2, label, fmt["verdict_label"])
+    for (c1, c2), key in zip(columns, keys, strict=True):
+        cached = recon.get(key) or 0.0
+        _merge_formula(
+            ws,
+            VERDICT_START + 2,
+            c1,
+            c2,
+            f"={refs[key]}",
+            fmt["verdict_value"],
+            cached,
+        )
+    ws.set_row(VERDICT_START, 18)
+    ws.set_row(VERDICT_START + 1, 28)
+    banner_row = VERDICT_START + 3
+    _merge(
+        ws,
+        banner_row,
+        0,
+        7,
+        recon.get("status_message") or "",
+        _banner_format(workbook, recon.get("status") or "balanced"),
+    )
+    ws.set_row(banner_row - 1, 30)
+    if payload.get("mismatch"):
+        _merge(ws, banner_row + 1, 0, 7, _mismatch_message(payload), fmt["mismatch"])
+        ws.set_row(banner_row, 32)
+
+
+def _write_datos(
+    ws, fmt, payload, start, applied_ref, collected_ref, commission_refs, residual_ref
 ):
-    _write_section(ws, fmt, 6, "Resumen")
+    _write_section(ws, fmt, start, "Datos de la Planilla")
     _write_field_row(
         ws,
         fmt,
-        7,
+        start + 1,
         "Referencia",
         payload.get("reference") or "",
         "Estado",
@@ -326,12 +451,21 @@ def _write_resumen(
         fmt["value"],
         fmt["value"],
     )
-    _merge(ws, 8, 0, 1, "Vendedor", fmt["label"])
-    _merge(ws, 8, 2, 3, payload.get("seller_name") or "", fmt["value"])
     _write_field_row(
         ws,
         fmt,
-        9,
+        start + 2,
+        "Vendedor",
+        payload.get("seller_name") or "",
+        "Moneda",
+        payload.get("currency_name") or "",
+        fmt["value"],
+        fmt["value"],
+    )
+    _write_field_row(
+        ws,
+        fmt,
+        start + 3,
         "Desde",
         _text(payload.get("date_from")),
         "Hasta",
@@ -342,7 +476,7 @@ def _write_resumen(
     _write_field_row(
         ws,
         fmt,
-        10,
+        start + 4,
         "Cantidad de Clientes",
         payload.get("customer_count") or 0,
         "Cantidad de Comprobantes",
@@ -350,6 +484,13 @@ def _write_resumen(
         fmt["value_int"],
         fmt["value_int"],
     )
+    percent = (payload.get("commission_percent") or 0.0) / 100.0
+    _merge(ws, start + 5, 0, 1, "% Comisión Vendedor", fmt["label"])
+    _merge(ws, start + 5, 2, 3, percent, fmt["value_pct"])
+    ws.set_row(start + 5, 8)
+
+    totals = start + 7
+    _write_section(ws, fmt, totals, "Totales")
     collected = payload.get("collected_total") or 0.0
     applied = payload.get("applied_total") or 0.0
     residual = (payload.get("customer_totals") or {}).get("residual") or 0.0
@@ -357,31 +498,40 @@ def _write_resumen(
         block.get("subtotal_commission") or 0.0
         for block in payload.get("document_blocks") or ()
     )
-    _merge(ws, 11, 0, 1, "Total Cobrado", fmt["label"])
+    _merge(ws, totals + 1, 0, 1, "Total Cobrado", fmt["label"])
     if collected_ref:
-        _merge_formula(ws, 11, 2, 3, f"={collected_ref}", fmt["value_money"], collected)
+        _merge_formula(
+            ws, totals + 1, 2, 3, f"={collected_ref}", fmt["value_money"], collected
+        )
     else:
-        _merge(ws, 11, 2, 3, collected, fmt["value_money"])
-    _merge(ws, 11, 4, 5, "Total Aplicado", fmt["label"])
+        _merge(ws, totals + 1, 2, 3, collected, fmt["value_money"])
+    _merge(ws, totals + 1, 4, 5, "Total Aplicado", fmt["label"])
     if applied_ref:
-        _merge_formula(ws, 11, 6, 7, f"={applied_ref}", fmt["value_money"], applied)
+        _merge_formula(
+            ws, totals + 1, 6, 7, f"={applied_ref}", fmt["value_money"], applied
+        )
     else:
-        _merge(ws, 11, 6, 7, applied, fmt["value_money"])
-    _merge(ws, 12, 0, 1, "Remanente", fmt["label"])
+        _merge(ws, totals + 1, 6, 7, applied, fmt["value_money"])
+    _merge(ws, totals + 2, 0, 1, "Remanente", fmt["label"])
     if residual_ref:
-        _merge_formula(ws, 12, 2, 3, f"={residual_ref}", fmt["value_money"], residual)
+        _merge_formula(
+            ws, totals + 2, 2, 3, f"={residual_ref}", fmt["value_money"], residual
+        )
     else:
-        _merge_formula(ws, 12, 2, 3, "=C11-G11", fmt["value_money"], residual)
-    _merge(ws, 12, 4, 5, "Moneda", fmt["label"])
-    _merge(ws, 12, 6, 7, payload.get("currency_name") or "", fmt["value"])
-    percent = (payload.get("commission_percent") or 0.0) / 100.0
-    _merge(ws, 13, 0, 1, "% Comisión Vendedor", fmt["label"])
-    _merge(ws, 13, 2, 3, percent, fmt["value_pct"])
-    _merge(ws, 13, 4, 5, "Total Comisión Devengada", fmt["label"])
+        _merge_formula(
+            ws,
+            totals + 2,
+            2,
+            3,
+            f"={_a1(totals + 1, 2)}-{_a1(totals + 1, 6)}",
+            fmt["value_money"],
+            residual,
+        )
+    _merge(ws, totals + 2, 4, 5, "Total Comisión Devengada", fmt["label"])
     if commission_refs:
         _merge_formula(
             ws,
-            13,
+            totals + 2,
             6,
             7,
             "=" + "+".join(commission_refs),
@@ -389,8 +539,8 @@ def _write_resumen(
             commission,
         )
     else:
-        _merge(ws, 13, 6, 7, commission, fmt["value_money_bold"])
-    ws.set_row(13, 8)
+        _merge(ws, totals + 2, 6, 7, commission, fmt["value_money_bold"])
+    ws.set_row(totals + 2, 8)
 
 
 def _write_customers(ws, fmt, payload, start):
@@ -691,7 +841,7 @@ def _banner_format(workbook, status):
     )
 
 
-def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
+def _write_recon(ws, fmt, payload, start, voucher_subtotals):
     tendered = payload.get("tendered") or {}
     recon = payload.get("recon") or {}
     _merge(ws, start, 0, 10, "Conciliación del Vendedor", fmt["section"])
@@ -703,12 +853,12 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
         (
             ("Composición de lo Rendido", 0, 2),
             ("Efectivo en Caja", 3, 3),
-            ("Depósitos", 4, 4),
+            ("Depósitos de clientes", 4, 4),
             ("Cheques", 5, 5),
             ("Transferencias", 6, 6),
             ("Echeqs", 7, 7),
             ("Retenciones", 8, 8),
-            ("Depósitos vendedor", 9, 9),
+            ("Depósitos del vendedor", 9, 9),
             ("Total Rendido", 10, 10),
         ),
     )
@@ -738,12 +888,12 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
         fmt["data_money"],
         tendered.get("total") or 0.0,
     )
+    _merge(ws, data_row + 1, 0, 10, _DEPOSITS_NOTE, fmt["recon_hint"])
     collected_row = data_row + 2
     withheld_row = collected_row + 1
     net_row = withheld_row + 1
     tendered_row = net_row + 2
     diff_row = tendered_row + 1
-    banner_row = diff_row + 2
 
     def _recon_line(row, label, hint, formula, cached, total=False):
         label_fmt = fmt["recon_total_label"] if total else fmt["recon_label"]
@@ -794,17 +944,83 @@ def _write_recon(ws, workbook, fmt, payload, start, voucher_subtotals):
         recon.get("difference") or 0.0,
         total=True,
     )
-    message = recon.get("status_message") or ""
-    _merge(
-        ws,
-        banner_row,
+    refs = {
+        "net_due": _a1(net_row, 6),
+        "tendered": _a1(tendered_row, 6),
+        "difference": _a1(diff_row, 6),
+    }
+    return diff_row, refs
+
+
+def _write_table(workbook, fmt, name, columns, rows):
+    """Add a flat worksheet holding one Excel table with a frozen header."""
+    ws = workbook.add_worksheet(name)
+    for index, (_title, width, _style) in enumerate(columns):
+        ws.set_column(index, index, width)
+    # An Excel table needs a data row; an empty sheet keeps one blank row.
+    data = rows or [[""] * len(columns)]
+    ws.add_table(
         0,
-        7,
-        message,
-        _banner_format(workbook, recon.get("status") or "balanced"),
+        0,
+        len(data),
+        len(columns) - 1,
+        {
+            "name": name,
+            "style": "Table Style Light 9",
+            "data": data,
+            "columns": [
+                {"header": title, "format": fmt[style]}
+                for title, _width, style in columns
+            ],
+        },
     )
-    ws.set_row(banner_row - 1, 34)
-    return banner_row
+    ws.freeze_panes(1, 0)
+    ws.set_landscape()
+    ws.set_paper(9)
+    ws.fit_to_pages(1, 0)
+    ws.repeat_rows(0)
+    return ws
+
+
+def _document_table_rows(payload):
+    rows = []
+    for block in payload.get("document_blocks") or ():
+        kind = _KIND_LABELS.get(block.get("kind"), block.get("kind") or "")
+        for item in block.get("rows") or ():
+            rows.append(
+                [
+                    item.get("code") or "",
+                    item.get("name") or "",
+                    kind,
+                    item.get("invoice_number") or "",
+                    _date_cell(item.get("due_date")),
+                    item.get("invoice_balance") or 0.0,
+                    item.get("amount_applied") or 0.0,
+                    item.get("commission") or 0.0,
+                ]
+            )
+    return rows
+
+
+def _voucher_table_rows(payload):
+    rows = []
+    for block in payload.get("voucher_blocks") or ():
+        label = block.get("label") or block.get("code") or ""
+        for item in block.get("rows") or ():
+            rows.append(
+                [
+                    item.get("code") or "",
+                    item.get("name") or "",
+                    label,
+                    _date_cell(item.get("date")),
+                    item.get("number") or "",
+                    item.get("check_bank") or "",
+                    item.get("check_type") or "",
+                    _date_cell(item.get("check_payment_date")),
+                    item.get("amount") or 0.0,
+                ]
+            )
+    return rows
 
 
 def _build_xlsx(payload):
@@ -818,9 +1034,11 @@ def _build_xlsx(payload):
         ws.set_column(KEY_COL, KEY_COL, None, None, {"hidden": True})
         fmt = _formats(workbook)
         _write_membrete(ws, fmt, payload)
-        # Clientes SUMIF formulas forward-ref Facturas/Comprobantes rows;
-        # Resumen is written last so it can cache those totals.
-        customer_start = 15
+        # Clientes SUMIF formulas forward-ref Facturas/Comprobantes rows; the
+        # verdict and Datos/Totales are written last so they can reference
+        # and cache those totals.
+        datos_start = VERDICT_START + _verdict_rows(payload) + 1
+        customer_start = datos_start + 11
         next_row, residual_ref = _write_customers(ws, fmt, payload, customer_start)
         next_row, applied_ref, commission_refs = _write_documents(
             ws, fmt, payload, next_row
@@ -828,16 +1046,20 @@ def _build_xlsx(payload):
         next_row, collected_ref, voucher_subtotals = _write_vouchers(
             ws, fmt, payload, next_row
         )
-        last_row = _write_recon(ws, workbook, fmt, payload, next_row, voucher_subtotals)
-        _write_resumen(
+        last_row, recon_refs = _write_recon(
+            ws, fmt, payload, next_row, voucher_subtotals
+        )
+        _write_datos(
             ws,
             fmt,
             payload,
+            datos_start,
             applied_ref,
             collected_ref,
             commission_refs,
             residual_ref,
         )
+        _write_verdict(ws, workbook, fmt, payload, recon_refs)
         ws.freeze_panes(5, 0)
         ws.set_landscape()
         ws.set_paper(9)
@@ -845,6 +1067,20 @@ def _build_xlsx(payload):
         ws.repeat_rows(0, 3)
         ws.print_area(0, 0, last_row - 1, 10)
         ws.set_margins(0.3, 0.3, 0.4, 0.4)
+        _write_table(
+            workbook,
+            fmt,
+            "Documentos",
+            _DOCUMENT_TABLE_COLUMNS,
+            _document_table_rows(payload),
+        )
+        _write_table(
+            workbook,
+            fmt,
+            "Comprobantes",
+            _VOUCHER_TABLE_COLUMNS,
+            _voucher_table_rows(payload),
+        )
     finally:
         workbook.close()
     return _align_workbook_xml(output.getvalue())
@@ -865,6 +1101,8 @@ def _align_workbook_xml(content):
 
     xlsxwriter stores a converted character width (32 → 32.71) and omits the
     default fitToWidth=1 attribute. The hidden customer-key column stays hidden.
+    Only the Planilla (sheet1) takes the template columns; the flat sheets keep
+    their own widths.
     """
     source = ZipFile(BytesIO(content), "r")
     output = BytesIO()
@@ -877,9 +1115,14 @@ def _align_workbook_xml(content):
                 xml = data.decode("utf-8")
                 if "fitToWidth=" not in xml:
                     xml = xml.replace("<pageSetup ", '<pageSetup fitToWidth="1" ', 1)
-                xml = re.sub(
-                    r"<cols>.*?</cols>", _TEMPLATE_COLS, xml, count=1, flags=re.DOTALL
-                )
+                if info.filename == "xl/worksheets/sheet1.xml":
+                    xml = re.sub(
+                        r"<cols>.*?</cols>",
+                        _TEMPLATE_COLS,
+                        xml,
+                        count=1,
+                        flags=re.DOTALL,
+                    )
                 data = xml.encode("utf-8")
             dest.writestr(info, data)
     source.close()

@@ -35,9 +35,12 @@ HEADER_MERGES = {
     "A4:H4",
     "A6:H6",
     "A7:B7",
-    "C7:D7",
-    "E7:F7",
-    "G7:H7",
+    "C7:E7",
+    "F7:H7",
+    "A8:B8",
+    "C8:E8",
+    "F8:H8",
+    "A9:H9",
 }
 BANNER_FILLS = {
     "balanced": "C6EFCE",
@@ -340,13 +343,17 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertEqual(worksheet.column_dimensions["B"].width, 32)
 
     def test_xlsx_header_has_title_but_no_company_nor_printed_date(self):
-        """Header MUST show the Planilla title and reference, no company, no Impreso."""
+        """Header MUST show title, reference, seller and period; no company/Impreso."""
         sheet, _partner = self._populated_sheet()
+        sheet.write({"date_from": date(2026, 10, 1), "date_to": date(2026, 10, 15)})
         content, payload = self._render_xlsx(sheet)
         worksheet = self._load(content).active
         self.assertEqual(worksheet["A1"].value, "Planilla de Cobranza")
         self.assertEqual(worksheet["A2"].value, payload["reference"])
-        self.assertFalse(worksheet["A4"].value)
+        self.assertEqual(
+            worksheet["A4"].value,
+            f"Vendedor: {payload['seller_name']} · Período: 01/10/2026 – 15/10/2026",
+        )
         company_name = sheet.company_id.name
         values = [
             str(cell.value)
@@ -517,7 +524,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         for header, amount in (
             ("Echeqs", echeck.amount),
             ("Retenciones", retention.amount),
-            ("Depósitos vendedor", remittance.amount),
+            ("Depósitos del vendedor", remittance.amount),
             ("Efectivo en Caja", tendered["cash"]),
             ("Transferencias", tendered["transfers"]),
         ):
@@ -984,3 +991,201 @@ class TestCollectionSheetXlsx(TransactionCase):
                         places=2,
                         msg=f"{key}: {formula}",
                     )
+
+    def test_xlsx_verdict_comes_first(self):
+        """Neto a Rendir, Total Rendido, Diferencia and the banner MUST lead."""
+        sheet, _partner = self._populated_sheet(amount=125.5)
+        content, payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        cached = self._load(content, data_only=True).active
+        datos = self._cell_with_value(worksheet, "Datos de la Planilla")
+        totales = self._cell_with_value(worksheet, "Totales")
+        self.assertIsNotNone(datos)
+        self.assertIsNotNone(totales)
+        self.assertLess(datos.row, totales.row)
+        self.assertIsNone(self._cell_with_value(worksheet, "Resumen"))
+        recon = payload["recon"]
+        for label, key in (
+            ("Neto a Rendir", "net_due"),
+            ("Total Rendido", "tendered"),
+            ("Diferencia", "difference"),
+        ):
+            with self.subTest(label=label):
+                header = self._cell_with_value(worksheet, label)
+                self.assertIsNotNone(header)
+                self.assertEqual(header.row, 7)
+                value = worksheet.cell(header.row + 1, header.column)
+                self.assertTrue(str(value.value).startswith("="), value.value)
+                self.assertAlmostEqual(
+                    float(cached.cell(value.row, value.column).value),
+                    recon[key],
+                    places=2,
+                )
+        banner = self._cell_with_value(worksheet, recon["status_message"])
+        self.assertIsNotNone(banner)
+        self.assertEqual(banner.row, 9)
+        self.assertLess(banner.row, datos.row)
+        self.assertLess(totales.row, self._cell_with_value(worksheet, "Clientes").row)
+
+    def test_xlsx_mismatch_names_both_amounts_and_gap(self):
+        """Mismatch MUST print the allocated total, the voucher total and the gap."""
+        sheet, partner = self._populated_sheet(amount=100.0)
+        self._create_voucher(partner, sheet, amount=40.0)
+        content, payload = self._render_xlsx(sheet)
+        self.assertTrue(payload["mismatch"])
+        worksheet = self._load(content).active
+        warning = next(
+            (
+                cell
+                for row in worksheet.iter_rows()
+                for cell in row
+                if isinstance(cell.value, str) and "no coincide" in cell.value
+            ),
+            None,
+        )
+        self.assertIsNotNone(warning)
+        self.assertEqual(warning.row, 10)
+        for amount in ("100.00", "140.00", "40.00"):
+            self.assertIn(amount, warning.value)
+        clean_seller = create_internal_seller(self.env, "xlsx_no_mismatch")
+        ensure_enabled_seller(self.env, clean_seller)
+        clean, _partner = self._populated_sheet(
+            seller=clean_seller, partner_name="Sin Diferencia SA"
+        )
+        clean_content, _payload = self._render_xlsx(clean)
+        clean_ws = self._load(clean_content).active
+        self.assertFalse(
+            any(
+                isinstance(cell.value, str) and "no coincide" in cell.value
+                for row in clean_ws.iter_rows()
+                for cell in row
+            )
+        )
+
+    def test_xlsx_tendered_deposits_are_explained(self):
+        """Customer and seller deposits MUST be told apart under the composition."""
+        sheet, _partner = self._populated_sheet()
+        content, _payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        header = self._cell_with_value(worksheet, "Depósitos de clientes")
+        self.assertIsNotNone(header)
+        self.assertIsNotNone(self._cell_with_value(worksheet, "Depósitos del vendedor"))
+        self.assertIsNone(self._cell_with_value(worksheet, "Depósitos"))
+        note = worksheet.cell(header.row + 2, 1).value or ""
+        self.assertIn("el cliente depositó en la cuenta de la empresa", note)
+        self.assertIn("el vendedor depositó en el banco el efectivo cobrado", note)
+
+    def test_xlsx_flat_sheets_are_filterable_tables(self):
+        """Documentos and Comprobantes MUST be one-row-per-line tables, no merges."""
+        partner = dummy_customer_partner(self.env, customer="Flat Sheets SA")
+        sheet = self._create_sheet(force_new=True, commission_percent=10.0)
+        transfer = self._create_voucher(
+            partner,
+            sheet,
+            amount=60.0,
+            document_type="bank_transfer",
+            voucher_number="TRF-FLAT",
+        )
+        check = self._create_voucher(
+            partner,
+            sheet,
+            amount=40.0,
+            document_type="check",
+            check_number="CHK-FLAT",
+            check_bank="Banco Galicia",
+            check_type="common",
+            check_issue_date=date(2026, 3, 1),
+            check_payment_date=date(2026, 3, 1),
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=transfer | check,
+            lines=[
+                self._line_vals(
+                    amount_applied=70.0,
+                    invoice_balance=90.0,
+                    invoice_number="FAC-FLAT",
+                    due_date=date(2026, 5, 10),
+                ),
+                self._line_vals(
+                    amount_applied=30.0,
+                    invoice_balance=30.0,
+                    invoice_number="PRE-FLAT",
+                    document_kind="quotation",
+                ),
+            ],
+        )
+        content, payload = self._render_xlsx(sheet)
+        workbook = self._load(content)
+        self.assertEqual(
+            workbook.sheetnames, ["Planilla de Cobranza", "Documentos", "Comprobantes"]
+        )
+        self.assertEqual(workbook.active.title, "Planilla de Cobranza")
+        self.assertEqual(workbook.active.column_dimensions["B"].width, 32)
+
+        documents = workbook["Documentos"]
+        self.assertEqual(documents.freeze_panes, "A2")
+        self.assertFalse(documents.merged_cells.ranges)
+        self.assertEqual(list(documents.tables), ["Documentos"])
+        self.assertEqual(documents.tables["Documentos"].ref, "A1:H3")
+        self.assertEqual(
+            [cell.value for cell in documents[1]],
+            [
+                "Código",
+                "Cliente",
+                "Tipo",
+                "Documento",
+                "Vencimiento",
+                "Saldo",
+                "Aplicado",
+                "Comisión",
+            ],
+        )
+        rows = [[cell.value for cell in row] for row in documents.iter_rows(min_row=2)]
+        invoice = next(row for row in rows if row[3] == "FAC-FLAT")
+        self.assertEqual(invoice[1], "Flat Sheets SA")
+        self.assertEqual(invoice[2], "Factura")
+        self.assertTrue(_is_same_date(invoice[4], date(2026, 5, 10)))
+        self.assertEqual(invoice[5:], [90.0, 70.0, 7.0])
+        quotation = next(row for row in rows if row[3] == "PRE-FLAT")
+        self.assertEqual(quotation[2], "Presupuesto")
+        self.assertNotEqual(documents.column_dimensions["B"].width, 32)
+
+        vouchers = workbook["Comprobantes"]
+        self.assertEqual(vouchers.freeze_panes, "A2")
+        self.assertFalse(vouchers.merged_cells.ranges)
+        self.assertEqual(list(vouchers.tables), ["Comprobantes"])
+        self.assertEqual(vouchers.tables["Comprobantes"].ref, "A1:I3")
+        self.assertEqual(
+            [cell.value for cell in vouchers[1]],
+            [
+                "Código",
+                "Cliente",
+                "Medio de Pago",
+                "Fecha",
+                "Nº Comprobante",
+                "Banco",
+                "Tipo de Cheque",
+                "Fecha de Pago",
+                "Importe",
+            ],
+        )
+        rows = [[cell.value for cell in row] for row in vouchers.iter_rows(min_row=2)]
+        labels = {block["code"]: block["label"] for block in payload["voucher_blocks"]}
+        by_number = {row[4]: row for row in rows}
+        self.assertEqual(by_number["TRF-FLAT"][2], labels["bank_transfer"])
+        self.assertEqual(by_number["TRF-FLAT"][8], 60.0)
+        self.assertEqual(by_number["CHK-FLAT"][2], labels["check"])
+        self.assertEqual(by_number["CHK-FLAT"][5], "Banco Galicia")
+        self.assertEqual(by_number["CHK-FLAT"][6], "Común")
+        self.assertTrue(_is_same_date(by_number["CHK-FLAT"][7], date(2026, 3, 1)))
+        self.assertEqual(by_number["CHK-FLAT"][8], 40.0)
+
+    def test_xlsx_flat_sheets_without_rows_keep_headers(self):
+        """An empty sheet MUST still produce both flat sheets with their headers."""
+        sheet = self._create_sheet(force_new=True)
+        content, _payload = self._render_xlsx(sheet)
+        workbook = self._load(content)
+        self.assertEqual(workbook["Documentos"]["A1"].value, "Código")
+        self.assertEqual(workbook["Comprobantes"]["I1"].value, "Importe")
