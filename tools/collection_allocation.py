@@ -946,17 +946,28 @@ class CollectionAllocationMixin(models.AbstractModel):
         )
         sidecars: list[tuple[str, bytes] | None] | None = None
         provenances: list[dict[str, Any] | None] | None = None
+        new_vals_list: list[dict[str, Any]] = []
         if classified is None:
-            sidecars = self._collection_parse_payment_attachments(payments)
+            # The seller's own existing vouchers are reused (an amend lists them);
+            # only the payments whose document_id is new are created.
+            reused = set(existing_docs.mapped("document_id"))
+            new_indexes = [
+                index
+                for index, vals in enumerate(payment_vals_list)
+                if vals["document_id"] not in reused
+            ]
+            new_payments = [payments[index] for index in new_indexes]
+            new_vals_list = [payment_vals_list[index] for index in new_indexes]
+            sidecars = self._collection_parse_payment_attachments(new_payments)
             provenances = self._collection_parse_payment_provenance(
-                payments, payment_vals_list
+                new_payments, new_vals_list
             )
 
         with self.env.cr.savepoint():
             if classified is None:
                 try:
                     self._collection_create_vouchers(
-                        payment_vals_list,
+                        new_vals_list,
                         seller.id,
                         sidecars or [],
                         provenances or [],

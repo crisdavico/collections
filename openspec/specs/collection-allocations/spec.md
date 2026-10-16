@@ -39,8 +39,10 @@ exactly seven keys `{id,name,state,revision,total_vouchers,total_applied,residua
 `resolve_customer_partner` on this write. When `company.auto_create_sheet` is False,
 MUST raise a named `UserError` and write zero rows. An exact same-company, same-seller
 `document_id` set whose stated payment fields equal the stored vouchers MUST reuse rows
-and continue to allocation (MUST NOT voucher-style early-return). Partial overlap,
-other-company or other-seller hit, or changed payment fields MUST raise generic conflict
+and continue to allocation (MUST NOT voucher-style early-return). A partial overlap
+with the same seller's own same-company vouchers whose stated fields are unchanged MUST
+reuse those rows and create only the new `document_id`s (how an amend adds payments).
+Other-company or other-seller hit, or changed payment fields MUST raise generic conflict
 with no writes.
 Revalidation failure MUST roll back vouchers and allocation. Errors MUST be raised,
 NEVER `{"error":...}` bodies. MUST NOT `sudo()`. (Previously: Four-type
@@ -79,10 +81,16 @@ stated on this requirement; extra nested keys were ignored on payment objects.)
 
 #### Scenario: Partial overlap or other-company conflict
 
-- GIVEN a partial same-company `document_id` overlap, a hit only in another company or
-  for another seller, or changed payment fields
+- GIVEN a `document_id` hit in another company or for another seller (alone or mixed
+  with new payments), or changed payment fields
 - WHEN `create_collection_allocation` runs
 - THEN MUST raise generic conflict with no writes and no ids disclosed
+
+#### Scenario: Amend adds a payment to the seller's own vouchers
+
+- GIVEN a draft allocation with V1 and a new payment P2 of the same seller
+- WHEN the payload is {V1 with unchanged fields, P2}
+- THEN MUST reuse V1, create only P2, and amend with `revision`+1
 
 #### Scenario: Revalidation rolls back vouchers
 

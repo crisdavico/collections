@@ -1209,8 +1209,9 @@ tools. `create_collection_allocation` MUST reuse them. Payment items MUST omit
 `customer_identification`; helpers MUST take top-level identification and replicate it
 per payment. Exact same-company `document_id` set of the calling seller with matching
 payment fields MUST be reusable by allocation (continue; MUST NOT voucher-only
-early-return). Partial overlap, other-company or other-seller hits, and changed payment
-fields MUST stay generic conflict with no writes. Optional nested `attachment` and
+early-return). A partial overlap with the calling seller's own unchanged vouchers MUST
+reuse them and create only the new payments. Other-company or other-seller hits, and
+changed payment fields MUST stay generic conflict with no writes. Optional nested `attachment` and
 `raw_ocr`/`seller_confirmed` parse rules MUST still apply on the fused write.
 
 #### Scenario: Helpers not discovered as MCP tools
