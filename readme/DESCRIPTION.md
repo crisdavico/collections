@@ -7,11 +7,17 @@ voucher owns sequence, chatter, optional image/PDF designated proof
 a required Customer (`partner_id` on `res.partner`; Char identification is gone;
 `seller_deposit` and `seller_commission` stamp seeded sentinel partners), and a `draft`
 → `validated_seller` → `validated_collections` lifecycle (ORM/UI default `draft`; MCP
-stamps `validated_seller`; Collections only via Document Review Approve; no Reject).
-Collection sheets group a seller's vouchers through `open` → Seller Close → `submitted`
-(Submitted by Seller; PDF Rendida) → Confirm → `proposal` → Close → `closed`. Submitted,
-Proposal, or Closed sheets may Cancel to `cancelled`; Reinstate brings a `cancelled`
-sheet back to `submitted`. Sheets have their own chatter and activities. The sheet form
+stamps `validated_seller`; Collections only via Document Review Approve; no Reject). A
+Collections User can send a voucher Back to Draft while its sheet is open or submitted:
+a deposit or commission gives back the cash it replaced, and a draft voucher can be
+edited or deleted. Collection sheets group a seller's vouchers through `open` → Seller
+Close → `submitted` (Submitted by Seller; PDF Rendida) → Confirm → `proposal` → Close →
+`closed`. Submitted, Proposal, or Closed sheets may Cancel to `cancelled`; Reinstate
+brings a `cancelled` sheet back to `submitted`. A Collections Manager can Reset to Open
+from any later state: receipts and allocations go back to draft, the ERP mark is
+cleared, the seller commission is removed and the declaration cleared, so the sheet can
+be corrected, amended by the agent or deleted. It is refused while the seller has
+another open sheet. Sheets have their own chatter and activities. The sheet form
 notebook is Allocations, Vouchers, and Debt. Operators print a Planilla de Cobranza from
 a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, no company letterhead or printed
 date) and header Export XLSX share `_collection_report_data()`; the workbook never turns
@@ -53,9 +59,9 @@ for back-office operators and the MCP API user: Document Review, allocations, th
 receipt proposal board, and Confirm. It may create contacts (no edit or delete) so new
 customers can be bound without `base.group_partner_manager`. Plain internal users (CRM
 users, and the password-less seller identities that Import creates) get no access to
-collection data; sellers act only through the agent. Close, Cancel, and Reinstate need a
-Collections Manager, and the server checks the role, not only the button. The
-**Collections Manager** group (`collection.group_collection_manager`) implies
+collection data; sellers act only through the agent. Close, Cancel, Reinstate, and Reset
+to Open need a Collections Manager, and the server checks the role, not only the button.
+The **Collections Manager** group (`collection.group_collection_manager`) implies
 Collections User and grants collection configuration without system administration; the
 administrator is a manager on install. Under Collections → Configuration, **Company
 Collection Settings** edits only the current company's collection options and imports

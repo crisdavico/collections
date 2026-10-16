@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from psycopg2 import IntegrityError
 
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import mute_logger
@@ -16,6 +16,7 @@ from odoo.addons.collection.models.collection_common import privileged
 
 from .common_connector import confirm_sheet, force_sheet_state
 from .test_collection_payment import (
+    create_collection_user,
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
@@ -1313,29 +1314,31 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(current.state, "open")
         allocation._check_sheet_state_iff()
 
-    def test_submitted_cannot_return_to_open(self):
-        """Open or a raw write of state open MUST refuse on a submitted sheet."""
+    def test_submitted_returns_to_open_only_for_a_manager(self):
+        """A raw write of state open runs Reset to Open, with its manager check."""
         sheet = self._create_sheet()
         sheet.action_seller_close()
         self.assertEqual(sheet.state, "submitted")
         self.assertFalse(hasattr(type(sheet), "action_open"))
-        with self.assertRaises(UserError):
-            sheet.write({"state": "open"})
+        user = create_collection_user(self.env, "sheet_open_user")
+        with self.assertRaises(AccessError):
+            sheet.with_user(user).write({"state": "open"})
         self.assertEqual(sheet.state, "submitted")
+        sheet.write({"state": "open"})
+        self.assertEqual(sheet.state, "open")
 
-    def test_cancelled_cannot_return_to_open(self):
-        """Open or a raw write of state open MUST refuse; Reinstate writes submitted."""
+    def test_cancelled_returns_to_open_only_through_reset(self):
+        """Reinstate writes submitted; a raw write of state open runs Reset to Open."""
         sheet = self._create_sheet()
         confirm_sheet(sheet)
         sheet.action_cancel()
         self.assertEqual(sheet.state, "cancelled")
         self.assertFalse(hasattr(type(sheet), "action_open"))
-        with self.assertRaises(UserError):
-            sheet.write({"state": "open"})
-        self.assertEqual(sheet.state, "cancelled")
         sheet.action_reinstate()
         self.assertEqual(sheet.state, "submitted")
-        self.assertNotEqual(sheet.state, "open")
+        sheet.action_cancel()
+        sheet.write({"state": "open"})
+        self.assertEqual(sheet.state, "open")
 
     def test_action_open_from_cancelled_leaves_draft(self):
         """Reinstate from cancelled MUST set submitted and leave allocations draft."""
@@ -1375,12 +1378,8 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.state, "closed")
         sheet.write({"state": "cancelled"})
         self.assertEqual(sheet.state, "cancelled")
-        with self.assertRaises(UserError) as error:
-            sheet.write({"state": "open"})
-        message = str(error.exception)
-        self.assertIn("Seller Close", message)
-        self.assertIn("Reinstate", message)
-        self.assertEqual(sheet.state, "cancelled")
+        sheet.write({"state": "open"})
+        self.assertEqual(sheet.state, "open")
 
     def test_raw_state_write_invalid_transition_rejected(self):
         """Intercepted write still enforces Confirm/Close/Cancel/Open preconditions."""

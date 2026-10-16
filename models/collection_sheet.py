@@ -28,7 +28,9 @@ _STATE_WRITE_ACTIONS = {
     "closed": "action_close",
     "cancelled": "action_cancel",
     "submitted": "_dispatch_submitted_state_write",
+    "open": "action_reset_to_open",
 }
+_RESETTABLE_SHEET_STATES = frozenset({"submitted", "proposal", "closed", "cancelled"})
 _VALIDATED_COLLECTIONS = "validated_collections"
 # The "Entered in the ERP" mark is set and cleared only by its actions (and by
 # Cancel), never by a plain write.
@@ -600,6 +602,72 @@ class CollectionSheet(models.Model):
             # coming back must not over-apply what another sheet took since.
             allocations.line_ids._check_invoice_not_over_applied()
         return result
+
+    def action_reset_to_open(self):
+        """Bring the sheet back to Open so it can be corrected or deleted.
+
+        Works from every later state. Closed receipts reopen, allocations go
+        back to draft, the ERP mark is cleared, and the seller commission gives
+        back its cash and is deleted. The commission declaration is cleared as
+        well, so the seller closes and declares cash again in the usual order.
+        Refused while the seller has another open sheet: one open sheet per
+        seller.
+        """
+        self._check_collection_manager()
+        if any(sheet.state not in _RESETTABLE_SHEET_STATES for sheet in self):
+            raise UserError(
+                _(
+                    "Only submitted, proposal, closed, or cancelled sheets can "
+                    "be reset to open."
+                )
+            )
+        for sheet in self:
+            sheet._reset_one_to_open()
+        return True
+
+    @api.private
+    def _reset_one_to_open(self):
+        self.ensure_one()
+        self._lock_open_sheet_for_seller(self.seller_id, self.company_id)
+        other = self._open_sheets_for_seller(self.seller_id, self.company_id) - self
+        if other:
+            raise UserError(
+                _(
+                    "The seller already has an open sheet: %s. Close or delete "
+                    "it first.",
+                    other[:1].name,
+                )
+            )
+        was_cancelled = self.state == "cancelled"
+        self._reopen_closed_receipts()
+        allocations = self.allocation_ids
+        with privileged("collection_sheet_audited_state"):
+            self.write({"state": "open"})
+        if self.erp_entered_date:
+            self._clear_erp_entry(
+                _("Reset to Open removed the Entered in the ERP mark of this sheet.")
+            )
+        if allocations:
+            with privileged("collection_allocation_audited_state"):
+                allocations.write({"state": "draft"})
+            allocations._check_sheet_state_iff()
+            if was_cancelled:
+                # Cancelled sheets do not count against a document's balance.
+                allocations.line_ids._check_invoice_not_over_applied()
+        commission = self._seller_commission_voucher()
+        if commission:
+            if commission.state != "draft":
+                commission.action_back_to_draft()
+            commission.unlink()
+        with privileged("collection_sheet_reset"):
+            self.write(
+                {
+                    "commission_withheld": 0.0,
+                    "cash_declared_at": False,
+                    "cash_declared_by": False,
+                }
+            )
+        self.message_post(body=_("Sheet reset to Open."))
 
     @api.private
     def _check_erp_entry_manager(self):

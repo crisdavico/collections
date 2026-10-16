@@ -506,6 +506,48 @@ class CollectionVoucher(models.Model):
         with privileged("collection_audited_state"):
             return self.write({"state": "validated_seller"})
 
+    def action_back_to_draft(self):
+        """Undo the seller or collections validation so the voucher can change.
+
+        Allowed while the sheet is open or submitted, or without a sheet; a
+        later sheet is reset to open first. A deposit or commission gives back
+        the cash it replaced. Cash still replaced by another voucher waits until
+        that voucher goes back to draft, so no swap points at a missing voucher.
+        A draft voucher can be edited and deleted.
+        """
+        check_collection_role(
+            self.env,
+            COLLECTION_USER_GROUP,
+            _("Only Collections Users can send vouchers back to draft."),
+        )
+        if any(voucher.state == "draft" for voucher in self):
+            raise UserError(_("Only validated vouchers can go back to draft."))
+        if any(self._sheet_is_frozen(voucher.sheet_id) for voucher in self):
+            raise UserError(
+                _(
+                    "A voucher can only go back to draft while its collection "
+                    "sheet is open or submitted. Reset the sheet to open first."
+                )
+            )
+        self._reverse_cash_replacement()
+        replaced = self.filtered(
+            lambda voucher: voucher.document_type == "cash"
+            and voucher.currency_id.compare_amounts(voucher.replaced_amount, 0.0) > 0
+        )
+        if replaced:
+            raise UserError(
+                _(
+                    "Cash %s is replaced by a seller deposit or commission. Send "
+                    "that voucher back to draft first.",
+                    ", ".join(replaced.mapped("name")),
+                )
+            )
+        with privileged("collection_audited_state"):
+            self.write({"state": "draft", "reviewed_by": False, "reviewed_at": False})
+        for voucher in self:
+            voucher.message_post(body=_("Voucher sent back to draft."))
+        return True
+
     def action_create_collection_sheet(self):
         seller = self._seller_for_sheet_action()
         companies = self.mapped("company_id")
@@ -772,14 +814,15 @@ class CollectionVoucher(models.Model):
             if rest:
                 super().write(rest)
             return self.action_validate_seller()
-        if (
-            target == "draft"
-            and "message_main_attachment_id" not in vals
-            and any(voucher.state != "draft" for voucher in self)
-        ):
-            raise UserError(
-                _("Cannot reopen a decided voucher without replacing the attachment.")
-            )
+        if target == "draft":
+            # Every way back to draft gives the replaced cash back, so a raw
+            # write goes through Back to Draft, proof key or not.
+            decided = self.filtered(lambda voucher: voucher.state != "draft")
+            if not decided:
+                return None
+            decided.action_back_to_draft()
+            rest = {key: value for key, value in vals.items() if key != "state"}
+            return self.write(rest) if rest else True
         return None
 
     @api.private
@@ -1291,6 +1334,9 @@ class CollectionVoucher(models.Model):
             for voucher in self
         ):
             raise self._allocation_membership_user_error()
+        # Receipt values keep a restrict key on the voucher; a deleted voucher
+        # pays nothing, so its values go with it.
+        self.receipt_value_ids.unlink()
 
     @api.private
     def _allocation_membership_user_error(self):

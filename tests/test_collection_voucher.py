@@ -941,13 +941,12 @@ class TestCollectionVoucher(TransactionCase):
             draft.write({"state": "validated_collections"})
         self.assertEqual(draft.state, "draft")
 
-    def test_reopen_to_draft_without_attachment_refused(self):
-        """state=draft without replacing designated proof must refuse reopen."""
+    def test_raw_draft_write_goes_back_to_draft(self):
+        """state=draft runs Back to Draft; the proof no longer matters."""
         voucher = self._create_voucher()
         voucher.action_validate_seller()
-        with self.assertRaises(UserError):
-            voucher.write({"state": "draft"})
-        self.assertEqual(voucher.state, "validated_seller")
+        voucher.write({"state": "draft"})
+        self.assertEqual(voucher.state, "draft")
 
     def test_validate_seller_when_review_is_off(self):
         """Validate by Seller MUST remain when Document Review is OFF."""
