@@ -102,7 +102,8 @@ touch the ORM). MUST include `company`, `printed_on`, `reference`, `state_label`
 `seller_name`, `currency_name`, `date_from`, `date_to`, `customer_count`,
 `voucher_count`, `commission_percent`, `customers`, `customer_totals`,
 `document_blocks`, `applied_total`, `voucher_blocks`, `collected_total`, `tendered`,
-`recon`, `mismatch`. Print MUST include every `allocation_ids` and `voucher_ids` row
+`recon`, `mismatch`, `allocated_collected` (Σ allocation `total_vouchers`, the other
+side of the mismatch). Print MUST include every `allocation_ids` and `voucher_ids` row
 (draft/confirmed; draft/validated_seller/validated_collections). Open-sheet prints MUST
 include drafts. Customer totals MUST equal allocation sums. PDF HTML and XLSX cached
 totals MUST match. Report copy MUST be Spanish Argentina: sheet state labels,
@@ -260,8 +261,10 @@ and `status_message`. Status MUST be `currency.compare_amounts(difference, 0.0)`
 `balanced` / `in_favor` / `outstanding`. `mismatch` MUST be set when Σ allocation
 `total_vouchers` ≠ Σ printed collected voucher amounts (unallocated non-remittance sheet
 vouchers). `seller_deposit` MUST NOT set `mismatch` and MUST NOT inflate
-`collected_total`. (Previously: Any unallocated sheet voucher, including a future
-remittance, set `mismatch` and was included in `collected_total`.)
+`collected_total`. When `mismatch` is set, PDF and XLSX MUST print one warning naming
+`allocated_collected`, `collected_total`, and their absolute gap. (Previously: Any
+unallocated sheet voucher, including a future remittance, set `mismatch` and was
+included in `collected_total`; the warning named no amounts and the XLSX showed none.)
 
 #### Scenario: Tri-state via compare_amounts
 
@@ -315,15 +318,17 @@ currencies MUST raise `UserError` (template is single-currency).
 The system MUST bind `ir.actions.report` `qweb-pdf` on `collection.sheet`
 (`binding_type` report) so Print → Planilla de Cobranza appears on form and list.
 Paperformat MUST be A4 portrait with compact header room (`margin_top` 20mm,
-`header_spacing` 5mm, `margin_bottom` 8mm, `margin_left`/`margin_right` 6mm) so the
-tables span the usable width. Templates MUST use `t-out` (MUST NOT `t-esc`) and MUST
-call `web.html_container` and MUST NOT call `web.external_layout` (no company header or
-footer, so no page numbers either); the document renders its own `.article` wrapper.
-The Planilla title MUST render once as an `<h2 class="o_cs_title">` at the top of the
-page. PDF and XLSX MUST NOT render `printed_on` ("Impreso el") nor the company name (the
-payload keeps both keys). HTML render (MUST NOT spawn wkhtmltopdf in tests) MUST contain
-the sheet reference, seller name, every partner name, applied document numbers, and the
-recon banner.
+`header_spacing` 5mm, `margin_bottom` 14mm for the footer, `margin_left`/`margin_right`
+6mm) so the tables span the usable width. Templates MUST use `t-out` (MUST NOT `t-esc`)
+and MUST call `web.html_container` and MUST NOT call `web.external_layout` (no company
+header); the document renders its own `.article` wrapper and a sibling
+`<div class="footer o_cs_footer">` holding the reference, "Impreso el" with `printed_on`
+(dd/mm/yyyy), and "Página <page> de <topage>". The Planilla title MUST render once as an
+`<h2 class="o_cs_title">` at the top of the page. PDF and XLSX MUST NOT render the
+company name; the XLSX MUST NOT render `printed_on`. HTML render (MUST NOT spawn
+wkhtmltopdf in tests) MUST contain the sheet reference, seller name, every partner name,
+applied document numbers, and the recon banner. (Previously: no footer, no page numbers
+and no "Impreso el" on the PDF; `margin_bottom` 8mm.)
 
 #### Scenario: Print menu binding
 
@@ -332,7 +337,7 @@ recon banner.
 - THEN `report_type` MUST be `qweb-pdf`, model `collection.sheet`, binding report on
   that model, with the collection-sheet paperformat
 - AND paperformat orientation MUST be `Portrait`, `margin_top` 20, `header_spacing` 5,
-  `margin_bottom` 8, `margin_left`/`margin_right` 6
+  `margin_bottom` 14, `margin_left`/`margin_right` 6
 - AND the document arch MUST contain the `o_cs_title` `<h2>` and MUST NOT set
   `layout_document_title`
 
@@ -343,24 +348,26 @@ recon banner.
 - THEN HTML MUST contain the reference, seller, partner names, document numbers, and
   banner text
 - AND the arch MUST NOT reference `web.external_layout`
-- AND the HTML MUST NOT contain "Impreso el" nor the company name
+- AND the HTML MUST NOT contain the company name
+- AND the footer MUST contain "Impreso el <printed_on>" and the `page` / `topage` spans
 
 ### Requirement: XLSX workbook and percent scale
 
 XLSX MUST be built from the same payload. Bytes MUST start `PK` and the zip MUST contain
 `xl/workbook.xml`. Worksheet MUST freeze `A6`, landscape, paper size 9, fit-to-width 1.
 Aggregation cells MUST use formulas with cached SUM values (`data_only` MUST read
-non-None totals equal to the payload). Header rows 1–4 MUST show the title "Planilla de
-Cobranza" (row 1) and the sheet reference (row 2), with no company name and no printed
-date; Resumen MUST NOT contain "Impreso el" (row numbers stay unchanged). Clientes **Saldo Total** and **Aplicado** MUST be
+non-None totals equal to the payload). Header rows 1–4 (repeated on every printed page)
+MUST show the title "Planilla de Cobranza" (row 1), the sheet reference (row 2), and
+"Vendedor: <seller> · Período: <desde> – <hasta>" (row 4), with no company name and no
+printed date. Clientes **Saldo Total** and **Aplicado** MUST be
 `SUMIF` of Facturas/Presupuestos Saldo/Aplicado on a hidden per-customer key column right
 of the print area (one key per partner, from the payload `partner_id`; MUST NOT match on
 the customer name), **Cobrado** MUST be `SUMIF` of comprobante Importe on that key, and
 **Remanente** MUST be `Saldo Total − Aplicado` (cached payload values). The workbook MUST
 be created with `strings_to_formulas` and `strings_to_urls` off (shared
 `WORKBOOK_OPTIONS`), so free text starting with `=` or looking like a URL stays text;
-intentional formulas MUST go through `write_formula`. Resumen Remanente MUST reference the Clientes remanente total
-(MUST NOT `=C11-G11`). Odoo `commission_percent` 0–100 MUST be written as
+intentional formulas MUST go through `write_formula`. Totales Remanente MUST reference the
+Clientes remanente total (MUST NOT `=C11-G11`). Odoo `commission_percent` 0–100 MUST be written as
 `percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow `recon.status`.
 Header **Export XLSX** MUST be last in `<header>` before `state`. Notebook MUST be the
 three pages specified in collection-sheets (recon fields remain on the sheet form).
@@ -369,6 +376,66 @@ three pages specified in collection-sheets (recon fields remain on the sheet for
 names holding `*` or `?` pulled each other's rows; text could become a formula. Before
 that: Clientes amounts were literals; Resumen remanente was `=C11-G11` cobrado −
 aplicado.)
+
+### Requirement: Verdict-first layout and shared vocabulary
+
+PDF and XLSX MUST open, right under the title, with the verdict: **Neto a Rendir**,
+**Total Rendido**, and **Diferencia** (`recon` `net_due`, `tendered`, `difference`)
+followed by the status banner and, when set, the mismatch warning. XLSX rows: section
+"Resultado" on row 6, labels on row 7, values on row 8 as formulas referencing the
+Conciliación cells (cached payload values), banner on row 9, mismatch on row 10; the
+banner MUST NOT repeat below the Conciliación. "Resumen" MUST be split into **Datos de la
+Planilla** (Referencia, Estado, Vendedor, Desde, Hasta, Moneda, Cantidad de Clientes,
+Cantidad de Comprobantes, % Comisión Vendedor) and **Totales** (Total Cobrado, Total
+Aplicado, Remanente, Total Comisión Devengada). Both formats MUST use the same labels:
+Motivo del Remanente, Documento, Vencimiento, Fecha de Emisión, Fecha de Pago,
+Nº Comprobante, Conciliación del Vendedor, Composición de lo Rendido, (−) Comisión
+Retenida por el Vendedor, (=) Neto a Rendir, Total Rendido, (=) Diferencia, Depósitos de
+clientes, Depósitos del vendedor. Customer deposits MUST be explained as "el cliente
+depositó en la cuenta de la empresa" and seller deposits as "el vendedor depositó en el
+banco el efectivo cobrado" (PDF hint column; XLSX note row under the composition).
+
+The PDF MUST print grand totals: a Clientes **Total** row, a **Total Aplicado** row after
+the Facturas/Presupuestos blocks (applied and commission), and a **Total Cobrado** row
+after the Comprobantes blocks. Its Conciliación MUST read as a calculation, top to
+bottom: Total Cobrado, (−) Comisión Retenida por el Vendedor, (=) Neto a Rendir, Total
+Rendido, (=) Diferencia, each with a short hint, followed by **Composición de lo
+Rendido**. It MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
+aclaración".
+
+The XLSX MUST add two flat worksheets after the Planilla, **Documentos** and
+**Comprobantes**, each one Excel table of the same name with a frozen header row (`A2`)
+and no merged cells, one row per payload row in payload order. Documentos columns:
+Código, Cliente, Tipo (Factura / Presupuesto), Documento, Vencimiento, Saldo, Aplicado,
+Comisión. Comprobantes columns: Código, Cliente, Medio de Pago (voucher block label),
+Fecha, Nº Comprobante, Banco, Tipo de Cheque, Fecha de Pago, Importe; they hold the
+voucher-block rows only (no `seller_deposit`, no `seller_commission`). An empty sheet
+MUST still produce both tables with their headers. The Planilla MUST stay the first and
+active worksheet; only it takes the template column widths.
+
+#### Scenario: Verdict leads both reports
+
+- GIVEN a saved sheet with allocations and vouchers
+- WHEN the PDF HTML and the XLSX render
+- THEN Neto a Rendir, Total Rendido, Diferencia, and the banner MUST come before Datos
+  de la Planilla, Totales, and Clientes
+- AND the XLSX verdict values MUST cache `recon` `net_due`, `tendered`, `difference`
+
+#### Scenario: Mismatch names both amounts
+
+- GIVEN a sheet with an unallocated non-remittance voucher of 40 next to an allocation
+  of 100
+- WHEN both reports render
+- THEN the warning MUST name 100.00, 140.00, and 40.00
+- AND a sheet without mismatch MUST print no warning
+
+#### Scenario: Flat sheets filter cleanly
+
+- GIVEN a sheet with an invoice, a quotation, a transfer, and a check
+- WHEN the XLSX renders
+- THEN the sheet names MUST be Planilla de Cobranza, Documentos, Comprobantes
+- AND each flat sheet MUST hold one table covering the header and every row, freeze
+  `A2`, and have no merged cells
 
 #### Scenario: Zip freeze and cached SUM
 

@@ -17,6 +17,11 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "% Comisión Vendedor"
+msgstr ""
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "%(count)s sellers imported and enabled."
@@ -31,6 +36,38 @@ msgstr "%(label)s tiene claves no soportadas: %(keys)s."
 #. module: collection
 #: model:ir.actions.report,print_report_name:collection.action_report_collection_sheet
 msgid "'Planilla de Cobranza - %s' % (object.name)"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "(=) Diferencia"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "(=) Neto a Rendir"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "(−) Comisión Retenida por el Vendedor"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid ") no coincide con el total de comprobantes de la planilla ("
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "). Diferencia:"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid ""
+"<span style=\"float: right;\">Página <span class=\"page\"/> de <span "
+"class=\"topage\"/></span>"
 msgstr ""
 
 #. module: collection
@@ -488,6 +525,11 @@ msgid "Archived"
 msgstr "Archivado"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Atención: lo cobrado según las asignaciones ("
+msgstr ""
+
+#. module: collection
 #: model:ir.model,name:collection.model_ir_attachment
 msgid "Attachment"
 msgstr "Archivos adjuntos"
@@ -610,6 +652,16 @@ msgid "Cannot reopen a decided voucher without replacing the attachment."
 msgstr ""
 "No se puede reabrir un comprobante ya decidido sin reemplazar el archivo "
 "adjunto."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Cantidad de Clientes"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Cantidad de Comprobantes"
+msgstr ""
 
 #. module: collection
 #. odoo-javascript
@@ -1091,11 +1143,6 @@ msgid "Comisión"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Comisión %"
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__commission_percent
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
@@ -1172,6 +1219,11 @@ msgid "Company bank accounts"
 msgstr "Cuentas bancarias de la empresa"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Composición de lo Rendido"
+msgstr ""
+
+#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Comprobante PDF"
@@ -1190,7 +1242,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Conciliación"
+msgid "Conciliación del Vendedor"
 msgstr ""
 
 #. module: collection
@@ -1486,6 +1538,11 @@ msgid "Date To"
 msgstr "Fecha hasta"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Datos de la Planilla"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__debt_line_ids
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Debt"
@@ -1527,12 +1584,12 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Depósitos"
+msgid "Depósitos de clientes"
 msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Depósitos vendedor"
+msgid "Depósitos del vendedor"
 msgstr ""
 
 #. module: collection
@@ -1692,6 +1749,11 @@ msgstr "El tipo de documento no está permitido para esta empresa."
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid "Document types allowed for new collection work."
 msgstr "Tipos de documento permitidos para nuevo trabajo de cobranza."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Documento"
+msgstr ""
 
 #. module: collection
 #. odoo-javascript
@@ -1860,11 +1922,6 @@ msgid "Efectivo en Caja"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Emisión"
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid "Enable Document Review for this company"
 msgstr "Habilitar la Revisión de Documentos para esta empresa"
@@ -1953,6 +2010,16 @@ msgid "Fecha"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Fecha de Emisión"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Fecha de Pago"
+msgstr ""
+
+#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Fecha de emisión"
@@ -1962,6 +2029,11 @@ msgstr ""
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Fecha de pago"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Firma del vendedor"
 msgstr ""
 
 #. module: collection
@@ -2347,7 +2419,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Motivo"
+msgid "Motivo del Remanente"
 msgstr ""
 
 #. module: collection
@@ -2494,12 +2566,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Nº Compr."
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Número"
+msgid "Nº Comprobante"
 msgstr ""
 
 #. module: collection
@@ -2711,11 +2778,6 @@ msgstr "Saldos pendientes clasificados como facturas."
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Outstanding balances classified as quotations."
 msgstr "Saldos pendientes clasificados como presupuestos."
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Pago"
-msgstr ""
 
 #. module: collection
 #. odoo-python
@@ -3073,6 +3135,11 @@ msgid "Receipts of this sheet marked as entered in the ERP."
 msgstr "Recibos de esta planilla marcados como cargados en el ERP."
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Recibió — firma y aclaración"
+msgstr ""
+
+#. module: collection
 #: model:ir.model,name:collection.model_ir_rule
 msgid "Record Rule"
 msgstr "Regla de registro"
@@ -3107,7 +3174,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Rendido"
+msgid "Rendido − Neto a Rendir"
 msgstr ""
 
 #. module: collection
@@ -3151,17 +3218,7 @@ msgstr "Usuario responsable"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Resumen"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Retenciones"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Retenido"
 msgstr ""
 
 #. module: collection
@@ -3818,6 +3875,11 @@ msgstr "Cuenta destino"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Total"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Total Aplicado"
 msgstr ""
 
@@ -3835,7 +3897,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Total Comisión"
+msgid "Total Comisión Devengada"
 msgstr ""
 
 #. module: collection
@@ -3858,6 +3920,11 @@ msgid "Total Quotations"
 msgstr "Total de presupuestos"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Total Rendido"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__total_values
 msgid "Total Values"
 msgstr "Total de valores"
@@ -3874,16 +3941,14 @@ msgid "Total Vouchers Applied"
 msgstr "Total de comprobantes aplicados"
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid ""
-"Total cobrado (asignaciones) no coincide con los\n"
-"                        comprobantes impresos."
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Total debt minus total applied. May be negative."
 msgstr "Deuda total menos total aplicado. Puede ser negativo."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Totales"
+msgstr ""
 
 #. module: collection
 #. odoo-javascript
@@ -4009,6 +4074,11 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_form
 msgid "Values"
 msgstr "Valores"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Vencimiento"
+msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -4146,11 +4216,6 @@ msgid "Vouchers must share a single customer."
 msgstr "Los comprobantes deben compartir un único cliente."
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Vto."
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields,help:collection.field_collection_sheet__erp_entered_date
 msgid ""
 "When a manager marked this closed sheet's receipts as typed into the ERP. "
@@ -4218,6 +4283,11 @@ msgid "amount must be greater than zero."
 msgstr "amount debe ser mayor que cero."
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "certificados de retención del cliente"
+msgstr ""
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/tools/collection_voucher.py:0
 msgid ""
@@ -4271,12 +4341,48 @@ msgid "declare_collection_cash"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid ""
+"efectivo cobrado, menos lo que depositó el vendedor y la comisión retenida"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "el cliente depositó en la cuenta de la empresa"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "el vendedor depositó en el banco el efectivo cobrado"
+msgstr ""
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid ""
 "is still recorded on cash receipts. This does not block\n"
 "                        Confirm or Close."
 msgstr ""
 "sigue registrado en recibos de efectivo. Esto no impide Confirmar ni Cerrar."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "la que descuenta en el acto; 0 si se liquida aparte"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "lo que entregó; detalle abajo"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "lo que pagaron los clientes"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "lo que tenía que entregar a la empresa"
+msgstr ""
 
 #. module: collection
 #. odoo-python
@@ -4358,3 +4464,8 @@ msgstr ""
 #: code:addons/collection/tools/collection_seller_deposit.py:0
 msgid "voucher_number is required."
 msgstr "voucher_number es obligatorio."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "· Impreso el"
+msgstr ""
