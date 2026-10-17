@@ -7,7 +7,11 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.translate import _
 
-from .collection_common import FROZEN_SHEET_STATES, SELLER_DECLARATION_STATES
+from .collection_common import (
+    FROZEN_SHEET_STATES,
+    SELLER_DECLARATION_STATES,
+    is_privileged,
+)
 
 _VOUCHER_BLOCK_ORDER = ("bank_transfer", "check", "cash_deposit")
 _DOCUMENT_KIND_ORDER = ("invoice", "quotation")
@@ -193,8 +197,10 @@ class CollectionSheetReport(models.Model):
                     "and the commission withheld; it cannot be written."
                 )
             )
-        if declarations and any(
-            sheet.state not in SELLER_DECLARATION_STATES for sheet in self
+        if (
+            declarations
+            and not is_privileged("collection_sheet_reset")
+            and any(sheet.state not in SELLER_DECLARATION_STATES for sheet in self)
         ):
             raise UserError(
                 _(

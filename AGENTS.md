@@ -320,21 +320,30 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `draft` and MUST NOT change `issued` receipts. Freeze remains until Reinstate.
   Reinstate (`action_reinstate`, from `cancelled`; it replaced the old Open action, the
   Confirm/Close/Cancel/Open of earlier notes) writes **`submitted`**, leaves allocations
-  `draft`, keeps the ERP mark cleared, and re-checks the per-document applied cap.
-  Unlink **open** sheets: unlink draft allocations first (vouchers unassigned); refused
-  when an allocation has an issued receipt (cancel instead). Unlink **submitted**,
-  **proposal**, **closed**, or **cancelled** refused even when empty (`sheet_id`
-  `ondelete="restrict"`). Recon inputs (`commission_percent` 0–100,
-  `commission_withheld`) live on `models/collection_sheet_report.py` (second
-  `_inherit`); Closed and Cancelled refuse those writes; Proposal remains editable; the
-  seller declaration (`commission_withheld`) is writable only while `submitted`;
-  Reinstate keeps stored values. `cash_on_hand` (string Cash to Administration) is a
-  **stored compute**, `cash_collected − cash_banked − commission_withheld` (cash
-  vouchers minus `seller_deposit` vouchers minus the withheld commission); create and
-  write of `cash_on_hand` raise `UserError` in every state, the MCP tool MUST NOT accept
-  it, and the derived value makes the PDF recon banner balance by construction
-  (`in_favor` is unreachable from real data). A sheet's company cannot change once it
-  has vouchers or allocations.
+  `draft`, keeps the ERP mark cleared, and re-checks the per-document applied cap. Reset
+  to Open (`action_reset_to_open`, Manager, from `submitted`/`proposal`/`closed`/
+  `cancelled`; a raw `state: open` write dispatches to it) reopens local receipts,
+  drafts allocations, clears the ERP mark, sends the commission Back to Draft and
+  deletes it, clears `commission_withheld` and the cash declaration, and (in
+  `collection_receipt_proposal`) reopens board closures. Refused while the seller has
+  another open sheet. Voucher Back to Draft (`action_back_to_draft`, Collections User,
+  sheet `open`/`submitted` or none) reverses the cash swap first; cash still replaced by
+  another voucher is refused. A raw `state: draft` write goes through it. Deleting a
+  draft voucher deletes its receipt values. Unlink **open** sheets: unlink draft
+  allocations first (vouchers unassigned); refused when an allocation has an issued
+  receipt (cancel instead). Unlink **submitted**, **proposal**, **closed**, or
+  **cancelled** refused even when empty (`sheet_id` `ondelete="restrict"`). Recon inputs
+  (`commission_percent` 0–100, `commission_withheld`) live on
+  `models/collection_sheet_report.py` (second `_inherit`); Closed and Cancelled refuse
+  those writes; Proposal remains editable; the seller declaration
+  (`commission_withheld`) is writable only while `submitted`; Reinstate keeps stored
+  values. `cash_on_hand` (string Cash to Administration) is a **stored compute**,
+  `cash_collected − cash_banked − commission_withheld` (cash vouchers minus
+  `seller_deposit` vouchers minus the withheld commission); create and write of
+  `cash_on_hand` raise `UserError` in every state, the MCP tool MUST NOT accept it, and
+  the derived value makes the PDF recon banner balance by construction (`in_favor` is
+  unreachable from real data). A sheet's company cannot change once it has vouchers or
+  allocations.
 - **Entered in the ERP (D8):** receipts are typed into Bejerman by hand. A Collections
   Manager marks a **closed** sheet with **Mark as Entered in the ERP**
   (`action_mark_erp_entered` → `erp_entered_date` / `erp_entered_uid`, chatter note;

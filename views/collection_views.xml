@@ -146,6 +146,14 @@
             class="oe_highlight"
             invisible="state != 'draft'"
           />
+                    <button
+            name="action_back_to_draft"
+            string="Back to Draft"
+            type="object"
+            invisible="state == 'draft'"
+            groups="collection.group_collection_user"
+            confirm="Send this voucher back to draft? A deposit or commission gives back the cash it replaced."
+          />
                     <field
             name="state"
             widget="statusbar"
@@ -488,6 +496,14 @@
             type="object"
             invisible="state != 'cancelled'"
             groups="collection.group_collection_manager"
+          />
+                    <button
+            name="action_reset_to_open"
+            string="Reset to Open"
+            type="object"
+            invisible="not id or state == 'open'"
+            groups="collection.group_collection_manager"
+            confirm="Reset this sheet to Open? The ERP mark is cleared, the seller commission is removed, and the seller must close and declare cash again."
           />
                     <button
             name="action_mark_erp_entered"
