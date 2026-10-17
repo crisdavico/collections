@@ -858,11 +858,7 @@ class TestCollectionSheetReportData(TransactionCase):
         payload = sheet._collection_report_data()
         self.assertEqual(payload["cash_banked"], remittance.amount)
         self.assertEqual(sheet.cash_banked, 80.0)
-        self.assertFalse(
-            self.env["collection.cash.replacement"].search(
-                [("deposit_voucher_id", "=", remittance.id)]
-            )
-        )
+        self.assertFalse(remittance.replacing_amount)
 
     def test_cash_on_hand_is_cash_minus_deposits_minus_withheld(self):
         """cash_on_hand MUST equal cash − seller_deposit − commission_withheld."""

@@ -151,20 +151,6 @@ class TestCollectionReceipt(TransactionCase):
         )
         return catalog
 
-    def _create_replacement(self, receipt, cash, deposit, amount=10.0, **extra):
-        vals = {
-            "receipt_id": receipt.id,
-            "cash_voucher_id": cash.id,
-            "deposit_voucher_id": deposit.id,
-            "amount": amount,
-            "direction": extra.pop("direction", "replace"),
-            "created_by": extra.pop("created_by", self.env.user.id),
-            "created_at": extra.pop("created_at", "2026-09-01 12:00:00"),
-        }
-        vals.update(extra)
-        with privileged("collection_cash_replacement"):
-            return self.env["collection.cash.replacement"].create(vals)
-
     def test_unique_kind_per_allocation(self):
         """UNIQUE(allocation_id, document_kind) MUST refuse a second invoice."""
         allocation, _voucher, _sheet, _partner = self._balanced_allocation()
@@ -1131,77 +1117,3 @@ class TestCollectionReceipt(TransactionCase):
         self.assertEqual(receipt.state, "draft")
         value = self._create_value(receipt, voucher, 100.0)
         self.assertTrue(value.id)
-
-    def test_frozen_sheet_refuses_replacement_create(self):
-        """Closed sheets MUST refuse cash replacement create even with the gate."""
-        allocation, voucher, sheet, partner = self._balanced_allocation()
-        cash = self._create_voucher(
-            partner, sheet, amount=50.0, document_type="cash", document_id="RCPT-CASH"
-        )
-        allocation.write({"voucher_ids": [Command.link(cash.id)]})
-        receipt = self._create_receipt(allocation, "invoice")
-        self._enable_seller_deposit_type()
-        self.env.company.write({"auto_create_sheet": False})
-        deposit = self.env["collection.voucher"].create(
-            {
-                "document_type": "seller_deposit",
-                "seller_id": sheet.seller_id.id,
-                "company_id": sheet.company_id.id,
-                "amount": 50.0,
-                "voucher_number": "SD-RCPT-FRZ",
-                "voucher_date": "2026-09-08",
-            }
-        )
-        self.assertFalse(deposit.sheet_id)
-        self._mark_validated(voucher, cash)
-        sheet.action_seller_close()
-        sheet.action_declare_cash(commission_withheld=0.0)
-        sheet.action_confirm()
-        self._close_locally(sheet)
-        with self.assertRaises(UserError):
-            self._create_replacement(receipt, cash, deposit)
-        self.assertFalse(
-            self.env["collection.cash.replacement"].search(
-                [("receipt_id", "=", receipt.id)]
-            )
-        )
-
-    def test_cancel_does_not_create_reverse_replacements(self):
-        """Cancel then Reinstate MUST NOT create reverse replacements."""
-        allocation, voucher, sheet, partner = self._balanced_allocation()
-        cash = self._create_voucher(
-            partner, sheet, amount=50.0, document_type="cash", document_id="RCPT-CASH-R"
-        )
-        allocation.write({"voucher_ids": [Command.link(cash.id)]})
-        receipt = self._create_receipt(allocation, "invoice")
-        # The whole voucher funds the receipt: collected money follows the
-        # receipt values, and Confirm refuses an allocation applying more.
-        self._create_value(receipt, voucher, 100.0)
-        self._enable_seller_deposit_type()
-        self.env.company.write({"auto_create_sheet": False})
-        deposit = self.env["collection.voucher"].create(
-            {
-                "document_type": "seller_deposit",
-                "seller_id": sheet.seller_id.id,
-                "company_id": sheet.company_id.id,
-                "amount": 50.0,
-                "voucher_number": "SD-RCPT-REV",
-                "voucher_date": "2026-09-08",
-            }
-        )
-        self.assertFalse(deposit.sheet_id)
-        row = self._create_replacement(receipt, cash, deposit, amount=10.0)
-        self.assertEqual(row.direction, "replace")
-        self._mark_validated(voucher, cash)
-        sheet.action_seller_close()
-        sheet.action_declare_cash(commission_withheld=0.0)
-        sheet.action_confirm()
-        self._close_locally(sheet)
-        sheet.action_cancel()
-        sheet.action_reinstate()
-        leftovers = self.env["collection.cash.replacement"].search(
-            [("receipt_id", "=", receipt.id)]
-        )
-        self.assertEqual(leftovers, row)
-        self.assertEqual(leftovers.direction, "replace")
-        self.assertFalse(leftovers.filtered(lambda rec: rec.direction == "reverse"))

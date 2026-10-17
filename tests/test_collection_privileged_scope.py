@@ -9,7 +9,6 @@ old guard keys and expects the guard to hold anyway.
 
 from datetime import date
 
-from odoo import fields
 from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
@@ -187,96 +186,35 @@ class TestCollectionPrivilegedScope(TransactionCase):
                     self._forged(record, "collection_allocation_parent_unlink").unlink()
                 self.assertTrue(record.exists())
 
-    def test_forged_parent_unlink_cannot_delete_revisions(self):
-        _sheet, _voucher, allocation, _receipt, _value = self._ledger("open")
-        revision = self.env["muk_mcp.mixin"]._collection_allocation_insert_revision(
-            allocation, "scope-request-1", "scope-hash-1"
-        )
-        with self.assertRaises(UserError):
-            self._forged(revision, "collection_allocation_parent_unlink").unlink()
-        self.assertTrue(revision.exists())
-
-    def test_forged_parent_unlink_cannot_delete_cash_replacements(self):
-        """Users have no unlink ACL here; the ondelete guard is the second wall."""
-        sheet, cash, _allocation, receipt, _value = self._ledger(
-            "open", document_type="cash"
-        )
-        deposit = self.env["collection.voucher"].create(
-            {
-                "document_type": "seller_deposit",
-                "seller_id": self.seller.id,
-                "sheet_id": sheet.id,
-                "amount": 40.0,
-                "voucher_number": "SD-SCOPE",
-                "voucher_date": date(2026, 9, 8),
-            }
-        )
-        replacement = self.env["collection.receipt.value"]._cash_replace(
-            receipt, cash, deposit, 40.0
-        )
-        self.assertTrue(replacement)
-        with self.assertRaises(UserError):
-            replacement.with_context(collection_allocation_parent_unlink=True).unlink()
-        self.assertTrue(replacement.exists())
-
-    def test_forged_create_keys_cannot_mint_audit_rows(self):
+    def test_forged_keys_cannot_write_request_or_replaced_cash(self):
         """Each refusal MUST come from the model's own scope guard.
 
         A bare ``UserError`` would also accept an ACL refusal (``AccessError``
         is one) or an unrelated validation, and so pass with the guard gone.
         """
-        _sheet, voucher, allocation, receipt, _value = self._ledger("open")
-        now = fields.Datetime.now()
+        _sheet, voucher, allocation, _receipt, _value = self._ledger("open")
         cases = (
             (
-                "collection.allocation.revision",
-                "collection_allocation_revision",
-                "Allocation revisions can only be created by the allocation flow.",
-                {
-                    "allocation_id": allocation.id,
-                    "revision": 99,
-                    "request_id": "scope-forged-request",
-                    "content_hash": "forged",
-                    "confirmed_by": self.operator.id,
-                    "confirmed_at": now,
-                },
+                allocation,
+                "collection_allocation_request",
+                "Allocation request fields can only be written by the agent flow.",
+                {"request_id": "scope-forged-request"},
             ),
             (
-                "collection.voucher.review.snapshot",
-                "collection_review_snapshot",
-                "Review snapshots can only be created by Document Review.",
-                {
-                    "voucher_id": voucher.id,
-                    "revision": 99,
-                    "reviewer_id": self.operator.id,
-                    "reviewed_at": now,
-                    "decision": "approved",
-                },
-            ),
-            (
-                "collection.cash.replacement",
+                voucher,
                 "collection_cash_replacement",
-                "Cash replacements can only be created by the replacement flow.",
-                {
-                    "receipt_id": receipt.id,
-                    "cash_voucher_id": voucher.id,
-                    "deposit_voucher_id": voucher.id,
-                    "amount": 10.0,
-                    "direction": "replace",
-                    "created_by": self.operator.id,
-                    "created_at": now,
-                },
+                "Replaced cash can only be changed by the cash replacement flow.",
+                {"replaced_amount": 10.0},
             ),
         )
-        for model, key, message, vals in cases:
-            Model = self.env[model]
-            before = Model.search_count([])
-            with self.subTest(model=model):
+        for record, key, message, vals in cases:
+            with self.subTest(model=record._name):
                 with self.assertRaises(UserError) as error:
-                    self._forged(Model, key).create(vals)
+                    self._forged(record, key).write(vals)
                 self.assertNotIsInstance(error.exception, AccessError)
                 self.assertEqual(str(error.exception), message)
-                self.assertEqual(Model.search_count([]), before)
+        self.assertFalse(allocation.request_id)
+        self.assertFalse(voucher.replaced_amount)
 
     def test_forged_commission_mint_cannot_skip_the_new_work_gate(self):
         sheet = self._sheet()

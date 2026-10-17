@@ -1,13 +1,10 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-import inspect
 
 from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
-
-from odoo.addons.collection.models.collection_common import privileged
 
 from .test_collection_payment import (
     PNG_B64,
@@ -371,98 +368,6 @@ class TestCollectionAcl(TransactionCase):
         self.assertTrue(acls.perm_unlink)
         self._assert_global_company_rule("collection.sheet")
 
-    def _snapshot_vals(self, voucher, **extra):
-        vals = {
-            "voucher_id": voucher.id,
-            "revision": 1,
-            "reviewer_id": self.internal_user.id,
-            "reviewed_at": "2026-04-01 12:00:00",
-            "decision": "approved",
-            "document_type": voucher.document_type,
-            "amount": voucher.amount,
-        }
-        vals.update(extra)
-        return vals
-
-    def test_snapshot_acl_read_and_gated_create(self):
-        """Collections Users read history; create needs collection_review_snapshot."""
-        voucher = (
-            self.env["collection.voucher"]
-            .with_user(self.internal_user)
-            .create(self._voucher_vals(customer_identification="ACL-SNAP"))
-        )
-        Snapshot = self.env["collection.voucher.review.snapshot"].with_user(
-            self.internal_user
-        )
-        with self.assertRaises(UserError):
-            Snapshot.create(self._snapshot_vals(voucher))
-        with privileged("collection_review_snapshot"):
-            snap = Snapshot.create(self._snapshot_vals(voucher))
-        self.assertTrue(snap.id)
-        self.assertEqual(snap.voucher_id, voucher)
-        self.assertEqual(snap.revision, 1)
-        read = Snapshot.browse(snap.id).read(["revision", "decision"])
-        self.assertEqual(read[0]["revision"], 1)
-        self.assertEqual(read[0]["decision"], "approved")
-
-    def test_snapshot_write_unlink_denied_and_portal_denied(self):
-        """Client write/unlink MUST be denied; portal MUST be denied; no sudo/groups."""
-        voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(customer_identification="ACL-SNAP-DENY")
-        )
-        Snapshot = self.env["collection.voucher.review.snapshot"]
-        with privileged("collection_review_snapshot"):
-            snap = Snapshot.create(
-                self._snapshot_vals(voucher, reviewer_id=self.env.user.id)
-            )
-        with self.assertRaises(UserError):
-            snap.write({"amount": 1.0})
-        with self.assertRaises(UserError):
-            snap.unlink()
-        self.assertTrue(snap.exists())
-        self.assertAlmostEqual(snap.amount, voucher.amount, places=2)
-
-        PortalSnap = Snapshot.with_user(self.portal_user)
-        with self.assertRaises(AccessError):
-            PortalSnap.browse(snap.id).read(["revision"])
-        with self.assertRaises(AccessError):
-            with privileged("collection_review_snapshot"):
-                PortalSnap.create(
-                    self._snapshot_vals(
-                        voucher, revision=2, reviewer_id=self.portal_user.id
-                    )
-                )
-
-        acls = self.env["ir.model.access"].search(
-            [("model_id.model", "=", "collection.voucher.review.snapshot")]
-        )
-        self.assertEqual(len(acls), 1)
-        self.assertEqual(
-            acls.group_id, self.env.ref("collection.group_collection_user")
-        )
-        self.assertTrue(acls.perm_read)
-        self.assertTrue(acls.perm_create)
-        self.assertFalse(acls.perm_write)
-        self.assertFalse(acls.perm_unlink)
-        self._assert_global_company_rule("collection.voucher.review.snapshot")
-        snapshot_cls = type(self.env["collection.voucher.review.snapshot"])
-        voucher_cls = type(self.env["collection.voucher"])
-        sources = [
-            inspect.getsource(snapshot_cls.create),
-            inspect.getsource(snapshot_cls.write),
-            inspect.getsource(snapshot_cls._unlink_forbidden),
-            inspect.getsource(voucher_cls._append_review_snapshot),
-        ]
-        for source in sources:
-            code_lines = [
-                line
-                for line in source.splitlines()
-                if not line.lstrip().startswith("#")
-            ]
-            code = "\n".join(code_lines)
-            self.assertNotIn(".sudo(", code)
-            self.assertNotIn("sudo()", code)
-
     def test_voucher_acl_internal_group_and_company_rule(self):
         """Vouchers use one Collections User ACL row plus a global company rule."""
         acls = self.env["ir.model.access"].search(
@@ -524,23 +429,8 @@ class TestCollectionAcl(TransactionCase):
         sheet = self.env["collection.sheet"].create(self._sheet_vals())
         self.assertEqual(sheet.company_id, self.env.company)
 
-    def test_snapshot_company_id_related_stored_from_voucher(self):
-        field = self.env["collection.voucher.review.snapshot"]._fields["company_id"]
-        self.assertTrue(field.required)
-        self.assertEqual(field.related, "voucher_id.company_id")
-        self.assertTrue(field.store)
-        voucher = self.env["collection.voucher"].create(
-            self._voucher_vals(customer_identification="CO-REQ-SNAP")
-        )
-        with privileged("collection_review_snapshot"):
-            snap = self.env["collection.voucher.review.snapshot"].create(
-                self._snapshot_vals(voucher, reviewer_id=self.env.user.id)
-            )
-        self.assertEqual(snap.company_id, voucher.company_id)
-        self.assertEqual(snap.company_id, self.env.company)
-
-    def test_allowed_company_voucher_sheet_snapshot_visible(self):
-        """Happy path: allowed-company user can read A's voucher, sheet, snapshot."""
+    def test_allowed_company_voucher_sheet_visible(self):
+        """Happy path: allowed-company user can read A's voucher and sheet."""
         self._restrict_user_to_company(self.internal_user, self.env.company)
         sheet = (
             self.env["collection.sheet"]
@@ -557,26 +447,14 @@ class TestCollectionAcl(TransactionCase):
                 )
             )
         )
-        with privileged("collection_review_snapshot"):
-            snap = (
-                self.env["collection.voucher.review.snapshot"]
-                .with_user(self.internal_user)
-                .create(self._snapshot_vals(voucher))
-            )
         Voucher = self.env["collection.voucher"].with_user(self.internal_user)
         Sheet = self.env["collection.sheet"].with_user(self.internal_user)
-        Snapshot = self.env["collection.voucher.review.snapshot"].with_user(
-            self.internal_user
-        )
         self.assertEqual(Voucher.search([("id", "=", voucher.id)]), voucher)
         self.assertEqual(voucher.company_id, self.env.company)
         self.assertTrue(Voucher.browse(voucher.id).read(["name"])[0]["name"])
         self.assertEqual(Sheet.search([("id", "=", sheet.id)]), sheet)
         self.assertEqual(sheet.company_id, self.env.company)
         self.assertTrue(Sheet.browse(sheet.id).read(["name"])[0]["name"])
-        self.assertEqual(Snapshot.search([("id", "=", snap.id)]), snap)
-        self.assertEqual(snap.company_id, voucher.company_id)
-        self.assertEqual(Snapshot.browse(snap.id).read(["revision"])[0]["revision"], 1)
 
     def test_other_company_vouchers_hidden(self):
         company_b = self._create_company("Hide Voucher Co B")
@@ -599,133 +477,12 @@ class TestCollectionAcl(TransactionCase):
         self.assertEqual(sheet_b.company_id, company_b)
         self._assert_hidden_from_user(self.internal_user, sheet_b, ["name", "id"])
 
-    def test_other_company_snapshots_hidden(self):
-        company_b = self._create_company("Hide Snapshot Co B")
-        self._restrict_user_to_company(self.internal_user, self.env.company)
-        voucher_b = self.env["collection.voucher"].create(
-            self._voucher_vals(
-                customer_identification="HIDE-B-SNAP",
-                company_id=company_b.id,
-            )
-        )
-        with privileged("collection_review_snapshot"):
-            snap_b = self.env["collection.voucher.review.snapshot"].create(
-                self._snapshot_vals(voucher_b, reviewer_id=self.env.user.id)
-            )
-        self.assertEqual(snap_b.company_id, company_b)
-        self._assert_hidden_from_user(self.internal_user, snap_b, ["revision", "id"])
-
     def _enable_seller_deposit_type(self, company=None):
         catalog = self.env.ref("collection.document_type_seller_deposit")
         (company or self.env.company).write(
             {"allowed_document_type_ids": [Command.link(catalog.id)]}
         )
         return catalog
-
-    def _cash_replacement_records(self):
-        """Open-sheet cash receipt plus same-sheet seller_deposit (not allocated)."""
-        seller = ensure_enabled_seller(self.env, self.internal_user)
-        partner = dummy_customer_partner(self.env, customer="ACL-REPL")
-        sheet = self.env["collection.sheet"].create(
-            {
-                "seller_id": seller.id,
-                "company_id": self.env.company.id,
-            }
-        )
-        cash = self.env["collection.voucher"].create(
-            {
-                "partner_id": partner.id,
-                "document_type": "cash",
-                "seller_id": seller.id,
-                "sheet_id": sheet.id,
-                "amount": 100.0,
-            }
-        )
-        allocation = self.env["collection.allocation"].create(
-            {
-                "sheet_id": sheet.id,
-                "partner_id": partner.id,
-                "voucher_ids": [Command.set(cash.ids)],
-            }
-        )
-        receipt = self.env["collection.receipt"].create(
-            {
-                "allocation_id": allocation.id,
-                "document_kind": "invoice",
-            }
-        )
-        self._enable_seller_deposit_type()
-        deposit = self.env["collection.voucher"].create(
-            {
-                "document_type": "seller_deposit",
-                "seller_id": seller.id,
-                "sheet_id": sheet.id,
-                "amount": 50.0,
-                "voucher_number": "SD-ACL",
-                "voucher_date": "2026-09-08",
-            }
-        )
-        return allocation, receipt, cash, deposit
-
-    def _replacement_vals(self, receipt, cash, deposit, **extra):
-        vals = {
-            "receipt_id": receipt.id,
-            "cash_voucher_id": cash.id,
-            "deposit_voucher_id": deposit.id,
-            "amount": extra.pop("amount", 10.0),
-            "direction": extra.pop("direction", "replace"),
-            "created_by": extra.pop("created_by", self.env.user.id),
-            "created_at": extra.pop("created_at", "2026-09-01 12:00:00"),
-        }
-        vals.update(extra)
-        return vals
-
-    def test_cash_replacement_acl_1_0_1_0_and_company_rule(self):
-        """Ledger MUST be Collections User 1,0,1,0 with a global company ir.rule."""
-        acls = self.env["ir.model.access"].search(
-            [("model_id.model", "=", "collection.cash.replacement")]
-        )
-        self.assertEqual(len(acls), 1)
-        self.assertEqual(
-            acls.group_id, self.env.ref("collection.group_collection_user")
-        )
-        self.assertTrue(acls.perm_read)
-        self.assertTrue(acls.perm_create)
-        self.assertFalse(acls.perm_write)
-        self.assertFalse(acls.perm_unlink)
-        self._assert_global_company_rule("collection.cash.replacement")
-        _allocation, receipt, cash, deposit = self._cash_replacement_records()
-        Replacement = self.env["collection.cash.replacement"].with_user(
-            self.internal_user
-        )
-        with self.assertRaises(UserError):
-            Replacement.create(self._replacement_vals(receipt, cash, deposit))
-        with privileged("collection_cash_replacement"):
-            row = Replacement.create(
-                self._replacement_vals(
-                    receipt, cash, deposit, created_by=self.internal_user.id
-                )
-            )
-        self.assertTrue(row.id)
-        self.assertEqual(row.direction, "replace")
-        self.assertEqual(row.company_id, self.env.company)
-        read = Replacement.browse(row.id).read(["amount", "direction"])
-        self.assertEqual(read[0]["direction"], "replace")
-        self.assertAlmostEqual(read[0]["amount"], 10.0, places=2)
-
-    def test_cash_replacement_write_refused(self):
-        """Existing replacement write MUST refuse and leave stored fields."""
-        _allocation, receipt, cash, deposit = self._cash_replacement_records()
-        with privileged("collection_cash_replacement"):
-            row = self.env["collection.cash.replacement"].create(
-                self._replacement_vals(receipt, cash, deposit, amount=25.0)
-            )
-        with self.assertRaises(UserError):
-            row.write({"amount": 1.0})
-        self.assertAlmostEqual(row.amount, 25.0, places=2)
-        self.assertEqual(row.direction, "replace")
-        self.assertEqual(row.cash_voucher_id, cash)
-        self.assertEqual(row.deposit_voucher_id, deposit)
 
     def test_connector_acl_user_read_system_write_rows(self):
         """Connectors: Collections User read; systems and managers have CRUD."""

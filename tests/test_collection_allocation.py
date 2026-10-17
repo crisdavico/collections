@@ -115,26 +115,16 @@ class TestCollectionAllocation(TransactionCase):
         )
         return allocation, voucher, sheet, partner
 
-    def _create_revision(self, allocation, **extra):
-        vals = {
-            "allocation_id": allocation.id,
-            "revision": extra.pop("revision", allocation.revision),
-            "request_id": extra.pop("request_id", f"req-{allocation.id}"),
-            "content_hash": extra.pop("content_hash", "abc123"),
-            "confirmed_by": extra.pop("confirmed_by", self.env.user.id),
-            "confirmed_at": extra.pop("confirmed_at", "2026-09-01 12:00:00"),
-            "total_vouchers": extra.pop("total_vouchers", allocation.total_vouchers),
-            "total_applied": extra.pop("total_applied", allocation.total_applied),
-            "total_debt": extra.pop("total_debt", allocation.total_debt),
-            "total_invoices": extra.pop("total_invoices", allocation.total_invoices),
-            "total_quotations": extra.pop(
-                "total_quotations", allocation.total_quotations
-            ),
-            "residual": extra.pop("residual", allocation.residual),
-        }
-        vals.update(extra)
-        with privileged("collection_allocation_revision"):
-            return self.env["collection.allocation.revision"].create(vals)
+    def _record_agent_request(self, allocation, request_id):
+        """Record an agent request on the allocation, as the MCP tool does."""
+        with privileged("collection_allocation_request"):
+            allocation.write(
+                {
+                    "request_id": request_id,
+                    "content_hash": "abc123",
+                    "request_log": {request_id: {"revision": allocation.revision}},
+                }
+            )
 
     def _create_receipt(self, allocation, document_kind="invoice", **extra):
         vals = {
@@ -165,18 +155,6 @@ class TestCollectionAllocation(TransactionCase):
         with privileged("collection_audited_state"):
             records.write({"state": "validated_collections"})
         return records
-
-    def _revision_vals(self, allocation, **extra):
-        vals = {
-            "allocation_id": allocation.id,
-            "revision": extra.pop("revision", 1),
-            "request_id": extra.pop("request_id", f"req-alloc-{allocation.id}"),
-            "content_hash": extra.pop("content_hash", "hash"),
-            "confirmed_by": extra.pop("confirmed_by", self.env.user.id),
-            "confirmed_at": extra.pop("confirmed_at", "2026-09-01 12:00:00"),
-        }
-        vals.update(extra)
-        return vals
 
     def _bind_erp_customer(self, partner, seller, identification=ERP_CUSTOMER_IDENT):
         install_test_connector_type(self)
@@ -442,56 +420,33 @@ class TestCollectionAllocation(TransactionCase):
             allocation.write({"state": "validated"})
         self.assertEqual(allocation.state, "draft")
 
-    def test_revision_immutable_and_request_id_unique(self):
-        allocation, _voucher, _sheet, _partner = self._balanced_allocation()
-        Revision = self.env["collection.allocation.revision"]
+    def test_request_fields_gated_and_request_id_unique(self):
+        allocation, _voucher, sheet, _partner = self._balanced_allocation()
         with self.assertRaises(UserError):
-            Revision.create(
-                {
-                    "allocation_id": allocation.id,
-                    "revision": 1,
-                    "request_id": "req-plain",
-                    "content_hash": "h",
-                    "confirmed_by": self.env.user.id,
-                    "confirmed_at": "2026-09-01 12:00:00",
-                }
-            )
-        first = self._create_revision(allocation, request_id="req-unique-1")
-        self.assertEqual(first.revision, 1)
-        with self.assertRaises(UserError):
-            first.write({"content_hash": "changed"})
-        with self.assertRaises(UserError):
-            first.unlink()
-        self.assertTrue(first.exists())
+            allocation.write({"request_id": "req-plain"})
+        self._record_agent_request(allocation, "req-unique-1")
+        self.assertEqual(allocation.request_id, "req-unique-1")
+        other = self._create_allocation(sheet, self._partner("ALLOC-REQ-UNIQUE"))
         with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
             with self.env.cr.savepoint():
-                self._create_revision(allocation, revision=2, request_id="req-unique-1")
-        with mute_logger("odoo.sql_db"), self.assertRaises(IntegrityError):
-            with self.env.cr.savepoint():
-                self._create_revision(
-                    allocation, revision=1, request_id="req-unique-rev-dup"
-                )
+                self._record_agent_request(other, "req-unique-1")
+                other.flush_recordset()
 
-    def test_draft_unlink_with_revisions_refused(self):
-        """Revisions are the immutable audit trail: they block the delete.
-
-        This used to cascade the revisions away with a draft allocation.
-        """
+    def test_draft_unlink_with_agent_request_unassigns_vouchers(self):
+        """An agent-written draft allocation MUST delete like any other."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         line_ids = allocation.line_ids.ids
-        revision = self._create_revision(allocation, request_id="req-draft-unlink")
+        self._record_agent_request(allocation, "req-draft-unlink")
         self.assertEqual(allocation.state, "draft")
-        with self.assertRaises(UserError):
-            allocation.unlink()
-        self.assertTrue(allocation.exists())
-        self.assertTrue(revision.exists())
-        self.assertTrue(
+        allocation.unlink()
+        self.assertFalse(allocation.exists())
+        self.assertFalse(
             self.env["collection.allocation.line"].browse(line_ids).exists()
         )
-        self.assertEqual(voucher.allocation_id, allocation)
+        self.assertFalse(voucher.allocation_id)
 
-    def test_draft_unlink_without_revisions_unassigns_vouchers(self):
-        """Triangulation: a draft allocation with no ledger still deletes."""
+    def test_draft_unlink_unassigns_vouchers(self):
+        """Triangulation: a plain draft allocation deletes too."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         line_ids = allocation.line_ids.ids
         allocation_id = allocation.id
@@ -507,7 +462,7 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(leftover.exists())
         self.assertFalse(leftover.allocation_id)
 
-    def test_confirmed_unlink_refused_without_revisions(self):
+    def test_confirmed_unlink_refused(self):
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         self._confirm(allocation)
         allocation_id = allocation.id
@@ -517,30 +472,6 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(leftover.exists())
         self.assertEqual(leftover.state, "confirmed")
         self.assertEqual(voucher.allocation_id, leftover)
-
-    def test_confirmed_unlink_refused_with_revisions(self):
-        allocation, voucher, _sheet, _partner = self._balanced_allocation()
-        revision = self._create_revision(allocation, request_id="req-keep-confirmed")
-        self._confirm(allocation)
-        allocation_id = allocation.id
-        revision_id = revision.id
-        with self.assertRaises(UserError):
-            allocation.unlink()
-        leftover = self.env["collection.allocation"].browse(allocation_id)
-        self.assertTrue(leftover.exists())
-        self.assertTrue(
-            self.env["collection.allocation.revision"].browse(revision_id).exists()
-        )
-        self.assertEqual(voucher.allocation_id, leftover)
-
-    def test_direct_revision_unlink_still_forbidden_on_draft(self):
-        allocation, _voucher, _sheet, _partner = self._balanced_allocation()
-        revision = self._create_revision(allocation, request_id="req-direct-unlink")
-        with self.assertRaises(UserError):
-            revision.unlink()
-        self.assertTrue(revision.exists())
-        self.assertTrue(allocation.exists())
-        self.assertEqual(allocation.state, "draft")
 
     def test_iff_constraint_skips_under_audited_context(self):
         allocation, _voucher, sheet, _partner = self._balanced_allocation()
@@ -825,7 +756,7 @@ class TestCollectionAllocation(TransactionCase):
                     lines=[self._line_vals(amount_applied=-1.0, invoice_balance=10.0)],
                 )
 
-    def test_related_stored_currency_and_company_on_line_and_revision(self):
+    def test_related_stored_currency_and_company_on_line(self):
         allocation, _voucher, sheet, _partner = self._balanced_allocation()
         line = allocation.line_ids
         self.assertEqual(line.currency_id, allocation.currency_id)
@@ -834,13 +765,6 @@ class TestCollectionAllocation(TransactionCase):
         self.assertTrue(line_company.store)
         self.assertTrue(line_company.required)
         self.assertTrue(line_company.precompute)
-        rev = self._create_revision(allocation, request_id="req-related")
-        self.assertEqual(rev.company_id, sheet.company_id)
-        self.assertEqual(rev.currency_id, allocation.currency_id)
-        rev_company = self.env["collection.allocation.revision"]._fields["company_id"]
-        self.assertTrue(rev_company.store)
-        self.assertTrue(rev_company.required)
-        self.assertTrue(rev_company.precompute)
 
     def test_fully_applied_source_detach_via_partner_write_succeeds(self):
         """Allocated partner write MUST refuse even when residual is 0."""
@@ -1322,23 +1246,6 @@ class TestCollectionAllocation(TransactionCase):
         allocation.invalidate_recordset(["line_ids"])
         self.assertEqual(allocation.line_ids, before)
 
-    def test_frozen_sheet_refuses_revision_create(self):
-        """Closed sheets MUST refuse revision create even with the revision gate."""
-        allocation, voucher, sheet, _partner = self._balanced_allocation()
-        self._mark_validated(voucher)
-        confirm_sheet(sheet)
-        sheet.action_close()
-        with self.assertRaises(UserError):
-            with privileged("collection_allocation_revision"):
-                self.env["collection.allocation.revision"].create(
-                    self._revision_vals(allocation, request_id="req-frz-create")
-                )
-        self.assertFalse(
-            self.env["collection.allocation.revision"].search(
-                [("allocation_id", "=", allocation.id)]
-            )
-        )
-
     def test_proposal_still_allows_allocation_create(self):
         """Proposal sheets MUST still persist a lawful allocation create."""
         allocation, voucher, sheet, _partner = self._balanced_allocation()
@@ -1529,11 +1436,7 @@ class TestCollectionAllocation(TransactionCase):
         self.assertEqual(receipt.value_ids.amount, 100.0)
 
     def test_draft_unlink_cascades_receipts_and_values(self):
-        """Draft unlink MUST remove draft receipts and values, unassign vouchers.
-
-        No revision here any more: a revision now blocks the delete
-        (``test_draft_unlink_with_revisions_refused``).
-        """
+        """Draft unlink MUST remove draft receipts and values, unassign vouchers."""
         allocation, voucher, _sheet, _partner = self._balanced_allocation()
         receipt = self._create_receipt(allocation, "invoice")
         value = self._create_value(receipt, voucher, 100.0)

@@ -247,7 +247,6 @@ msgstr "Todos los comprobantes seleccionados deben tener un vendedor."
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__allocation_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__allocation_id
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__allocation_id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__allocation_id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__allocation_id
 msgid "Allocation"
@@ -270,29 +269,9 @@ msgid "Allocation request conflict could not be resolved."
 msgstr "No se pudo resolver el conflicto de la solicitud de asignación."
 
 #. module: collection
-#: model:ir.model.constraint,message:collection.constraint_collection_allocation_revision_request_id_uniq
+#: model:ir.model.constraint,message:collection.constraint_collection_allocation_request_id_uniq
 msgid "Allocation request id must be unique."
 msgstr "El id de solicitud de la asignación debe ser único."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_allocation_revision.py:0
-msgid "Allocation revisions can only be created by the allocation flow."
-msgstr ""
-"Las revisiones de asignación solo pueden ser creadas por el flujo de "
-"asignación."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_allocation_revision.py:0
-msgid "Allocation revisions cannot be deleted."
-msgstr "Las revisiones de asignación no se pueden eliminar."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_allocation_revision.py:0
-msgid "Allocation revisions cannot be modified."
-msgstr "Las revisiones de asignación no se pueden modificar."
 
 #. module: collection
 #. odoo-python
@@ -346,25 +325,9 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_allocation.py:0
-msgid "Allocations with cash replacements cannot be deleted."
-msgstr "Las asignaciones con reemplazos de efectivo no se pueden eliminar."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_allocation.py:0
 msgid "Allocations with issued collection receipts cannot be deleted."
 msgstr ""
 "Las asignaciones con recibos de cobranza emitidos no se pueden eliminar."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_allocation.py:0
-msgid ""
-"Allocations with revisions cannot be deleted: the revisions are the audit "
-"trail of the agent's writes."
-msgstr ""
-"Las asignaciones con revisiones no se pueden eliminar: las revisiones son el"
-" registro de auditoría de los cambios del agente."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__allowed_document_type_ids
@@ -387,12 +350,10 @@ msgstr ""
 "previamente."
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__amount
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__amount
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__amount
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_amount
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_amount
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__amount
 msgid "Amount"
 msgstr "Importe"
 
@@ -509,11 +470,6 @@ msgid "Applied amount exceeds available invoice balance."
 msgstr "El importe aplicado supera el saldo disponible de la factura."
 
 #. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__decision__approved
-msgid "Approved"
-msgstr "Aprobado"
-
-#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Aprobar y seguir"
@@ -600,7 +556,6 @@ msgstr "Cuentas bancarias"
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_bank_transfer
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__bank_transfer
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Bank Transfer"
 msgstr "Transferencia bancaria"
@@ -677,7 +632,6 @@ msgstr ""
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_cash
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__cash
 msgid "Cash"
 msgstr "Efectivo"
 
@@ -703,51 +657,15 @@ msgstr "Efectivo declarado por"
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_cash_deposit
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__cash_deposit
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Cash Deposit"
 msgstr "Depósito en efectivo"
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_voucher__cash_replacement_ids
-msgid "Cash Replacements"
-msgstr "Reemplazos de efectivo"
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__cash_voucher_id
-msgid "Cash Voucher"
-msgstr "Comprobante de efectivo"
-
-#. module: collection
-#: model:ir.model.constraint,message:collection.constraint_collection_cash_replacement_amount_positive
-msgid "Cash replacement amount must be greater than zero."
-msgstr "El importe del reemplazo de efectivo debe ser mayor que cero."
 
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_receipt_value.py:0
 msgid "Cash replacement currencies must agree."
 msgstr "Las monedas del reemplazo de efectivo deben coincidir."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_cash_replacement.py:0
-msgid "Cash replacements can only be created by the replacement flow."
-msgstr ""
-"Los reemplazos de efectivo solo pueden ser creados por el flujo de "
-"reemplazo."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_cash_replacement.py:0
-msgid "Cash replacements cannot be deleted."
-msgstr "Los reemplazos de efectivo no se pueden eliminar."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_cash_replacement.py:0
-msgid "Cash replacements cannot be modified."
-msgstr "Los reemplazos de efectivo no se pueden modificar."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__cash_on_hand
@@ -771,7 +689,6 @@ msgstr "Miembro del canal"
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_check
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__check
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Check"
 msgstr "Cheque"
@@ -780,7 +697,6 @@ msgstr "Cheque"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__check_bank
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_check_bank
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_check_bank
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__check_bank
 msgid "Check Bank"
 msgstr "Banco del cheque"
 
@@ -788,7 +704,6 @@ msgstr "Banco del cheque"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__check_issue_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_check_issue_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_check_issue_date
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__check_issue_date
 msgid "Check Issue Date"
 msgstr "Fecha de emisión del cheque"
 
@@ -796,7 +711,6 @@ msgstr "Fecha de emisión del cheque"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__check_number
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_check_number
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_check_number
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__check_number
 msgid "Check Number"
 msgstr "Nro. de cheque"
 
@@ -804,7 +718,6 @@ msgstr "Nro. de cheque"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__check_payment_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_check_payment_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_check_payment_date
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__check_payment_date
 msgid "Check Payment Date"
 msgstr "Fecha de pago del cheque"
 
@@ -812,7 +725,6 @@ msgstr "Fecha de pago del cheque"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__check_type
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_check_type
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_check_type
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__check_type
 msgid "Check Type"
 msgstr "Tipo de cheque"
 
@@ -935,23 +847,6 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/models/collection_allocation_revision.py:0
-msgid ""
-"Closed or cancelled collection sheets cannot change allocation revisions."
-msgstr ""
-"Las planillas de cobranza cerradas o canceladas no pueden cambiar revisiones"
-" de asignación."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_cash_replacement.py:0
-msgid "Closed or cancelled collection sheets cannot change cash replacements."
-msgstr ""
-"Las planillas de cobranza cerradas o canceladas no pueden cambiar reemplazos"
-" de efectivo."
-
-#. module: collection
-#. odoo-python
 #: code:addons/collection/models/collection_receipt_value.py:0
 msgid ""
 "Closed or cancelled collection sheets cannot change collection receipt "
@@ -991,21 +886,11 @@ msgid "Collection Allocation Line"
 msgstr "Línea de asignación de cobranza"
 
 #. module: collection
-#: model:ir.model,name:collection.model_collection_allocation_revision
-msgid "Collection Allocation Revision"
-msgstr "Revisión de asignación de cobranza"
-
-#. module: collection
 #: model:ir.actions.act_window,name:collection.action_collection_allocation
 #: model:ir.ui.menu,name:collection.menu_collection_allocation
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_list
 msgid "Collection Allocations"
 msgstr "Asignaciones de cobranza"
-
-#. module: collection
-#: model:ir.model,name:collection.model_collection_cash_replacement
-msgid "Collection Cash Replacement"
-msgstr "Reemplazo de efectivo de cobranza"
 
 #. module: collection
 #: model:ir.model,name:collection.model_collection_connector
@@ -1062,7 +947,6 @@ msgstr "Configuración de Cobranzas"
 #: model:ir.model,name:collection.model_collection_sheet
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__sheet_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__sheet_id
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__sheet_id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__sheet_id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__sheet_id
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
@@ -1100,13 +984,6 @@ msgstr "Conector de cobranzas"
 #: model_terms:ir.actions.act_window,help:collection.action_collection_receipt
 msgid "Collection receipts issued by the ERP"
 msgstr "Recibos de cobranza emitidos por el ERP"
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_receipt.py:0
-msgid "Collection receipts with cash replacements cannot be deleted."
-msgstr ""
-"Los recibos de cobranza con reemplazos de efectivo no se pueden eliminar."
 
 #. module: collection
 #. odoo-python
@@ -1163,7 +1040,6 @@ msgstr "El porcentaje de comisión debe estar entre 0 y 100."
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__check_type__common
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__ocr_check_type__common
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__seller_check_type__common
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__check_type__common
 msgid "Common"
 msgstr "Común"
 
@@ -1178,8 +1054,6 @@ msgstr "Empresas"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__company_id
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__company_id
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__company_id
@@ -1188,7 +1062,6 @@ msgstr "Empresas"
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__company_id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__company_id
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__company_id
 #: model:ir.model.fields,field_description:collection.field_discuss_channel__company_id
 #: model:ir.model.fields,field_description:collection.field_discuss_channel_member__company_id
 msgid "Company"
@@ -1299,16 +1172,6 @@ msgid "Confirmed"
 msgstr "Confirmada"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__confirmed_at
-msgid "Confirmed At"
-msgstr "Confirmada el"
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__confirmed_by
-msgid "Confirmed By"
-msgstr "Confirmada por"
-
-#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_allocation.py:0
 msgid "Confirmed allocations cannot be deleted."
@@ -1360,11 +1223,6 @@ msgid "Contact"
 msgstr "Contacto"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__content_hash
-msgid "Content Hash"
-msgstr "Hash del contenido"
-
-#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_helpers.esm.js:0
 msgid "Could not complete the review action."
@@ -1391,16 +1249,6 @@ msgid "Create a payment voucher"
 msgstr "Crear un comprobante de pago"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__created_at
-msgid "Created At"
-msgstr "Creado el"
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__created_by
-msgid "Created By"
-msgstr "Creado por"
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Created On"
 msgstr "Creado el"
@@ -1410,8 +1258,6 @@ msgstr "Creado el"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__create_uid
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__create_uid
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__create_uid
@@ -1421,7 +1267,6 @@ msgstr "Creado el"
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__create_uid
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__create_uid
 msgid "Created by"
 msgstr "Creado por"
 
@@ -1430,8 +1275,6 @@ msgstr "Creado por"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__create_date
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__create_date
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__create_date
@@ -1441,7 +1284,6 @@ msgstr "Creado por"
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__create_date
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__create_date
 msgid "Created on"
 msgstr "Creado el"
 
@@ -1468,13 +1310,10 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__currency_id
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__currency_id
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__currency_id
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__currency_id
 msgid "Currency"
 msgstr "Moneda"
 
@@ -1559,22 +1398,11 @@ msgid "Debts"
 msgstr "Deudas"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__decision
-msgid "Decision"
-msgstr "Decisión"
-
-#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__check_type__deferred
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__ocr_check_type__deferred
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__seller_check_type__deferred
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__check_type__deferred
 msgid "Deferred"
 msgstr "Diferido"
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__deposit_voucher_id
-msgid "Deposit Voucher"
-msgstr "Comprobante de depósito"
 
 #. module: collection
 #. odoo-javascript
@@ -1635,11 +1463,6 @@ msgid "Diferido"
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__direction
-msgid "Direction"
-msgstr "Sentido"
-
-#. module: collection
 #: model:ir.model,name:collection.model_discuss_channel
 msgid "Discussion Channel"
 msgstr "Canal de conversación"
@@ -1651,8 +1474,6 @@ msgstr "Canal de conversación"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__display_name
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__display_name
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_connector__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__display_name
@@ -1663,7 +1484,6 @@ msgstr "Canal de conversación"
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__display_name
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__display_name
 #: model:ir.model.fields,field_description:collection.field_discuss_channel__display_name
 #: model:ir.model.fields,field_description:collection.field_discuss_channel_member__display_name
 #: model:ir.model.fields,field_description:collection.field_ir_attachment__display_name
@@ -1729,7 +1549,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__document_type
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_document_type
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_document_type
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__document_type
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Document Type"
 msgstr "Tipo de documento"
@@ -1907,7 +1726,6 @@ msgstr "Cada comprobante debe tener un importe mayor que cero."
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_echeck
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__echeck
 msgid "Echeck"
 msgstr "Echeq"
 
@@ -2061,14 +1879,8 @@ msgstr "Icono de Font Awesome, por ejemplo, fa-tasks"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__from_account
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_from_account
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_from_account
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__from_account
 msgid "From Account"
 msgstr "Cuenta origen"
-
-#. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__ganancias
-msgid "Ganancias"
-msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
@@ -2127,8 +1939,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__id
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__id
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__id
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__id
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__id
 #: model:ir.model.fields,field_description:collection.field_collection_connector__id
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__id
@@ -2139,7 +1949,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__id
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__id
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__id
 #: model:ir.model.fields,field_description:collection.field_discuss_channel__id
 #: model:ir.model.fields,field_description:collection.field_discuss_channel_member__id
 #: model:ir.model.fields,field_description:collection.field_ir_attachment__id
@@ -2152,16 +1961,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_res_partner__id
 #: model:ir.model.fields,field_description:collection.field_res_users__id
 msgid "ID"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__iibb
-msgid "IIBB"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__iva
-msgid "IVA"
 msgstr ""
 
 #. module: collection
@@ -2311,8 +2110,6 @@ msgstr "Clase"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__write_uid
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__write_uid
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__write_uid
@@ -2322,7 +2119,6 @@ msgstr "Clase"
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__write_uid
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__write_uid
 msgid "Last Updated by"
 msgstr "Última actualización por"
 
@@ -2331,8 +2127,6 @@ msgstr "Última actualización por"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_picker__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__write_date
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__write_date
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_company_settings__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__write_date
@@ -2342,7 +2136,6 @@ msgstr "Última actualización por"
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__write_date
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__write_date
 msgid "Last Updated on"
 msgstr "Última actualización el"
 
@@ -2750,11 +2543,6 @@ msgstr ""
 "la API MCP pertenece a este grupo; los vendedores no."
 
 #. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__other
-msgid "Other"
-msgstr "Otra"
-
-#. module: collection
 #: model:ir.model,name:collection.model_collection_allocation_debt_candidate
 msgid "Outstanding Customer Debt Candidate"
 msgstr "Candidato de deuda pendiente del cliente"
@@ -2826,11 +2614,6 @@ msgstr "%(nest_name)s del pago en el índice %(index)s requiere document_type."
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
 msgid "Payment Voucher"
 msgstr "Comprobante de pago"
-
-#. module: collection
-#: model:ir.model,name:collection.model_collection_voucher_review_snapshot
-msgid "Payment Voucher Review Snapshot"
-msgstr "Instantánea de revisión del comprobante de pago"
 
 #. module: collection
 #: model:ir.actions.act_window,name:collection.action_collection_voucher
@@ -2987,7 +2770,6 @@ msgid "Raw OCR"
 msgstr "OCR crudo"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_cash_replacement__receipt_id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__receipt_id
 msgid "Receipt"
 msgstr "Recibo"
@@ -3158,11 +2940,6 @@ msgid "Reinstate"
 msgstr "Restablecer"
 
 #. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__decision__rejected
-msgid "Rejected"
-msgstr "Rechazado"
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Remanente"
 msgstr ""
@@ -3173,23 +2950,12 @@ msgid "Rendido − Neto a Rendir"
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_cash_replacement__direction__replace
-msgid "Replace"
-msgstr "Reemplazo"
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__replaced_amount
 msgid "Replaced Amount"
 msgstr "Importe reemplazado"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__request_id
-msgid "Request"
-msgstr "Solicitud"
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__residual
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__residual
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Residual"
 msgstr "Saldo restante"
@@ -3218,7 +2984,6 @@ msgstr ""
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_retention_certificate
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__retention_certificate
 msgid "Retention Certificate"
 msgstr "Certificado de retención"
 
@@ -3226,7 +2991,6 @@ msgstr "Certificado de retención"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_retention_kind
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__retention_kind
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_retention_kind
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__retention_kind
 msgid "Retention Kind"
 msgstr "Clase de retención"
 
@@ -3247,44 +3011,8 @@ msgstr ""
 "El certificado de retención %(number)s está duplicado en esta solicitud."
 
 #. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_cash_replacement__direction__reverse
-msgid "Reverse"
-msgstr "Reversión"
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_voucher__review_snapshot_ids
-msgid "Review History"
-msgstr "Historial de revisiones"
-
-#. module: collection
-#: model:ir.model.constraint,message:collection.constraint_collection_voucher_review_snapshot_voucher_revision_uniq
-msgid "Review snapshot revision must be unique per voucher."
-msgstr "La revisión de la instantánea debe ser única por comprobante."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_voucher_review_snapshot.py:0
-msgid "Review snapshots can only be created by Document Review."
-msgstr ""
-"Las instantáneas de revisión solo pueden ser creadas por la Revisión de "
-"Documentos."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_voucher_review_snapshot.py:0
-msgid "Review snapshots cannot be deleted."
-msgstr "Las instantáneas de revisión no se pueden eliminar."
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_voucher_review_snapshot.py:0
-msgid "Review snapshots cannot be modified."
-msgstr "Las instantáneas de revisión no se pueden modificar."
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__reviewed_at
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__reviewed_at
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__reviewed_at
 msgid "Reviewed At"
 msgstr "Revisado el"
 
@@ -3295,24 +3023,11 @@ msgid "Reviewed By"
 msgstr "Revisado por"
 
 #. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__reviewer_id
-msgid "Reviewer"
-msgstr "Revisor"
-
-#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__revision
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__revision
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__revision
 msgid "Revision"
 msgstr "Revisión"
 
 #. module: collection
-#: model:ir.model.constraint,message:collection.constraint_collection_allocation_revision_allocation_revision_uniq
-msgid "Revision number must be unique per allocation."
-msgstr "El número de revisión debe ser único por asignación."
-
-#. module: collection
-#: model:ir.model.fields,field_description:collection.field_collection_allocation__revision_ids
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Revisions"
 msgstr "Revisiones"
@@ -3327,11 +3042,6 @@ msgstr ""
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 msgid "Rotar a la izquierda"
-msgstr ""
-
-#. module: collection
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__retention_kind__suss
-msgid "SUSS"
 msgstr ""
 
 #. module: collection
@@ -3432,7 +3142,6 @@ msgstr "Cierre del vendedor no puede incluir comprobantes en borrador: %s"
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_seller_commission
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__seller_commission
 msgid "Seller Commission"
 msgstr "Comisión del vendedor"
 
@@ -3448,7 +3157,6 @@ msgstr "Confirmado por el vendedor"
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_seller_deposit
-#: model:ir.model.fields.selection,name:collection.selection__collection_voucher_review_snapshot__document_type__seller_deposit
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Seller Deposit"
 msgstr "Depósito vendedor"
@@ -3728,12 +3436,6 @@ msgstr ""
 "o cancelada no puede cambiar."
 
 #. module: collection
-#: model:ir.model.fields,help:collection.field_collection_cash_replacement__deposit_voucher_id
-msgid "The replacing voucher (`seller_deposit` or `seller_commission`)."
-msgstr ""
-"El comprobante que reemplaza (`seller_deposit` o `seller_commission`)."
-
-#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
 msgid "The requested connector operation is not available."
@@ -3864,7 +3566,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_to_account
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_to_account
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__to_account
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__to_account
 msgid "To Account"
 msgstr "Cuenta destino"
 
@@ -3880,7 +3581,6 @@ msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__total_applied
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__total_applied
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__total_applied
 msgid "Total Applied"
 msgstr "Total aplicado"
@@ -3897,20 +3597,17 @@ msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__total_debt
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__total_debt
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Total Debt"
 msgstr "Deuda total"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__total_invoices
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__total_invoices
 msgid "Total Invoices"
 msgstr "Total de facturas"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__total_quotations
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__total_quotations
 msgid "Total Quotations"
 msgstr "Total de presupuestos"
 
@@ -3926,7 +3623,6 @@ msgstr "Total de valores"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__total_vouchers
-#: model:ir.model.fields,field_description:collection.field_collection_allocation_revision__total_vouchers
 msgid "Total Vouchers"
 msgstr "Total de comprobantes"
 
@@ -4088,7 +3784,6 @@ msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__voucher_id
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__voucher_id
 msgid "Voucher"
 msgstr "Comprobante"
 
@@ -4102,7 +3797,6 @@ msgstr "Cantidad de comprobantes"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_voucher_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_voucher_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__voucher_date
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__voucher_date
 msgid "Voucher Date"
 msgstr "Fecha del comprobante"
 
@@ -4110,7 +3804,6 @@ msgstr "Fecha del comprobante"
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__ocr_voucher_number
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__seller_voucher_number
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__voucher_number
-#: model:ir.model.fields,field_description:collection.field_collection_voucher_review_snapshot__voucher_number
 msgid "Voucher Number"
 msgstr "Número de comprobante"
 

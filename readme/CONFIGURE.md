@@ -30,9 +30,8 @@ contacts default to the operator's company.
 3. **Seller identity.** Set the trusted seller header (below) and deploy the matching
    Nebula change, so the gateway, not the model, names the seller.
 4. **Upgrades.** Upgrading a database that already had `collection` installed cuts plain
-   internal users off collection data (menus, vouchers, sheets, snapshots, board events)
-   until they are added to Collections User or Collections Manager. Assign the groups as
-   part of the upgrade.
+   internal users off collection data (menus, vouchers, sheets) until they are added to
+   Collections User or Collections Manager. Assign the groups as part of the upgrade.
 
 ## Collection configuration
 

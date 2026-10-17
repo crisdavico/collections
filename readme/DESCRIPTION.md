@@ -33,9 +33,8 @@ non-cancelled sheets; a receipt cannot apply more than its values. An approved
 currency, and destination account: replacing its designated proof sends it back to
 Document Review (giving back any cash it replaced), and on closed or cancelled sheets
 the proof cannot change at all. A draft allocation can be deleted only while its sheet
-is open or submitted and it has no issued receipt, cash replacement, or agent revision.
-The commission voucher Confirm mints stays in step with the declared commission after a
-Cancel and Reinstate.
+is open or submitted and it has no issued receipt. The commission voucher Confirm mints
+stays in step with the declared commission after a Cancel and Reinstate.
 
 Per-company Collection Settings (`res.company` + related `res.config.settings`; XMLID
 `collection.action_collection_config_settings`) control enabled sellers (empty = none

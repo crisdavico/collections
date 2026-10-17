@@ -130,7 +130,6 @@ class TestCollectionMcpSellerIdentity(TransactionCase):
                 "collection.voucher",
                 "collection.sheet",
                 "collection.allocation",
-                "collection.allocation.revision",
             )
         }
 

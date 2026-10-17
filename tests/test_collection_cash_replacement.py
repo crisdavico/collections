@@ -18,7 +18,7 @@ from .test_collection_payment import (
 
 
 class TestCollectionCashReplacement(TransactionCase):
-    """Exact-cent cash replacement primitives and ledger side effects."""
+    """Exact-cent cash replacement primitives and replaced-cash counters."""
 
     def _seller(self):
         return ensure_enabled_seller(self.env)
@@ -275,6 +275,12 @@ class TestCollectionCashReplacement(TransactionCase):
         )
         voucher.invalidate_recordset(["create_date"])
 
+    def _held(self, voucher, receipt=None):
+        values = voucher.receipt_value_ids
+        if receipt is not None:
+            values = values.filtered(lambda value: value.receipt_id == receipt)
+        return sum(values.mapped("amount"))
+
     def _cash_replace(self, receipt, cash, deposit, amount):
         return self.env["collection.receipt.value"]._cash_replace(
             receipt, cash, deposit, amount
@@ -284,15 +290,14 @@ class TestCollectionCashReplacement(TransactionCase):
         """A slice that rounds to 0.00 MUST skip without raising or persisting."""
         receipt, cash, deposit, cash_value = self._funded_invoice_receipt()
         before_values = receipt.total_values
-        Replacement = self.env["collection.cash.replacement"]
         result = self._cash_replace(receipt, cash, deposit, 0.0)
         self.assertFalse(result)
-        self.assertFalse(Replacement.search([("receipt_id", "=", receipt.id)]))
+        self.assertAlmostEqual(cash.replaced_amount, 0.0, places=2)
         self.assertAlmostEqual(cash_value.amount, 100.0, places=2)
         self.assertAlmostEqual(receipt.total_values, before_values, places=2)
         tiny = self._cash_replace(receipt, cash, deposit, 0.001)
         self.assertFalse(tiny)
-        self.assertFalse(Replacement.search([("receipt_id", "=", receipt.id)]))
+        self.assertAlmostEqual(cash.replaced_amount, 0.0, places=2)
         self.assertAlmostEqual(cash_value.amount, 100.0, places=2)
 
     def test_currency_mismatch_refused(self):
@@ -301,10 +306,9 @@ class TestCollectionCashReplacement(TransactionCase):
         other = second_active_currency(self.env, cash.currency_id)
         self.assertTrue(other, "need a second currency for mismatch")
         cash.write({"currency_id": other.id})
-        Replacement = self.env["collection.cash.replacement"]
         with self.assertRaises(UserError):
             self._cash_replace(receipt, cash, deposit, 40.0)
-        self.assertFalse(Replacement.search([("receipt_id", "=", receipt.id)]))
+        self.assertAlmostEqual(cash.replaced_amount, 0.0)
         self.assertAlmostEqual(cash_value.amount, 100.0, places=2)
         self.assertFalse(
             receipt.value_ids.filtered(lambda value: value.voucher_id == deposit)
@@ -315,13 +319,10 @@ class TestCollectionCashReplacement(TransactionCase):
         receipt, cash, deposit, cash_value = self._funded_invoice_receipt()
         self.assertAlmostEqual(receipt.total_values, 100.0, places=2)
         self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
-        row = self._cash_replace(receipt, cash, deposit, 40.0)
-        self.assertTrue(row)
-        self.assertEqual(row.direction, "replace")
-        self.assertAlmostEqual(row.amount, 40.0, places=2)
-        self.assertEqual(row.cash_voucher_id, cash)
-        self.assertEqual(row.deposit_voucher_id, deposit)
-        self.assertEqual(row.receipt_id, receipt)
+        moved = self._cash_replace(receipt, cash, deposit, 40.0)
+        self.assertAlmostEqual(moved, 40.0, places=2)
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 40.0, places=2)
         self.assertAlmostEqual(receipt.total_values, 100.0, places=2)
         self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
         self.assertAlmostEqual(cash_value.amount, 60.0, places=2)
@@ -337,9 +338,8 @@ class TestCollectionCashReplacement(TransactionCase):
             cash_amount=100.0, applied=70.0
         )
         cash_value_id = cash_value.id
-        row = self._cash_replace(receipt, cash, deposit, 100.0)
-        self.assertTrue(row)
-        self.assertAlmostEqual(row.amount, 100.0, places=2)
+        moved = self._cash_replace(receipt, cash, deposit, 100.0)
+        self.assertAlmostEqual(moved, 100.0, places=2)
         self.assertFalse(
             self.env["collection.receipt.value"].browse(cash_value_id).exists()
         )
@@ -355,34 +355,31 @@ class TestCollectionCashReplacement(TransactionCase):
         receipt, cash, deposit, cash_value = self._funded_invoice_receipt()
         result = self._cash_replace(receipt, cash, deposit, 150.0)
         self.assertFalse(result)
-        self.assertFalse(
-            self.env["collection.cash.replacement"].search(
-                [("receipt_id", "=", receipt.id)]
-            )
-        )
+        self.assertAlmostEqual(cash.replaced_amount, 0.0, places=2)
         self.assertAlmostEqual(cash_value.amount, 100.0, places=2)
         self.assertAlmostEqual(receipt.total_values, 100.0, places=2)
 
-    def test_replaced_amount_from_ledger(self):
-        """Cash replaced_amount MUST equal Σ replace minus Σ reverse."""
+    def test_replaced_amount_books_the_replace(self):
+        """A replace MUST book the slice on the cash and the replacing voucher."""
         receipt, cash, deposit, _cash_value = self._funded_invoice_receipt()
         self.assertIn("replaced_amount", cash._fields)
         self.assertAlmostEqual(cash.replaced_amount, 0.0, places=2)
         self._cash_replace(receipt, cash, deposit, 40.0)
         self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
         self.assertAlmostEqual(deposit.replaced_amount, 0.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 40.0, places=2)
+        self.assertAlmostEqual(cash.replacing_amount, 0.0, places=2)
 
     def test_replaced_amount_subtracts_reverse(self):
-        """A reverse row MUST reduce replaced_amount on the cash voucher."""
+        """A reverse MUST reduce replaced_amount on both vouchers."""
         receipt, cash, deposit, _cash_value = self._funded_invoice_receipt()
         self._cash_replace(receipt, cash, deposit, 40.0)
-        reverse = self.env["collection.receipt.value"]._cash_reverse(
+        moved = self.env["collection.receipt.value"]._cash_reverse(
             receipt, cash, deposit, 10.0
         )
-        self.assertTrue(reverse)
-        self.assertEqual(reverse.direction, "reverse")
-        self.assertAlmostEqual(reverse.amount, 10.0, places=2)
+        self.assertAlmostEqual(moved, 10.0, places=2)
         self.assertAlmostEqual(cash.replaced_amount, 30.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 30.0, places=2)
         self.assertAlmostEqual(receipt.total_values, 100.0, places=2)
         self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
 
@@ -414,14 +411,9 @@ class TestCollectionCashReplacement(TransactionCase):
         self.assertEqual(receipt.sheet_id.state, "submitted")
         self.assertEqual(deposit.state, "validated_seller")
         self._validate_collections(deposit)
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", deposit.id)]
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows.direction, "replace")
-        self.assertAlmostEqual(rows.amount, 40.0, places=2)
-        self.assertEqual(rows.cash_voucher_id, cash)
-        self.assertEqual(rows.receipt_id, receipt)
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 40.0, places=2)
+        self.assertAlmostEqual(self._held(deposit, receipt), 40.0, places=2)
         self.assertAlmostEqual(receipt.total_values, 100.0, places=2)
         self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
         self.assertAlmostEqual(line.amount_applied, 70.0, places=2)
@@ -436,11 +428,7 @@ class TestCollectionCashReplacement(TransactionCase):
         )
         self._submit(receipt.sheet_id, cash, deposit)
         self._validate_collections(deposit)
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", deposit.id)]
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertAlmostEqual(rows.amount, 40.0, places=2)
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
         self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
 
     def test_non_transition_write_does_not_re_replace(self):
@@ -450,23 +438,17 @@ class TestCollectionCashReplacement(TransactionCase):
         )
         self._submit(receipt.sheet_id, cash, deposit)
         self._validate_collections(deposit)
-        Replacement = self.env["collection.cash.replacement"]
-        self.assertEqual(
-            Replacement.search_count([("deposit_voucher_id", "=", deposit.id)]),
-            1,
-        )
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
         # Money fields of an approved deposit are locked, so the later write
         # touches a display field only.
         deposit.write({"attachment_rotation": 90})
         self._validate_collections(deposit)
-        self.assertEqual(
-            Replacement.search_count([("deposit_voucher_id", "=", deposit.id)]),
-            1,
-        )
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 40.0, places=2)
         self.assertEqual(deposit.attachment_rotation, 90)
 
     def test_no_allocations_is_a_no_op(self):
-        """A deposit with zero allocations MUST persist without ledger rows."""
+        """A deposit with zero allocations MUST persist replacing nothing."""
         sheet = self._create_sheet()
         self._enable_seller_deposit_type()
         deposit = self.env["collection.voucher"].create(
@@ -484,29 +466,22 @@ class TestCollectionCashReplacement(TransactionCase):
         self.assertTrue(deposit.exists())
         self.assertEqual(deposit.state, "validated_collections")
         self.assertFalse(sheet.allocation_ids)
-        self.assertFalse(
-            self.env["collection.cash.replacement"].search(
-                [("deposit_voucher_id", "=", deposit.id)]
-            )
-        )
+        self.assertAlmostEqual(deposit.replacing_amount, 0.0, places=2)
 
     def test_cancel_then_reinstate_does_not_reverse(self):
-        """Cancel then Reinstate MUST keep replace rows and MUST NOT reverse."""
+        """Cancel then Reinstate MUST keep the replaced cash and MUST NOT reverse."""
         receipt, cash, deposit, _cash_value = self._funded_invoice_receipt(
             cash_amount=100.0, applied=70.0, deposit_amount=40.0
         )
         sheet = receipt.sheet_id
         self._submit(sheet, cash, deposit)
         self._validate_collections(deposit)
-        Replacement = self.env["collection.cash.replacement"]
-        replace_ids = Replacement.search([("deposit_voucher_id", "=", deposit.id)]).ids
-        self.assertEqual(len(replace_ids), 1)
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
         sheet.action_cancel()
         sheet.action_reinstate()
-        leftover = Replacement.search([("deposit_voucher_id", "=", deposit.id)])
-        self.assertEqual(leftover.ids, replace_ids)
-        self.assertEqual(leftover.direction, "replace")
-        self.assertFalse(leftover.filtered(lambda row: row.direction == "reverse"))
+        self.assertAlmostEqual(cash.replaced_amount, 40.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 40.0, places=2)
+        self.assertAlmostEqual(self._held(deposit), 40.0, places=2)
 
     def test_quotation_before_invoice(self):
         """A deposit smaller than combined cash MUST replace quotation cash first."""
@@ -639,13 +614,7 @@ class TestCollectionCashReplacement(TransactionCase):
         self._submit(sheet, cash_issued, cash_draft, deposit)
         self._validate_collections(deposit)
         self.assertEqual(deposit.state, "validated_collections")
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", deposit.id)]
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows.cash_voucher_id, cash_draft)
-        self.assertEqual(rows.receipt_id, draft)
-        self.assertAlmostEqual(rows.amount, 40.0, places=2)
+        self.assertAlmostEqual(self._held(deposit, draft), 40.0, places=2)
         self.assertEqual(issued.state, "issued")
         self.assertTrue(issued_value.exists())
         self.assertAlmostEqual(issued_value.amount, 50.0, places=2)
@@ -674,11 +643,7 @@ class TestCollectionCashReplacement(TransactionCase):
         self._submit(sheet, cash_issued, deposit)
         self._validate_collections(deposit)
         self.assertEqual(deposit.state, "validated_collections")
-        self.assertFalse(
-            self.env["collection.cash.replacement"].search(
-                [("deposit_voucher_id", "=", deposit.id)]
-            )
-        )
+        self.assertAlmostEqual(deposit.replacing_amount, 0.0, places=2)
         self.assertEqual(issued.state, "issued")
         self.assertTrue(issued_value.exists())
         self.assertAlmostEqual(issued_value.amount, 50.0, places=2)
@@ -697,16 +662,9 @@ class TestCollectionCashReplacement(TransactionCase):
         self.assertAlmostEqual(receipt.total_applied, 70.0, places=2)
         self.assertAlmostEqual(line.amount_applied, 70.0, places=2)
         self.assertAlmostEqual(cash_value.amount, 70.0, places=2)
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", commission.id)]
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows.direction, "replace")
-        self.assertEqual(rows.deposit_voucher_id, commission)
-        self.assertEqual(rows.deposit_voucher_id.document_type, "seller_commission")
-        self.assertEqual(rows.cash_voucher_id, cash)
-        self.assertEqual(rows.receipt_id, receipt)
-        self.assertAlmostEqual(rows.amount, 30.0, places=2)
+        self.assertAlmostEqual(cash.replaced_amount, 30.0, places=2)
+        self.assertAlmostEqual(commission.replacing_amount, 30.0, places=2)
+        self.assertAlmostEqual(self._held(commission, receipt), 30.0, places=2)
 
     def test_deposit_and_commission_share_one_cash_pool(self):
         """A deposit and a commission MUST consume one cash pool, never twice."""
@@ -716,24 +674,12 @@ class TestCollectionCashReplacement(TransactionCase):
         commission = self._create_commission(receipt.sheet_id, 30.0)
         self._submit(receipt.sheet_id, cash, deposit, commission)
         self._validate_collections(deposit | commission)
-        deposit_rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", deposit.id)]
-        )
-        commission_rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", commission.id)]
-        )
-        self.assertTrue(deposit_rows)
-        self.assertTrue(commission_rows)
-        replaced = sum(deposit_rows.mapped("amount")) + sum(
-            commission_rows.mapped("amount")
-        )
+        self.assertTrue(deposit.replacing_amount)
+        self.assertTrue(commission.replacing_amount)
+        replaced = deposit.replacing_amount + commission.replacing_amount
         self.assertAlmostEqual(replaced, 100.0, places=2)
         self.assertAlmostEqual(cash.replaced_amount, 100.0, places=2)
         self.assertFalse(cash_value.exists())
-        self.assertEqual(
-            set(deposit_rows.cash_voucher_id.ids + commission_rows.cash_voucher_id.ids),
-            {cash.id},
-        )
 
     def test_over_declared_commission_raises(self):
         """A commission larger than replaceable cash MUST raise UserError."""
@@ -754,37 +700,69 @@ class TestCollectionCashReplacement(TransactionCase):
         self._submit(receipt.sheet_id, cash, deposit)
         self._validate_collections(deposit)
         self.assertEqual(deposit.state, "validated_collections")
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", deposit.id)]
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertAlmostEqual(rows.amount, 50.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 50.0, places=2)
         self.assertFalse(cash_value.exists())
         self.assertAlmostEqual(cash.replaced_amount, 50.0, places=2)
 
-    def test_commission_voucher_cannot_unlink_once_referenced(self):
-        """A seller_commission named on a replace row MUST refuse unlink."""
+    def test_reverse_gives_each_receipt_its_cash_back(self):
+        """Undoing a swap MUST put back each receipt's cash, without a ledger."""
+        sheet = self._create_sheet()
+        invoice, cash_invoice, _invoice_value = self._cash_receipt(
+            sheet,
+            self._partner("REV-INVOICE"),
+            60.0,
+            "invoice",
+            date(2026, 1, 31),
+            "REV-INV",
+        )
+        quotation, cash_quotation, _quotation_value = self._cash_receipt(
+            sheet,
+            self._partner("REV-QUOTATION"),
+            40.0,
+            "quotation",
+            date(2026, 2, 28),
+            "REV-QUO",
+        )
+        deposit = self._create_deposit(sheet, 80.0, number="SD-REV-BOTH")
+        self._submit(sheet, cash_invoice, cash_quotation, deposit)
+        self._validate_collections(deposit)
+        # Quotation cash first, then invoice cash.
+        self.assertAlmostEqual(self._held(cash_quotation), 0.0, places=2)
+        self.assertAlmostEqual(self._held(cash_invoice), 20.0, places=2)
+        self.assertAlmostEqual(self._held(deposit, quotation), 40.0, places=2)
+        self.assertAlmostEqual(self._held(deposit, invoice), 40.0, places=2)
+        deposit._reverse_cash_replacement()
+        self.assertAlmostEqual(self._held(cash_invoice, invoice), 60.0, places=2)
+        self.assertAlmostEqual(self._held(cash_quotation, quotation), 40.0, places=2)
+        self.assertFalse(deposit.receipt_value_ids)
+        self.assertAlmostEqual(cash_invoice.replaced_amount, 0.0, places=2)
+        self.assertAlmostEqual(cash_quotation.replaced_amount, 0.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 0.0, places=2)
+        self.assertAlmostEqual(invoice.total_values, 60.0, places=2)
+        self.assertAlmostEqual(quotation.total_values, 40.0, places=2)
+
+    def test_validated_commission_cannot_unlink(self):
+        """A validated seller_commission MUST refuse unlink (draft-only delete)."""
         receipt, cash, cash_value = self._funded_cash_invoice_receipt(
             cash_amount=100.0, applied=70.0
         )
         commission = self._create_commission(receipt.sheet_id, 30.0)
         self._submit(receipt.sheet_id, cash, commission)
         self._validate_collections(commission)
-        rows = self.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", commission.id)]
-        )
-        self.assertTrue(rows)
-        self.assertEqual(
-            self.env["collection.cash.replacement"]
-            ._fields["deposit_voucher_id"]
-            .ondelete,
-            "restrict",
-        )
         with self.assertRaises(UserError):
             commission.unlink()
         self.assertTrue(commission.exists())
-        self.assertTrue(rows.exists())
         self.assertTrue(cash_value.exists())
+
+    def test_replaced_cash_counters_refuse_direct_writes(self):
+        """Only the replacement flow MUST book replaced cash."""
+        _receipt, cash, deposit, _cash_value = self._funded_invoice_receipt()
+        with self.assertRaises(UserError):
+            cash.write({"replaced_amount": 10.0})
+        with self.assertRaises(UserError):
+            deposit.write({"replacing_amount": 10.0})
+        self.assertAlmostEqual(cash.replaced_amount, 0.0)
+        self.assertAlmostEqual(deposit.replacing_amount, 0.0)
 
     def test_cash_replacer_helpers_use_replacement_types(self):
         """Enter/run helpers MUST be the type-set names, not deposit-only."""
@@ -806,11 +784,3 @@ class TestCollectionCashReplacement(TransactionCase):
             voucher_cls._cash_replacers_entering_validated_collections
         )
         self.assertIn("CASH_REPLACEMENT_TYPES", enter_source)
-
-    def test_deposit_voucher_id_help_names_replacing_types(self):
-        """deposit_voucher_id MUST document both replacing voucher types."""
-        field = self.env["collection.cash.replacement"]._fields["deposit_voucher_id"]
-        help_text = field.help or ""
-        self.assertIn("replacing voucher", help_text.lower())
-        self.assertIn("seller_deposit", help_text)
-        self.assertIn("seller_commission", help_text)

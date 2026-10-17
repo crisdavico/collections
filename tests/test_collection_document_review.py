@@ -511,11 +511,6 @@ class TestCollectionDocumentReview(TransactionCase):
         approved.action_review_approve(sheet.id, {"amount": 55.0})
         self.assertEqual(approved.state, "validated_collections")
         self.assertAlmostEqual(approved.amount, 55.0, places=2)
-        snaps = self.env["collection.voucher.review.snapshot"].search(
-            [("voucher_id", "=", approved.id)]
-        )
-        self.assertEqual(snaps.decision, "approved")
-        self.assertNotEqual(approved.state, snaps.decision)
         leftover = self._create_review_eligible_voucher(
             customer_identification="CUST-SAME-REJ",
             document_id="DOC-SAME-REJ",
@@ -1290,11 +1285,6 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.state, "validated_collections")
         self.assertEqual(voucher.reviewed_by, self.env.user)
         self.assertTrue(voucher.reviewed_at)
-        snaps = self._snapshots(voucher)
-        self.assertEqual(snaps.decision, "approved")
-        self.assertAlmostEqual(snaps.amount, 250.75, places=2)
-        self.assertEqual(snaps.from_account, "NEW-FROM")
-        self.assertNotEqual(voucher.state, snaps.decision)
 
     def test_approve_persists_check_fields(self):
         """Triangulation: nonempty check vals MUST persist onto current check fields."""
@@ -1332,10 +1322,6 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertAlmostEqual(voucher.amount, 80.0, places=2)
         self.assertEqual(voucher.ocr_check_number, "CHK-OCR")
         self.assertEqual(voucher.state, "validated_collections")
-        snaps = self._snapshots(voucher)
-        self.assertEqual(snaps.decision, "approved")
-        self.assertEqual(snaps.check_number, voucher.check_number)
-        self.assertAlmostEqual(snaps.amount, voucher.amount, places=2)
 
     def test_approve_persists_cash_deposit_fields(self):
         """Triangulation: empty dict vals MUST leave current unchanged."""
@@ -1349,10 +1335,6 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.document_type, "cash_deposit")
         self.assertAlmostEqual(voucher.amount, 15.0, places=2)
         self.assertEqual(voucher.state, "validated_collections")
-        snaps = self._snapshots(voucher)
-        self.assertEqual(snaps.decision, "approved")
-        self.assertAlmostEqual(snaps.amount, 15.0, places=2)
-        self.assertEqual(snaps.document_type, "cash_deposit")
 
     def test_review_reject_rpc_does_not_exist(self):
         """Reject MUST NOT exist; eligible voucher stays validated_seller."""
@@ -1365,7 +1347,6 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertFalse(hasattr(Voucher, "action_review_reject"))
         self.assertEqual(voucher.state, "validated_seller")
         self.assertFalse(voucher.reviewed_by)
-        self.assertFalse(self._snapshots(voucher))
 
     # --- Stale/concurrent, attachment reset ---
 
@@ -1444,14 +1425,8 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertFalse(voucher.reviewed_by)
         self.assertFalse(voucher.reviewed_at)
 
-    def _snapshots(self, voucher):
-        return self.env["collection.voucher.review.snapshot"].search(
-            [("voucher_id", "=", voucher.id)],
-            order="revision",
-        )
-
-    def test_document_review_approve_empty_vals_snapshots_current(self):
-        """Approve with empty vals MUST snapshot current payment fields."""
+    def test_document_review_approve_empty_vals_keeps_current(self):
+        """Approve with empty vals MUST keep current payment fields."""
         voucher = self._create_review_eligible_voucher(
             customer_identification="CUST-SNAP-EMPTY",
             document_id="DOC-SNAP-EMPTY",
@@ -1468,37 +1443,15 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.state, "validated_collections")
         self.assertAlmostEqual(voucher.amount, 100.0, places=2)
         self.assertEqual(voucher.from_account, "FROM-EMPTY")
-        snaps = self._snapshots(voucher)
-        self.assertEqual(len(snaps), 1)
-        self.assertEqual(snaps.revision, 1)
-        self.assertEqual(snaps.decision, "approved")
-        self.assertEqual(snaps.reviewer_id, self.env.user)
-        self.assertEqual(snaps.reviewed_at, voucher.reviewed_at)
-        self.assertAlmostEqual(snaps.amount, 100.0, places=2)
-        self.assertEqual(snaps.from_account, "FROM-EMPTY")
-        self.assertEqual(snaps.document_type, "bank_transfer")
-        self.assertNotEqual(voucher.state, snaps.decision)
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertTrue(voucher.reviewed_at)
+        self.assertEqual(voucher.document_type, "bank_transfer")
         self.assertAlmostEqual(voucher.ocr_amount, 90.0, places=2)
         self.assertEqual(voucher.ocr_from_account, "OCR-FROM")
         self.assertAlmostEqual(voucher.seller_amount, 100.0, places=2)
 
-    def test_document_review_reject_appends_snapshot(self):
-        """Document Review reject MUST NOT exist and MUST NOT append a snapshot."""
-        voucher = self._create_review_eligible_voucher(
-            customer_identification="CUST-SNAP-REJ",
-            document_id="DOC-SNAP-REJ",
-            amount=55.0,
-            ocr_amount=55.0,
-            ocr_document_type="bank_transfer",
-            seller_amount=55.0,
-            seller_document_type="bank_transfer",
-        )
-        self.assertFalse(hasattr(voucher, "action_review_reject"))
-        self.assertEqual(voucher.state, "validated_seller")
-        self.assertFalse(self._snapshots(voucher))
-
-    def test_form_approve_and_reject_do_not_append_snapshots(self):
-        """Form Validate by Seller MUST change state and MUST NOT append snapshots."""
+    def test_form_validate_by_seller_changes_state(self):
+        """Form Validate by Seller MUST change state; no reject action exists."""
         approved = self._create_attached_voucher(
             customer_identification="CUST-SNAP-FORM-APPR",
             document_id="DOC-SNAP-FORM-APPR",
@@ -1509,7 +1462,6 @@ class TestCollectionDocumentReview(TransactionCase):
         )
         approved.action_validate_seller()
         self.assertEqual(approved.state, "validated_seller")
-        self.assertFalse(self._snapshots(approved))
 
         rejected = self._create_attached_voucher(
             customer_identification="CUST-SNAP-FORM-REJ",
@@ -1518,10 +1470,9 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertFalse(hasattr(rejected, "action_reject"))
         rejected.action_validate_seller()
         self.assertEqual(rejected.state, "validated_seller")
-        self.assertFalse(self._snapshots(rejected))
 
-    def test_reopen_then_review_appends_another_revision(self):
-        """A later Document Review after reopen MUST append revision 2."""
+    def test_reopen_then_review_approves_again(self):
+        """A later Document Review after reopen MUST approve the voucher again."""
         voucher = self._create_review_eligible_voucher(
             customer_identification="CUST-SNAP-REOPEN",
             document_id="DOC-SNAP-REOPEN",
@@ -1532,28 +1483,17 @@ class TestCollectionDocumentReview(TransactionCase):
             seller_document_type="bank_transfer",
         )
         voucher.action_review_approve(self.review_sheet.id)
-        first = self._snapshots(voucher)
-        self.assertEqual(len(first), 1)
-        first_id = first.id
-        first_amount = first.amount
-        self.assertEqual(first.decision, "approved")
+        self.assertEqual(voucher.state, "validated_collections")
         self._replace_proof(voucher, "reopened.png", PNG_B64)
         self.assertEqual(voucher.state, "validated_seller")
+        self.assertFalse(voucher.reviewed_by)
         voucher.action_review_approve(self.review_sheet.id)
-        snaps = self._snapshots(voucher)
-        self.assertEqual(len(snaps), 2)
-        self.assertEqual(snaps[0].id, first_id)
-        self.assertEqual(snaps[0].revision, 1)
-        self.assertAlmostEqual(snaps[0].amount, first_amount, places=2)
-        self.assertEqual(snaps[0].decision, "approved")
-        self.assertEqual(snaps[1].revision, 2)
-        self.assertEqual(snaps[1].decision, "approved")
         self.assertEqual(voucher.state, "validated_collections")
-        self.assertNotEqual(voucher.state, snaps[1].decision)
+        self.assertEqual(voucher.reviewed_by, self.env.user)
+        self.assertAlmostEqual(voucher.amount, 40.0, places=2)
 
-    def test_reviewer_correction_matches_snapshot_current_only(self):
-        """Non-empty approve vals MUST rewrite current; snapshot matches; raw/seller
-        stay."""
+    def test_reviewer_correction_rewrites_current_only(self):
+        """Non-empty approve vals MUST rewrite current; raw/seller stay."""
         voucher = self._create_review_eligible_voucher(
             customer_identification="CUST-SNAP-EDIT",
             document_id="DOC-SNAP-EDIT",
@@ -1576,11 +1516,6 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertEqual(voucher.ocr_from_account, "OCR-FROM")
         self.assertAlmostEqual(voucher.seller_amount, 100.0, places=2)
         self.assertEqual(voucher.seller_from_account, "OLD-FROM")
-        snaps = self._snapshots(voucher)
-        self.assertEqual(len(snaps), 1)
-        self.assertAlmostEqual(snaps.amount, 250.75, places=2)
-        self.assertEqual(snaps.from_account, "NEW-FROM")
-        self.assertEqual(snaps.decision, "approved")
 
     # --- Phase 3: queue provenance + OWL three-way ---
 

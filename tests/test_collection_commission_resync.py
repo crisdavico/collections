@@ -112,10 +112,7 @@ class TestCollectionCommissionResync(TransactionCase):
         commission = self._confirmed_then_reinstated(300.0)
         self.sheet.action_declare_cash(commission_withheld=100.0)
         self._assert_in_step(commission, 100.0)
-        directions = commission.env["collection.cash.replacement"].search(
-            [("deposit_voucher_id", "=", commission.id)]
-        )
-        self.assertIn("reverse", directions.mapped("direction"))
+        self.assertEqual(commission.replacing_amount, 100.0)
 
     def test_zero_commission_voids_the_voucher(self):
         commission = self._confirmed_then_reinstated(300.0)

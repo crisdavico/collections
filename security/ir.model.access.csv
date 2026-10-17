@@ -1,7 +1,6 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_collection_voucher_user,collection.voucher.user,model_collection_voucher,group_collection_user,1,1,1,1
 access_collection_sheet_user,collection.sheet.user,model_collection_sheet,group_collection_user,1,1,1,1
-access_collection_voucher_review_snapshot_user,collection.voucher.review.snapshot.user,model_collection_voucher_review_snapshot,group_collection_user,1,0,1,0
 access_collection_document_type_user,collection.document.type.user,model_collection_document_type,group_collection_user,1,0,0,0
 access_collection_document_type_system,collection.document.type.system,model_collection_document_type,base.group_system,1,0,0,0
 access_collection_connector_user,collection.connector.user,model_collection_connector,group_collection_user,1,0,0,0
@@ -14,10 +13,8 @@ access_collection_allocation_user,collection.allocation.user,model_collection_al
 access_collection_allocation_line_user,collection.allocation.line.user,model_collection_allocation_line,group_collection_user,1,1,1,1
 access_collection_allocation_debt_picker_user,collection.allocation.debt.picker.user,model_collection_allocation_debt_picker,group_collection_user,1,1,1,1
 access_collection_allocation_debt_candidate_user,collection.allocation.debt.candidate.user,model_collection_allocation_debt_candidate,group_collection_user,1,1,1,1
-access_collection_allocation_revision_user,collection.allocation.revision.user,model_collection_allocation_revision,group_collection_user,1,0,1,1
 access_collection_receipt_user,collection.receipt.user,model_collection_receipt,group_collection_user,1,1,1,1
 access_collection_receipt_value_user,collection.receipt.value.user,model_collection_receipt_value,group_collection_user,1,1,1,1
-access_collection_cash_replacement_user,collection.cash.replacement.user,model_collection_cash_replacement,group_collection_user,1,0,1,0
 access_res_partner_collection_user,res.partner.collection.user,base.model_res_partner,group_collection_user,1,0,1,0
 access_collection_company_settings_manager,collection.company.settings.manager,model_collection_company_settings,group_collection_manager,1,1,1,1
 access_collection_company_settings_system,collection.company.settings.system,model_collection_company_settings,base.group_system,1,1,1,1

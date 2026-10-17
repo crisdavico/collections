@@ -166,24 +166,9 @@ class CollectionReceipt(models.Model):
     @api.ondelete(at_uninstall=False)
     def _unlink_if_issued_or_frozen(self):
         self._raise_if_issued()
-        if self._has_cash_replacements():
-            raise UserError(
-                _("Collection receipts with cash replacements cannot be deleted.")
-            )
         if is_privileged("collection_allocation_parent_unlink"):
             return
         self._raise_if_sheet_frozen()
-
-    @api.private
-    def _has_cash_replacements(self):
-        """Return whether any cash replacement row points at these receipts."""
-        if not self:
-            return False
-        return bool(
-            self.env["collection.cash.replacement"].search_count(
-                [("receipt_id", "in", self.ids)], limit=1
-            )
-        )
 
     @api.private
     def _action_mark_closed(self):

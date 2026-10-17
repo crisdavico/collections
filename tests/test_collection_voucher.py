@@ -418,14 +418,12 @@ class TestCollectionVoucher(TransactionCase):
         )
 
     def test_no_selection_offers_unsupported(self):
-        """Current, Raw OCR, Seller Confirmed and snapshot types drop unsupported."""
+        """Current, Raw OCR and Seller Confirmed types drop unsupported."""
         Voucher = self.env["collection.voucher"]
-        Snapshot = self.env["collection.voucher.review.snapshot"]
         choices = {
             "document_type": Voucher._selection_document_type(),
             "ocr_document_type": Voucher._fields["ocr_document_type"].selection,
             "seller_document_type": Voucher._fields["seller_document_type"].selection,
-            "snapshot document_type": Snapshot._fields["document_type"].selection,
         }
         for name, selection in choices.items():
             codes = {code for code, _label in selection}
@@ -2486,7 +2484,7 @@ class TestCollectionVoucherProvenance(TransactionCase):
         self._assert_empty_provenance(clone)
 
     def test_existing_rows_keep_current_with_null_provenance(self):
-        """Rows created without stamps keep current fields and zero snapshots."""
+        """Rows created without stamps keep current fields."""
         voucher = self._create_voucher(
             customer_identification="CUST-PROV-EXISTING",
             amount=77.0,
@@ -2495,12 +2493,6 @@ class TestCollectionVoucherProvenance(TransactionCase):
         self.assertAlmostEqual(voucher.amount, 77.0, places=2)
         self.assertEqual(voucher.to_account, "TO-KEEP")
         self._assert_empty_provenance(voucher)
-        self.assertEqual(
-            self.env["collection.voucher.review.snapshot"].search_count(
-                [("voucher_id", "=", voucher.id)]
-            ),
-            0,
-        )
 
 
 class TestCollectionNewWorkHelper(TransactionCase):

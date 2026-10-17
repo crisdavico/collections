@@ -7,7 +7,6 @@ from odoo.tools.translate import _
 
 from .collection_common import (
     is_privileged,
-    privileged,
     raise_if_create_vals_frozen,
     raise_if_sheet_frozen,
 )
@@ -200,7 +199,7 @@ class CollectionReceiptValue(models.Model):
     @api.model
     @api.private
     def _cash_replace(self, receipt, cash_voucher, deposit_voucher, amount):
-        """Shrink cash and grow deposit on the same receipt; persist a replace row."""
+        """Shrink cash and grow deposit on the same receipt; return the slice."""
         return self._cash_move(
             receipt,
             source_voucher=cash_voucher,
@@ -212,7 +211,7 @@ class CollectionReceiptValue(models.Model):
     @api.model
     @api.private
     def _cash_reverse(self, receipt, cash_voucher, deposit_voucher, amount):
-        """Shrink deposit and grow cash on the same receipt; persist a reverse row."""
+        """Shrink deposit and grow cash on the same receipt; return the slice."""
         return self._cash_move(
             receipt,
             source_voucher=deposit_voucher,
@@ -224,32 +223,29 @@ class CollectionReceiptValue(models.Model):
     @api.model
     @api.private
     def _cash_move(self, receipt, source_voucher, target_voucher, amount, direction):
+        """Move a slice between cash and its replacing voucher on ``receipt``.
+
+        Returns the slice moved (0.0 when nothing moved). The replaced cash is
+        booked on both vouchers (``replaced_amount`` / ``replacing_amount``):
+        no ledger row is kept.
+        """
         cash_voucher = source_voucher if direction == "replace" else target_voucher
         deposit_voucher = target_voucher if direction == "replace" else source_voucher
         self._assert_replacement_currencies(receipt, cash_voucher, deposit_voucher)
         currency = receipt.currency_id
         slice_amount = currency.round(amount or 0.0)
-        empty = self.env["collection.cash.replacement"]
         if currency.compare_amounts(slice_amount, 0.0) == 0:
-            return empty
+            return 0.0
         source_value = receipt.value_ids.filtered(
             lambda value, target=source_voucher: value.voucher_id == target
         )[:1]
         if not source_value:
-            return empty
+            return 0.0
         applied = source_value._shrink_or_unlink(slice_amount)
         if currency.compare_amounts(applied, 0.0) == 0:
-            return empty
+            return 0.0
         self._grow_voucher_amount(receipt, target_voucher, applied)
-        with privileged("collection_cash_replacement"):
-            return empty.create(
-                {
-                    "receipt_id": receipt.id,
-                    "cash_voucher_id": cash_voucher.id,
-                    "deposit_voucher_id": deposit_voucher.id,
-                    "amount": applied,
-                    "direction": direction,
-                    "created_by": self.env.user.id,
-                    "created_at": fields.Datetime.now(),
-                }
-            )
+        deposit_voucher._book_replaced_cash(
+            cash_voucher, applied if direction == "replace" else -applied
+        )
+        return applied

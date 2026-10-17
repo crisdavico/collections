@@ -185,18 +185,6 @@
                                 </list>
                             </field>
                         </page>
-                        <page string="Revisions">
-                            <field name="revision_ids" readonly="1">
-                                <list create="false" delete="false" edit="false">
-                                    <field name="revision" />
-                                    <field name="request_id" />
-                                    <field name="confirmed_by" />
-                                    <field name="confirmed_at" />
-                                    <field name="residual" />
-                                    <field name="currency_id" column_invisible="1" />
-                                </list>
-                            </field>
-                        </page>
                     </notebook>
                 </sheet>
                 <chatter />
