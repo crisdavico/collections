@@ -280,3 +280,28 @@ class TestCollectionDepositProofSwap(TransactionCase):
         self.sheet.action_declare_cash(commission_withheld=30.0)
         self.sheet.action_confirm()
         self.assertEqual(self.cash.replaced_amount, 90.0)
+
+    def test_a_swapped_sheet_is_deleted_only_after_the_swap_is_undone(self):
+        self._approve(self.deposit)
+        self._close()
+        self.sheet.action_reset_to_open()
+        with self.assertRaisesRegex(UserError, "part of a cash swap"):
+            self.sheet.unlink()
+        self.assertTrue(self.sheet.exists())
+        self.assertEqual(self.deposit.sheet_id, self.sheet)
+        self._assert_replaced(60.0)
+        self.deposit.action_back_to_draft()
+        self._assert_replaced(0.0)
+        self.sheet.unlink()
+        (self.cash | self.deposit).filtered(
+            lambda voucher: voucher.state != "draft"
+        ).action_back_to_draft()
+        (self.cash | self.deposit).unlink()
+        self.assertFalse((self.cash | self.deposit).exists())
+
+    def test_swapped_vouchers_cannot_leave_their_sheet(self):
+        self._approve(self.deposit)
+        for voucher in (self.deposit, self.cash):
+            with self.assertRaisesRegex(UserError, "part of a cash swap"):
+                voucher.write({"sheet_id": False})
+            self.assertEqual(voucher.sheet_id, self.sheet)

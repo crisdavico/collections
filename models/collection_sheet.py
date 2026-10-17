@@ -296,6 +296,8 @@ class CollectionSheet(models.Model):
     def _unlink_open_sheets_and_cascade_allocations(self):
         if any(sheet.state not in SELLER_SHEET_STATES for sheet in self):
             raise UserError(_("Only open collection sheets can be deleted."))
+        # Deleting the sheet detaches its vouchers (ondelete set null).
+        self.voucher_ids._raise_if_in_cash_swap()
         self.allocation_ids.unlink()
 
     def action_seller_close(self, cash_on_hand=None, commission_withheld=None):

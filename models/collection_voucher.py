@@ -460,6 +460,10 @@ class CollectionVoucher(models.Model):
         # After the sheet freeze checks, so a frozen sheet keeps its own error.
         self._ensure_approved_money_fields_unlocked(vals)
         if "sheet_id" in vals:
+            new_sheet_id = record_id(vals.get("sheet_id")) or False
+            self.filtered(
+                lambda voucher: voucher.sheet_id.id != new_sheet_id
+            )._raise_if_in_cash_swap()
             self._ensure_sheet_membership_unlocked(vals.get("sheet_id"))
         if "allocation_id" in vals:
             self._ensure_allocation_membership_writable(vals.get("allocation_id"))
@@ -733,6 +737,30 @@ class CollectionVoucher(models.Model):
             share = currency.round(min(unreturned, cash.replaced_amount or 0.0))
             self._book_replaced_cash(cash, -share)
             unreturned = currency.round(unreturned - share)
+
+    @api.private
+    def _raise_if_in_cash_swap(self):
+        """Refuse moving swapped vouchers off their sheet.
+
+        A swap is undone through the cash of the replacing voucher's sheet, so
+        a deposit or commission, or the cash it replaced, that left the sheet
+        could never give the cash back nor be deleted.
+        """
+        swapped = self.filtered(
+            lambda voucher: any(
+                voucher.currency_id.compare_amounts(amount or 0.0, 0.0) > 0
+                for amount in (voucher.replaced_amount, voucher.replacing_amount)
+            )
+        )
+        if swapped:
+            raise UserError(
+                _(
+                    "Vouchers %s are part of a cash swap and must stay on their "
+                    "collection sheet. Send the seller deposit or commission back "
+                    "to draft first.",
+                    ", ".join(swapped.mapped("name")),
+                )
+            )
 
     @api.private
     def _replaced_cash_by_preference(self, receipt=None):
