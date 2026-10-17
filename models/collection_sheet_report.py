@@ -229,7 +229,7 @@ class CollectionSheetReport(models.Model):
 
     @api.depends("voucher_ids.document_type", "voucher_ids.amount")
     def _compute_cash_banked_totals(self):
-        """Sum cash and seller_deposit voucher amounts. Never the replacement ledger."""
+        """Sum cash and seller_deposit voucher amounts."""
         for sheet in self:
             collected = 0.0
             banked = 0.0
