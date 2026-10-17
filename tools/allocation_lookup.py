@@ -37,7 +37,9 @@ class CollectionAllocationLookupMixin(models.AbstractModel):
         name="get_collection_allocation",
         description=(
             "Return the open-sheet collection allocation for an Enabled Seller "
-            "customer, or {allocation: null}. Collections Users only."
+            "customer, or {allocation: null}. Each voucher carries its current "
+            "check_number (null unless check or echeck), which an amend must "
+            "restate. Collections Users only."
         ),
         input_schema=_GET_COLLECTION_ALLOCATION_SCHEMA,
         category="read",
@@ -107,6 +109,9 @@ class CollectionAllocationLookupMixin(models.AbstractModel):
                     "document_id": voucher.document_id,
                     "amount": voucher.amount,
                     "document_type": voucher.document_type,
+                    # An amend restates every voucher, and Odoo requires a
+                    # check's number and compares it with this current value.
+                    "check_number": voucher.check_number or None,
                 }
                 for voucher in allocation.voucher_ids
             ],

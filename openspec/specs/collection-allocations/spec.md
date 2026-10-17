@@ -343,8 +343,10 @@ seller-binding gates. Open sheet MUST use `_open_sheets_for_seller`, MUST NOT
 `_resolve_open_sheet_id_for_create`. Unbound identification, no open sheet, or no
 allocation MUST return `{allocation: null}` and MUST NOT create partner, binding, or
 sheet. Found MUST return list `vouchers`, `invoices`, and `receipts` (even empty); MUST
-NOT return `residual_reason`; invoice rows MUST include `document_kind` (default
-`invoice`) plus existing keys; each receipts item MUST include `document_kind`, `state`,
+NOT return `residual_reason`; voucher rows MUST include `check_number`, the voucher's
+current value (`null` when empty), because an amend restates every voucher and
+`create_collection_allocation` requires and compares a check's number; invoice rows
+MUST include `document_kind` (default `invoice`) plus existing keys; each receipts item MUST include `document_kind`, `state`,
 `external_receipt_id`, totals, and values (payment identity + amount); MUST NEVER
 include attachments or base64. Found open-sheet `state` MUST be `draft`. MUST NOT return
 `validated` or `rejected`. Multi-open MUST raise existing multi-open `UserError`. Errors
@@ -373,6 +375,14 @@ list.)
 - THEN payload MUST list `vouchers`, `invoices`, and `receipts` (even empty), include
   invoice `document_kind`, omit `residual_reason`, never attachments or base64; `state`
   MUST be `draft` with zero writes
+
+#### Scenario: Voucher rows carry the current check number
+
+- GIVEN an open-sheet allocation holding a check whose current `check_number` differs
+  from its `seller_check_number`, and a bank transfer
+- WHEN `get_collection_allocation` runs
+- THEN the check row MUST carry its current `check_number` and the transfer row
+  `check_number: null`
 
 #### Scenario: Multi-open sheet and auth fail closed
 

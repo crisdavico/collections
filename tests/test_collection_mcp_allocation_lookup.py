@@ -47,6 +47,7 @@ _VOUCHER_KEYS = {
     "document_id",
     "amount",
     "document_type",
+    "check_number",
 }
 _INVOICE_KEYS = {
     "external_invoice_id",
@@ -407,6 +408,7 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(row["document_id"], voucher.document_id)
         self.assertEqual(row["amount"], 150.0)
         self.assertEqual(row["document_type"], "bank_transfer")
+        self.assertIsNone(row["check_number"])
         self.assertEqual(len(result["invoices"]), 1)
         invoice = result["invoices"][0]
         self.assertEqual(set(invoice), _INVOICE_KEYS)
@@ -420,6 +422,41 @@ class TestCollectionMcpAllocationLookup(TransactionCase):
         self.assertEqual(invoice["amount_applied"], 100.0)
         self.assertEqual(invoice["document_kind"], "invoice")
         self.assertEqual(result["receipts"], [])
+
+    def test_found_payload_includes_the_current_check_number(self):
+        """A check's current number is returned, so an amend can restate it.
+
+        create_collection_allocation validates seller_confirmed.check_number on
+        every check and echeck payment, reused vouchers included, and compares
+        it with the voucher's current value.
+        """
+        sheet = self._create_sheet()
+        check = self._create_voucher(
+            sheet,
+            self.partner,
+            200.0,
+            document_type="check",
+            check_number="00071264",
+            seller_check_number="00071200",
+        )
+        echeck = self._create_voucher(
+            sheet,
+            self.partner,
+            300.0,
+            document_type="echeck",
+            check_number="E-5521",
+        )
+        self._create_allocation(sheet, self.partner, vouchers=check | echeck)
+
+        result = self._call(self._args())
+
+        numbers = {
+            row["document_id"]: row["check_number"] for row in result["vouchers"]
+        }
+        self.assertEqual(
+            numbers,
+            {check.document_id: "00071264", echeck.document_id: "E-5521"},
+        )
 
     def test_get_invoices_include_stored_document_kind(self):
         """GET invoice rows MUST echo stored document_kind, including quotation."""
