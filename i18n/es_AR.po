@@ -147,6 +147,16 @@ msgstr "Un comprobante asignado a una planilla debe tener un vendedor."
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid ""
+"A voucher can only be removed while its collection sheet is open or "
+"submitted."
+msgstr ""
+"Un comprobante solo puede quitarse mientras su planilla de cobranza está "
+"abierta o rendida."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
 "A voucher can only go back to draft while its collection sheet is open or "
 "submitted. Reset the sheet to open first."
 msgstr ""
@@ -2509,6 +2519,13 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Only Collections Users can remove vouchers from a sheet."
+msgstr ""
+"Solo los Usuarios de Cobranzas pueden quitar comprobantes de una planilla."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
 msgid "Only Collections Users can review documents or confirm sheets."
 msgstr ""
@@ -3049,12 +3066,38 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
+msgid "Remove from Sheet"
+msgstr "Quitar de la planilla"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid ""
 "Remove the Entered in the ERP mark? The amounts of this sheet are subtracted"
 " from the ERP balances again after the next refresh."
 msgstr ""
 "¿Quitar la marca Cargada en el ERP? Los importes de esta planilla vuelven a "
 "descontarse de los saldos del ERP después de la próxima actualización."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
+msgid ""
+"Remove this voucher from its sheet and allocation? It stops paying the "
+"customer's documents; lower the allocation's applied amounts if needed."
+msgstr ""
+"¿Quitar este comprobante de su planilla y su asignación? Deja de pagar los "
+"documentos del cliente; si hace falta, bajá los importes aplicados de la "
+"asignación."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Remove this voucher from the sheet and its allocation? It stops paying the "
+"customer's documents; lower the allocation's applied amounts if needed."
+msgstr ""
+"¿Quitar este comprobante de la planilla y de su asignación? Deja de pagar "
+"los documentos del cliente; si hace falta, bajá los importes aplicados de la"
+" asignación."
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -3420,6 +3463,11 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Sheet"
 msgstr "Planilla"
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_voucher__sheet_state
+msgid "Sheet Status"
+msgstr "Estado de la planilla"
 
 #. module: collection
 #. odoo-python
@@ -3962,6 +4010,18 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__voucher_id
 msgid "Voucher"
 msgstr "Comprobante"
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher %s is not on a collection sheet."
+msgstr "El comprobante %s no está en una planilla de cobranza."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher %s removed from the sheet."
+msgstr "Comprobante %s quitado de la planilla."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__voucher_count

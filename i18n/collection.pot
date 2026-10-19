@@ -136,6 +136,14 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid ""
+"A voucher can only be removed while its collection sheet is open or "
+"submitted."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
 "A voucher can only go back to draft while its collection sheet is open or "
 "submitted. Reset the sheet to open first."
 msgstr ""
@@ -2375,6 +2383,12 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Only Collections Users can remove vouchers from a sheet."
+msgstr ""
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
 msgid "Only Collections Users can review documents or confirm sheets."
 msgstr ""
@@ -2873,9 +2887,29 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
+msgid "Remove from Sheet"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid ""
 "Remove the Entered in the ERP mark? The amounts of this sheet are subtracted"
 " from the ERP balances again after the next refresh."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
+msgid ""
+"Remove this voucher from its sheet and allocation? It stops paying the "
+"customer's documents; lower the allocation's applied amounts if needed."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Remove this voucher from the sheet and its allocation? It stops paying the "
+"customer's documents; lower the allocation's applied amounts if needed."
 msgstr ""
 
 #. module: collection
@@ -3219,6 +3253,11 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Sheet"
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_voucher__sheet_state
+msgid "Sheet Status"
 msgstr ""
 
 #. module: collection
@@ -3728,6 +3767,18 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__voucher_id
 msgid "Voucher"
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher %s is not on a collection sheet."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher %s removed from the sheet."
 msgstr ""
 
 #. module: collection

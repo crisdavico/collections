@@ -473,6 +473,33 @@ class TestCollectionUi(TransactionCase):
             "sheet form header must not expose Reassign Customers",
         )
 
+    def test_remove_from_sheet_shows_only_on_open_or_submitted_sheets(self):
+        voucher_form = self._arch_root("collection.view_collection_voucher_form")
+        button = voucher_form.xpath(
+            './/header/button[@name="action_remove_from_sheet"]'
+        )
+        self.assertEqual(len(button), 1, "voucher form must offer Remove from Sheet")
+        self.assertEqual(button[0].get("string"), "Remove from Sheet")
+        self.assertEqual(
+            button[0].get("invisible"),
+            "not sheet_id or sheet_state not in ('open', 'submitted')",
+        )
+        self.assertEqual(button[0].get("groups"), "collection.group_collection_user")
+        sheet_form = self._arch_root("collection.view_collection_sheet_form")
+        row = sheet_form.xpath(
+            './/field[@name="voucher_ids"]/list/button'
+            '[@name="action_remove_from_sheet"]'
+        )
+        self.assertEqual(len(row), 1, "sheet Vouchers tab must offer Remove")
+        self.assertEqual(row[0].get("icon"), "fa-trash-o")
+        self.assertEqual(row[0].get("title"), "Remove from Sheet")
+        self.assertFalse(row[0].get("string"), "the row shows only the trash icon")
+        self.assertEqual(
+            row[0].get("column_invisible"),
+            "parent.state not in ('open', 'submitted')",
+        )
+        self.assertEqual(row[0].get("groups"), "collection.group_collection_user")
+
     def test_customer_field_is_partner_id_without_domain(self):
         """Payment Vouchers list, search, and form use unbound partner_id."""
         expected_counts = {
