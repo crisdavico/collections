@@ -1024,8 +1024,9 @@ msgstr "Reporte QWeb de la planilla de cobranza"
 
 #. module: collection
 #: model:ir.model,name:collection.model_collection_sheet_xlsx
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Collection Sheet XLSX"
-msgstr "Planilla de cobranza XLSX"
+msgstr "Planilla de Cobranza XLSX"
 
 #. module: collection
 #: model:ir.actions.act_window,name:collection.action_collection_sheet
@@ -1860,11 +1861,6 @@ msgstr ""
 " la revisión que generó, su hash del contenido y los totales con los que "
 "respondió, para que una solicitud reintentada reciba de nuevo su primera "
 "respuesta."
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid "Export XLSX"
-msgstr "Exportar XLSX"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_customer_binding__external_customer_id

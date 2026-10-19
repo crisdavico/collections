@@ -944,6 +944,7 @@ msgstr ""
 
 #. module: collection
 #: model:ir.model,name:collection.model_collection_sheet_xlsx
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Collection Sheet XLSX"
 msgstr ""
 
@@ -1751,11 +1752,6 @@ msgid ""
 "Every agent request that wrote this allocation, by request id: the revision "
 "it made, its content hash and the totals it answered with, so a retried "
 "request gets its first answer back."
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid "Export XLSX"
 msgstr ""
 
 #. module: collection

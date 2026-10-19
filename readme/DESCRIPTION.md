@@ -23,7 +23,7 @@ declaration cleared, so the sheet can be corrected, amended by the agent or dele
 is refused while the seller has another open sheet. Sheets have their own chatter and
 activities. The sheet form notebook is Allocations, Vouchers, and Debt. Operators print
 a Planilla de Cobranza from a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, no
-company letterhead or printed date) and header Export XLSX share
+company letterhead or printed date) and header Collection Sheet XLSX share
 `_collection_report_data()`; the workbook never turns typed text into a formula or a
 link. Sheet recon inputs are `commission_percent` (0–100) and `commission_withheld`
 (frozen while closed or cancelled; never negative); `cash_on_hand` (Cash to

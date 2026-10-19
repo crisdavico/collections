@@ -546,7 +546,7 @@
           />
                     <button
             name="action_print_xlsx"
-            string="Export XLSX"
+            string="Collection Sheet XLSX"
             type="object"
             invisible="not id"
             groups="collection.group_collection_user"
