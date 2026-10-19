@@ -786,8 +786,8 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_allocation_bound_partner(self, identification: str, vouchers):
-        """Assert identification resolves to the voucher partner; never sudo."""
+    def _collection_identification_binding(self, identification: str):
+        """Return the active connector and the customer binding of identification."""
         connector = self.env.company._collection_active_connector()
         binding = self.env["collection.connector.customer.binding"].search(
             [
@@ -796,6 +796,40 @@ class CollectionAllocationMixin(models.AbstractModel):
             ],
             limit=1,
         )
+        return connector, binding
+
+    @api.model
+    @api.private
+    def _collection_check_voucher_customer(self, vouchers, identification: str):
+        """Name the seller's own vouchers already loaded for another customer.
+
+        Runs after the seller gate, so it only names vouchers the seller owns. An
+        unbound identification is left to the binding checks of the write.
+        """
+        if not vouchers:
+            return
+        _connector, binding = self._collection_identification_binding(identification)
+        if not binding:
+            return
+        others = vouchers.filtered(lambda v: v.partner_id != binding.partner_id)
+        if others:
+            raise UserError(
+                _(
+                    "These payment documents are already loaded for another "
+                    "customer: %(documents)s. A voucher belongs to a single "
+                    "customer: allocate it to that customer or leave it out.",
+                    documents=", ".join(
+                        f"{voucher.document_id} ({voucher.partner_id.display_name})"
+                        for voucher in others
+                    ),
+                )
+            )
+
+    @api.model
+    @api.private
+    def _collection_allocation_bound_partner(self, identification: str, vouchers):
+        """Assert identification resolves to the voucher partner; never sudo."""
+        connector, binding = self._collection_identification_binding(identification)
         if not binding:
             raise UserError(_("The requested customer is not available."))
         if binding.partner_id != vouchers.partner_id:
@@ -979,6 +1013,7 @@ class CollectionAllocationMixin(models.AbstractModel):
         classified = self._collection_classify_visible(
             existing_docs, document_ids, seller, payment_vals_list
         )
+        self._collection_check_voucher_customer(existing_docs, identification)
         sidecars: list[tuple[str, bytes] | None] | None = None
         provenances: list[dict[str, Any] | None] | None = None
         new_vals_list: list[dict[str, Any]] = []

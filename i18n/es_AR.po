@@ -3695,6 +3695,18 @@ msgstr "La comisión retenida no puede ser negativa."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/tools/collection_allocation.py:0
+msgid ""
+"These payment documents are already loaded for another customer: "
+"%(documents)s. A voucher belongs to a single customer: allocate it to that "
+"customer or leave it out."
+msgstr ""
+"Estos comprobantes ya están cargados para otro cliente: %(documents)s. Un "
+"comprobante pertenece a un único cliente: imputalo a ese cliente o dejalo "
+"afuera."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_allocation.py:0
 msgid "This action requires a saved collection allocation."
 msgstr "Esta acción requiere una asignación de cobranza guardada."
