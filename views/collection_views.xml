@@ -615,10 +615,14 @@
             role="alert"
             invisible="state in ('open', 'submitted') or residual_cash_value_total == 0"
           >
-                        Residual cash of
-                        <field name="residual_cash_value_total" readonly="1" />
-                        is still recorded on cash receipts. This does not block
-                        Confirm or Close.
+                        <div class="fw-bold">
+                            Cash not covered by a bank deposit or commission:
+                            <field name="residual_cash_value_total" readonly="1" />
+                        </div>
+                        <div>
+                            It still pays customer receipts, so the seller hands it in
+                            as physical cash. This does not block Confirm or Close.
+                        </div>
                     </div>
                     <notebook>
                         <page string="Allocations">

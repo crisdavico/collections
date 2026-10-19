@@ -643,6 +643,11 @@ msgid "Cash Deposit"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Cash not covered by a bank deposit or commission:"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,help:collection.field_collection_voucher__replaced_amount
 msgid ""
 "Cash of this voucher that an approved seller deposit or commission currently"
@@ -2059,6 +2064,13 @@ msgid "Issued collection receipts cannot be modified."
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"It still pays customer receipts, so the seller hands it in\n"
+"                            as physical cash. This does not block Confirm or Close."
+msgstr ""
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_search
 msgid "Kind"
 msgstr ""
@@ -2924,11 +2936,6 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__residual_cash_value_total
 msgid "Residual Cash"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid "Residual cash of"
 msgstr ""
 
 #. module: collection
@@ -3974,13 +3981,6 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "el vendedor depositó en el banco el efectivo cobrado"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid ""
-"is still recorded on cash receipts. This does not block\n"
-"                        Confirm or Close."
 msgstr ""
 
 #. module: collection
