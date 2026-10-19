@@ -1115,17 +1115,11 @@ class TestCollectionUi(TransactionCase):
             _header_button("action_open"),
             "Open MUST NOT appear on the sheet form",
         )
-        self.assertIn(
-            "not in",
-            confirm[0].get("invisible", ""),
-            "Confirm must be invisible when not in the admin-editable set",
-        )
-        self.assertIn("open", confirm[0].get("invisible", ""))
-        self.assertIn("submitted", confirm[0].get("invisible", ""))
-        self.assertIn(
-            "not id",
-            confirm[0].get("invisible", ""),
-            "Confirm must be hidden on unsaved sheets",
+        # action_confirm accepts submitted sheets only; showing it on an open
+        # sheet offers a button that always fails.
+        self.assertEqual(
+            confirm[0].get("invisible"),
+            "not id or state != 'submitted'",
         )
         self.assertIn(
             "state != 'proposal'",
@@ -1149,7 +1143,26 @@ class TestCollectionUi(TransactionCase):
         header_buttons = [
             node for node in form_root.xpath("./header/*") if node.tag == "button"
         ]
+        # One primary action per state: Seller Close on open, Confirm on
+        # submitted, Close on proposal.
+        highlighted = [
+            node.get("name")
+            for node in header_buttons
+            if "oe_highlight" in (node.get("class") or "")
+        ]
+        self.assertEqual(
+            highlighted, ["action_seller_close", "action_confirm", "action_close"]
+        )
+        self.assertTrue(
+            cancel[0].get("confirm"), "Cancel must ask before it undoes the sheet"
+        )
+        unmark = _header_button("action_unmark_erp_entered")
+        self.assertTrue(unmark and unmark[0].get("confirm"))
         self.assertEqual(header_buttons[-1].get("name"), "action_print_xlsx")
+        self.assertEqual(header_buttons[-1].get("invisible"), "not id")
+        self.assertEqual(
+            header_buttons[-1].get("groups"), "collection.group_collection_user"
+        )
         self.assertEqual(header_buttons[-1].getnext().get("name"), "state")
         percent = form_root.xpath('.//field[@name="commission_percent"]')
         cash = form_root.xpath('.//field[@name="cash_on_hand"]')

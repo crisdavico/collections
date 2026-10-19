@@ -472,7 +472,7 @@
             string="Confirm"
             type="object"
             class="oe_highlight"
-            invisible="not id or state not in ('open', 'submitted')"
+            invisible="not id or state != 'submitted'"
             groups="collection.group_collection_user"
           />
                     <button
@@ -489,6 +489,7 @@
             type="object"
             invisible="state not in ('submitted', 'proposal', 'closed')"
             groups="collection.group_collection_manager"
+            confirm="Cancel this sheet? Closed receipts reopen, allocations go back to draft, and the ERP mark is cleared."
           />
                     <button
             name="action_reinstate"
@@ -519,12 +520,12 @@
             type="object"
             invisible="not erp_entered_date"
             groups="collection.group_collection_manager"
+            confirm="Remove the Entered in the ERP mark? The amounts of this sheet are subtracted from the ERP balances again after the next refresh."
           />
                     <button
             name="action_open_document_review"
             string="Document Review"
             type="object"
-            class="oe_highlight"
             invisible="not id or not document_review_enabled or state not in ('open', 'submitted')"
             groups="collection.group_collection_user"
           />
@@ -532,6 +533,8 @@
             name="action_print_xlsx"
             string="Export XLSX"
             type="object"
+            invisible="not id"
+            groups="collection.group_collection_user"
           />
                     <field
             name="state"

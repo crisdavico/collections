@@ -619,6 +619,15 @@ msgid "Cancel removed the Entered in the ERP mark of this sheet."
 msgstr "La cancelación quitó la marca Cargada en el ERP de esta planilla."
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Cancel this sheet? Closed receipts reopen, allocations go back to draft, and"
+" the ERP mark is cleared."
+msgstr ""
+"¿Cancelar esta planilla? Los recibos cerrados se reabren, las asignaciones "
+"vuelven a borrador y se quita la marca Cargada en el ERP."
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__cancelled
 msgid "Cancelled"
 msgstr "Cancelada"
@@ -1585,10 +1594,11 @@ msgstr "La Revisión de Documentos no está habilitada."
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
 #: code:addons/collection/models/collection_voucher.py:0
-msgid "Document Review is only available on open collection sheets."
+msgid ""
+"Document Review is only available on open or submitted collection sheets."
 msgstr ""
 "La Revisión de Documentos solo está disponible en planillas de cobranza "
-"abiertas."
+"abiertas o rendidas."
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__document_type
@@ -3017,6 +3027,15 @@ msgstr "Restablecer"
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Remanente"
 msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Remove the Entered in the ERP mark? The amounts of this sheet are subtracted"
+" from the ERP balances again after the next refresh."
+msgstr ""
+"¿Quitar la marca Cargada en el ERP? Los importes de esta planilla vuelven a "
+"descontarse de los saldos del ERP después de la próxima actualización."
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document

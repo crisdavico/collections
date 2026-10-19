@@ -738,7 +738,10 @@ class CollectionSheet(models.Model):
         self._ensure_saved_sheet()
         if self.state not in ADMIN_EDITABLE_SHEET_STATES:
             raise UserError(
-                _("Document Review is only available on open collection sheets.")
+                _(
+                    "Document Review is only available on open or submitted "
+                    "collection sheets."
+                )
             )
         action = self.env["ir.actions.actions"]._for_xml_id(
             "collection.action_collection_document_review"

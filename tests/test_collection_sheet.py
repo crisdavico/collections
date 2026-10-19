@@ -2041,8 +2041,13 @@ class TestCollectionSheet(TransactionCase):
                     seller_id=self._other_internal_seller(state).id,
                 )
                 force_sheet_state(sheet, state)
-                with self.assertRaises(UserError):
+                with self.assertRaises(UserError) as error:
                     sheet.action_open_document_review()
+                self.assertEqual(
+                    str(error.exception),
+                    "Document Review is only available on open or submitted "
+                    "collection sheets.",
+                )
                 self.assertEqual(sheet.state, state)
 
     def test_action_open_document_review_succeeds_when_submitted(self):
