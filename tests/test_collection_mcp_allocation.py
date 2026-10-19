@@ -1631,6 +1631,30 @@ class TestCollectionMcpAllocation(TransactionCase):
             before_mixed_seller,
         )
 
+    def test_own_voucher_of_another_customer_is_named_no_writes(self):
+        """A seller's own voucher of another customer MUST be named."""
+        other = dummy_customer_partner(self.env, customer="ALLOC-OTHER-CUSTOMER")
+        loaded = self._create_vouchers([100.0], partner=other, prefix="ALLOC-OCU")
+        mixed = self._payments_from_vouchers(loaded) + [self._payment(50.0)]
+        alone = self._payments_from_vouchers(loaded)
+        for payments, request_id in (
+            (mixed, "req-other-customer-mixed"),
+            (alone, "req-other-customer-alone"),
+        ):
+            err = self._assert_user_error_no_writes(
+                lambda payments=payments, request_id=request_id: self._call(
+                    self._payload(
+                        payments,
+                        [self._applied(INVOICE_OVERDUE, 100.0)],
+                        request_id=request_id,
+                    )
+                )
+            )
+            message = str(err)
+            self.assertIn("already loaded for another customer", message)
+            self.assertIn(loaded.document_id, message)
+            self.assertIn(other.display_name, message)
+
     def test_unbound_reuse_and_partner_mismatch_rejected_no_create(self):
         """Reuse with unbound ident or partner mismatch MUST not create rows."""
         vouchers = self._create_vouchers([100.0])

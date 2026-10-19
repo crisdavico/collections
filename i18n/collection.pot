@@ -3465,6 +3465,15 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/tools/collection_allocation.py:0
+msgid ""
+"These payment documents are already loaded for another customer: "
+"%(documents)s. A voucher belongs to a single customer: allocate it to that "
+"customer or leave it out."
+msgstr ""
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_allocation.py:0
 msgid "This action requires a saved collection allocation."
 msgstr ""
