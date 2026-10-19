@@ -1121,6 +1121,18 @@ class TestCollectionUi(TransactionCase):
             confirm[0].get("invisible"),
             "not id or state != 'submitted'",
         )
+        declare = _header_button("action_declare_cash")
+        self.assertTrue(declare, "form must include Declare Cash button")
+        self.assertEqual(declare[0].get("string"), "Declare Cash")
+        self.assertEqual(
+            declare[0].get("invisible"),
+            "not id or state != 'submitted'",
+        )
+        self.assertEqual(
+            confirm[0].getnext(),
+            declare[0],
+            "Declare Cash must sit immediately after Confirm",
+        )
         self.assertIn(
             "state != 'proposal'",
             close[0].get("invisible", ""),

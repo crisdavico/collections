@@ -696,6 +696,11 @@ msgid "Cash Deposit"
 msgstr "Depósito en efectivo"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Cash not covered by a bank deposit or commission:"
+msgstr "Efectivo sin depósito bancario ni comisión:"
+
+#. module: collection
 #: model:ir.model.fields,help:collection.field_collection_voucher__replaced_amount
 msgid ""
 "Cash of this voucher that an approved seller deposit or commission currently"
@@ -1452,6 +1457,11 @@ msgid "Debts"
 msgstr "Deudas"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Declare Cash"
+msgstr "Declarar Efectivo"
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__check_type__deferred
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__ocr_check_type__deferred
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__seller_check_type__deferred
@@ -2171,6 +2181,15 @@ msgstr "Emitido"
 #: code:addons/collection/models/collection_receipt_value.py:0
 msgid "Issued collection receipts cannot be modified."
 msgstr "Los recibos de cobranza emitidos no se pueden modificar."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"It still pays customer receipts, so the seller hands it in\n"
+"                            as physical cash. This does not block Confirm or Close."
+msgstr ""
+"Sigue pagando recibos de clientes, por lo que el vendedor lo entrega en "
+"efectivo. Esto no impide Confirmar ni Cerrar."
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_search
@@ -3103,11 +3122,6 @@ msgstr "Saldo restante"
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__residual_cash_value_total
 msgid "Residual Cash"
 msgstr "Efectivo residual"
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid "Residual cash of"
-msgstr "Efectivo residual de"
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__activity_user_id
@@ -4222,14 +4236,6 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "el vendedor depositó en el banco el efectivo cobrado"
 msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid ""
-"is still recorded on cash receipts. This does not block\n"
-"                        Confirm or Close."
-msgstr ""
-"sigue registrado en recibos de efectivo. Esto no impide Confirmar ni Cerrar."
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
