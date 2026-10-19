@@ -6,8 +6,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-15 19:58+0000\n"
-"PO-Revision-Date: 2026-10-15 19:58+0000\n"
+"POT-Creation-Date: 2026-10-19 12:53+0000\n"
+"PO-Revision-Date: 2026-10-19 12:53+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "MIME-Version: 1.0\n"
@@ -133,6 +133,14 @@ msgid "A voucher assigned to a sheet must have a seller."
 msgstr ""
 
 #. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"A voucher can only go back to draft while its collection sheet is open or "
+"submitted. Reset the sheet to open first."
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__message_needaction
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__message_needaction
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__message_needaction
@@ -249,6 +257,12 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/tools/collection_allocation.py:0
 msgid "Allocation request conflict could not be resolved."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_allocation.py:0
+msgid "Allocation request fields can only be written by the agent flow."
 msgstr ""
 
 #. module: collection
@@ -498,6 +512,11 @@ msgid "Available Debts"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
+msgid "Back to Draft"
+msgstr ""
+
+#. module: collection
 #. odoo-javascript
 #: code:addons/collection/static/src/document_review/document_review_action.xml:0
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -556,12 +575,6 @@ msgid "Cancelled"
 msgstr ""
 
 #. module: collection
-#. odoo-python
-#: code:addons/collection/models/collection_voucher.py:0
-msgid "Cannot reopen a decided voucher without replacing the attachment."
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Cantidad de Clientes"
 msgstr ""
@@ -586,6 +599,14 @@ msgstr ""
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_cash
 msgid "Cash"
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"Cash %s is replaced by a seller deposit or commission. Send that voucher "
+"back to draft first."
 msgstr ""
 
 #. module: collection
@@ -615,9 +636,21 @@ msgid "Cash Deposit"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,help:collection.field_collection_voucher__replaced_amount
+msgid ""
+"Cash of this voucher that an approved seller deposit or commission currently"
+" replaces."
+msgstr ""
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_receipt_value.py:0
 msgid "Cash replacement currencies must agree."
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_voucher__replacing_amount
+msgid "Cash this seller deposit or commission currently replaces."
 msgstr ""
 
 #. module: collection
@@ -1142,6 +1175,11 @@ msgstr ""
 #. module: collection
 #: model:ir.model,name:collection.model_res_partner
 msgid "Contact"
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation__content_hash
+msgid "Content Hash"
 msgstr ""
 
 #. module: collection
@@ -1682,6 +1720,14 @@ msgid "Estado"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,help:collection.field_collection_allocation__request_log
+msgid ""
+"Every agent request that wrote this allocation, by request id: the revision "
+"it made, its content hash and the totals it answered with, so a retried "
+"request gets its first answer back."
+msgstr ""
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Export XLSX"
 msgstr ""
@@ -1822,6 +1868,11 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__has_message
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__has_message
 msgid "Has Message"
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_allocation__content_hash
+msgid "Hash of the vouchers and receipts that request sent."
 msgstr ""
 
 #. module: collection
@@ -2311,6 +2362,12 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Only Collections Users can send vouchers back to draft."
+msgstr ""
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/tools/seller_identity.py:0
 msgid "Only Collections Users can use the collection agent tools."
 msgstr ""
@@ -2382,7 +2439,20 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
+msgid ""
+"Only submitted, proposal, closed, or cancelled sheets can be reset to open."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
 msgid "Only submitted, proposal, or closed sheets can be cancelled."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Only validated vouchers can go back to draft."
 msgstr ""
 
 #. module: collection
@@ -2431,14 +2501,6 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 msgid "Outstanding balances classified as quotations."
-msgstr ""
-
-#. module: collection
-#. odoo-python
-#: code:addons/collection/tools/collection_voucher.py:0
-msgid ""
-"Partial document_id conflict: some payments already exist on another "
-"voucher."
 msgstr ""
 
 #. module: collection
@@ -2795,6 +2857,45 @@ msgid "Replaced Amount"
 msgstr ""
 
 #. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Replaced cash can only be changed by the cash replacement flow."
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_voucher__replacing_amount
+msgid "Replacing Amount"
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation__request_id
+msgid "Request"
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation__request_log
+msgid "Request Log"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Reset this sheet to Open? The ERP mark is cleared, the seller commission is "
+"removed, and the seller must close and declare cash again."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Reset to Open"
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Reset to Open removed the Entered in the ERP mark of this sheet."
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__residual
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Residual"
@@ -2862,11 +2963,6 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__revision
 msgid "Revision"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
-msgid "Revisions"
 msgstr ""
 
 #. module: collection
@@ -3087,8 +3183,21 @@ msgid "Sellers imported"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
+msgid ""
+"Send this voucher back to draft? A deposit or commission gives back the cash"
+" it replaced."
+msgstr ""
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Sheet"
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Sheet reset to Open."
 msgstr ""
 
 #. module: collection
@@ -3179,6 +3288,11 @@ msgid "The Entered in the ERP mark was removed."
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,help:collection.field_collection_allocation__request_id
+msgid "The agent request that last wrote this allocation."
+msgstr ""
+
+#. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
 msgid "The collection connector is configured."
@@ -3261,6 +3375,12 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
 msgid "The requested seller is not available."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "The seller already has an open sheet: %s. Close or delete it first."
 msgstr ""
 
 #. module: collection
@@ -3656,6 +3776,12 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid "Voucher sent back to draft."
+msgstr ""
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_allocation.py:0
 #: code:addons/collection/models/collection_sheet.py:0
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__voucher_ids
@@ -3663,6 +3789,14 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Vouchers"
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_voucher.py:0
+msgid ""
+"Vouchers %s are part of a cash swap and must stay on their collection sheet."
+" Send the seller deposit or commission back to draft first."
 msgstr ""
 
 #. module: collection
