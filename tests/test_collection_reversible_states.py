@@ -154,6 +154,65 @@ class TestCollectionReversibleStates(TransactionCase):
         self.assertEqual(self.cash.replaced_amount, 0.0)
         self.assertEqual(self._value_of(self.cash), 400.0)
 
+    # Remove from Sheet --------------------------------------------------
+
+    def _assert_removed(self):
+        self.assertTrue(self.cash.exists())
+        self.assertEqual(self.cash.state, "validated_seller")
+        self.assertFalse(self.cash.sheet_id)
+        self.assertFalse(self.cash.allocation_id)
+        self.assertFalse(self.cash.receipt_value_ids)
+        self.assertFalse(self.receipt.value_ids)
+        self.assertEqual(self.allocation.total_vouchers, 0.0)
+        self.assertNotIn(self.cash, self.sheet.voucher_ids)
+
+    def test_submitted_sheet_voucher_is_removed_and_kept(self):
+        self.cash.action_remove_from_sheet()
+        self._assert_removed()
+        self.assertIn(
+            f"Voucher {self.cash.name} removed from the sheet.",
+            self.sheet.message_ids.mapped("body")[0],
+        )
+
+    def test_open_sheet_voucher_is_removed(self):
+        self.sheet.action_reset_to_open()
+        self.cash.action_remove_from_sheet()
+        self._assert_removed()
+
+    def test_remove_is_refused_past_submitted(self):
+        self._confirm()
+        with self.assertRaisesRegex(
+            UserError,
+            "A voucher can only be removed while its collection sheet is open "
+            "or submitted.",
+        ):
+            self.cash.action_remove_from_sheet()
+        self.assertEqual(self.cash.sheet_id, self.sheet)
+        self.assertEqual(self.cash.allocation_id, self.allocation)
+
+    def test_remove_is_refused_for_a_cash_swap(self):
+        commission = self._reinstated_commission()
+        with self.assertRaisesRegex(UserError, "part of a cash swap"):
+            commission.action_remove_from_sheet()
+        self.assertEqual(commission.sheet_id, self.sheet)
+
+    def test_remove_needs_a_sheet(self):
+        self.cash.action_remove_from_sheet()
+        with self.assertRaisesRegex(UserError, "is not on a collection sheet"):
+            self.cash.action_remove_from_sheet()
+
+    def test_remove_needs_a_collections_user(self):
+        plain = self.env["res.users"].create(
+            {
+                "name": "Plain Internal",
+                "login": "plain_remove",
+                "group_ids": [Command.link(self.env.ref("base.group_user").id)],
+            }
+        )
+        with self.assertRaises(AccessError):
+            self.cash.with_user(plain).action_remove_from_sheet()
+        self.assertEqual(self.cash.sheet_id, self.sheet)
+
     # Reset to Open ------------------------------------------------------
 
     def test_closed_marked_sheet_resets_to_open_and_can_be_deleted(self):

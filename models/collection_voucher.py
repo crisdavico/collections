@@ -83,6 +83,7 @@ class CollectionVoucher(models.Model):
         check_company=True,
         index=True,
     )
+    sheet_state = fields.Selection(related="sheet_id.state", string="Sheet Status")
     allocation_id = fields.Many2one(
         comodel_name="collection.allocation",
         string="Allocation",
@@ -550,6 +551,42 @@ class CollectionVoucher(models.Model):
             self.write({"state": "draft", "reviewed_by": False, "reviewed_at": False})
         for voucher in self:
             voucher.message_post(body=_("Voucher sent back to draft."))
+        return True
+
+    def action_remove_from_sheet(self):
+        """Take the voucher off its sheet and allocation; the voucher stays.
+
+        Allowed while the sheet is open or submitted. Its receipt values go
+        with it, as on delete, so the allocation keeps its applied debt for the
+        back office to lower. A voucher in a cash swap stays on its sheet.
+        """
+        check_collection_role(
+            self.env,
+            COLLECTION_USER_GROUP,
+            _("Only Collections Users can remove vouchers from a sheet."),
+        )
+        loose = self.filtered(lambda voucher: not voucher.sheet_id)
+        if loose:
+            raise UserError(
+                _(
+                    "Voucher %s is not on a collection sheet.",
+                    ", ".join(loose.mapped("name")),
+                )
+            )
+        if any(self._sheet_is_frozen(voucher.sheet_id) for voucher in self):
+            raise UserError(
+                _(
+                    "A voucher can only be removed while its collection sheet "
+                    "is open or submitted."
+                )
+            )
+        self._raise_if_in_cash_swap()
+        for voucher in self:
+            voucher.sheet_id.message_post(
+                body=_("Voucher %s removed from the sheet.", voucher.name)
+            )
+        self.receipt_value_ids.unlink()
+        self.write({"allocation_id": False, "sheet_id": False})
         return True
 
     def action_create_collection_sheet(self):

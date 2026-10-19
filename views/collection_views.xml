@@ -154,6 +154,14 @@
             groups="collection.group_collection_user"
             confirm="Send this voucher back to draft? A deposit or commission gives back the cash it replaced."
           />
+                    <button
+            name="action_remove_from_sheet"
+            string="Remove from Sheet"
+            type="object"
+            invisible="not sheet_id or sheet_state not in ('open', 'submitted')"
+            groups="collection.group_collection_user"
+            confirm="Remove this voucher from its sheet and allocation? It stops paying the customer's documents; lower the allocation's applied amounts if needed."
+          />
                     <field
             name="state"
             widget="statusbar"
@@ -181,6 +189,7 @@
                 domain="[('id', 'in', company_id.enabled_seller_ids)]"
               />
                             <field name="sheet_id" />
+                            <field name="sheet_state" invisible="1" />
                             <field name="create_date" readonly="1" />
                         </group>
                         <group>
@@ -657,6 +666,15 @@
                                     <field name="document_type" />
                                     <field name="amount" />
                                     <field name="currency_id" column_invisible="1" />
+                                    <button
+                    name="action_remove_from_sheet"
+                    title="Remove from Sheet"
+                    type="object"
+                    icon="fa-trash-o"
+                    column_invisible="parent.state not in ('open', 'submitted')"
+                    groups="collection.group_collection_user"
+                    confirm="Remove this voucher from the sheet and its allocation? It stops paying the customer's documents; lower the allocation's applied amounts if needed."
+                  />
                                 </list>
                             </field>
                         </page>

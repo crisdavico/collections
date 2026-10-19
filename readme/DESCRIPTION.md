@@ -10,24 +10,27 @@ a required Customer (`partner_id` on `res.partner`; Char identification is gone;
 stamps `validated_seller`; Collections only via Document Review Approve; no Reject). A
 Collections User can send a voucher Back to Draft while its sheet is open or submitted:
 a deposit or commission gives back the cash it replaced, and a draft voucher can be
-edited or deleted. Collection sheets group a seller's vouchers through `open` → Seller
-Close → `submitted` (Submitted by Seller; PDF Rendida) → Confirm → `proposal` → Close →
-`closed`. Submitted, Proposal, or Closed sheets may Cancel to `cancelled`; Reinstate
-brings a `cancelled` sheet back to `submitted`. A Collections Manager can Reset to Open
-from any later state: receipts and allocations go back to draft, the ERP mark is
-cleared, the seller commission is removed and the declaration cleared, so the sheet can
-be corrected, amended by the agent or deleted. It is refused while the seller has
-another open sheet. Sheets have their own chatter and activities. The sheet form
-notebook is Allocations, Vouchers, and Debt. Operators print a Planilla de Cobranza from
-a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, no company letterhead or printed
-date) and header Collection Sheet XLSX share `_collection_report_data()`; the workbook
-never turns typed text into a formula or a link. Sheet recon inputs are
-`commission_percent` (0–100) and `commission_withheld` (frozen while closed or
-cancelled; never negative); `cash_on_hand` (Cash to Administration) is derived, not
-typed: cash vouchers minus `seller_deposit` vouchers minus `commission_withheld`.
-Allocation lines carry required `document_kind` (`invoice` / `quotation`, default
-`invoice`). Print includes draft allocations and vouchers; `mismatch` flags when voucher
-totals disagree with allocation `total_vouchers`.
+edited or deleted. In the same sheet states a Collections User can Remove a voucher from
+its sheet (voucher form or the sheet's Vouchers tab): it leaves the sheet and allocation
+with its receipt values and stays as a voucher, the allocation keeps its applied debt to
+lower by hand, and a voucher in a cash swap stays. Collection sheets group a seller's
+vouchers through `open` → Seller Close → `submitted` (Submitted by Seller; PDF Rendida)
+→ Confirm → `proposal` → Close → `closed`. Submitted, Proposal, or Closed sheets may
+Cancel to `cancelled`; Reinstate brings a `cancelled` sheet back to `submitted`. A
+Collections Manager can Reset to Open from any later state: receipts and allocations go
+back to draft, the ERP mark is cleared, the seller commission is removed and the
+declaration cleared, so the sheet can be corrected, amended by the agent or deleted. It
+is refused while the seller has another open sheet. Sheets have their own chatter and
+activities. The sheet form notebook is Allocations, Vouchers, and Debt. Operators print
+a Planilla de Cobranza from a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, no
+company letterhead or printed date) and header Collection Sheet XLSX share
+`_collection_report_data()`; the workbook never turns typed text into a formula or a
+link. Sheet recon inputs are `commission_percent` (0–100) and `commission_withheld`
+(frozen while closed or cancelled; never negative); `cash_on_hand` (Cash to
+Administration) is derived, not typed: cash vouchers minus `seller_deposit` vouchers
+minus `commission_withheld`. Allocation lines carry required `document_kind` (`invoice`
+/ `quotation`, default `invoice`). Print includes draft allocations and vouchers;
+`mismatch` flags when voucher totals disagree with allocation `total_vouchers`.
 
 Money rules. An allocation's collected money (`total_vouchers`) is the receipt values on
 its own receipts plus the full amount of each voucher pointing at it whose money was

@@ -329,14 +329,17 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   another open sheet. Voucher Back to Draft (`action_back_to_draft`, Collections User,
   sheet `open`/`submitted` or none) reverses the cash swap first; cash still replaced by
   another voucher is refused. A raw `state: draft` write goes through it. Deleting a
-  draft voucher deletes its receipt values. Vouchers in a cash swap (`replaced_amount`
-  or `replacing_amount` > 0) cannot leave their sheet, and a sheet holding them cannot
-  be deleted: send the deposit or commission Back to Draft first. Unlink **open**
-  sheets: unlink draft allocations first (vouchers unassigned); refused when an
-  allocation has an issued receipt (cancel instead). Unlink **submitted**, **proposal**,
-  **closed**, or **cancelled** refused even when empty (`sheet_id`
-  `ondelete="restrict"`). Recon inputs (`commission_percent` 0–100,
-  `commission_withheld`) live on `models/collection_sheet_report.py` (second
+  draft voucher deletes its receipt values. Remove from Sheet
+  (`action_remove_from_sheet`, Collections User, sheet `open`/`submitted`) deletes the
+  voucher's receipt values and clears `allocation_id` and `sheet_id`, keeping the
+  voucher and its state; allocation lines keep `amount_applied`, and a cash-swap voucher
+  is refused. Vouchers in a cash swap (`replaced_amount` or `replacing_amount` > 0)
+  cannot leave their sheet, and a sheet holding them cannot be deleted: send the deposit
+  or commission Back to Draft first. Unlink **open** sheets: unlink draft allocations
+  first (vouchers unassigned); refused when an allocation has an issued receipt (cancel
+  instead). Unlink **submitted**, **proposal**, **closed**, or **cancelled** refused
+  even when empty (`sheet_id` `ondelete="restrict"`). Recon inputs (`commission_percent`
+  0–100, `commission_withheld`) live on `models/collection_sheet_report.py` (second
   `_inherit`); Closed and Cancelled refuse those writes; Proposal remains editable; the
   seller declaration (`commission_withheld`) is writable only while `submitted`;
   Reinstate keeps stored values. `cash_on_hand` (string Cash to Administration) is a
