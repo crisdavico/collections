@@ -330,17 +330,21 @@ class CollectionSheet(models.Model):
         names = ", ".join(drafts.mapped("name"))
         raise UserError(_("Seller Close cannot include draft vouchers: %s", names))
 
-    def action_declare_cash(self, commission_withheld):
-        """Declare the withheld commission; cash on hand follows by compute."""
+    def action_declare_cash(self, commission_withheld=None):
+        """Declare the withheld commission; cash on hand follows by compute.
+
+        Without an amount (the form button) the sheet's current commission is
+        declared: the form saves the typed value before the button runs.
+        """
         if any(sheet.state not in SELLER_DECLARATION_STATES for sheet in self):
             raise UserError(_("Only submitted collection sheets can declare cash."))
-        return self.write(
-            {
-                "commission_withheld": commission_withheld,
-                "cash_declared_at": fields.Datetime.now(),
-                "cash_declared_by": self.env.user.id,
-            }
-        )
+        vals = {
+            "cash_declared_at": fields.Datetime.now(),
+            "cash_declared_by": self.env.user.id,
+        }
+        if commission_withheld is not None:
+            vals["commission_withheld"] = commission_withheld
+        return self.write(vals)
 
     @api.private
     def _dispatch_submitted_state_write(self):

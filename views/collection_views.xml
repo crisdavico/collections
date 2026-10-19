@@ -476,6 +476,12 @@
             groups="collection.group_collection_user"
           />
                     <button
+            name="action_declare_cash"
+            string="Declare Cash"
+            type="object"
+            invisible="not id or state != 'submitted'"
+          />
+                    <button
             name="action_close"
             string="Close"
             type="object"

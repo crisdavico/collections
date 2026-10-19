@@ -195,6 +195,18 @@ class TestCollectionCommissionResync(TransactionCase):
                 }
             )
 
+    def test_button_declares_the_commission_typed_on_the_form(self):
+        """The form saves the typed commission, then the button declares it."""
+        self.sheet.write({"commission_withheld": 120.0})
+        self.assertFalse(self.sheet.cash_declared_at)
+        self.sheet.action_declare_cash()
+        self.assertEqual(self.sheet.commission_withheld, 120.0)
+        self.assertTrue(self.sheet.cash_declared_at)
+        self.assertEqual(self.sheet.cash_declared_by, self.env.user)
+        self.assertEqual(self.sheet.cash_on_hand, 280.0)
+        self.sheet.action_confirm()
+        self.assertEqual(self._commission().amount, 120.0)
+
     def test_negative_withheld_commission_is_refused(self):
         with self.assertRaises(ValidationError):
             self.sheet.action_declare_cash(commission_withheld=-5.0)

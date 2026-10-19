@@ -1452,6 +1452,11 @@ msgid "Debts"
 msgstr "Deudas"
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid "Declare Cash"
+msgstr "Declarar Efectivo"
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__check_type__deferred
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__ocr_check_type__deferred
 #: model:ir.model.fields.selection,name:collection.selection__collection_voucher__seller_check_type__deferred
