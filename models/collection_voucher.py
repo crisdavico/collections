@@ -1716,6 +1716,10 @@ class CollectionVoucher(models.Model):
             "attachment_url": self._attachment_content_url(),
             "attachment_rotation": self.attachment_rotation,
             "to_account_mismatch": self.to_account_mismatch,
+            # The same choices the voucher form offers this record.
+            "document_type_options": [
+                [code, label] for code, label in self._selection_document_type()
+            ],
         }
         for name in self._REVIEW_EDITABLE_FIELD_ORDER:
             payload[name] = self[name]

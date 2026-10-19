@@ -30,6 +30,7 @@ export class DocumentReviewAction extends Component {
 
   setup() {
     this.orm = useService("orm");
+    this.actionService = useService("action");
     this.notification = useService("notification");
     this.state = useState({
       items: [],
@@ -69,6 +70,10 @@ export class DocumentReviewAction extends Component {
 
   get isCheck() {
     return this._layerHasDocumentType("check");
+  }
+
+  get isRetentionCertificate() {
+    return this._layerHasDocumentType("retention_certificate");
   }
 
   _layerHasDocumentType(documentType) {
@@ -338,8 +343,10 @@ export class DocumentReviewAction extends Component {
       return;
     }
     this.state.busy = true;
+    let decided = false;
     try {
       await rpcCall();
+      decided = true;
       this.notification.add(successMessage, {type: "success"});
     } catch (error) {
       this.notifyError(error);
@@ -349,6 +356,32 @@ export class DocumentReviewAction extends Component {
     } finally {
       this.state.busy = false;
     }
+    if (decided && !this.hasQueue) {
+      await this.returnToSheet();
+    }
+  }
+
+  async returnToSheet() {
+    // The sheet form is the previous breadcrumb when the review was opened
+    // from its button; restoring it reloads the sheet with the new states.
+    const breadcrumbs = (this.env.config && this.env.config.breadcrumbs) || [];
+    if (breadcrumbs.length > 1) {
+      await this.actionService.restore();
+      return;
+    }
+    const sheetId = this.reviewSheetId;
+    if (!sheetId) {
+      return;
+    }
+    await this.actionService.doAction(
+      {
+        type: "ir.actions.act_window",
+        res_model: "collection.sheet",
+        res_id: sheetId,
+        views: [[false, "form"]],
+      },
+      {stackPosition: "replaceCurrentAction"}
+    );
   }
 
   notifyError(error) {
