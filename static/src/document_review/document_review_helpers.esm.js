@@ -16,6 +16,7 @@ export const REVIEW_EDITABLE_FIELDS = [
   "check_type",
   "check_issue_date",
   "check_payment_date",
+  "retention_kind",
 ];
 
 export const DOCUMENT_TYPE_LABELS = {

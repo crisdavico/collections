@@ -205,13 +205,14 @@
                     t-on-change="(ev) => this.onFieldInput(ev, 'document_type')"
                     t-on-input="(ev) => this.onFieldInput(ev, 'document_type')"
                   >
-                                        <option value="bank_transfer">
-                                            Transferencia bancaria
-                                        </option>
-                                        <option value="check">Cheque</option>
-                                        <option value="cash_deposit">
-                                            Depósito en efectivo
-                                        </option>
+                                        <option
+                      t-foreach="current.document_type_options"
+                      t-as="option"
+                      t-key="option[0]"
+                      t-att-value="option[0]"
+                      t-att-selected="option[0] === current.draft.document_type"
+                      t-out="option[1]"
+                    />
                                     </select>
                                 </div>
                             </div>
@@ -400,6 +401,70 @@
                         t-att-value="current.draft.check_payment_date"
                         t-on-input="(ev) => this.onFieldInput(ev, 'check_payment_date')"
                         t-on-change="(ev) => this.onFieldInput(ev, 'check_payment_date')"
+                      />
+                                        </div>
+                                    </div>
+                                </div>
+                            </t>
+
+                            <t t-if="isRetentionCertificate">
+                                <div class="field">
+                                    <div class="ftop">
+                                        <label for="collection_review_retention_kind">
+                                            Clase de retención
+                                        </label>
+                                    </div>
+                                    <div class="slot">
+                                        <select
+                      id="collection_review_retention_kind"
+                      aria-label="Clase de retención"
+                      t-att-value="current.draft.retention_kind"
+                      t-on-change="(ev) => this.onFieldInput(ev, 'retention_kind')"
+                      t-on-input="(ev) => this.onFieldInput(ev, 'retention_kind')"
+                    >
+                                            <option value="iva">IVA</option>
+                                            <option value="ganancias">Ganancias</option>
+                                            <option value="iibb">IIBB</option>
+                                            <option value="suss">SUSS</option>
+                                            <option value="other">Otra</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="field">
+                                        <div class="ftop">
+                                            <label
+                        for="collection_review_retention_voucher_number"
+                      >
+                                                Nro. comprobante
+                                            </label>
+                                        </div>
+                                        <div class="slot">
+                                            <input
+                        id="collection_review_retention_voucher_number"
+                        type="text"
+                        aria-label="Nro. comprobante"
+                        t-att-value="current.draft.voucher_number"
+                        t-on-input="(ev) => this.onFieldInput(ev, 'voucher_number')"
+                      />
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <div class="ftop">
+                                            <label
+                        for="collection_review_retention_voucher_date"
+                      >
+                                                Fecha
+                                            </label>
+                                        </div>
+                                        <div class="slot">
+                                            <input
+                        id="collection_review_retention_voucher_date"
+                        type="date"
+                        aria-label="Fecha"
+                        t-att-value="current.draft.voucher_date"
+                        t-on-input="(ev) => this.onFieldInput(ev, 'voucher_date')"
+                        t-on-change="(ev) => this.onFieldInput(ev, 'voucher_date')"
                       />
                                         </div>
                                     </div>

@@ -697,6 +697,53 @@ class TestCollectionDocumentReview(TransactionCase):
         self._assert_payload_from_ir_attachment(queue[0], png_voucher)
         self._assert_payload_from_ir_attachment(queue[1], pdf_voucher)
 
+    def test_queue_offers_the_voucher_form_document_types(self):
+        """Every queued type MUST be offered, as the voucher form offers it."""
+        self._neutralize_preexisting_queue()
+        transfer = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-OPT-BT",
+            document_id="DOC-REV-OPT-BT",
+        )
+        retention = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-OPT-RET",
+            document_id="DOC-REV-OPT-RET",
+            document_type="retention_certificate",
+            voucher_number="RET-OPT-1",
+            voucher_date=date(2026, 9, 1),
+            retention_kind="iva",
+        )
+        for voucher in (transfer, retention):
+            payload = self._queue_item(voucher)
+            options = payload["document_type_options"]
+            self.assertEqual(
+                options,
+                [list(option) for option in voucher._selection_document_type()],
+            )
+            self.assertIn(voucher.document_type, [code for code, _l in options])
+        retention_options = dict(self._queue_item(retention)["document_type_options"])
+        self.assertEqual(
+            retention_options["retention_certificate"],
+            self.env["collection.document.type"]
+            .search([("code", "=", "retention_certificate")])
+            .name,
+        )
+
+    def test_document_type_select_renders_queue_options(self):
+        """The type select MUST list the queue item's options, none hardcoded."""
+        root = self._viewer_template_root()
+        selects = root.xpath('.//select[@id="collection_review_document_type"]')
+        self.assertEqual(len(selects), 1)
+        select = selects[0]
+        options = select.xpath("./option")
+        self.assertEqual(len(options), 1)
+        option = options[0]
+        self.assertEqual(option.get("t-foreach"), "current.document_type_options")
+        self.assertEqual(option.get("t-att-value"), "option[0]")
+        self.assertEqual(
+            option.get("t-att-selected"), "option[0] === current.draft.document_type"
+        )
+        self.assertEqual(option.get("t-out"), "option[1]")
+
     def test_queue_image_payload_is_web_content_url_only(self):
         """Image proofs expose /web/content URLs, never datas/base64."""
         self._neutralize_preexisting_queue()
@@ -1322,6 +1369,88 @@ class TestCollectionDocumentReview(TransactionCase):
         self.assertAlmostEqual(voucher.amount, 80.0, places=2)
         self.assertEqual(voucher.ocr_check_number, "CHK-OCR")
         self.assertEqual(voucher.state, "validated_collections")
+
+    def test_approve_persists_retention_kind(self):
+        """Approve MUST persist the reviewed retention kind; others take it empty."""
+        retention = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-RET-KIND",
+            document_id="DOC-REV-RET-KIND",
+            document_type="retention_certificate",
+            voucher_number="RET-KIND-1",
+            voucher_date=date(2026, 9, 1),
+            retention_kind="iva",
+            ocr_retention_kind="iva",
+        )
+        retention.action_review_approve(
+            self.review_sheet.id,
+            {
+                "document_type": "retention_certificate",
+                "retention_kind": "ganancias",
+                "voucher_number": "RET-KIND-2",
+                "voucher_date": date(2026, 9, 2),
+            },
+        )
+        self.assertEqual(retention.retention_kind, "ganancias")
+        self.assertEqual(retention.voucher_number, "RET-KIND-2")
+        self.assertEqual(retention.voucher_date, date(2026, 9, 2))
+        self.assertEqual(retention.ocr_retention_kind, "iva")
+        self.assertEqual(retention.state, "validated_collections")
+        transfer = self._create_review_eligible_voucher(
+            customer_identification="CUST-REV-RET-BT",
+            document_id="DOC-REV-RET-BT",
+        )
+        transfer.action_review_approve(
+            self.review_sheet.id,
+            {"document_type": "bank_transfer", "amount": 70.0, "retention_kind": ""},
+        )
+        self.assertFalse(transfer.retention_kind)
+        self.assertAlmostEqual(transfer.amount, 70.0, places=2)
+        self.assertEqual(transfer.state, "validated_collections")
+
+    def test_retention_certificate_shows_editable_retention_kind(self):
+        """A retention certificate MUST show its kind, editable, sent on approve."""
+        action_js = self._action_js()
+        helpers = self._helpers_js()
+        xml = self._viewer_template_xml()
+        compact_action = "".join(action_js.split())
+        self.assertIn(
+            "getisRetentionCertificate(){returnthis._layerHasDocumentType("
+            '"retention_certificate");}',
+            compact_action,
+        )
+        self.assertIn('t-if="isRetentionCertificate"', xml)
+        selects = self._viewer_template_root().xpath(
+            './/t[@t-if="isRetentionCertificate"]'
+            '//select[@id="collection_review_retention_kind"]'
+        )
+        self.assertEqual(len(selects), 1)
+        select = selects[0]
+        self.assertEqual(select.get("t-att-value"), "current.draft.retention_kind")
+        self.assertIn("onFieldInput(ev, 'retention_kind')", select.get("t-on-change"))
+        self.assertIn("onFieldInput(ev, 'retention_kind')", select.get("t-on-input"))
+        self.assertFalse(select.get("readonly") or select.get("disabled"))
+        Voucher = self.env["collection.voucher"]
+        self.assertEqual(
+            [option.get("value") for option in select.xpath("./option")],
+            [code for code, _label in Voucher._RETENTION_KIND_SELECTION],
+        )
+        for name, input_type in (("voucher_number", "text"), ("voucher_date", "date")):
+            inputs = self._viewer_template_root().xpath(
+                './/t[@t-if="isRetentionCertificate"]'
+                f'//input[@t-att-value="current.draft.{name}"]'
+            )
+            self.assertEqual(len(inputs), 1, f"retention {name} input missing")
+            node = inputs[0]
+            self.assertEqual(node.get("type"), input_type)
+            self.assertIn(f"onFieldInput(ev, '{name}')", node.get("t-on-input"))
+            self.assertFalse(node.get("readonly") or node.get("disabled"))
+        editable = helpers.split("export const REVIEW_EDITABLE_FIELDS = [")[1].split(
+            "];"
+        )[0]
+        self.assertEqual(
+            [name.strip().strip('"') for name in editable.split(",") if name.strip()],
+            list(Voucher._REVIEW_EDITABLE_FIELD_ORDER),
+        )
 
     def test_approve_persists_cash_deposit_fields(self):
         """Triangulation: empty dict vals MUST leave current unchanged."""

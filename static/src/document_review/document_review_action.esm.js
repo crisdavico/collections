@@ -71,6 +71,10 @@ export class DocumentReviewAction extends Component {
     return this._layerHasDocumentType("check");
   }
 
+  get isRetentionCertificate() {
+    return this._layerHasDocumentType("retention_certificate");
+  }
+
   _layerHasDocumentType(documentType) {
     const current = this.current;
     if (!current || !current.draft) {
