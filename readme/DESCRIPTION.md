@@ -20,14 +20,14 @@ be corrected, amended by the agent or deleted. It is refused while the seller ha
 another open sheet. Sheets have their own chatter and activities. The sheet form
 notebook is Allocations, Vouchers, and Debt. Operators print a Planilla de Cobranza from
 a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, no company letterhead or printed
-date) and header Export XLSX share `_collection_report_data()`; the workbook never turns
-typed text into a formula or a link. Sheet recon inputs are `commission_percent` (0–100)
-and `commission_withheld` (frozen while closed or cancelled; never negative);
-`cash_on_hand` (Cash to Administration) is derived, not typed: cash vouchers minus
-`seller_deposit` vouchers minus `commission_withheld`. Allocation lines carry required
-`document_kind` (`invoice` / `quotation`, default `invoice`). Print includes draft
-allocations and vouchers; `mismatch` flags when voucher totals disagree with allocation
-`total_vouchers`.
+date) and header Collection Sheet XLSX share `_collection_report_data()`; the workbook
+never turns typed text into a formula or a link. Sheet recon inputs are
+`commission_percent` (0–100) and `commission_withheld` (frozen while closed or
+cancelled; never negative); `cash_on_hand` (Cash to Administration) is derived, not
+typed: cash vouchers minus `seller_deposit` vouchers minus `commission_withheld`.
+Allocation lines carry required `document_kind` (`invoice` / `quotation`, default
+`invoice`). Print includes draft allocations and vouchers; `mismatch` flags when voucher
+totals disagree with allocation `total_vouchers`.
 
 Money rules. An allocation's collected money (`total_vouchers`) is the receipt values on
 its own receipts plus the full amount of each voucher pointing at it whose money was

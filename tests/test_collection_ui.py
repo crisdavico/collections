@@ -1106,7 +1106,7 @@ class TestCollectionUi(TransactionCase):
         self.assertTrue(cancel, "form must include Cancel button")
         self.assertTrue(reinstate, "form must include Reinstate button")
         self.assertTrue(review, "Document Review header button must remain")
-        self.assertTrue(xlsx, "Export XLSX must remain on the sheet form")
+        self.assertTrue(xlsx, "Collection Sheet XLSX must remain on the sheet form")
         self.assertFalse(
             _header_button("action_reopen"),
             "Reopen MUST NOT appear on the sheet form",

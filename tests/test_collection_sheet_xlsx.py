@@ -563,7 +563,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertTrue(raw.startswith(b"PK"), raw[:8])
 
     def test_xlsx_in_all_five_states(self):
-        """Export XLSX MUST download in every sheet state without a state UserError."""
+        """Collection Sheet XLSX MUST download in every state, with no UserError."""
         sheet, _partner = self._populated_sheet()
         if sheet.voucher_ids:
             with privileged("collection_audited_state"):
@@ -623,7 +623,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertFalse(self.env["ir.attachment"].browse(first_id).exists())
 
     def test_header_xlsx_button_last_before_state(self):
-        """Export XLSX MUST be the last header object button before state."""
+        """Collection Sheet XLSX MUST be the last header object button before state."""
         form = self._sheet_form_root()
         header = form.xpath("./header")
         self.assertTrue(header, "sheet form must have a header")
@@ -635,7 +635,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertEqual(names[-1], "action_print_xlsx")
         xlsx = buttons[-1]
         self.assertEqual(xlsx.get("type"), "object")
-        self.assertEqual(xlsx.get("string"), "Export XLSX")
+        self.assertEqual(xlsx.get("string"), "Collection Sheet XLSX")
         following = xlsx.getnext()
         self.assertIsNotNone(following)
         self.assertEqual(following.tag, "field")
