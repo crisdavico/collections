@@ -570,6 +570,13 @@ msgid "Cancel removed the Entered in the ERP mark of this sheet."
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Cancel this sheet? Closed receipts reopen, allocations go back to draft, and"
+" the ERP mark is cleared."
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__cancelled
 msgid "Cancelled"
 msgstr ""
@@ -1498,7 +1505,8 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
 #: code:addons/collection/models/collection_voucher.py:0
-msgid "Document Review is only available on open collection sheets."
+msgid ""
+"Document Review is only available on open or submitted collection sheets."
 msgstr ""
 
 #. module: collection
@@ -2844,6 +2852,13 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Remanente"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
+msgid ""
+"Remove the Entered in the ERP mark? The amounts of this sheet are subtracted"
+" from the ERP balances again after the next refresh."
 msgstr ""
 
 #. module: collection

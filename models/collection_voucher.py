@@ -1514,7 +1514,8 @@ class CollectionVoucher(models.Model):
         if sheet.state not in ADMIN_EDITABLE_SHEET_STATES:
             raise UserError(
                 self.env._(
-                    "Document Review is only available on open collection sheets."
+                    "Document Review is only available on open or submitted "
+                    "collection sheets."
                 )
             )
         return sheet
