@@ -1,29 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <odoo>
-    <!-- Drop leftover header+line records on in-place -u; no-op on fresh install. -->
-    <delete
-    model="ir.model.access"
-    search="[('name', '=', 'collection.voucher.line.user')]"
-  />
-    <delete model="ir.ui.menu" search="[('name', '=', 'Payment Lines')]" />
-    <delete
-    model="ir.actions.act_window"
-    search="[('res_model', '=', 'collection.voucher.line')]"
-  />
-    <delete model="ir.ui.view" search="[('model', '=', 'collection.voucher.line')]" />
-    <delete
-    model="ir.ui.view"
-    search="[('name', '=', 'collection.voucher.kanban'), ('model', '=', 'collection.voucher')]"
-  />
-    <delete
-    model="ir.ui.view"
-    search="[('name', '=', 'collection.voucher.reassign.kanban'), ('model', '=', 'collection.voucher')]"
-  />
-    <delete
-    model="ir.model.data"
-    search="[('module', '=', 'collection'), ('name', '=', 'view_collection_voucher_reassign_kanban')]"
-  />
-
     <!-- List -->
     <record id="view_collection_voucher_list" model="ir.ui.view">
         <field name="name">collection.voucher.list</field>

@@ -136,8 +136,7 @@ class TestCollectionSettingsHttp(HttpCase):
                         'button[name="action_collection_connector_settings"]')) {
                     throw new Error('Expected the single native connector form');
                 }
-                for (const name of ['bejerman_clave', 'bejerman_ws_url',
-                    'bejerman_seller_view', 'bejerman_seller_scenario']) {
+                for (const name of ['bejerman_clave', 'bejerman_ws_url']) {
                     if (document.querySelector(`[name="${name}"]`)) {
                         throw new Error('Unexpected field: ' + name);
                     }

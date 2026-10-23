@@ -14,7 +14,7 @@ from . import test_collection_approved_voucher
 from . import test_collection_cash_replacement
 from . import test_collection_company_settings
 from . import test_collection_settings_http
-from . import test_collection_company_migration
+from . import test_collection_company_config
 from . import test_collection_connector
 from . import test_collection_connector_access
 from . import test_collection_consistency
