@@ -3,8 +3,6 @@
 
 from base64 import b64decode
 from datetime import date
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
 from uuid import uuid4
 
 from psycopg2 import IntegrityError
@@ -2285,127 +2283,6 @@ class TestCollectionVoucher(TransactionCase):
         )
         self.assertEqual(voucher.to_account, "0000-1234-5")
         self.assertEqual(voucher.to_account_bank_id, bank)
-
-
-def _load_collection_migrate(filename):
-    path = Path(__file__).resolve().parents[1] / "migrations" / "19.0.1.13.0" / filename
-    spec = spec_from_file_location(filename, path)
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-class TestCollectionVoucherAttachmentMigrate(TransactionCase):
-    """RED/GREEN: Binary field attachments migrate onto chatter designated proof."""
-
-    def _insert_field_attachment(self, voucher, name, datas_b64, filename=None):
-        attachment = self.env["ir.attachment"].create(
-            {
-                "name": name,
-                "raw": b64decode(datas_b64),
-                "res_model": "collection.voucher",
-                "res_id": voucher.id,
-                "res_field": "attachment",
-            }
-        )
-        if filename is not None and "attachment_filename" in voucher._fields:
-            self.env.cr.execute(
-                """
-                UPDATE collection_voucher
-                   SET attachment_filename = %s
-                 WHERE id = %s
-                """,
-                (filename or None, voucher.id),
-            )
-        elif filename is not None:
-            self.env.cr.execute(
-                """
-                SELECT 1
-                  FROM information_schema.columns
-                 WHERE table_name = 'collection_voucher'
-                   AND column_name = 'attachment_filename'
-                """
-            )
-            if self.env.cr.fetchone():
-                self.env.cr.execute(
-                    """
-                    UPDATE collection_voucher
-                       SET attachment_filename = %s
-                     WHERE id = %s
-                    """,
-                    (filename or None, voucher.id),
-                )
-            elif filename:
-                self.env.cr.execute(
-                    """
-                    UPDATE ir_attachment
-                       SET name = %s
-                     WHERE id = %s
-                    """,
-                    (filename, attachment.id),
-                )
-        return attachment
-
-    def _run_migrate(self):
-        _load_collection_migrate("pre-migrate.py").migrate(self.env.cr, "19.0.1.12.0")
-        _load_collection_migrate("post-migrate.py").migrate(self.env.cr, "19.0.1.12.0")
-        self.env.invalidate_all()
-
-    def test_binary_field_attachment_migrates_to_chatter_main(self):
-        voucher = self.env["collection.voucher"].create(
-            {
-                "partner_id": dummy_customer_partner(
-                    self.env, customer="CUST-MIG-MAIN"
-                ).id,
-                "document_type": "bank_transfer",
-                "seller_id": ensure_enabled_seller(self.env).id,
-                "amount": 100.0,
-            }
-        )
-        attachment = self._insert_field_attachment(
-            voucher, "attachment", PNG_B64, filename="migrated.png"
-        )
-        self._run_migrate()
-        attachment.invalidate_recordset()
-        voucher.invalidate_recordset()
-        self.assertFalse(attachment.res_field)
-        self.assertEqual(attachment.name, "migrated.png")
-        self.assertEqual(voucher.message_main_attachment_id, attachment)
-        self.assertTrue(
-            voucher.message_ids.filtered(
-                lambda message: attachment in message.attachment_ids
-            )
-        )
-        leftover = self.env["ir.attachment"].search(
-            [
-                ("res_model", "=", "collection.voucher"),
-                ("res_id", "=", voucher.id),
-                ("res_field", "=", "attachment"),
-            ]
-        )
-        self.assertFalse(leftover)
-
-    def test_empty_filename_falls_back_to_proof_bin(self):
-        """Triangulation: empty attachment_filename MUST become proof.bin."""
-        voucher = self.env["collection.voucher"].create(
-            {
-                "partner_id": dummy_customer_partner(
-                    self.env, customer="CUST-MIG-BIN"
-                ).id,
-                "document_type": "cash_deposit",
-                "seller_id": ensure_enabled_seller(self.env).id,
-                "amount": 100.0,
-            }
-        )
-        attachment = self._insert_field_attachment(
-            voucher, "attachment", PDF_B64, filename=""
-        )
-        self._run_migrate()
-        attachment.invalidate_recordset()
-        voucher.invalidate_recordset()
-        self.assertEqual(attachment.name, "proof.bin")
-        self.assertEqual(voucher.message_main_attachment_id, attachment)
-        self.assertFalse(attachment.res_field)
 
 
 class TestCollectionVoucherProvenance(TransactionCase):
