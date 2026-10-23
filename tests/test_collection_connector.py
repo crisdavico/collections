@@ -630,10 +630,14 @@ class TestCollectionConnector(TransactionCase):
                 "due_date",
                 "amount",
                 "balance",
+                "amount_untaxed",
                 "state",
                 "document_kind",
             },
         )
+        # The test adapter gives no untaxed amount: the total stands in for it.
+        for row in invoices:
+            self.assertEqual(row["amount_untaxed"], row["amount"])
         summary = result["summary"]
         self.assertEqual(summary["total_balance"], 150.0)
         self.assertEqual(summary["overdue_balance"], 100.0)
@@ -712,6 +716,7 @@ class TestCollectionConnector(TransactionCase):
                     "due_date",
                     "amount",
                     "balance",
+                    "amount_untaxed",
                     "state",
                     "document_kind",
                 },

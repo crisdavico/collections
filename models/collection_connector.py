@@ -406,6 +406,7 @@ class CollectionConnector(models.Model):
             kind = row.get("document_kind")
             if kind in (None, False, ""):
                 kind = "invoice"
+            amount = _format_amount(row.get("amount"))
             invoices.append(
                 {
                     "external_invoice_id": str(
@@ -414,8 +415,11 @@ class CollectionConnector(models.Model):
                     "number": row.get("number") or "",
                     "issue_date": row.get("issue_date") or "",
                     "due_date": row.get("due_date") or "",
-                    "amount": _format_amount(row.get("amount")),
+                    "amount": amount,
                     "balance": _format_amount(row.get("balance")),
+                    # The commission base; an adapter that has none gives the total.
+                    "amount_untaxed": _format_amount(row.get("amount_untaxed"))
+                    or amount,
                     "state": row.get("state") or "",
                     "document_kind": kind,
                 }

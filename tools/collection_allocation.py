@@ -957,6 +957,7 @@ class CollectionAllocationMixin(models.AbstractModel):
                     "due_date": fresh.get("due_date") or False,
                     "invoice_amount": fresh.get("amount") or 0.0,
                     "invoice_balance": fresh.get("balance") or 0.0,
+                    "invoice_amount_untaxed": fresh.get("amount_untaxed") or 0.0,
                     "invoice_state": fresh.get("state") or False,
                     "amount_applied": applied,
                     "document_kind": kind,

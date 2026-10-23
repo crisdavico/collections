@@ -36,6 +36,7 @@ class CollectionAllocationDebtCandidate(models.TransientModel):
     )
     invoice_amount = fields.Monetary(currency_field="currency_id")
     invoice_balance = fields.Monetary(currency_field="currency_id")
+    invoice_amount_untaxed = fields.Monetary(currency_field="currency_id")
     invoice_state = fields.Char()
 
     @api.depends("invoice_number", "external_invoice_id")
@@ -55,6 +56,7 @@ class CollectionAllocationDebtCandidate(models.TransientModel):
             "due_date": self.due_date,
             "amount": self.invoice_amount,
             "balance": self.invoice_balance,
+            "amount_untaxed": self.invoice_amount_untaxed,
             "state": self.invoice_state,
             "document_kind": self.document_kind,
         }
@@ -157,6 +159,7 @@ class CollectionAllocationDebtPicker(models.TransientModel):
             "due_date": line_vals.get("due_date") or False,
             "invoice_amount": line_vals.get("invoice_amount") or 0.0,
             "invoice_balance": line_vals.get("invoice_balance") or 0.0,
+            "invoice_amount_untaxed": line_vals.get("invoice_amount_untaxed") or 0.0,
             "invoice_state": line_vals.get("invoice_state") or False,
         }
 

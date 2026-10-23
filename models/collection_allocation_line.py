@@ -65,6 +65,9 @@ class CollectionAllocationLine(models.Model):
     due_date = fields.Date()
     invoice_amount = fields.Monetary(currency_field="currency_id")
     invoice_balance = fields.Monetary(currency_field="currency_id")
+    # Untaxed part of invoice_amount from the connector (the seller commission
+    # base); 0 on lines stored before the connector gave it.
+    invoice_amount_untaxed = fields.Monetary(currency_field="currency_id")
     invoice_state = fields.Char()
     amount_applied = fields.Monetary(
         required=True,

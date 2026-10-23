@@ -420,6 +420,22 @@ class CollectionSheetReport(models.Model):
         rows.sort(key=lambda item: item[0])
         return [item[1] for item in rows]
 
+    @api.model
+    @api.private
+    def _collection_commission_base(self, line, applied):
+        """What a line's commission is paid on: the untaxed share of ``applied``.
+
+        ``applied × invoice_amount_untaxed / invoice_amount``, so a partly
+        collected invoice pays on the untaxed part of what was collected. A line
+        with no untaxed amount (0, stored before the connector gave one) or one
+        outside (0, invoice_amount] pays on ``applied``, as before.
+        """
+        amount = line.invoice_amount or 0.0
+        untaxed = line.invoice_amount_untaxed or 0.0
+        if 0.0 < untaxed < amount:
+            return applied * untaxed / amount
+        return applied
+
     @api.private
     def _collection_report_document_blocks(self, codes):
         """Split invoice then quotation blocks; drop empties; round then sum."""
@@ -434,7 +450,9 @@ class CollectionSheetReport(models.Model):
             partner = line.allocation_id.partner_id
             code = codes.get(partner.id, "") or ""
             applied = line.amount_applied or 0.0
-            commission = currency.round(applied * percent / 100.0)
+            commission = currency.round(
+                self._collection_commission_base(line, applied) * percent / 100.0
+            )
             grouped[kind].append(
                 (
                     self._collection_report_code_sort(code, partner.name)

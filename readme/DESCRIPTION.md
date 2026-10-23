@@ -30,7 +30,11 @@ link. Sheet recon inputs are `commission_percent` (0–100) and `commission_with
 Administration) is derived, not typed: cash vouchers minus `seller_deposit` vouchers
 minus `commission_withheld`. Allocation lines carry required `document_kind` (`invoice`
 / `quotation`, default `invoice`). Print includes draft allocations and vouchers;
-`mismatch` flags when voucher totals disagree with allocation `total_vouchers`.
+`mismatch` flags when voucher totals disagree with allocation `total_vouchers`. Each
+row's seller commission is `commission_percent` of the untaxed share of what was applied
+(`amount_applied × invoice_amount_untaxed / invoice_amount`); the connector gives
+`amount_untaxed` per invoice (its total when it has none), lines keep it, and lines with
+none pay on `amount_applied`. `customer_debt` (MCP) does not return it.
 
 Money rules. An allocation's collected money (`total_vouchers`) is the receipt values on
 its own receipts plus the full amount of each voucher pointing at it whose money was

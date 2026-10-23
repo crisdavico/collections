@@ -2024,6 +2024,12 @@ msgid "Invoice Amount"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__invoice_amount_untaxed
+#: model:ir.model.fields,field_description:collection.field_collection_allocation_line__invoice_amount_untaxed
+msgid "Invoice Amount Untaxed"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_debt_candidate__invoice_balance
 #: model:ir.model.fields,field_description:collection.field_collection_allocation_line__invoice_balance
 msgid "Invoice Balance"
