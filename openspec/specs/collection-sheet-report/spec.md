@@ -152,9 +152,12 @@ customers group first and blanks last. Document rows MUST then sort by
 
 Document blocks MUST split `allocation_ids.line_ids` by `document_kind` (`invoice` then
 `quotation`). Empty blocks MUST be dropped. Per-row commission MUST be
-`currency.round(applied * percent / 100.0)`. Block `subtotal_commission` MUST be the sum
-of those rounded rows (MUST NOT be `subtotal_applied × percent`). Percent 0 MUST yield
-zero commission.
+`currency.round(base * percent / 100.0)`, where `base` is the untaxed share of what was
+applied: `applied * invoice_amount_untaxed / invoice_amount` when
+`0 < invoice_amount_untaxed < invoice_amount`, else `applied`. Block
+`subtotal_commission` MUST be the sum of those rounded rows (MUST NOT be
+`subtotal_applied × percent`). Percent 0 MUST yield zero commission.
+(Previously: `base` was always `applied`.)
 
 #### Scenario: Kind split drops empty
 
@@ -170,6 +173,14 @@ zero commission.
 - WHEN the invoice block is built
 - THEN `subtotal_commission` MUST equal the sum of rounded row commissions
 - AND MUST NOT equal `subtotal_applied × percent / 100`
+
+#### Scenario: Commission on the untaxed share
+
+- GIVEN `commission_percent` 10 and a line with `invoice_amount` 1210,
+  `invoice_amount_untaxed` 1000 and `amount_applied` 605
+- WHEN the invoice block is built
+- THEN that row commission MUST be 50.00
+- AND a line with no untaxed amount, or one above its amount, MUST pay on `applied`
 
 #### Scenario: Zero percent
 

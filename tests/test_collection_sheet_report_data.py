@@ -729,6 +729,58 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertNotEqual(invoice_block["subtotal_commission"], naive)
         self.assertEqual(row_commissions[0], currency.round(1.11 * 3.0 / 100.0))
 
+    def test_commission_on_the_untaxed_share_of_the_applied_amount(self):
+        """Row commission MUST be applied x untaxed / amount x percent.
+
+        A line with no untaxed amount (0) or one above its amount keeps the
+        commission on what was applied; a quotation's untaxed is its total.
+        """
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 10.0})
+        partner = dummy_customer_partner(self.env, customer="RPT-UNTAXED")
+        voucher = self._create_voucher(partner, sheet, amount=1210.0)
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=605.0,
+                    invoice_balance=605.0,
+                    invoice_amount=1210.0,
+                    invoice_amount_untaxed=1000.0,
+                    invoice_number="U-1",
+                ),
+                self._line_vals(
+                    amount_applied=100.0,
+                    invoice_balance=100.0,
+                    invoice_number="U-2",
+                ),
+                self._line_vals(
+                    amount_applied=121.0,
+                    invoice_balance=121.0,
+                    invoice_amount_untaxed=242.0,
+                    invoice_number="U-3",
+                ),
+                self._line_vals(
+                    amount_applied=384.0,
+                    invoice_balance=384.0,
+                    invoice_amount_untaxed=384.0,
+                    invoice_number="Q-1",
+                    document_kind="quotation",
+                ),
+            ],
+        )
+        payload = sheet._collection_report_data()
+        commissions = {
+            row["invoice_number"]: row["commission"]
+            for block in payload["document_blocks"]
+            for row in block["rows"]
+        }
+        self.assertEqual(
+            commissions, {"U-1": 50.0, "U-2": 10.0, "U-3": 12.1, "Q-1": 38.4}
+        )
+
     def test_zero_percent(self):
         """Percent 0 MUST yield zero row and block commissions."""
         sheet = self._create_sheet()

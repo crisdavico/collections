@@ -291,6 +291,7 @@ class CollectionAllocation(models.Model):
             "due_date": invoice.get("due_date") or False,
             "invoice_amount": invoice.get("amount") or 0.0,
             "invoice_balance": invoice.get("balance") or 0.0,
+            "invoice_amount_untaxed": invoice.get("amount_untaxed") or 0.0,
             "invoice_state": invoice.get("state") or False,
             "amount_applied": 0.0,
             "document_kind": (

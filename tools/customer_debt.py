@@ -70,6 +70,8 @@ class CollectionCustomerDebtMixin(models.AbstractModel):
         result.pop("source", None)
         invoices = result.get("invoices") or []
         for invoice in invoices:
+            # Commission base: not part of what the agent tells the seller.
+            invoice.pop("amount_untaxed", None)
             kind = invoice.get("document_kind")
             if kind in (None, False, ""):
                 invoice["document_kind"] = "invoice"

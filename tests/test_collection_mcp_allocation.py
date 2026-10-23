@@ -18,6 +18,7 @@ from odoo.addons.collection.tools.collection_voucher import _DOCUMENT_TYPES
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from .common_connector import (
+    TEST_INVOICES,
     confirm_sheet,
     install_bound_test_connector,
     install_test_connector_type,
@@ -642,6 +643,23 @@ class TestCollectionMcpAllocation(TransactionCase):
         self.assertEqual(self._counts()["allocations"], before["allocations"] + 1)
         self.assertEqual(self._counts()["requests"], before["requests"] + 1)
         self.assertEqual(self._counts()["vouchers"], before["vouchers"] + 1)
+
+    def test_debt_lines_keep_the_connector_untaxed_amount(self):
+        """Lines snapshot `amount_untaxed`, or the amount when it is not given."""
+        invoices = [dict(row) for row in TEST_INVOICES]
+        invoices[0]["amount_untaxed"] = 82.64
+        result = self._call(
+            self._payload(
+                [self._payment(100.0)], [self._applied(INVOICE_OVERDUE, 100.0)]
+            ),
+            context={"collection_test_invoices": invoices},
+        )
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        lines = {line.external_invoice_id: line for line in allocation.line_ids}
+        self.assertEqual(lines["inv-bound-overdue"].invoice_amount_untaxed, 82.64)
+        self.assertEqual(lines["inv-bound-open"].invoice_amount_untaxed, 50.0)
 
     def test_response_shape_freeze_ordered_vouchers(self):
         """Success body MUST freeze {sheet_id,vouchers,allocation} with send order."""
