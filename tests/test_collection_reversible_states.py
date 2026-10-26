@@ -15,6 +15,7 @@ from odoo.tests import TransactionCase
 
 from .test_collection_payment import (
     create_collection_user,
+    create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
 )
@@ -256,13 +257,13 @@ class TestCollectionReversibleStates(TransactionCase):
             self.sheet.action_reset_to_open()
         self.assertEqual(self.sheet.state, "submitted")
 
-    def test_reset_needs_a_manager(self):
-        user = create_collection_user(self.env, "reversible_user")
+    def test_reset_needs_a_collection_user(self):
+        plain = create_internal_seller(self.env, "reversible_plain")
         with self.assertRaises(AccessError):
-            self.sheet.with_user(user).action_reset_to_open()
+            self.sheet.with_user(plain).action_reset_to_open()
         self.assertEqual(self.sheet.state, "submitted")
-        manager = create_collection_user(self.env, "reversible_mgr", manager=True)
-        self.sheet.with_user(manager).action_reset_to_open()
+        user = create_collection_user(self.env, "reversible_user")
+        self.sheet.with_user(user).action_reset_to_open()
         self.assertEqual(self.sheet.state, "open")
 
     def test_open_sheet_cannot_be_reset(self):

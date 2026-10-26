@@ -17,7 +17,7 @@ lower by hand, and a voucher in a cash swap stays. Collection sheets group a sel
 vouchers through `open` → Seller Close → `submitted` (Submitted by Seller; PDF Rendida)
 → Confirm → `proposal` → Close → `closed`. Submitted, Proposal, or Closed sheets may
 Cancel to `cancelled`; Reinstate brings a `cancelled` sheet back to `submitted`. A
-Collections Manager can Reset to Open from any later state: receipts and allocations go
+Collections User can Reset to Open from any later state: receipts and allocations go
 back to draft, the ERP mark is cleared, the seller commission is removed and the
 declaration cleared, so the sheet can be corrected, amended by the agent or deleted. It
 is refused while the seller has another open sheet. Sheets have their own chatter and
@@ -76,30 +76,31 @@ customer to a partner; Collections Users may create them (`1,0,1,0`) and MUST ne
 
 Access follows two roles. **Collections User** (`collection.group_collection_user`) is
 for back-office operators and the MCP API user: Document Review, allocations, the
-receipt proposal board, and Confirm. It may create contacts (no edit or delete) so new
-customers can be bound without `base.group_partner_manager`. Plain internal users (CRM
-users, and the password-less seller identities that Import creates) get no access to
-collection data; sellers act only through the agent. Close, Cancel, Reinstate, and Reset
-to Open need a Collections Manager, and the server checks the role, not only the button.
-The **Collections Manager** group (`collection.group_collection_manager`) implies
-Collections User and grants collection configuration without system administration; the
-administrator is a manager on install. Under Collections → Configuration, **Company
-Collection Settings** edits only the current company's collection options and imports
-sellers within that company. **Configure Connection** opens the same connector form used
-by **Manage Connectors and Mappings**, with company-scoped CRUD, SQLite/Bejerman
-settings, connection testing, and Bejerman snapshot refresh. Use the form's native
-**Save** and **Discard** controls; there is no separate connector settings dialog.
-Credentials, the web service URL, TLS options, the CA bundle, and the SQLite path are
-shown and written only for administrators. Connector operations are server-side only
-(`@api.private`); Test Connection checks for an administrator or a Collections Manager.
-**Company Bank Accounts** manages only bank accounts belonging to the user's allowed
-companies. Company record rules continue to apply to vouchers, sheets, allocations,
-receipts, and connector bindings. Privileged configuration writes use fixed field lists
-after checking the caller's manager group and company access; collection operations and
-MCP tools never elevate. Workflow guards are internal server-side scopes: a context key
-sent over RPC or by an MCP tool cannot open them. Creating a company or user is an
-explicit database setup step, so installing the module does not create business
-companies or login credentials.
+receipt proposal board, Confirm, Close, Cancel, and Reset to Open. It may create
+contacts (no edit or delete) so new customers can be bound without
+`base.group_partner_manager`. Plain internal users (CRM users, and the password-less
+seller identities that Import creates) get no access to collection data; sellers act
+only through the agent. Reinstate needs a Collections Manager, and the server checks the
+role, not only the button. The **Collections Manager** group
+(`collection.group_collection_manager`) implies Collections User and grants collection
+configuration without system administration; the administrator is a manager on install.
+Under Collections → Configuration, **Company Collection Settings** edits only the
+current company's collection options and imports sellers within that company.
+**Configure Connection** opens the same connector form used by **Manage Connectors and
+Mappings**, with company-scoped CRUD, SQLite/Bejerman settings, connection testing, and
+Bejerman snapshot refresh. Use the form's native **Save** and **Discard** controls;
+there is no separate connector settings dialog. Credentials, the web service URL, TLS
+options, the CA bundle, and the SQLite path are shown and written only for
+administrators. Connector operations are server-side only (`@api.private`); Test
+Connection checks for an administrator or a Collections Manager. **Company Bank
+Accounts** manages only bank accounts belonging to the user's allowed companies. Company
+record rules continue to apply to vouchers, sheets, allocations, receipts, and connector
+bindings. Privileged configuration writes use fixed field lists after checking the
+caller's manager group and company access; collection operations and MCP tools never
+elevate. Workflow guards are internal server-side scopes: a context key sent over RPC or
+by an MCP tool cannot open them. Creating a company or user is an explicit database
+setup step, so installing the module does not create business companies or login
+credentials.
 
 Receipts are typed into the ERP by hand. Once that is done for a closed sheet, a
 Collections Manager marks it **Entered in the ERP** (undo allowed; Cancel clears it),

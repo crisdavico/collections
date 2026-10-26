@@ -472,14 +472,14 @@
             type="object"
             class="oe_highlight"
             invisible="state != 'proposal'"
-            groups="collection.group_collection_manager"
+            groups="collection.group_collection_user"
           />
                     <button
             name="action_cancel"
             string="Cancel"
             type="object"
             invisible="state not in ('submitted', 'proposal', 'closed')"
-            groups="collection.group_collection_manager"
+            groups="collection.group_collection_user"
             confirm="Cancel this sheet? Closed receipts reopen, allocations go back to draft, and the ERP mark is cleared."
           />
                     <button
@@ -494,7 +494,7 @@
             string="Reset to Open"
             type="object"
             invisible="not id or state == 'open'"
-            groups="collection.group_collection_manager"
+            groups="collection.group_collection_user"
             confirm="Reset this sheet to Open? The ERP mark is cleared, the seller commission is removed, and the seller must close and declare cash again."
           />
                     <button

@@ -439,7 +439,10 @@ class CollectionSheet(models.Model):
         check_collection_role(
             self.env,
             COLLECTION_USER_GROUP,
-            _("Only Collections Users can review documents or confirm sheets."),
+            _(
+                "Only Collections Users can review documents or work on "
+                "collection sheets."
+            ),
         )
 
     @api.private
@@ -447,10 +450,7 @@ class CollectionSheet(models.Model):
         check_collection_role(
             self.env,
             COLLECTION_MANAGER_GROUP,
-            _(
-                "Only Collections Managers can close, cancel or reinstate "
-                "collection sheets."
-            ),
+            _("Only Collections Managers can reinstate collection sheets."),
         )
 
     def action_confirm(self):
@@ -619,7 +619,7 @@ class CollectionSheet(models.Model):
         )
 
     def action_close(self):
-        self._check_collection_manager()
+        self._check_collection_user()
         if any(sheet.state != "proposal" for sheet in self):
             raise UserError(_("Only proposal sheets can be closed."))
         for sheet in self:
@@ -636,7 +636,7 @@ class CollectionSheet(models.Model):
         return result
 
     def action_cancel(self):
-        self._check_collection_manager()
+        self._check_collection_user()
         if any(
             sheet.state not in ("submitted", "proposal", "closed") for sheet in self
         ):
@@ -693,7 +693,7 @@ class CollectionSheet(models.Model):
         Refused while the seller has another open sheet: one open sheet per
         seller.
         """
-        self._check_collection_manager()
+        self._check_collection_user()
         if any(sheet.state not in _RESETTABLE_SHEET_STATES for sheet in self):
             raise UserError(
                 _(

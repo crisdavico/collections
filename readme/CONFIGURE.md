@@ -15,8 +15,8 @@ Collections users receive their known company on upgrade. Newly created customer
 contacts default to the operator's company.
 
 1. **API user.** Give the user behind the agent's MCP API key **Collections User** only.
-   The agent's tools never need Collections Manager (Close, Cancel, Reinstate,
-   connectors, settings) and never need administrator rights.
+   The agent's tools never need Collections Manager (Reinstate, connectors, settings)
+   and never need administrator rights.
 2. **Tools.** The agent needs only the collection tools: `get_seller_id`,
    `list_collection_customers`, `customer_debt`, `get_collection_allocation`,
    `create_collection_allocation`, `get_collection_sheet_pdf`, `close_collection_sheet`,
