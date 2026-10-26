@@ -307,9 +307,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   **stored compute**, `cash_collected − cash_banked − commission_withheld` (cash
   vouchers minus `seller_deposit` vouchers minus the withheld commission); create and
   write of `cash_on_hand` raise `UserError` in every state, the MCP tool MUST NOT accept
-  it, and the derived value makes the PDF recon banner balance by construction
-  (`in_favor` is unreachable from real data). A sheet's company cannot change once it
-  has vouchers or allocations.
+  it. The reports print it as **Efectivo a entregar** (the cash calculation in the
+  Conciliación). A sheet's company cannot change once it has vouchers or allocations.
 - **Entered in the ERP (D8):** receipts are typed into Bejerman by hand. A Collections
   Manager marks a **closed** sheet with **Mark as Entered in the ERP**
   (`action_mark_erp_entered` → `erp_entered_date` / `erp_entered_uid`, chatter note;
@@ -657,14 +656,14 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   current only. `reviewed_by` / `reviewed_at` stay on the model and leave the form.
   Print → Planilla de Cobranza is bound `qweb-pdf` (`web.html_container` only: no
   company header; own footer with "Impreso el" and "Página X de Y"; `t-out`). Both
-  reports open with the verdict (Neto a Rendir / Total Rendido / Diferencia + banner)
-  and share one vocabulary. Header **Collection Sheet XLSX** is last object button
-  before `state` (`action_print_xlsx` → `/web/content/{id}?download=true`). Recon fields
-  sit in a second inner `<group>` on the Allocations page. Shared
-  `_collection_report_data()` feeds both writers in every sheet state; print includes
-  draft allocations/vouchers; `mismatch` when voucher SUM ≠ allocation `total_vouchers`
-  (`allocated_collected` carries the allocation side for the warning). MUST NOT
-  `sudo()`.
+  reports open with the verdict (Efectivo a entregar / Cobrado por otros medios /
+  Comisión a Pagar al Vendedor; no Diferencia, no status banner) and share one
+  vocabulary. Header **Collection Sheet XLSX** is last object button before `state`
+  (`action_print_xlsx` → `/web/content/{id}?download=true`). Recon fields sit in a
+  second inner `<group>` on the Allocations page. Shared `_collection_report_data()`
+  feeds both writers in every sheet state; print includes draft allocations/vouchers;
+  `mismatch` when voucher SUM ≠ allocation `total_vouchers` (`allocated_collected`
+  carries the allocation side for the warning). MUST NOT `sudo()`.
 - **Odoo 19:** use `<list>` not `<tree>`; `models.Constraint` not `_sql_constraints`;
   `t-out` not `t-esc`; `@api.ondelete` for delete rules.
 
@@ -694,7 +693,7 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_company_config.py`           | Per-company `COL/` `CS/` `CA/` sequences; new company seeds all types and empty sellers; five-state sheet Selection, labels and statusbar; sheet-state `open` gate scan                                                            |
 | `tests/test_collection_allocation_document_kind.py` | Line `document_kind` default/selection/parent-arch `<list>`; MCP receipt kind; get returns kind                                                                                                                                    |
 | `tests/test_collection_sheet_report_data.py`        | Recon fields, payload primitives, freeze Closed+Cancelled, Proposal editable, four-state PDF payload, mismatch, mixed currency, no sudo                                                                                            |
-| `tests/test_collection_sheet_report.py`             | Bound `qweb-pdf` + A4 portrait; HTML names/banner/`t-out`; verdict first, vocabulary, grand totals, recon, signatures, footer, mismatch; company-B AccessError                                                                     |
+| `tests/test_collection_sheet_report.py`             | Bound `qweb-pdf` + A4 portrait; HTML names/verdict/`t-out`; verdict first, vocabulary, grand totals, recon, signatures, footer, mismatch; company-B AccessError                                                                    |
 | `tests/test_collection_sheet_xlsx.py`               | Zip/`A6`/cached SUM; percent/100; `act_url`; XLSX last; four-state download; three pages; verdict, header row 4, deposit note, mismatch, flat tables; no sudo                                                                      |
 | `tests/test_collection_mcp_tool.py`                 | MCP attachment + provenance nests on `create_collection_allocation`                                                                                                                                                                |
 | `tests/test_collection_mcp_seller_lookup.py`        | MCP `get_seller_id` discovery, match, fail-closed, enabled-list                                                                                                                                                                    |

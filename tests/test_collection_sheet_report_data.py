@@ -1122,8 +1122,8 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertEqual(tendered["cash"], -remittance.amount)
         self.assertEqual(tendered["total"], echeck.amount + retention.amount)
 
-    def test_tendered_keeps_existing_keys_and_recon_algebra(self):
-        """Existing tendered keys stay; net_due/difference algebra is untouched."""
+    def test_tendered_keeps_existing_keys_and_cash_recon(self):
+        """Existing tendered keys stay; recon reads as the cash calculation."""
         sheet = self._create_sheet()
         self._balanced(
             amount=100.0,
@@ -1160,10 +1160,12 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertEqual(tendered["total"], 10.0 + 100.0 + 25.0)
         recon = payload["recon"]
         self.assertEqual(recon["collected"], payload["collected_total"])
+        self.assertEqual(recon["cash_collected"], 40.0)
+        self.assertEqual(recon["cash_banked"], 25.0)
         self.assertEqual(recon["withheld"], 5.0)
-        self.assertEqual(recon["net_due"], payload["collected_total"] - 5.0)
-        self.assertEqual(recon["tendered"], tendered["total"])
-        self.assertEqual(recon["difference"], tendered["total"] - recon["net_due"])
+        self.assertEqual(recon["cash_due"], 40.0 - 25.0 - 5.0)
+        self.assertEqual(recon["cash_due"], tendered["cash"])
+        self.assertEqual(recon["other_collected"], 100.0)
 
     def test_tendered_cash_deposit_is_not_seller_deposits(self):
         """cash_deposit MUST stay in deposits, never seller_deposits."""
@@ -1180,75 +1182,29 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertEqual(tendered["seller_deposits"], remittance.amount)
         self.assertNotEqual(tendered["seller_deposits"], tendered["deposits"])
 
-    def test_recon_reachable_states(self):
-        """Computed cash makes the sheet balance.
-
-        ``in_favor`` and ``outstanding`` are unreachable once ``cash_on_hand`` is
-        derived: the cash the seller brings is defined as the remainder, and
-        every collected type is tendered. Both branches are covered directly
-        below.
-        """
-        statuses = []
-        # balanced: transfer 100, no cash, withheld 0 → tendered 100, net_due 100
-        seller_a = create_internal_seller(self.env, "rpt-recon-a")
-        sheet_a = self._create_sheet(seller=seller_a, force_new=True)
-        self._balanced(
-            amount=100.0,
-            sheet=sheet_a,
-            customer="RPT-BAL",
-            voucher_extra={"document_type": "bank_transfer"},
-        )
-        statuses.append(sheet_a._collection_report_data()["recon"]["status"])
-
-        # balanced with cash: cash 50 collected, none remitted, nothing withheld
-        seller_b = create_internal_seller(self.env, "rpt-recon-b")
-        sheet_b = self._create_sheet(seller=seller_b, force_new=True)
-        self._balanced(
+    def test_recon_has_no_difference_or_status(self):
+        """Recon MUST carry the cash calculation only: no Diferencia, no banner."""
+        _allocation, _voucher, sheet, _partner = self._balanced(
             amount=50.0,
-            sheet=sheet_b,
-            customer="RPT-CASH-BAL",
+            customer="RPT-CASH-ONLY",
             voucher_extra={"document_type": "cash"},
         )
-        self.assertEqual(sheet_b.cash_on_hand, 50.0)
-        statuses.append(sheet_b._collection_report_data()["recon"]["status"])
-
-        self.assertEqual(statuses, ["balanced", "balanced"])
-        recon = sheet_b._collection_report_data()["recon"]
-        for key in (
-            "collected",
-            "withheld",
-            "net_due",
-            "tendered",
-            "difference",
-            "status",
-            "status_message",
-        ):
-            self.assertIn(key, recon)
-        self.assertTrue(recon["status_message"])
-
-    def test_recon_in_favor_branch(self):
-        """A tendered total above net due MUST still map to in_favor."""
-        _allocation, _voucher, sheet, _partner = self._balanced(
-            amount=100.0,
-            customer="RPT-FAVOR",
-            voucher_extra={"document_type": "bank_transfer"},
+        recon = sheet._collection_report_data()["recon"]
+        self.assertEqual(
+            set(recon),
+            {
+                "collected",
+                "cash_collected",
+                "cash_banked",
+                "withheld",
+                "cash_due",
+                "other_collected",
+                "commission",
+                "commission_owed",
+            },
         )
-        tendered = dict(sheet._collection_report_tendered(), total=150.0)
-        recon = sheet._collection_report_recon(100.0, tendered)
-        self.assertEqual(recon["difference"], 50.0)
-        self.assertEqual(recon["status"], "in_favor")
-
-    def test_recon_outstanding_branch(self):
-        """A tendered total below net due MUST still map to outstanding."""
-        _allocation, _voucher, sheet, _partner = self._balanced(
-            amount=100.0,
-            customer="RPT-OUTSTANDING",
-            voucher_extra={"document_type": "bank_transfer"},
-        )
-        tendered = dict(sheet._collection_report_tendered(), total=60.0)
-        recon = sheet._collection_report_recon(100.0, tendered)
-        self.assertEqual(recon["difference"], -40.0)
-        self.assertEqual(recon["status"], "outstanding")
+        self.assertEqual(recon["cash_due"], 50.0)
+        self.assertEqual(recon["other_collected"], 0.0)
 
     def test_unallocated_voucher_mismatch(self):
         """Unallocated sheet voucher MUST set mismatch and still count in collected."""
@@ -1463,12 +1419,6 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertNotIn("Open", payload["state_label"])
         labels = {block["code"]: block["label"] for block in payload["voucher_blocks"]}
         self.assertEqual(labels["bank_transfer"], "Transferencia bancaria")
-        recon = payload["recon"]
-        self.assertEqual(recon["status"], "balanced")
-        self.assertEqual(recon["status_message"], "Cuadrada")
-        self.assertNotIn("Balanced", recon["status_message"])
-        self.assertNotIn("In favor", recon["status_message"])
-        self.assertNotIn("Outstanding", recon["status_message"])
 
     def test_commission_excluded_from_collected_and_tendered(self):
         """seller_commission MUST stay out of collected_total, tendered, and blocks."""
@@ -1529,15 +1479,12 @@ class TestCollectionSheetReportData(TransactionCase):
         self._mark_validated_collections(sheet.voucher_ids)
         self._submit_declared_cash(sheet, 300.0)
         before = dict(sheet._collection_report_data()["recon"])
-        self.assertAlmostEqual(before["difference"], 0.0, places=2)
-        self.assertEqual(before["status"], "balanced")
         sheet.action_confirm()
         self.assertEqual(len(self._commission_vouchers(sheet)), 1)
         after = sheet._collection_report_data()["recon"]
         self.assertEqual(set(after), set(before))
         for key, value in before.items():
             self.assertEqual(after[key], value, key)
-        self.assertAlmostEqual(after["difference"], 0.0, places=2)
 
     def test_cash_banked_excludes_seller_commission(self):
         """cash_banked MUST sum seller_deposit only, never seller_commission."""

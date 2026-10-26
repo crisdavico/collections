@@ -33,11 +33,6 @@ _CHECK_TYPE_LABELS = {
 }
 _SELLER_DECLARATION_FIELDS = frozenset({"commission_withheld"})
 _ADMIN_RATE_FIELDS = frozenset({"commission_percent"})
-_RECON_STATUS = {
-    -1: "outstanding",
-    0: "balanced",
-    1: "in_favor",
-}
 
 
 class CollectionSheetReport(models.Model):
@@ -336,7 +331,7 @@ class CollectionSheetReport(models.Model):
         collected_total = sum(block["subtotal"] for block in voucher_blocks)
         applied_total = sum(block["subtotal_applied"] for block in document_blocks)
         tendered = self._collection_report_tendered()
-        recon = self._collection_report_recon(collected_total, tendered)
+        recon = self._collection_report_recon(collected_total)
         alloc_collected = sum(
             allocation.total_vouchers or 0.0 for allocation in self.allocation_ids
         )
@@ -654,32 +649,22 @@ class CollectionSheetReport(models.Model):
         }
 
     @api.private
-    def _collection_report_recon(self, collected, tendered):
-        """Tri-state banner from tendered minus net due."""
+    def _collection_report_recon(self, collected):
+        """Cash the seller hands in, and the commission settled apart."""
         self.ensure_one()
         currency = self._collection_report_currency()
+        cash_collected = self.cash_collected or 0.0
         withheld = self.commission_withheld or 0.0
         commission = self.commission_amount or 0.0
-        net_due = collected - withheld
-        tendered_total = tendered["total"]
-        difference = tendered_total - net_due
-        compared = currency.compare_amounts(difference, 0.0)
-        status = _RECON_STATUS[compared]
-        messages = {
-            "balanced": _("Cuadrada"),
-            "in_favor": _("A favor del vendedor"),
-            "outstanding": _("Pendiente de rendir"),
-        }
         return {
             "collected": collected,
-            "commission": commission,
+            "cash_collected": cash_collected,
+            "cash_banked": self.cash_banked or 0.0,
             "withheld": withheld,
+            "cash_due": self.cash_on_hand or 0.0,
+            "other_collected": currency.round(collected - cash_collected),
+            "commission": commission,
             "commission_owed": currency.round(commission - withheld),
-            "net_due": net_due,
-            "tendered": tendered_total,
-            "difference": difference,
-            "status": status,
-            "status_message": messages[status],
         }
 
     @api.private

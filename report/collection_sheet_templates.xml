@@ -111,9 +111,6 @@
                     .o_cs_lines td:nth-child(2) { width: 48%; }
                     .o_cs_lines td:nth-child(3) { width: 20%; }
                     .o_cs_sheet .o_cs_lines .o_cs_strong td { background: #dbe5f1; font-weight: bold; }
-                    .o_cs_banner_balanced { background: #c6efce; padding: 7px 7px; margin-top: 6px; }
-                    .o_cs_banner_in_favor { background: #fff2cc; padding: 7px 7px; margin-top: 6px; }
-                    .o_cs_banner_outstanding { background: #ffc7ce; padding: 7px 7px; margin-top: 6px; }
                     .o_cs_mismatch { background: #fff2cc; padding: 7px 7px; margin-top: 6px; }
                     .o_cs_signatures { margin-top: 36px; page-break-inside: avoid; }
                     .o_cs_sheet .o_cs_signatures td {
@@ -126,39 +123,34 @@
             t-out="payload['reference']"
           /></h2>
                 <div class="o_cs_sheet">
-                    <!-- The answer first: what was due, what was handed in. -->
+                    <!-- The answer first: cash to hand in, other payments, commission owed. -->
                     <table class="o_cs_verdict">
                         <tr>
-                            <th>Neto a Rendir</th>
-                            <th>Total Rendido</th>
-                            <th>Diferencia</th>
+                            <th>Efectivo a entregar</th>
+                            <th>Cobrado por otros medios</th>
+                            <th>Comisión a Pagar al Vendedor</th>
                         </tr>
                         <tr>
                             <td>
                                 <span
-                  t-out="payload['recon']['net_due']"
+                  t-out="payload['recon']['cash_due']"
                   t-options="money"
                 />
                             </td>
                             <td>
                                 <span
-                  t-out="payload['recon']['tendered']"
+                  t-out="payload['recon']['other_collected']"
                   t-options="money"
                 />
                             </td>
                             <td>
                                 <span
-                  t-out="payload['recon']['difference']"
+                  t-out="payload['recon']['commission_owed']"
                   t-options="money"
                 />
                             </td>
                         </tr>
                     </table>
-                    <div
-            t-attf-class="o_cs_banner o_cs_banner_#{payload['recon']['status']}"
-          >
-                        <strong t-out="payload['recon']['status_message']" />
-                    </div>
                     <div t-if="payload['mismatch']" class="o_cs_mismatch">
                         Atención: lo cobrado según las asignaciones (<span
               t-out="payload['allocated_collected']"
@@ -229,7 +221,7 @@
                             </td>
                         </tr>
                         <tr>
-                            <th>Remanente</th>
+                            <th>Deuda sin cobrar</th>
                             <td class="o_cs_num">
                                 <span
                   t-out="payload['customer_totals']['residual']"
@@ -255,7 +247,7 @@
                                 <th class="o_cs_num">Saldo Total</th>
                                 <th class="o_cs_num">Cobrado</th>
                                 <th class="o_cs_num">Aplicado</th>
-                                <th class="o_cs_num">Remanente</th>
+                                <th class="o_cs_num">Deuda sin cobrar</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -489,11 +481,25 @@
                     <h3>Conciliación del Vendedor</h3>
                     <table class="o_cs_recon o_cs_lines">
                         <tr>
-                            <td>Total Cobrado</td>
-                            <td class="o_cs_hint">lo que pagaron los clientes</td>
+                            <td>Efectivo cobrado</td>
+                            <td
+                class="o_cs_hint"
+              >lo que los clientes pagaron en efectivo</td>
                             <td class="o_cs_num">
                                 <span
-                  t-out="payload['recon']['collected']"
+                  t-out="payload['recon']['cash_collected']"
+                  t-options="money"
+                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>(−) Depositado por el Vendedor</td>
+                            <td
+                class="o_cs_hint"
+              >efectivo que el vendedor ya depositó en el banco</td>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['recon']['cash_banked']"
                   t-options="money"
                 />
                             </td>
@@ -511,51 +517,31 @@
                             </td>
                         </tr>
                         <tr class="o_cs_strong">
-                            <td>(=) Neto a Rendir</td>
+                            <td>(=) Efectivo a entregar</td>
                             <td
                 class="o_cs_hint"
-              >lo que tenía que entregar a la empresa</td>
+              >efectivo que el vendedor entrega a la empresa</td>
                             <td class="o_cs_num">
                                 <span
-                  t-out="payload['recon']['net_due']"
+                  t-out="payload['recon']['cash_due']"
                   t-options="money"
                 />
                             </td>
                         </tr>
                         <tr>
-                            <td>Total Rendido</td>
-                            <td class="o_cs_hint">lo que entregó; detalle abajo</td>
-                            <td class="o_cs_num">
-                                <span
-                  t-out="payload['recon']['tendered']"
-                  t-options="money"
-                />
-                            </td>
-                        </tr>
-                        <tr class="o_cs_strong">
-                            <td>(=) Diferencia</td>
-                            <td class="o_cs_hint">Rendido − Neto a Rendir</td>
-                            <td class="o_cs_num">
-                                <span
-                  t-out="payload['recon']['difference']"
-                  t-options="money"
-                />
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>Comisión a Pagar al Vendedor</td>
+                            <td>Cobrado por otros medios</td>
                             <td
                 class="o_cs_hint"
-              >Comisión Devengada − Comisión Retenida</td>
+              >cheques, echeqs, transferencias, depósitos de clientes y retenciones; detalle abajo</td>
                             <td class="o_cs_num">
                                 <span
-                  t-out="payload['recon']['commission_owed']"
+                  t-out="payload['recon']['other_collected']"
                   t-options="money"
                 />
                             </td>
                         </tr>
                     </table>
-                    <h4>Composición de lo Rendido</h4>
+                    <h4>Composición de lo Entregado</h4>
                     <table class="o_cs_tendered o_cs_lines">
                         <tr>
                             <td>Efectivo en Caja</td>
@@ -631,6 +617,42 @@
                             <td class="o_cs_num">
                                 <span
                   t-out="payload['tendered']['seller_deposits']"
+                  t-options="money"
+                />
+                            </td>
+                        </tr>
+                    </table>
+
+                    <h4>Comisión del Vendedor</h4>
+                    <table class="o_cs_commission o_cs_lines">
+                        <tr>
+                            <td>Comisión Devengada</td>
+                            <td
+                class="o_cs_hint"
+              >% Comisión Vendedor sobre lo aplicado</td>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['recon']['commission']"
+                  t-options="money"
+                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>(−) Comisión Retenida por el Vendedor</td>
+                            <td class="o_cs_hint">la que se quedó del efectivo</td>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['recon']['withheld']"
+                  t-options="money"
+                />
+                            </td>
+                        </tr>
+                        <tr class="o_cs_strong">
+                            <td>(=) Comisión a Pagar al Vendedor</td>
+                            <td class="o_cs_hint">se paga aparte de la planilla</td>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['recon']['commission_owed']"
                   t-options="money"
                 />
                             </td>

@@ -40,12 +40,6 @@ HEADER_MERGES = {
     "A8:B8",
     "C8:E8",
     "F8:H8",
-    "A9:H9",
-}
-BANNER_FILLS = {
-    "balanced": "C6EFCE",
-    "in_favor": "FFEB9C",
-    "outstanding": "FFC7CE",
 }
 SHEET_FORM_XML = Path(__file__).resolve().parents[1] / "views" / "collection_views.xml"
 QWEB_TEMPLATE = (
@@ -64,15 +58,6 @@ def _code_without_comments(path):
     return "\n".join(
         line for line in source.splitlines() if not line.lstrip().startswith("#")
     )
-
-
-def _fill_rgb(cell):
-    color = cell.fill.fgColor
-    rgb = getattr(color, "rgb", None)
-    if rgb is None:
-        theme = getattr(color, "theme", None)
-        return "" if theme is None else f"theme:{theme}"
-    return str(rgb).upper()
 
 
 def _is_same_date(value, expected):
@@ -430,7 +415,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         _assert_cached(payload["applied_total"], "applied_total")
         _assert_cached(payload["customer_totals"]["debt"], "customer debt")
         _assert_cached(payload["customer_totals"]["collected"], "customer collected")
-        _assert_cached(payload["recon"]["difference"], "recon difference")
+        _assert_cached(payload["recon"]["cash_due"], "recon cash due")
         _assert_cached(payload["tendered"]["total"], "tendered total")
 
     def test_xlsx_percent_scale_4_5_is_excel_fraction(self):
@@ -449,53 +434,53 @@ class TestCollectionSheetXlsx(TransactionCase):
         for cell in percent_cells:
             self.assertAlmostEqual(cell.value, 0.045, places=6, msg=cell.coordinate)
 
-    def test_xlsx_banner_text_and_fill_all_three_statuses(self):
-        """Banner text and fill MUST follow recon.status for all three states."""
-        cases = (
-            ("xlsx_banner_bal", "bank_transfer", 0.0, "balanced"),
-            ("xlsx_banner_fav", "bank_transfer", 50.0, "in_favor"),
-            ("xlsx_banner_out", "bank_transfer", -50.0, "outstanding"),
+    def test_xlsx_recon_reads_as_the_cash_calculation(self):
+        """Recon MUST read as cash collected minus deposits and commission kept."""
+        sheet, _partner = self._populated_sheet(
+            amount=200.0,
+            document_type="cash",
+            commission_percent=10.0,
+            commission_withheld=5.0,
         )
-        for login, document_type, surplus, status in cases:
-            seller = create_internal_seller(self.env, login)
-            ensure_enabled_seller(self.env, seller)
-            sheet, _partner = self._populated_sheet(
-                seller=seller,
-                partner_name=f"Banner {status}",
-                document_type=document_type,
-            )
-            payload = sheet._collection_report_data()
-            if surplus:
-                # in_favor and outstanding are unreachable once cash_on_hand is
-                # derived from the vouchers; shift tendered so the banner branch
-                # still renders.
-                tendered = dict(payload["tendered"])
-                tendered["total"] += surplus
-                payload["tendered"] = tendered
-                payload["recon"] = sheet._collection_report_recon(
-                    payload["collected_total"], tendered
+        content, payload = self._render_xlsx(sheet)
+        recon = payload["recon"]
+        self.assertEqual(recon["cash_due"], 195.0)
+        worksheet = self._load(content).active
+        cached = self._load(content, data_only=True).active
+        rows = []
+        for label, amount in (
+            ("Efectivo cobrado", 200.0),
+            ("(−) Depositado por el Vendedor", 0.0),
+            ("(−) Comisión Retenida por el Vendedor", 5.0),
+            ("(=) Efectivo a entregar", 195.0),
+            ("Cobrado por otros medios", 0.0),
+            ("Comisión Devengada", 20.0),
+            ("(=) Comisión a Pagar al Vendedor", 15.0),
+        ):
+            with self.subTest(label=label):
+                # The verdict repeats some labels in other columns; recon is column A.
+                cell = next(
+                    (c for (c,) in worksheet.iter_rows(max_col=1) if c.value == label),
+                    None,
                 )
-            content = bytes(self.env[XLSX_MODEL]._render_xlsx(payload))
-            self.assertEqual(payload["recon"]["status"], status)
-            message = payload["recon"]["status_message"]
-            self.assertTrue(message)
-            worksheet = self._load(content).active
-            banner = None
-            for row in worksheet.iter_rows():
-                for cell in row:
-                    value = cell.value
-                    if isinstance(value, str) and message in value:
-                        banner = cell
-                        break
-                if banner is not None:
-                    break
-            self.assertIsNotNone(banner, f"{status}: banner text {message!r} missing")
-            rgb = _fill_rgb(banner)
-            self.assertIn(
-                BANNER_FILLS[status],
-                rgb,
-                f"{status} fill {rgb} must include {BANNER_FILLS[status]}",
-            )
+                self.assertIsNotNone(cell, label)
+                rows.append(cell.row)
+                self.assertAlmostEqual(
+                    float(cached.cell(cell.row, 7).value), amount, places=2
+                )
+        self.assertEqual(rows, sorted(rows))
+        due = self._cell_with_value(worksheet, "(=) Efectivo a entregar")
+        self.assertTrue(str(worksheet.cell(due.row, 7).value).startswith("="))
+
+    def test_xlsx_has_no_banner_or_difference(self):
+        """The always-zero Diferencia and its status banner MUST be gone."""
+        sheet, _partner = self._populated_sheet()
+        content, _payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        for text in ("(=) Diferencia", "Diferencia", "Cuadrada"):
+            with self.subTest(text=text):
+                self.assertIsNone(self._cell_with_value(worksheet, text))
+        self.assertNotIn("A9:H9", {str(r) for r in worksheet.merged_cells.ranges})
 
     def test_xlsx_tendered_shows_echecks_retentions_seller_deposits(self):
         """XLSX recon header MUST show the new tendered buckets and amounts."""
@@ -558,7 +543,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertEqual(payload["recon"]["commission_owed"], 15.0)
         worksheet = self._load(content).active
         cached = self._load(content, data_only=True).active
-        label = self._cell_with_value(worksheet, "Comisión a Pagar al Vendedor")
+        label = self._cell_with_value(worksheet, "(=) Comisión a Pagar al Vendedor")
         self.assertIsNotNone(label)
         self.assertAlmostEqual(
             float(cached.cell(label.row, label.column + 6).value), 15.0, places=2
@@ -806,7 +791,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertAlmostEqual(
             float(cached.cell(remanente.row, remanente.column).value), 241.5, places=2
         )
-        resumen_rem = self._cell_with_value(worksheet, "Remanente")
+        resumen_rem = self._cell_with_value(worksheet, "Deuda sin cobrar")
         self.assertIsNotNone(resumen_rem)
         resumen_formula = str(
             worksheet.cell(resumen_rem.row, resumen_rem.column + 2).value or ""
@@ -1016,7 +1001,7 @@ class TestCollectionSheetXlsx(TransactionCase):
                     )
 
     def test_xlsx_verdict_comes_first(self):
-        """Neto a Rendir, Total Rendido, Diferencia and the banner MUST lead."""
+        """Efectivo a entregar, otros medios and the commission owed MUST lead."""
         sheet, _partner = self._populated_sheet(amount=125.5)
         content, payload = self._render_xlsx(sheet)
         worksheet = self._load(content).active
@@ -1029,9 +1014,9 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIsNone(self._cell_with_value(worksheet, "Resumen"))
         recon = payload["recon"]
         for label, key in (
-            ("Neto a Rendir", "net_due"),
-            ("Total Rendido", "tendered"),
-            ("Diferencia", "difference"),
+            ("Efectivo a entregar", "cash_due"),
+            ("Cobrado por otros medios", "other_collected"),
+            ("Comisión a Pagar al Vendedor", "commission_owed"),
         ):
             with self.subTest(label=label):
                 header = self._cell_with_value(worksheet, label)
@@ -1044,10 +1029,7 @@ class TestCollectionSheetXlsx(TransactionCase):
                     recon[key],
                     places=2,
                 )
-        banner = self._cell_with_value(worksheet, recon["status_message"])
-        self.assertIsNotNone(banner)
-        self.assertEqual(banner.row, 9)
-        self.assertLess(banner.row, datos.row)
+        self.assertLess(8, datos.row)
         self.assertLess(totales.row, self._cell_with_value(worksheet, "Clientes").row)
 
     def test_xlsx_mismatch_names_both_amounts_and_gap(self):
@@ -1067,7 +1049,7 @@ class TestCollectionSheetXlsx(TransactionCase):
             None,
         )
         self.assertIsNotNone(warning)
-        self.assertEqual(warning.row, 10)
+        self.assertEqual(warning.row, 9)
         for amount in ("100.00", "140.00", "40.00"):
             self.assertIn(amount, warning.value)
         clean_seller = create_internal_seller(self.env, "xlsx_no_mismatch")
@@ -1099,7 +1081,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIn("el vendedor depositó en el banco el efectivo cobrado", note)
 
     def test_xlsx_clientes_has_no_motivo_column(self):
-        """Clientes MUST end at Remanente: no Motivo del Remanente column."""
+        """Clientes MUST end at Deuda sin cobrar: no Motivo del Remanente column."""
         sheet, _partner = self._populated_sheet()
         content, _payload = self._render_xlsx(sheet)
         worksheet = self._load(content).active
@@ -1114,7 +1096,7 @@ class TestCollectionSheetXlsx(TransactionCase):
                 "Saldo Total",
                 "Cobrado",
                 "Aplicado",
-                "Remanente",
+                "Deuda sin cobrar",
                 None,
                 None,
             ],
