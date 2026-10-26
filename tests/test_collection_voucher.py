@@ -5,6 +5,7 @@ from base64 import b64decode
 from datetime import date
 from uuid import uuid4
 
+from lxml import etree
 from psycopg2 import IntegrityError
 
 from odoo import fields
@@ -12,6 +13,7 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
 from odoo.tools import SQL, mute_logger
+from odoo.tools.safe_eval import safe_eval
 from odoo.tools.sql import make_index_name
 
 from odoo.addons.collection.models.collection_common import privileged
@@ -2283,6 +2285,41 @@ class TestCollectionVoucher(TransactionCase):
         )
         self.assertEqual(voucher.to_account, "0000-1234-5")
         self.assertEqual(voucher.to_account_bank_id, bank)
+
+    def test_form_shows_check_fields_for_checks_and_echecks(self):
+        """The voucher form shows the same check fields for a check and an echeck."""
+        arch = etree.fromstring(
+            self.env["collection.voucher"].get_view(view_type="form")["arch"]
+        )
+        check_fields = (
+            "check_number",
+            "check_bank",
+            "check_type",
+            "check_issue_date",
+            "check_payment_date",
+        )
+        names = [
+            f"{prefix}{name}"
+            for prefix in ("", "ocr_", "seller_")
+            for name in check_fields
+        ]
+        for document_type in ("check", "echeck"):
+            for prefix in ("", "ocr_", "seller_"):
+                # The current type shows every check field; an OCR or seller
+                # reading of a check shows its own copies whatever the current type.
+                record = {
+                    "document_type": "bank_transfer",
+                    "ocr_document_type": False,
+                    "seller_document_type": False,
+                    f"{prefix}document_type": document_type,
+                }
+                shown = [name for name in names if name.startswith(prefix)]
+                for name in shown:
+                    [node] = arch.xpath(f"//field[@name='{name}']")
+                    with self.subTest(document_type=document_type, field=name):
+                        self.assertFalse(
+                            safe_eval(node.get("invisible", "False"), record)
+                        )
 
 
 class TestCollectionVoucherProvenance(TransactionCase):

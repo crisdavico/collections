@@ -778,9 +778,9 @@ class TestCollectionUi(TransactionCase):
                     f"{layered} invisible= must use {type_field}",
                 )
                 self.assertIn(
-                    " and document_type !=",
+                    " and document_type not in ('check', 'echeck')",
                     invisible,
-                    f"{layered} must stay visible when Current is check",
+                    f"{layered} must stay visible when Current is check or echeck",
                 )
                 self._assert_invisible_for_document_type(nodes[0], "check", layered)
                 self._assert_readonly_field(nodes[0], layered)

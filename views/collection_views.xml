@@ -224,28 +224,28 @@
                                 <field
                   name="check_number"
                   readonly="state == 'validated_collections'"
-                  invisible="document_type != 'check'"
+                  invisible="document_type not in ('check', 'echeck')"
                   required="document_type in ('check', 'echeck')"
                 />
                                 <field
                   name="check_bank"
                   readonly="state == 'validated_collections'"
-                  invisible="document_type != 'check'"
+                  invisible="document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="check_type"
                   readonly="state == 'validated_collections'"
-                  invisible="document_type != 'check'"
+                  invisible="document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="check_issue_date"
                   readonly="state == 'validated_collections'"
-                  invisible="document_type != 'check'"
+                  invisible="document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="check_payment_date"
                   readonly="state == 'validated_collections'"
-                  invisible="document_type != 'check'"
+                  invisible="document_type not in ('check', 'echeck')"
                 />
                             </group>
                         </page>
@@ -276,27 +276,27 @@
                                 <field
                   name="ocr_check_number"
                   readonly="1"
-                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                  invisible="ocr_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="ocr_check_bank"
                   readonly="1"
-                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                  invisible="ocr_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="ocr_check_type"
                   readonly="1"
-                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                  invisible="ocr_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="ocr_check_issue_date"
                   readonly="1"
-                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                  invisible="ocr_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="ocr_check_payment_date"
                   readonly="1"
-                  invisible="ocr_document_type != 'check' and document_type != 'check'"
+                  invisible="ocr_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                             </group>
                         </page>
@@ -327,27 +327,27 @@
                                 <field
                   name="seller_check_number"
                   readonly="1"
-                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                  invisible="seller_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="seller_check_bank"
                   readonly="1"
-                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                  invisible="seller_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="seller_check_type"
                   readonly="1"
-                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                  invisible="seller_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="seller_check_issue_date"
                   readonly="1"
-                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                  invisible="seller_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                                 <field
                   name="seller_check_payment_date"
                   readonly="1"
-                  invisible="seller_document_type != 'check' and document_type != 'check'"
+                  invisible="seller_document_type not in ('check', 'echeck') and document_type not in ('check', 'echeck')"
                 />
                             </group>
                         </page>
