@@ -426,7 +426,10 @@ after the Comprobantes blocks. Its Conciliación MUST read as a calculation, top
 bottom: Efectivo cobrado, (−) Depositado por el Vendedor, (−) Comisión Retenida por el
 Vendedor, (=) Efectivo a entregar, Cobrado por otros medios, each with a short hint,
 followed by **Composición de lo Entregado** and the **Comisión del Vendedor** box. The XLSX
-prints the same lines under the composition row. It MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
+MUST print them in the same order; its composition row has no total column (the PDF has
+none) and its Efectivo en Caja references Efectivo a entregar. (Previously: the XLSX put
+the composition, with an "Entregado por el Vendedor" total, above the calculation.) It
+MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
 aclaración".
 
 The XLSX MUST add two flat worksheets after the Planilla, **Documentos** and

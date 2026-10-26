@@ -813,59 +813,19 @@ def _write_vouchers(ws, fmt, payload, start):
 
 
 def _write_recon(ws, fmt, payload, start, voucher_subtotals):
+    """Same order as the PDF: cash calculation, composition, commission."""
     tendered = payload.get("tendered") or {}
     recon = payload.get("recon") or {}
     _merge(ws, start, 0, 10, "Conciliación del Vendedor", fmt["section"])
     ws.set_row(start - 1, 20)
-    _write_headers(
-        ws,
-        fmt,
-        start + 1,
-        (
-            ("Composición de lo Entregado", 0, 2),
-            ("Efectivo en Caja", 3, 3),
-            ("Depósitos de clientes", 4, 4),
-            ("Cheques", 5, 5),
-            ("Transferencias", 6, 6),
-            ("Echeqs", 7, 7),
-            ("Retenciones", 8, 8),
-            ("Depósitos del vendedor", 9, 9),
-            ("Entregado por el Vendedor", 10, 10),
-        ),
-    )
-    data_row = start + 2
-    _merge(ws, data_row, 0, 2, "", fmt["data"])
-    _write(ws, data_row, 3, tendered.get("cash") or 0.0, fmt["data_money"])
-    for col, code, key in (
-        (4, "cash_deposit", "deposits"),
-        (5, "check", "checks"),
-        (6, "bank_transfer", "transfers"),
-        (7, "echeck", "echecks"),
-        (8, "retention_certificate", "retentions"),
-        (9, "seller_deposit", "seller_deposits"),
-    ):
-        amount = tendered.get(key) or 0.0
-        ref = voucher_subtotals.get(code)
-        if ref:
-            _formula(ws, data_row, col, f"={ref}", fmt["data_money"], amount)
-        else:
-            _write(ws, data_row, col, amount, fmt["data_money"])
-
-    _formula(
-        ws,
-        data_row,
-        10,
-        f"=SUM({_a1(data_row, 3)}:{_a1(data_row, 9)})",
-        fmt["data_money"],
-        tendered.get("total") or 0.0,
-    )
-    _merge(ws, data_row + 1, 0, 10, _DEPOSITS_NOTE, fmt["recon_hint"])
-    cash_row = data_row + 2
+    cash_row = start + 1
     banked_row = cash_row + 1
     withheld_row = banked_row + 1
     due_row = withheld_row + 1
     other_row = due_row + 1
-    commission_row = other_row + 2
+    composition_row = other_row + 2
+    data_row = composition_row + 1
+    commission_row = data_row + 3
     earned_row = commission_row + 1
     kept_row = earned_row + 1
     owed_row = kept_row + 1
@@ -919,6 +879,45 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
         f"=SUM({_a1(data_row, 4)}:{_a1(data_row, 8)})",
         recon.get("other_collected") or 0.0,
     )
+    _write_headers(
+        ws,
+        fmt,
+        composition_row,
+        (
+            ("Composición de lo Entregado", 0, 2),
+            ("Efectivo en Caja", 3, 3),
+            ("Depósitos de clientes", 4, 4),
+            ("Cheques", 5, 5),
+            ("Transferencias", 6, 6),
+            ("Echeqs", 7, 7),
+            ("Retenciones", 8, 8),
+            ("Depósitos del vendedor", 9, 9),
+        ),
+    )
+    _merge(ws, data_row, 0, 2, "", fmt["data"])
+    _formula(
+        ws,
+        data_row,
+        3,
+        f"={_a1(due_row, 6)}",
+        fmt["data_money"],
+        tendered.get("cash") or 0.0,
+    )
+    for col, code, key in (
+        (4, "cash_deposit", "deposits"),
+        (5, "check", "checks"),
+        (6, "bank_transfer", "transfers"),
+        (7, "echeck", "echecks"),
+        (8, "retention_certificate", "retentions"),
+        (9, "seller_deposit", "seller_deposits"),
+    ):
+        amount = tendered.get(key) or 0.0
+        ref = voucher_subtotals.get(code)
+        if ref:
+            _formula(ws, data_row, col, f"={ref}", fmt["data_money"], amount)
+        else:
+            _write(ws, data_row, col, amount, fmt["data_money"])
+    _merge(ws, data_row + 1, 0, 10, _DEPOSITS_NOTE, fmt["recon_hint"])
     _merge(ws, commission_row, 0, 7, "Comisión del Vendedor", fmt["header"])
     _recon_line(
         earned_row,
