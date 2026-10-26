@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from . import collection_common
+from . import base
 from . import calendar_event
 from . import discuss_channel
 from . import ir_rule
