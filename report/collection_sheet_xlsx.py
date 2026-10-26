@@ -57,6 +57,8 @@ _VOUCHER_TABLE_COLUMNS = (
     ("Fecha de Pago", 14, "data_date"),
     ("Importe", 15, "data_money"),
 )
+# The sheet no longer prints a status banner; collection_receipt_proposal still
+# imports these fills for its own difference row.
 _BANNER_FILL = {
     "balanced": ("#C6EFCE", "#006100"),
     "in_favor": ("#FFEB9C", "#9C6500"),
@@ -395,17 +397,21 @@ def _write_headers(ws, fmt, row, cells):
 
 
 def _verdict_rows(payload):
-    """Rows the verdict block takes: section, headers, values, banner, mismatch."""
-    return 5 if payload.get("mismatch") else 4
+    """Rows the verdict block takes: section, headers, values, mismatch."""
+    return 4 if payload.get("mismatch") else 3
 
 
-def _write_verdict(ws, workbook, fmt, payload, refs):
-    """The answer first: what was due, what was handed in, and the banner."""
+def _write_verdict(ws, fmt, payload, refs):
+    """The answer first: cash to hand in, other payments, commission owed."""
     recon = payload.get("recon") or {}
     _write_section(ws, fmt, VERDICT_START, "Resultado")
     columns = ((0, 1), (2, 4), (5, 7))
-    labels = ("A entregar por el Vendedor", "Entregado por el Vendedor", "Diferencia")
-    keys = ("net_due", "tendered", "difference")
+    labels = (
+        "Efectivo a entregar",
+        "Cobrado por otros medios",
+        "Comisión a Pagar al Vendedor",
+    )
+    keys = ("cash_due", "other_collected", "commission_owed")
     for (c1, c2), label in zip(columns, labels, strict=True):
         _merge(ws, VERDICT_START + 1, c1, c2, label, fmt["verdict_label"])
     for (c1, c2), key in zip(columns, keys, strict=True):
@@ -421,19 +427,10 @@ def _write_verdict(ws, workbook, fmt, payload, refs):
         )
     ws.set_row(VERDICT_START, 18)
     ws.set_row(VERDICT_START + 1, 28)
-    banner_row = VERDICT_START + 3
-    _merge(
-        ws,
-        banner_row,
-        0,
-        7,
-        recon.get("status_message") or "",
-        _banner_format(workbook, recon.get("status") or "balanced"),
-    )
-    ws.set_row(banner_row - 1, 30)
     if payload.get("mismatch"):
-        _merge(ws, banner_row + 1, 0, 7, _mismatch_message(payload), fmt["mismatch"])
-        ws.set_row(banner_row, 32)
+        mismatch_row = VERDICT_START + 3
+        _merge(ws, mismatch_row, 0, 7, _mismatch_message(payload), fmt["mismatch"])
+        ws.set_row(mismatch_row - 1, 32)
 
 
 def _write_datos(
@@ -815,22 +812,6 @@ def _write_vouchers(ws, fmt, payload, start):
     return total_row + 2, _a1(total_row, 7), subtotals
 
 
-def _banner_format(workbook, status):
-    bg_color, fg_color = _BANNER_FILL.get(status, _BANNER_FILL["balanced"])
-    return workbook.add_format(
-        {
-            "bold": True,
-            "font_size": 14,
-            "font_color": fg_color,
-            "bg_color": bg_color,
-            "align": "center",
-            "valign": "vcenter",
-            "border": 1,
-            "border_color": NAVY,
-        }
-    )
-
-
 def _write_recon(ws, fmt, payload, start, voucher_subtotals):
     tendered = payload.get("tendered") or {}
     recon = payload.get("recon") or {}
@@ -879,12 +860,15 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
         tendered.get("total") or 0.0,
     )
     _merge(ws, data_row + 1, 0, 10, _DEPOSITS_NOTE, fmt["recon_hint"])
-    collected_row = data_row + 2
-    withheld_row = collected_row + 1
-    net_row = withheld_row + 1
-    tendered_row = net_row + 2
-    diff_row = tendered_row + 1
-    owed_row = diff_row + 1
+    cash_row = data_row + 2
+    banked_row = cash_row + 1
+    withheld_row = banked_row + 1
+    due_row = withheld_row + 1
+    other_row = due_row + 1
+    commission_row = other_row + 2
+    earned_row = commission_row + 1
+    kept_row = earned_row + 1
+    owed_row = kept_row + 1
 
     def _recon_line(row, label, hint, formula, cached, total=False):
         label_fmt = fmt["recon_total_label"] if total else fmt["recon_label"]
@@ -898,12 +882,20 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
             _merge(ws, row, 6, 7, cached, value_fmt)
         ws.set_row(row - 1, 30 if total else 22)
 
+    cash_ref = voucher_subtotals.get("cash")
     _recon_line(
-        collected_row,
-        "Total Cobrado",
-        "lo que pagaron los clientes",
-        None,
-        recon.get("collected") or 0.0,
+        cash_row,
+        "Efectivo cobrado",
+        "lo que los clientes pagaron en efectivo",
+        f"={cash_ref}" if cash_ref else None,
+        recon.get("cash_collected") or 0.0,
+    )
+    _recon_line(
+        banked_row,
+        "(−) Depositado por el Vendedor",
+        "efectivo que el vendedor ya depositó en el banco",
+        f"={_a1(data_row, 9)}",
+        recon.get("cash_banked") or 0.0,
     )
     _recon_line(
         withheld_row,
@@ -913,39 +905,47 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
         recon.get("withheld") or 0.0,
     )
     _recon_line(
-        net_row,
-        "(=) A entregar por el Vendedor",
-        "lo que tenía que entregar a la empresa",
-        f"={_a1(collected_row, 6)}-{_a1(withheld_row, 6)}",
-        recon.get("net_due") or 0.0,
+        due_row,
+        "(=) Efectivo a entregar",
+        "efectivo que el vendedor entrega a la empresa",
+        f"={_a1(cash_row, 6)}-{_a1(banked_row, 6)}-{_a1(withheld_row, 6)}",
+        recon.get("cash_due") or 0.0,
         total=True,
     )
     _recon_line(
-        tendered_row,
-        "Entregado por el Vendedor",
-        "lo que entregó — efectivo, depósitos, cheques y transferencias",
-        f"={_a1(data_row, 10)}",
-        recon.get("tendered") or 0.0,
+        other_row,
+        "Cobrado por otros medios",
+        "cheques, echeqs, transferencias, depósitos de clientes y retenciones",
+        f"=SUM({_a1(data_row, 4)}:{_a1(data_row, 8)})",
+        recon.get("other_collected") or 0.0,
+    )
+    _merge(ws, commission_row, 0, 7, "Comisión del Vendedor", fmt["header"])
+    _recon_line(
+        earned_row,
+        "Comisión Devengada",
+        "% Comisión Vendedor sobre lo aplicado",
+        None,
+        recon.get("commission") or 0.0,
     )
     _recon_line(
-        diff_row,
-        "(=) Diferencia",
-        "Entregado − A entregar",
-        f"={_a1(tendered_row, 6)}-{_a1(net_row, 6)}",
-        recon.get("difference") or 0.0,
-        total=True,
+        kept_row,
+        "(−) Comisión Retenida por el Vendedor",
+        "la que se quedó del efectivo",
+        f"={_a1(withheld_row, 6)}",
+        recon.get("withheld") or 0.0,
     )
     _recon_line(
         owed_row,
-        "Comisión a Pagar al Vendedor",
-        "Comisión Devengada − Comisión Retenida",
-        None,
+        "(=) Comisión a Pagar al Vendedor",
+        "se paga aparte de la planilla",
+        f"={_a1(earned_row, 6)}-{_a1(kept_row, 6)}",
         recon.get("commission_owed") or 0.0,
+        total=True,
     )
     refs = {
-        "net_due": _a1(net_row, 6),
-        "tendered": _a1(tendered_row, 6),
-        "difference": _a1(diff_row, 6),
+        "cash_due": _a1(due_row, 6),
+        "other_collected": _a1(other_row, 6),
+        "commission_owed": _a1(owed_row, 6),
     }
     return owed_row, refs
 
@@ -1057,7 +1057,7 @@ def _build_xlsx(payload):
             commission_refs,
             residual_ref,
         )
-        _write_verdict(ws, workbook, fmt, payload, recon_refs)
+        _write_verdict(ws, fmt, payload, recon_refs)
         ws.freeze_panes(5, 0)
         ws.set_landscape()
         ws.set_paper(9)

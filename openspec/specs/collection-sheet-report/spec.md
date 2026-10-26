@@ -3,7 +3,8 @@
 ## Purpose
 
 Operators MUST print a Planilla de Cobranza from `collection.sheet` as PDF and XLSX with
-identical Total Cobrado, Total Aplicado, Deuda sin cobrar, Total Comisión, and Diferencia.
+identical Total Cobrado, Total Aplicado, Deuda sin cobrar, Total Comisión, and Efectivo a
+entregar.
 
 ## Requirements
 
@@ -108,7 +109,7 @@ side of the mismatch). Print MUST include every `allocation_ids` and `voucher_id
 include drafts. Customer totals MUST equal allocation sums. PDF HTML and XLSX cached
 totals MUST match. Report copy MUST be Spanish Argentina: sheet state labels,
 voucher-block titles (`Transferencia bancaria` / `Cheque` / `Depósito en efectivo` /
-`Otros`), recon banner, and check type (`Común` / `Diferido`). Document rows MUST
+`Otros`), recon labels, and check type (`Común` / `Diferido`). Document rows MUST
 include `invoice_balance`. Customer rows MUST include `debt` (`allocation.total_debt`,
 printed as Saldo Total before Cobrado). `customer_totals` MUST include `debt`. Voucher
 `number` MUST be `voucher_number` for transfers/deposits and `check_number` (or blank)
@@ -215,17 +216,14 @@ voucher-block subtotals and MUST NOT include `seller_deposit` or `seller_commiss
 NOT include `seller_commission`, and that exclusion MUST be explicit rather than an
 accident of the type dispatch falling through.
 
-Recon algebra MUST remain `net_due = collected − withheld` and
-`difference = tendered − net_due`. Every existing `recon` key MUST remain. Because
-`cash_on_hand` is now derived as the remainder and every collected type is tendered,
-`difference` MUST be 0: the banner balances by construction and both `in_favor` and
-`outstanding` are unreachable from real sheet data. Both branches MUST stay in
-`_collection_report_recon` and MUST still map a non-zero `difference`. Because the
-commission amount is excluded from both `collected_total` and `tendered` while
-`commission_withheld` still carries it, `difference` MUST remain unchanged: minting
-a `seller_commission` voucher MUST NOT change any `recon` value. Counting the commission
-in either total would deduct it twice and drive `cash_on_hand` negative by exactly the
-commission amount. (Previously: `seller_deposit` was the only excluded code, and
+The recon MUST read as a cash calculation: `cash_due = cash_collected − cash_banked −
+withheld`, which equals `cash_on_hand` and `tendered.cash`. `other_collected` MUST be
+`collected − cash_collected` (every non-cash voucher block). Minting a
+`seller_commission` voucher MUST NOT change any `recon` value, because the commission is
+excluded from `collected_total`, `cash_collected` and `tendered` while
+`commission_withheld` still carries it. Counting the commission in either total would
+deduct it twice and drive `cash_on_hand` negative by exactly the commission amount.
+(Previously: `seller_deposit` was the only excluded code, and
 `seller_commission` did not exist. Before that: Every catalog code including remittance
 fed `collected_total`; `tendered` included only `cash_on_hand` plus deposits, checks,
 and transfers — no echeck, retention, or `seller_deposit`.)
@@ -275,34 +273,31 @@ and transfers — no echeck, retention, or `seller_deposit`.)
 - GIVEN a submitted sheet whose report `recon` is R
 - WHEN Confirm mints and promotes the `seller_commission` voucher
 - THEN every key of `recon` MUST still equal its value in R
-- AND `difference` MUST remain unchanged
 
-### Requirement: Reconciliation status and mismatch
+### Requirement: Reconciliation and mismatch
 
-`recon` MUST set `collected`, `commission` (the computed `commission_amount`),
-`withheld`, `commission_owed`, `net_due`, `tendered`, `difference`, `status`, and
-`status_message`. PDF and XLSX MUST print "Comisión a Pagar al Vendedor" with
-`commission_owed` after the Diferencia line. Status MUST be `currency.compare_amounts(difference, 0.0)` →
-`balanced` / `in_favor` / `outstanding`. `mismatch` MUST be set when Σ allocation
-`total_vouchers` ≠ Σ printed collected voucher amounts (unallocated non-remittance sheet
-vouchers). `seller_deposit` MUST NOT set `mismatch` and MUST NOT inflate
-`collected_total`. When `mismatch` is set, PDF and XLSX MUST print one warning naming
-`allocated_collected`, `collected_total`, and their absolute gap. (Previously: Any
-unallocated sheet voucher, including a future remittance, set `mismatch` and was
-included in `collected_total`; the warning named no amounts and the XLSX showed none.
-`recon` carried no `commission` or `commission_owed`.)
+`recon` MUST set exactly `collected`, `cash_collected`, `cash_banked`, `withheld`,
+`cash_due`, `other_collected`, `commission` (the computed `commission_amount`), and
+`commission_owed`. It MUST NOT carry a difference or a status: PDF and XLSX MUST NOT
+print a Diferencia line or a status banner. PDF and XLSX MUST print the commission in its
+own **Comisión del Vendedor** box: Comisión Devengada, (−) Comisión Retenida por el
+Vendedor, (=) Comisión a Pagar al Vendedor (`commission_owed`). `mismatch` MUST be set
+when Σ allocation `total_vouchers` ≠ Σ printed collected voucher amounts (unallocated
+non-remittance sheet vouchers). `seller_deposit` MUST NOT set `mismatch` and MUST NOT
+inflate `collected_total`. When `mismatch` is set, PDF and XLSX MUST print one warning
+naming `allocated_collected`, `collected_total`, and their absolute gap. (Previously:
+`recon` carried `net_due = collected − withheld`, `tendered`, `difference = tendered −
+net_due`, and a tri-state `status` / `status_message` banner (Cuadrada / A favor del
+vendedor / Pendiente de entregar); `difference` was 0 by construction once
+`cash_on_hand` was derived, so the banner always read Cuadrada. Before that: any
+unallocated sheet voucher, including a future remittance, set `mismatch`.)
 
-#### Scenario: Tri-state via compare_amounts
+#### Scenario: Recon is the cash calculation
 
-- GIVEN difference compared to 0 as equal, greater, or less
+- GIVEN a sheet with cash collected, a seller deposit, and commission withheld
 - WHEN recon is built
-- THEN `status` MUST be `balanced`, `in_favor`, or `outstanding` respectively
-
-#### Scenario: Derived cash balances the banner
-
-- GIVEN a sheet of collected vouchers
-- WHEN recon is built from the derived `cash_on_hand`
-- THEN `difference` MUST be 0 and `status` MUST be `balanced`
+- THEN `cash_due` MUST equal `cash_collected − cash_banked − withheld` and `tendered.cash`
+- AND `recon` MUST NOT contain `difference`, `status`, or `status_message`
 
 #### Scenario: Unallocated voucher mismatch
 
@@ -353,7 +348,7 @@ header); the document renders its own `.article` wrapper and a sibling
 `<h2 class="o_cs_title">` at the top of the page. PDF and XLSX MUST NOT render the
 company name; the XLSX MUST NOT render `printed_on`. HTML render (MUST NOT spawn
 wkhtmltopdf in tests) MUST contain the sheet reference, seller name, every partner name,
-applied document numbers, and the recon banner. (Previously: no footer, no page numbers
+applied document numbers, and the Efectivo a entregar verdict. (Previously: no footer, no page numbers
 and no "Impreso el" on the PDF; `margin_bottom` 8mm.)
 
 #### Scenario: Print menu binding
@@ -367,12 +362,12 @@ and no "Impreso el" on the PDF; `margin_bottom` 8mm.)
 - AND the document arch MUST contain the `o_cs_title` `<h2>` and MUST NOT set
   `layout_document_title`
 
-#### Scenario: HTML contains names numbers banner
+#### Scenario: HTML contains names numbers verdict
 
-- GIVEN a saved sheet with customers, documents, and a recon status
+- GIVEN a saved sheet with customers and documents
 - WHEN `_render_qweb_html` runs
 - THEN HTML MUST contain the reference, seller, partner names, document numbers, and
-  banner text
+  the Efectivo a entregar verdict
 - AND the arch MUST NOT reference `web.external_layout`
 - AND the HTML MUST NOT contain the company name
 - AND the footer MUST contain "Impreso el <printed_on>" and the `page` / `topage` spans
@@ -394,7 +389,7 @@ be created with `strings_to_formulas` and `strings_to_urls` off (shared
 `WORKBOOK_OPTIONS`), so free text starting with `=` or looking like a URL stays text;
 intentional formulas MUST go through `write_formula`. Totales Deuda sin cobrar MUST reference the
 Clientes remanente total (MUST NOT `=C11-G11`). Odoo `commission_percent` 0–100 MUST be written as
-`percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow `recon.status`.
+`percent / 100.0` into a `0.0%` cell.
 Header **Export XLSX** MUST be last in `<header>` before `state`. Notebook MUST be the
 three pages specified in collection-sheets (recon fields remain on the sheet form).
 `action_print_xlsx` MUST return `ir.actions.act_url` download; MUST NOT `sudo()`.
@@ -405,19 +400,19 @@ aplicado.)
 
 ### Requirement: Verdict-first layout and shared vocabulary
 
-PDF and XLSX MUST open, right under the title, with the verdict: **A entregar por el Vendedor**,
-**Entregado por el Vendedor**, and **Diferencia** (`recon` `net_due`, `tendered`, `difference`)
-followed by the status banner and, when set, the mismatch warning. XLSX rows: section
-"Resultado" on row 6, labels on row 7, values on row 8 as formulas referencing the
-Conciliación cells (cached payload values), banner on row 9, mismatch on row 10; the
-banner MUST NOT repeat below the Conciliación. "Resumen" MUST be split into **Datos de la
+PDF and XLSX MUST open, right under the title, with the verdict: **Efectivo a entregar**,
+**Cobrado por otros medios**, and **Comisión a Pagar al Vendedor** (`recon` `cash_due`,
+`other_collected`, `commission_owed`) followed, when set, by the mismatch warning. XLSX
+rows: section "Resultado" on row 6, labels on row 7, values on row 8 as formulas
+referencing the Conciliación cells (cached payload values), mismatch on row 9. "Resumen" MUST be split into **Datos de la
 Planilla** (Referencia, Estado, Vendedor, Desde, Hasta, Moneda, Cantidad de Clientes,
 Cantidad de Comprobantes, % Comisión Vendedor) and **Totales** (Total Cobrado, Total
 Aplicado, Deuda sin cobrar, Total Comisión Devengada). Both formats MUST use the same labels:
 Documento, Vencimiento, Fecha de Emisión, Fecha de Pago,
-Nº Comprobante, Conciliación del Vendedor, Composición de lo Entregado, (−) Comisión
-Retenida por el Vendedor, (=) A entregar por el Vendedor, Entregado por el Vendedor, (=) Diferencia, Depósitos de
-clientes, Depósitos del vendedor. Customer deposits MUST be explained as "el cliente
+Nº Comprobante, Conciliación del Vendedor, Efectivo cobrado, (−) Depositado por el
+Vendedor, (−) Comisión Retenida por el Vendedor, (=) Efectivo a entregar, Cobrado por
+otros medios, Composición de lo Entregado, Comisión del Vendedor, Comisión Devengada, (=)
+Comisión a Pagar al Vendedor, Depósitos de clientes, Depósitos del vendedor. Customer deposits MUST be explained as "el cliente
 depositó en la cuenta de la empresa" and seller deposits as "el vendedor depositó en el
 banco el efectivo cobrado" (PDF hint column; XLSX note row under the composition).
 
@@ -428,9 +423,10 @@ Motivo / Motivo del Remanente column.)
 The PDF MUST print grand totals: a Clientes **Total** row, a **Total Aplicado** row after
 the Facturas/Presupuestos blocks (applied and commission), and a **Total Cobrado** row
 after the Comprobantes blocks. Its Conciliación MUST read as a calculation, top to
-bottom: Total Cobrado, (−) Comisión Retenida por el Vendedor, (=) A entregar por el
-Vendedor, Entregado por el Vendedor, (=) Diferencia, each with a short hint, followed by
-**Composición de lo Entregado**. It MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
+bottom: Efectivo cobrado, (−) Depositado por el Vendedor, (−) Comisión Retenida por el
+Vendedor, (=) Efectivo a entregar, Cobrado por otros medios, each with a short hint,
+followed by **Composición de lo Entregado** and the **Comisión del Vendedor** box. The XLSX
+prints the same lines under the composition row. It MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
 aclaración".
 
 The XLSX MUST add two flat worksheets after the Planilla, **Documentos** and
@@ -447,9 +443,10 @@ active worksheet; only it takes the template column widths.
 
 - GIVEN a saved sheet with allocations and vouchers
 - WHEN the PDF HTML and the XLSX render
-- THEN A entregar por el Vendedor, Entregado por el Vendedor, Diferencia, and the banner MUST come before Datos
-  de la Planilla, Totales, and Clientes
-- AND the XLSX verdict values MUST cache `recon` `net_due`, `tendered`, `difference`
+- THEN Efectivo a entregar, Cobrado por otros medios, and Comisión a Pagar al Vendedor
+  MUST come before Datos de la Planilla, Totales, and Clientes
+- AND the XLSX verdict values MUST cache `recon` `cash_due`, `other_collected`,
+  `commission_owed`
 
 #### Scenario: Mismatch names both amounts
 

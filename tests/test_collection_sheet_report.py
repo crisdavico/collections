@@ -288,7 +288,7 @@ class TestCollectionSheetReport(TransactionCase):
                 self.assertEqual(payload["collected_total"], 100.0)
 
     def test_html_contains_reference_seller_partners_docs_banner(self):
-        """HTML render MUST include reference, seller, partners, docs, banner."""
+        """HTML render MUST include reference, seller, partners, docs, verdict."""
         sheet, partner_a = self._populated_sheet()
         partner_b = dummy_customer_partner(self.env, customer="Cliente Litoral SA")
         voucher_b = self._create_voucher(partner_b, sheet, amount=50.0)
@@ -304,7 +304,6 @@ class TestCollectionSheetReport(TransactionCase):
                 )
             ],
         )
-        payload = sheet._collection_report_data()
         html = self._render_html(sheet)
         self.assertIn(sheet.name, html)
         self.assertIn("Planilla Seller Ana", html)
@@ -312,7 +311,8 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn(partner_b.name, html)
         self.assertIn("FAC-1001", html)
         self.assertIn("FAC-1002", html)
-        self.assertIn(payload["recon"]["status_message"], html)
+        self.assertIn("Efectivo a entregar", html)
+        self.assertNotIn("o_cs_banner", html)
         self.assertNotIn("%PDF", html[:8])
 
     def test_two_sheets_render_two_page_divs(self):
@@ -370,9 +370,11 @@ class TestCollectionSheetReport(TransactionCase):
             "Nº Comprobante",
             "Composición de lo Entregado",
             "(−) Comisión Retenida por el Vendedor",
-            "(=) A entregar por el Vendedor",
-            "Entregado por el Vendedor",
-            "(=) Diferencia",
+            "(−) Depositado por el Vendedor",
+            "(=) Efectivo a entregar",
+            "Cobrado por otros medios",
+            "Comisión del Vendedor",
+            "(=) Comisión a Pagar al Vendedor",
             "Depósitos de clientes",
             "Depósitos del vendedor",
         ):
@@ -389,6 +391,11 @@ class TestCollectionSheetReport(TransactionCase):
             "Nº Compr.",
             "<th>Retenido</th>",
             "Depósitos vendedor",
+            "(=) Diferencia",
+            "A entregar por el Vendedor",
+            "Entregado por el Vendedor",
+            "o_cs_banner",
+            "status_message",
         ):
             with self.subTest(old=old):
                 self.assertNotIn(old, document.arch)
@@ -412,21 +419,19 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertNotIn('class="header"', html)
 
     def test_html_verdict_comes_before_the_detail(self):
-        """A entregar, Entregado, Diferencia and the banner MUST lead."""
+        """Efectivo a entregar, otros medios and the commission owed MUST lead."""
         sheet, _partner = self._populated_sheet()
-        payload = sheet._collection_report_data()
         html = self._render_html(sheet)
         verdict = html.index('class="o_cs_verdict"')
+        detail = html.index("Datos de la Planilla")
         for label in (
-            "A entregar por el Vendedor",
-            "Entregado por el Vendedor",
-            "Diferencia",
+            "Efectivo a entregar",
+            "Cobrado por otros medios",
+            "Comisión a Pagar al Vendedor",
         ):
             with self.subTest(label=label):
                 self.assertLess(verdict, html.index(label, verdict))
-        banner = html.index(payload["recon"]["status_message"])
-        self.assertLess(verdict, banner)
-        self.assertLess(banner, html.index("Datos de la Planilla"))
+                self.assertLess(html.index(label, verdict), detail)
         self.assertLess(html.index("Datos de la Planilla"), html.index("Totales"))
         self.assertLess(html.index("Totales"), html.index('class="o_cs_customers"'))
 
@@ -471,19 +476,22 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn("340.00", customers[: customers.index("</tr>")])
 
     def test_html_reconciliation_reads_as_a_calculation(self):
-        """Recon MUST read Cobrado, Retenida, A entregar, Entregado, Diferencia."""
+        """Recon MUST read as the cash calculation, composition, then commission."""
         sheet, _partner = self._populated_sheet()
         html = self._render_html(sheet)
         recon = html[html.index("Conciliación del Vendedor") :]
         positions = [
             recon.index(label)
             for label in (
-                "Total Cobrado",
+                "Efectivo cobrado",
+                "(−) Depositado por el Vendedor",
                 "(−) Comisión Retenida por el Vendedor",
-                "(=) A entregar por el Vendedor",
-                "Entregado por el Vendedor",
-                "(=) Diferencia",
+                "(=) Efectivo a entregar",
+                "Cobrado por otros medios",
                 "Composición de lo Entregado",
+                "Comisión del Vendedor",
+                "Comisión Devengada",
+                "(=) Comisión a Pagar al Vendedor",
             )
         ]
         self.assertEqual(positions, sorted(positions))
