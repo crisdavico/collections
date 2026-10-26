@@ -69,7 +69,8 @@ export class DocumentReviewAction extends Component {
   }
 
   get isCheck() {
-    return this._layerHasDocumentType("check");
+    // An echeck is reviewed with the same fields as a paper check.
+    return this._layerHasDocumentType("check") || this._layerHasDocumentType("echeck");
   }
 
   get isRetentionCertificate() {

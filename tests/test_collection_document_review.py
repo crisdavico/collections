@@ -1935,6 +1935,10 @@ class TestCollectionDocumentReview(TransactionCase):
         root = self._viewer_template_root()
         self.assertIn("get isBankTransfer()", action_js)
         self.assertIn("get isCheck()", action_js)
+        is_check_fn = action_js.split("get isCheck()")[1].split("get ")[0]
+        self.assertIn('_layerHasDocumentType("check")', is_check_fn)
+        # An echeck is reviewed with the same fields as a paper check.
+        self.assertIn('_layerHasDocumentType("echeck")', is_check_fn)
         self.assertIn("_layerHasDocumentType", action_js)
         layer_fn = action_js.split("_layerHasDocumentType(documentType)")[1].split(
             "get viewerKind"
