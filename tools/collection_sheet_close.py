@@ -50,11 +50,14 @@ class CollectionSheetCloseMcpMixin(models.AbstractModel):
             "the seller kept as commission, zero if none) is required and is "
             "declared in the same step: at most the sheet's computed "
             "commission and at most the cash collected minus seller deposits. "
+            "Load seller deposits with create_seller_deposit before closing. "
             "Returns {sheet:{id,name,state,seller_id,date_from,date_to,"
-            "voucher_count}, cash:{collected}, commission:{percent,amount,"
-            "withheld,owed}} with state submitted; commission.amount is the "
-            "seller's commission computed by the sheet and owed is the part "
-            "not kept from cash. Collections Users only."
+            "voucher_count}, cash:{collected,banked,to_administration}, "
+            "commission:{percent,amount,withheld,owed}} with state submitted; "
+            "banked is the seller deposits, to_administration the cash the "
+            "seller hands in (collected minus deposits minus withheld), "
+            "commission.amount the seller's commission computed by the sheet "
+            "and owed the part not kept from cash. Collections Users only."
         ),
         input_schema=_CLOSE_COLLECTION_SHEET_SCHEMA,
         category="write",
@@ -100,7 +103,11 @@ class CollectionSheetCloseMcpMixin(models.AbstractModel):
         opens.action_seller_close(commission_withheld=withheld)
         return {
             "sheet": self._collection_sheet_identity(opens),
-            "cash": {"collected": collected},
+            "cash": {
+                "collected": collected,
+                "banked": opens.cash_banked or 0.0,
+                "to_administration": opens.cash_on_hand or 0.0,
+            },
             "commission": {
                 "percent": opens.commission_percent or 0.0,
                 "amount": opens.commission_amount or 0.0,

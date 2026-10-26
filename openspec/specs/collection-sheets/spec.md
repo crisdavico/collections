@@ -629,6 +629,10 @@ collected minus seller deposits; otherwise Seller Close MUST write `submitted` a
 declare it (`commission_withheld`, `cash_declared_at`, `cash_declared_by`) in the same
 transaction. Zero is a declaration. A sheet with no collected cash MUST close without
 one. Declare Cash on `submitted` MUST still correct the declaration before Confirm.
+Seller deposits loaded on the open sheet count in the cash cap, and
+`close_collection_sheet` MUST return `cash.collected`, `cash.banked` (seller deposits)
+and `cash.to_administration` (Cash to Administration, the cash the seller hands in).
+The system MUST NOT store whether the rest is deposited or handed in.
 The form's Seller Close button MUST close a sheet without cash at once and otherwise
 open a wizard showing the cash collected and the commission that asks the commission
 kept from cash. (Previously: Seller Close wrote `submitted` without declaration amounts

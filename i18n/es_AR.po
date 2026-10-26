@@ -3812,8 +3812,14 @@ msgstr "Este vendedor no tiene ninguna planilla de cobranza abierta."
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/tools/collection_cash_declare.py:0
 #: code:addons/collection/tools/collection_seller_deposit.py:0
+msgid "This seller has no open or submitted collection sheet."
+msgstr ""
+"Este vendedor no tiene ninguna planilla de cobranza abierta ni rendida."
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_cash_declare.py:0
 msgid "This seller has no submitted collection sheet."
 msgstr "Este vendedor no tiene ninguna planilla de cobranza rendida."
 

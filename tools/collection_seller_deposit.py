@@ -49,7 +49,7 @@ _CREATE_SELLER_DEPOSIT_SCHEMA = {
 
 
 class CollectionSellerDepositMcpMixin(models.AbstractModel):
-    """MuK MCP write tool to create a seller_deposit on a submitted sheet."""
+    """MuK MCP write tool to create a seller_deposit on the seller's sheet."""
 
     _inherit = "muk_mcp.mixin"
 
@@ -57,7 +57,8 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
     @mcp_tool(
         name="create_seller_deposit",
         description=(
-            "Create a seller_deposit on the seller's submitted sheet. Mints "
+            "Create a seller_deposit on the seller's open sheet (load it "
+            "before closing), or on the submitted sheet when none is open. Mints "
             "sd-<uuid4 hex>, stamps the sentinel, leaves the voucher in "
             "validated_seller for Document Review. Returns {sheet, voucher}. "
             "Collections Users only."
@@ -75,7 +76,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         attachment: Any = None,
         **kwargs: Any,
     ) -> dict:
-        """Create a remittance voucher on the seller's submitted sheet.
+        """Create a remittance voucher on the seller's open or submitted sheet.
 
         The deposit slip is a reviewable designated proof, so the voucher stays
         ``validated_seller``: only Document Review Approve promotes it.
@@ -83,7 +84,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         :raise AccessError: when the caller is not a Collections User, or the
             trusted seller header does not verify the seller.
         :raise UserError: when the seller, type, extra keys, amounts, dates,
-            or submitted-sheet set are invalid.
+            or open/submitted sheet set are invalid.
         """
         if kwargs:
             _collection_reject_unknown_keys(
@@ -110,12 +111,14 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         self.env.company._assert_new_work(seller, "seller_deposit")
         Sheet = self.env["collection.sheet"]
         Sheet._lock_open_sheet_for_seller(seller, self.env.company)
-        submitted = Sheet._submitted_sheets_for_seller(seller, self.env.company)
-        if len(submitted) > 1:
+        sheet = Sheet._open_sheets_for_seller(seller, self.env.company)
+        if not sheet:
+            sheet = Sheet._submitted_sheets_for_seller(seller, self.env.company)
+        if len(sheet) > 1:
             raise UserError(_("This seller has more than one open collection sheet."))
-        if not submitted:
-            raise UserError(_("This seller has no submitted collection sheet."))
-        submitted.check_access("write")
+        if not sheet:
+            raise UserError(_("This seller has no open or submitted collection sheet."))
+        sheet.check_access("write")
         voucher = self.env["collection.voucher"].create(
             {
                 "seller_id": seller.id,
@@ -124,7 +127,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
                 "amount": parsed_amount,
                 "voucher_number": voucher_number.strip(),
                 "voucher_date": parsed_date,
-                "sheet_id": submitted.id,
+                "sheet_id": sheet.id,
                 "state": "validated_seller",
             }
         )
@@ -136,7 +139,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
                 attachments=[(name, raw)],
             )
         return {
-            "sheet": self._collection_sheet_identity(submitted),
+            "sheet": self._collection_sheet_identity(sheet),
             "voucher": {
                 "id": voucher.id,
                 "name": voucher.name,

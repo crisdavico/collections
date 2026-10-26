@@ -55,10 +55,12 @@ commission. A sheet with collected cash cannot close until the seller says how m
 it they kept from the cash: `close_collection_sheet` (and the form's Seller Close
 wizard) takes that amount, records it in Commission Withheld in the same step, and
 refuses more than the commission or than the cash collected minus seller deposits;
-`declare_collection_cash` corrects it on a submitted sheet. On a submitted sheet, the
-form's Declare Cash button declares the amount typed in Commission Withheld without that
-cap, so Collections can correct it. The commission voucher Confirm mints stays in step
-with the declared commission after a Cancel and Reinstate.
+`declare_collection_cash` corrects it on a submitted sheet. A deposit the seller made is
+loaded with `create_seller_deposit` on the open sheet before closing; the rest is handed
+in, and the close reply returns both (`cash.banked`, `cash.to_administration`). On a
+submitted sheet, the form's Declare Cash button declares the amount typed in Commission
+Withheld without that cap, so Collections can correct it. The commission voucher Confirm
+mints stays in step with the declared commission after a Cancel and Reinstate.
 
 Per-company Collection Settings (`res.company` + related `res.config.settings`; XMLID
 `collection.action_collection_config_settings`) control enabled sellers (empty = none

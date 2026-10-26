@@ -215,7 +215,10 @@ class TestCollectionMcpSheetClose(TransactionCase):
         sheet = self._create_cash_sheet(cash=40.0, applied=50.0, percent=10.0)
         result = self._call(self._args(commission_withheld="2.25"))
         self.assertEqual(result["sheet"]["state"], "submitted")
-        self.assertEqual(result["cash"], {"collected": 40.0})
+        self.assertEqual(
+            result["cash"],
+            {"collected": 40.0, "banked": 0.0, "to_administration": 37.75},
+        )
         self.assertEqual(
             result["commission"],
             {"percent": 10.0, "amount": 5.0, "withheld": 2.25, "owed": 2.75},
@@ -223,6 +226,30 @@ class TestCollectionMcpSheetClose(TransactionCase):
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.commission_withheld, 2.25)
         self.assertTrue(sheet.cash_declared_at)
+
+    def test_deposit_loaded_before_close_is_in_the_reply_and_the_cap(self):
+        """A deposit on the open sheet lowers what is handed in and the cap."""
+        sheet = self._create_cash_sheet(cash=40.0, applied=50.0, percent=10.0)
+        self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "document_id": f"sd-{self._testMethodName}",
+                "seller_id": self.seller.id,
+                "sheet_id": sheet.id,
+                "amount": 37.0,
+                "voucher_number": "SD-CLOSE-1",
+                "state": "validated_seller",
+            }
+        )
+        with self.assertRaises(UserError) as ctx:
+            self._call(self._args(commission_withheld=3.5))
+        self.assertIn("seller deposits", str(ctx.exception))
+        self.assertEqual(sheet.state, "open")
+        result = self._call(self._args(commission_withheld=3.0))
+        self.assertEqual(
+            result["cash"],
+            {"collected": 40.0, "banked": 37.0, "to_administration": 0.0},
+        )
 
     def test_close_keeping_more_than_the_commission_is_refused(self):
         """The cash kept above the commission MUST refuse and leave the sheet open."""
@@ -258,7 +285,9 @@ class TestCollectionMcpSheetClose(TransactionCase):
         self.assertEqual(payload["voucher_count"], 0)
         self.assertIsNone(payload["date_from"])
         self.assertIsNone(payload["date_to"])
-        self.assertEqual(result["cash"], {"collected": 0.0})
+        self.assertEqual(
+            result["cash"], {"collected": 0.0, "banked": 0.0, "to_administration": 0.0}
+        )
         self.assertEqual(
             result["commission"],
             {"percent": 0.0, "amount": 0.0, "withheld": 0.0, "owed": 0.0},
@@ -289,7 +318,10 @@ class TestCollectionMcpSheetClose(TransactionCase):
         voucher.action_validate_seller()
         result = self._call(self._args(commission_withheld=0.0))
         self.assertEqual(result["sheet"]["id"], sheet.id)
-        self.assertEqual(result["cash"], {"collected": 40.0})
+        self.assertEqual(
+            result["cash"],
+            {"collected": 40.0, "banked": 0.0, "to_administration": 40.0},
+        )
         self.assertEqual(sheet.state, "submitted")
 
     def test_close_returns_the_seller_commission(self):
