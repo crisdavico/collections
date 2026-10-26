@@ -165,15 +165,18 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   never reaches `ir.model.fields.selection`, so `_description_selection` would hand the
   constant's English to every language -- which is what the Conciliación board renders
   as `method`. The catalog mirrors the constant code for code, so en_US is unchanged and
-  the constant stays the fallback for a code with no catalog row. `seller_deposit`
-  stamps sentinel `collection.partner_seller_deposit`
-  (`data/collection_seller_deposit_partner_data.xml`) via `_seller_deposit_partner()`.
-  `seller_commission` stamps sentinel `collection.partner_seller_commission`
-  (`data/collection_seller_commission_partner_data.xml`) via
-  `_seller_commission_partner()`. Voucher create uses a type→sentinel map
-  (`_SENTINEL_PARTNER_GETTERS`: `seller_deposit` / `seller_commission`) and one apply
-  path (`_apply_seller_deposit_partner`) with type-specific refusal messages. Voucher
-  carries `retention_kind`. MCP write rejects `unsupported` (no longer a type) and
+  the constant stays the fallback for a code with no catalog row. `seller_deposit` and
+  `seller_commission` (`_SELLER_PARTNER_TYPES`) stamp the **seller's own partner**
+  (`seller_id.partner_id`, else the sheet seller's) in one apply path
+  (`_apply_seller_partner`) with type-specific refusal messages; no seller →
+  `A seller is required.`. A `seller_id` write moves those vouchers' partner with it
+  (`_write_with_seller_partner`, mixed batches split). Never stamp a shared partner with
+  no company: the Collections company boundary (`models/ir_rule.py`) cannot read it.
+  `data/collection_seller_partner_data.xml` runs the idempotent
+  `_collection_move_seller_vouchers_to_seller_partner` (raw SQL past the partner locks)
+  that moves vouchers off the legacy `collection.partner_seller_deposit` /
+  `collection.partner_seller_commission` and archives them. Voucher carries
+  `retention_kind`. MCP write rejects `unsupported` (no longer a type) and
   `seller_commission` (only Confirm mints the latter).
 - **New-work helper:** `res.company._assert_new_work(seller, document_type=None)`
   (`@api.private`). Seller is required; seller MUST be in `enabled_seller_ids` (empty
@@ -506,7 +509,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
     `customer_identification` or `sheet_id`. Internal caller;
     `_assert_new_work(seller, "seller_deposit")`, lock, `_open_sheets_for_seller` (a
     deposit is loaded before Seller Close) else `_submitted_sheets_for_seller`,
-    `check_access("write")`. Mints `sd-<uuid4 hex>`; stamps sentinel +
+    `check_access("write")`. Mints `sd-<uuid4 hex>`; stamps the seller's partner +
     `validated_seller` + explicit `sheet_id`. MUST NOT write `validated_collections`:
     the slip is designated proof, so the deposit enters `get_review_queue` and only
     Document Review Approve promotes it (and runs cash replacement). Success
@@ -689,7 +692,7 @@ invoke test -m collection --mode=update -d devel
 
 | File                                                | Focus                                                                                                                                                                                                                                               |
 | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/test_collection_voucher.py`                  | Sequence, defaults `draft`, Validate by Seller, unlink, attachment reopen, new-work helper                                                                                                                                                          |
+| `tests/test_collection_voucher.py`                  | Sequence, defaults `draft`, Validate by Seller, unlink, attachment reopen, new-work helper, seller partner stamp/move/migration, restricted-user read                                                                                               |
 | `tests/test_collection_sheet.py`                    | Sheet lifecycle, Confirm/Close/Cancel/Reinstate, one-open, freeze, auto-assign, open cascade / non-open refuse                                                                                                                                      |
 | `tests/test_collection_payment.py`                  | Line fields, `document_id` uniqueness                                                                                                                                                                                                               |
 | `tests/test_collection_acl.py`                      | Collections User ACL; required `company_id`; `ir.rule` hide-other-company                                                                                                                                                                           |
@@ -714,7 +717,7 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_mcp_sheet_pdf.py`            | MCP `get_collection_sheet_pdf` discovery, seller-only schema, auth, null branches, base64 envelope, company scoping, no sudo                                                                                                                        |
 | `tests/test_collection_mcp_sheet_close.py`          | MCP `close_collection_sheet` discovery, seller-only schema, 0-open UserError, cash.collected, no sudo                                                                                                                                               |
 | `tests/test_collection_mcp_cash_declare.py`         | MCP `declare_collection_cash` discovery, submitted-only, 0-submitted UserError, no sudo                                                                                                                                                             |
-| `tests/test_collection_mcp_seller_deposit.py`       | MCP `create_seller_deposit` discovery, open sheet first then submitted, sentinel, `validated_seller` outcome, review-queue membership, Approve promote plus cash replacement, unreviewed deposit blocks Confirm, allocation still customer-required |
+| `tests/test_collection_mcp_seller_deposit.py`       | MCP `create_seller_deposit` discovery, open sheet then submitted, seller partner, `validated_seller` outcome, review-queue membership, Approve promote plus cash replacement, unreviewed deposit blocks Confirm, allocation still customer-required |
 | `tests/test_collection_receipt.py`                  | Receipt uniqueness, values, totals, freeze, issued, local Close `closed`, ACL                                                                                                                                                                       |
 | `tests/test_collection_customer_binding.py`         | Customer binding UNIQUE / Collections User ACL `1,0,1,0` / company `ir.rule` / notebook                                                                                                                                                             |
 | `tests/test_collection_customer_resolution.py`      | Lazy `resolve_customer_partner`; vat 1/0/>1; nested UniqueViolation                                                                                                                                                                                 |

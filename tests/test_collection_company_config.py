@@ -227,7 +227,7 @@ class TestCollectionCompanyConfig(TransactionCase):
         self.assertIn("`CASH_REPLACEMENT_TYPES`", agents)
         self.assertIn("`collection_seller_commission_mint`", agents)
         self.assertIn("`seller_commission`", agents)
-        self.assertIn("`collection.partner_seller_commission`", agents)
+        self.assertIn("`_SELLER_PARTNER_TYPES`", agents)
         self.assertNotIn("dispatches connector `create_receipt`", agents)
         self.assertIn(
             "MUST NOT consult the connector",

@@ -59,7 +59,7 @@ class CollectionSellerDepositMcpMixin(models.AbstractModel):
         description=(
             "Create a seller_deposit on the seller's open sheet (load it "
             "before closing), or on the submitted sheet when none is open. Mints "
-            "sd-<uuid4 hex>, stamps the sentinel, leaves the voucher in "
+            "sd-<uuid4 hex>, stamps the seller's partner, leaves the voucher in "
             "validated_seller for Document Review. Returns {sheet, voucher}. "
             "Collections Users only."
         ),
