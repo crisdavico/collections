@@ -28,34 +28,11 @@ WORKBOOK_OPTIONS = {"strings_to_formulas": False, "strings_to_urls": False}
 # holding the SUMIF wildcards * and ?).
 KEY_COL = len(COLUMN_WIDTHS)
 _KIND_TITLES = {"invoice": "Facturas", "quotation": "Presupuestos"}
-_KIND_LABELS = {"invoice": "Factura", "quotation": "Presupuesto"}
 # The verdict block opens the sheet right below the frozen header (rows 1-5).
 VERDICT_START = 6
 _DEPOSITS_NOTE = (
     "Depósitos de clientes: el cliente depositó en la cuenta de la empresa. "
     "Depósitos del vendedor: el vendedor depositó en el banco el efectivo cobrado."
-)
-# Flat sheets: one row per line, no merges, so they filter, sort and copy cleanly.
-_DOCUMENT_TABLE_COLUMNS = (
-    ("Código", 12, "data"),
-    ("Cliente", 36, "data"),
-    ("Tipo", 14, "data"),
-    ("Documento", 18, "data"),
-    ("Vencimiento", 13, "data_date"),
-    ("Saldo", 15, "data_money"),
-    ("Aplicado", 15, "data_money"),
-    ("Comisión", 15, "data_money"),
-)
-_VOUCHER_TABLE_COLUMNS = (
-    ("Código", 12, "data"),
-    ("Cliente", 36, "data"),
-    ("Medio de Pago", 22, "data"),
-    ("Fecha", 13, "data_date"),
-    ("Nº Comprobante", 20, "data"),
-    ("Banco", 20, "data"),
-    ("Tipo de Cheque", 15, "data"),
-    ("Fecha de Pago", 14, "data_date"),
-    ("Importe", 15, "data_money"),
 )
 # The sheet no longer prints a status banner; collection_receipt_proposal still
 # imports these fills for its own difference row.
@@ -949,77 +926,6 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
     return owed_row, refs
 
 
-def _write_table(workbook, fmt, name, columns, rows):
-    """Add a flat worksheet holding one Excel table with a frozen header."""
-    ws = workbook.add_worksheet(name)
-    for index, (_title, width, _style) in enumerate(columns):
-        ws.set_column(index, index, width)
-    # An Excel table needs a data row; an empty sheet keeps one blank row.
-    data = rows or [[""] * len(columns)]
-    ws.add_table(
-        0,
-        0,
-        len(data),
-        len(columns) - 1,
-        {
-            "name": name,
-            "style": "Table Style Light 9",
-            "data": data,
-            "columns": [
-                {"header": title, "format": fmt[style]}
-                for title, _width, style in columns
-            ],
-        },
-    )
-    ws.freeze_panes(1, 0)
-    ws.set_landscape()
-    ws.set_paper(9)
-    ws.fit_to_pages(1, 0)
-    ws.repeat_rows(0)
-    return ws
-
-
-def _document_table_rows(payload):
-    rows = []
-    for block in payload.get("document_blocks") or ():
-        kind = _KIND_LABELS.get(block.get("kind"), block.get("kind") or "")
-        for item in block.get("rows") or ():
-            rows.append(
-                [
-                    item.get("code") or "",
-                    item.get("name") or "",
-                    kind,
-                    item.get("invoice_number") or "",
-                    _date_cell(item.get("due_date")),
-                    item.get("invoice_balance") or 0.0,
-                    item.get("amount_applied") or 0.0,
-                    item.get("commission") or 0.0,
-                ]
-            )
-    return rows
-
-
-def _voucher_table_rows(payload):
-    rows = []
-    for block in payload.get("voucher_blocks") or ():
-        label = block.get("label") or block.get("code") or ""
-        for item in block.get("rows") or ():
-            rows.append(
-                [
-                    item.get("code") or "",
-                    item.get("name") or "",
-                    label,
-                    _date_cell(item.get("date")),
-                    item.get("number") or "",
-                    item.get("check_bank") or "",
-                    item.get("check_type") or "",
-                    _date_cell(item.get("check_payment_date")),
-                    item.get("amount") or 0.0,
-                ]
-            )
-    return rows
-
-
 def _build_xlsx(payload):
     """Render a Planilla workbook from payload primitives. No ORM access."""
     output = BytesIO()
@@ -1064,20 +970,6 @@ def _build_xlsx(payload):
         ws.repeat_rows(0, 3)
         ws.print_area(0, 0, last_row - 1, 10)
         ws.set_margins(0.3, 0.3, 0.4, 0.4)
-        _write_table(
-            workbook,
-            fmt,
-            "Documentos",
-            _DOCUMENT_TABLE_COLUMNS,
-            _document_table_rows(payload),
-        )
-        _write_table(
-            workbook,
-            fmt,
-            "Comprobantes",
-            _VOUCHER_TABLE_COLUMNS,
-            _voucher_table_rows(payload),
-        )
     finally:
         workbook.close()
     return _align_workbook_xml(output.getvalue())
@@ -1098,8 +990,6 @@ def _align_workbook_xml(content):
 
     xlsxwriter stores a converted character width (32 → 32.71) and omits the
     default fitToWidth=1 attribute. The hidden customer-key column stays hidden.
-    Only the Planilla (sheet1) takes the template columns; the flat sheets keep
-    their own widths.
     """
     source = ZipFile(BytesIO(content), "r")
     output = BytesIO()
