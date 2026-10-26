@@ -10,6 +10,7 @@ from odoo.tests import TransactionCase
 
 from odoo.addons.collection.models.collection_common import privileged
 
+from .common_connector import force_sheet_state
 from .test_collection_payment import (
     dummy_customer_partner,
     ensure_enabled_seller,
@@ -114,8 +115,9 @@ class TestCollectionCashReplacement(TransactionCase):
 
     def _submit(self, sheet, *vouchers):
         self._validate_seller(*vouchers)
-        sheet.action_seller_close()
-        return sheet
+        # The commission vouchers these tests plant on an open sheet would be
+        # resynced by the declaration Seller Close makes; submit them as is.
+        return force_sheet_state(sheet, "submitted")
 
     def _validate_collections(self, vouchers):
         with privileged("collection_audited_state"):

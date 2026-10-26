@@ -315,7 +315,7 @@ class TestCollectionSheet(TransactionCase):
         )
         self._create_balanced_allocation(sheet, cash, invoice_id="INV-CONF-CASH")
         cash.action_validate_seller()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         sheet.action_declare_cash(0.0)
         sheet.action_confirm()
         self.assertEqual(sheet.state, "proposal")
@@ -606,15 +606,13 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(sheet.cash_on_hand, before_cash)
         self.assertEqual(sheet.commission_withheld, before_withheld)
 
-    def test_action_seller_close_ignores_amount_kwargs(self):
-        """Kwargs on Seller Close MUST NOT persist cash_on_hand or withheld."""
+    def test_action_seller_close_ignores_cash_on_hand(self):
+        """cash_on_hand on Seller Close is computed: it MUST NOT persist."""
         sheet = self._create_sheet()
         before_cash = sheet.cash_on_hand
-        before_withheld = sheet.commission_withheld
-        sheet.action_seller_close(cash_on_hand=40.0, commission_withheld=5.0)
+        sheet.action_seller_close(cash_on_hand=40.0)
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.cash_on_hand, before_cash)
-        self.assertEqual(sheet.commission_withheld, before_withheld)
         self.assertNotEqual(sheet.cash_on_hand, 40.0)
 
     def test_action_seller_close_validated_seller_member_passes(self):
@@ -659,7 +657,7 @@ class TestCollectionSheet(TransactionCase):
             amount=13.75,
         )
         cash.action_validate_seller()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         sheet.action_declare_cash(commission_withheld=1.25)
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.commission_withheld, 1.25)
@@ -677,7 +675,7 @@ class TestCollectionSheet(TransactionCase):
             amount=30.0,
         )
         cash.action_validate_seller()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         sheet.action_declare_cash(commission_withheld=1.0)
         first_at = sheet.cash_declared_at
         self.assertEqual(sheet.cash_on_hand, 29.0)
@@ -712,7 +710,7 @@ class TestCollectionSheet(TransactionCase):
             amount=8.5,
         )
         cash.action_validate_seller()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         self._clear_enabled_sellers()
         sheet.action_declare_cash(commission_withheld=0.5)
         self.assertEqual(sheet.state, "submitted")
@@ -730,7 +728,7 @@ class TestCollectionSheet(TransactionCase):
             document_type="cash",
         )
         self._mark_validated_collections(voucher)
-        sheet.action_seller_close()
+        force_sheet_state(sheet, "submitted")
         self.assertFalse(sheet.cash_declared_at)
         with self.assertRaises(UserError):
             sheet.action_confirm()
@@ -766,7 +764,7 @@ class TestCollectionSheet(TransactionCase):
         )
         self._create_balanced_allocation(sheet, voucher, invoice_id="INV-CASH-OK")
         self._mark_validated_collections(voucher)
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         sheet.action_declare_cash(commission_withheld=0.0)
         sheet.action_confirm()
         self.assertEqual(sheet.state, "proposal")
@@ -806,7 +804,7 @@ class TestCollectionSheet(TransactionCase):
 
     def _submit_declared_cash(self, sheet, cash, withheld):
         cash.action_validate_seller()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         sheet.action_declare_cash(commission_withheld=withheld)
         return sheet
 
@@ -881,7 +879,7 @@ class TestCollectionSheet(TransactionCase):
             sheet, amount=400.0, customer="CUST-SC-MINT-UNDECL"
         )
         cash.action_validate_seller()
-        sheet.action_seller_close()
+        force_sheet_state(sheet, "submitted")
         sheet.write({"commission_withheld": 300.0})
         self.assertFalse(sheet.cash_declared_at)
         with self.assertRaises(UserError):

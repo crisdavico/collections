@@ -72,7 +72,7 @@ class TestCollectionCommissionResync(TransactionCase):
             }
         )
         self.cash.action_validate_seller()
-        self.sheet.action_seller_close()
+        self.sheet.action_seller_close(commission_withheld=0.0)
 
     def _commission(self):
         return self.sheet.voucher_ids.filtered(
@@ -197,8 +197,9 @@ class TestCollectionCommissionResync(TransactionCase):
 
     def test_button_declares_the_commission_typed_on_the_form(self):
         """The form saves the typed commission, then the button declares it."""
+        closed_at = self.sheet.cash_declared_at
         self.sheet.write({"commission_withheld": 120.0})
-        self.assertFalse(self.sheet.cash_declared_at)
+        self.assertEqual(self.sheet.cash_declared_at, closed_at)
         self.sheet.action_declare_cash()
         self.assertEqual(self.sheet.commission_withheld, 120.0)
         self.assertTrue(self.sheet.cash_declared_at)
@@ -208,12 +209,13 @@ class TestCollectionCommissionResync(TransactionCase):
         self.assertEqual(self._commission().amount, 120.0)
 
     def test_negative_withheld_commission_is_refused(self):
+        closed_at = self.sheet.cash_declared_at
         with self.assertRaises(ValidationError):
             self.sheet.action_declare_cash(commission_withheld=-5.0)
         with self.assertRaises(ValidationError):
             self.sheet.write({"commission_withheld": -0.01})
         self.assertFalse(self.sheet.commission_withheld)
-        self.assertFalse(self.sheet.cash_declared_at)
+        self.assertEqual(self.sheet.cash_declared_at, closed_at)
 
 
 class TestCollectionCommissionDeclareTool(TransactionCase):

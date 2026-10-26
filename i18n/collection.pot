@@ -571,6 +571,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_allocation_debt_picker_form
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_close_wizard_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Cancel"
 msgstr ""
@@ -635,6 +636,7 @@ msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__cash_collected
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__cash_collected
 msgid "Cash Collected"
 msgstr ""
 
@@ -670,6 +672,11 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_receipt_value.py:0
 msgid "Cash replacement currencies must agree."
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_sheet_close_wizard__commission_withheld
+msgid "Cash the seller kept as commission, zero if none."
 msgstr ""
 
 #. module: collection
@@ -1036,6 +1043,11 @@ msgid "Commission %"
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__commission_withheld
+msgid "Commission Kept From Cash"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__commission_owed
 msgid "Commission Owed to Seller"
 msgstr ""
@@ -1123,6 +1135,7 @@ msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,help:collection.field_collection_sheet__commission_amount
+#: model:ir.model.fields,help:collection.field_collection_sheet_close_wizard__commission_amount
 msgid ""
 "Computed from the allocations: each applied amount's untaxed share times the"
 " seller commission %."
@@ -1283,6 +1296,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__create_uid
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__create_uid
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__create_uid
 msgid "Created by"
 msgstr ""
@@ -1300,6 +1314,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__create_date
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__create_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__create_date
 msgid "Created on"
 msgstr ""
@@ -1324,6 +1339,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__currency_id
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__currency_id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__currency_id
 msgid "Currency"
 msgstr ""
@@ -1496,6 +1512,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__display_name
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__display_name
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__display_name
 #: model:ir.model.fields,field_description:collection.field_discuss_channel__display_name
@@ -1957,6 +1974,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__id
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__id
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__id
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__id
 #: model:ir.model.fields,field_description:collection.field_collection_sheet_xlsx__id
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__id
 #: model:ir.model.fields,field_description:collection.field_discuss_channel__id
@@ -2138,6 +2156,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__write_uid
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__write_uid
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__write_uid
 msgid "Last Updated by"
 msgstr ""
@@ -2155,6 +2174,7 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_receipt_value__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__write_date
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__write_date
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__write_date
 msgid "Last Updated on"
 msgstr ""
@@ -3137,8 +3157,16 @@ msgid "Seller Bindings"
 msgstr ""
 
 #. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+#: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_close_wizard_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Seller Close"
+msgstr ""
+
+#. module: collection
+#: model:ir.model,name:collection.model_collection_sheet_close_wizard
+msgid "Seller Close Cash Declaration"
 msgstr ""
 
 #. module: collection
@@ -3156,6 +3184,7 @@ msgstr ""
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_seller_commission
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__commission_amount
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__commission_amount
 msgid "Seller Commission"
 msgstr ""
 
@@ -3278,6 +3307,7 @@ msgid ""
 msgstr ""
 
 #. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_sheet_close_wizard__sheet_id
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_search
 msgid "Sheet"
 msgstr ""
@@ -3546,9 +3576,23 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/tools/collection_cash_declare.py:0
 #: code:addons/collection/tools/collection_seller_deposit.py:0
+msgid "This seller has no open or submitted collection sheet."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_cash_declare.py:0
 msgid "This seller has no submitted collection sheet."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid ""
+"This sheet has collected cash of %(cash)s and a seller commission of "
+"%(commission)s: Seller Close needs commission_withheld, the cash the seller "
+"kept as commission (zero if none)."
 msgstr ""
 
 #. module: collection
@@ -4021,7 +4065,7 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/tools/collection_cash_declare.py:0
+#: code:addons/collection/models/collection_sheet.py:0
 msgid ""
 "commission_withheld cannot exceed the cash collected minus seller deposits, "
 "%(amount)s."
@@ -4029,18 +4073,20 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/tools/collection_cash_declare.py:0
+#: code:addons/collection/models/collection_sheet.py:0
 msgid "commission_withheld cannot exceed the seller commission of %(amount)s."
 msgstr ""
 
 #. module: collection
 #. odoo-python
 #: code:addons/collection/tools/collection_cash_declare.py:0
+#: code:addons/collection/tools/collection_sheet_close.py:0
 msgid "commission_withheld must be an amount."
 msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
 #: code:addons/collection/tools/collection_cash_declare.py:0
 msgid "commission_withheld must be zero or more."
 msgstr ""

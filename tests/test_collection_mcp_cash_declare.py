@@ -159,7 +159,7 @@ class TestCollectionMcpCashDeclare(TransactionCase):
         """Internal caller MUST declare on the submitted sheet and return identity."""
         sheet = self._create_sheet(cash=12.75)
         self._add_commission(sheet, applied=50.0, percent=10.0)
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         result = self._call()
         self.assertEqual(set(result), {"sheet", "commission"})
         payload = result["sheet"]
@@ -181,11 +181,12 @@ class TestCollectionMcpCashDeclare(TransactionCase):
         """The seller MUST NOT keep more cash than the sheet's commission."""
         sheet = self._create_sheet(cash=100.0)
         self._add_commission(sheet, applied=50.0, percent=10.0)
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
+        declared_at = sheet.cash_declared_at
         with self.assertRaises(UserError) as ctx:
             self._call(self._args(commission_withheld=5.01))
         self.assertIn("commission_withheld", str(ctx.exception))
-        self.assertFalse(sheet.cash_declared_at)
+        self.assertEqual(sheet.cash_declared_at, declared_at)
         self.assertFalse(sheet.commission_withheld)
         self._call(self._args(commission_withheld=5.0))
         self.assertEqual(sheet.commission_withheld, 5.0)
@@ -194,11 +195,12 @@ class TestCollectionMcpCashDeclare(TransactionCase):
         """The seller MUST NOT keep more than the cash collected minus deposits."""
         sheet = self._create_sheet(cash=3.0)
         self._add_commission(sheet, applied=100.0, percent=10.0)
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
+        declared_at = sheet.cash_declared_at
         with self.assertRaises(UserError) as ctx:
             self._call(self._args(commission_withheld=4.0))
         self.assertIn("commission_withheld", str(ctx.exception))
-        self.assertFalse(sheet.cash_declared_at)
+        self.assertEqual(sheet.cash_declared_at, declared_at)
         result = self._call(self._args(commission_withheld=3.0))
         self.assertEqual(
             result["commission"],
@@ -208,11 +210,12 @@ class TestCollectionMcpCashDeclare(TransactionCase):
     def test_cash_on_hand_argument_is_rejected(self):
         """cash_on_hand is computed: sending it MUST refuse the declaration."""
         sheet = self._create_sheet(cash=12.75)
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
+        declared_at = sheet.cash_declared_at
         with self.assertRaises(UserError):
             self._call(self._args(cash_on_hand=10.5))
         self.assertEqual(sheet.state, "submitted")
-        self.assertFalse(sheet.cash_declared_at)
+        self.assertEqual(sheet.cash_declared_at, declared_at)
         self.assertFalse(sheet.commission_withheld)
 
     def test_zero_submitted_sheets_raise_user_error_not_null(self):

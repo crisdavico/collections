@@ -22,15 +22,16 @@ negative when remittances plus withheld commission exceed the collected cash.
 `cash_on_hand` MUST remain the field name and MUST be `store=True` so it stays
 searchable and groupable. Passing `cash_on_hand` to `create` or `write` MUST raise
 `UserError` in every state, including `submitted`. Seller-declared `commission_withheld`
-MUST be writable only while `state` is `submitted`. `commission_percent` MUST be
+MUST be writable only while `state` is `submitted`, and through Seller Close's own
+declaration. `commission_percent` MUST be
 writable while `state` is not `closed` or `cancelled`. Closed and cancelled sheets MUST
 refuse writes of the two writable fields (`UserError`, no persist). Seller Close MUST
-NOT persist the seller declaration. After `open`, writes of `commission_withheld` MUST
+persist the seller declaration only when it is given one. After `open`, writes of `commission_withheld` MUST
 be refused while `commission_percent` MAY still persist. Reinstate from Cancelled MUST
 NOT reset stored values. The `cash_on_hand` form widget MUST be readonly in every state;
 the other two MUST be readonly when the corresponding write would be refused.
 (Previously: `cash_on_hand` was a seller-declared Monetary written by Declare Cash and
-writable while `submitted`.)
+writable while `submitted`; Seller Close never persisted the seller declaration.)
 
 #### Scenario: Percent range
 
@@ -66,9 +67,9 @@ writable while `submitted`.)
 - WHEN Confirm, then Close or Cancel, then Reinstate from Cancelled runs
 - THEN the three values MUST remain
 
-#### Scenario: Seller Close does not persist declarations
+#### Scenario: Seller Close without cash does not persist declarations
 
-- GIVEN an open sheet
+- GIVEN an open sheet with no collected cash
 - WHEN Seller Close writes `state` `submitted` without declaration amounts
 - THEN `state` MUST be `submitted`
 - AND `commission_withheld` MUST remain unchanged by that write

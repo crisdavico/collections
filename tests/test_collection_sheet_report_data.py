@@ -197,7 +197,7 @@ class TestCollectionSheetReportData(TransactionCase):
 
     def _submit_declared_cash(self, sheet, withheld):
         """Seller-close and declare withheld; members must already pass Confirm."""
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         sheet.action_declare_cash(commission_withheld=withheld)
         return sheet
 
@@ -525,7 +525,7 @@ class TestCollectionSheetReportData(TransactionCase):
         self._enable_seller_commission_type(company=sheet.company_id)
         self._funded_cash_receipt(allocation, voucher)
         self._mark_validated_collections(sheet.voucher_ids)
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         sheet.write({"commission_percent": 12.5})
         sheet.action_declare_cash(commission_withheld=5.5)
         self._drive_sheet(sheet, "cancelled")
@@ -831,8 +831,7 @@ class TestCollectionSheetReportData(TransactionCase):
         sheet.write({"commission_percent": 5.0})
         self.assertEqual(sheet.commission_amount, 50.0)
         self.assertEqual(sheet.commission_owed, 50.0)
-        sheet.action_seller_close()
-        sheet.action_declare_cash(commission_withheld=30.0)
+        sheet.action_seller_close(commission_withheld=30.0)
         self.assertEqual(sheet.commission_owed, 20.0)
         recon = sheet._collection_report_data()["recon"]
         self.assertEqual(recon["commission"], 50.0)

@@ -1519,7 +1519,8 @@ Calls MUST use the authenticated user and MUST NOT `sudo()` (except to read
 `collection.mcp_trusted_seller_header`). Input MUST require integer
 `seller_id`, amount, `voucher_number`, `voucher_date`, and MAY accept nested
 `attachment`. The tool MUST NOT accept `customer_identification` or `sheet_id` from the
-caller. It MUST resolve the seller's own `submitted` sheet, stamp the sentinel partner
+caller. It MUST resolve the seller's own `open` sheet, or the `submitted` sheet when
+none is open, so a deposit can be loaded before Seller Close; then stamp the sentinel partner
 and `document_type` `seller_deposit`, stamp `validated_seller`, pass that `sheet_id`
 explicitly, and require new-work for that seller and `seller_deposit`. The tool MUST NOT
 write `validated_collections`: the deposit slip is a reviewable designated proof, so the
@@ -1527,9 +1528,10 @@ voucher MUST stay `validated_seller` and MUST reach `validated_collections` only
 Document Review Approve. A deposit carrying designated proof MUST appear in
 `get_review_queue` for its sheet. Callers that are not Collections Users MUST receive
 `AccessError`.
-Errors MUST be raised, never `{"error":...}`. Zero or more than one `submitted` sheet
-MUST raise `UserError`. `create_collection_allocation` MUST remain customer-required and
-`open`-sheet-only. (Previously: the tool wrote `validated_collections` under
+Errors MUST be raised, never `{"error":...}`. No `open` and no `submitted` sheet, or
+more than one candidate, MUST raise `UserError`. `create_collection_allocation` MUST remain customer-required and
+`open`-sheet-only. (Previously: the tool targeted only the `submitted` sheet, so a
+deposit could be loaded only after Seller Close. Before that: the tool wrote `validated_collections` under
 `collection_audited_state` right after create, so the slip never reached the review
 queue. Before that: No MCP path could create a no-customer remittance voucher.)
 
@@ -1557,12 +1559,18 @@ queue. Before that: No MCP path could create a no-customer remittance voucher.)
 - THEN `state` MUST become `validated_collections`
 - AND cash replacement MUST run per Collection Receipts
 
-#### Scenario: Open sheet is not the deposit target
+#### Scenario: Open sheet receives the deposit before close
 
-- GIVEN an internal seller with one `open` sheet and zero `submitted` sheets
+- GIVEN an internal seller with one `open` sheet
 - WHEN `create_seller_deposit` runs
-- THEN MUST raise `UserError`
-- AND no voucher MUST persist
+- THEN one `seller_deposit` voucher MUST persist on that open sheet
+- AND the sheet's `cash_banked` MUST include it
+
+#### Scenario: Open sheet wins over a submitted one
+
+- GIVEN an internal seller with one `submitted` sheet and one `open` sheet
+- WHEN `create_seller_deposit` runs
+- THEN the voucher MUST persist on the `open` sheet
 
 #### Scenario: Disabled type refused
 

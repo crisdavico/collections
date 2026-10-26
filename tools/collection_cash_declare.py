@@ -87,26 +87,7 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
         if not submitted:
             raise UserError(_("This seller has no submitted collection sheet."))
         submitted.check_access("write")
-        commission = submitted.commission_amount or 0.0
-        if currency.compare_amounts(withheld, commission) > 0:
-            raise UserError(
-                _(
-                    "commission_withheld cannot exceed the seller commission "
-                    "of %(amount)s.",
-                    amount=commission,
-                )
-            )
-        cash = max(
-            (submitted.cash_collected or 0.0) - (submitted.cash_banked or 0.0), 0.0
-        )
-        if currency.compare_amounts(withheld, cash) > 0:
-            raise UserError(
-                _(
-                    "commission_withheld cannot exceed the cash collected minus "
-                    "seller deposits, %(amount)s.",
-                    amount=cash,
-                )
-            )
+        submitted._check_commission_withheld(withheld)
         submitted.action_declare_cash(commission_withheld=withheld)
         return {
             "sheet": self._collection_sheet_identity(submitted),

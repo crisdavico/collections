@@ -271,7 +271,7 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         """Document Review Approve MUST be the promote path and MUST replace cash."""
         self._enable_document_review()
         sheet, cash, cash_value = self._sheet_with_replaceable_cash()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         result = self._call(self._args(amount=40.0, attachment=self._proof()))
         deposit = self.env["collection.voucher"].browse(result["voucher"]["id"])
         deposit.action_review_approve(sheet_id=sheet.id)
@@ -295,15 +295,29 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
             sheet.action_confirm()
         self.assertEqual(sheet.state, "submitted")
 
-    def test_open_sheet_is_not_the_deposit_target(self):
-        """An open sheet MUST NOT receive a deposit; the tool targets submitted only."""
+    def test_open_sheet_receives_the_deposit_before_close(self):
+        """The seller loads a deposit slip on the open sheet before closing it."""
         sheet = self._create_sheet()
         self.assertEqual(sheet.state, "open")
-        before = self.env["collection.voucher"].search_count([])
-        with self.assertRaises(UserError):
-            self._call()
+        result = self._call()
+        self.assertEqual(result["sheet"]["id"], sheet.id)
+        self.assertEqual(result["sheet"]["state"], "open")
+        voucher = self.env["collection.voucher"].browse(result["voucher"]["id"])
+        self.assertEqual(voucher.sheet_id, sheet)
+        self.assertEqual(voucher.document_type, "seller_deposit")
+        self.assertEqual(voucher.state, "validated_seller")
         self.assertEqual(sheet.state, "open")
-        self.assertEqual(self.env["collection.voucher"].search_count([]), before)
+        self.assertAlmostEqual(sheet.cash_banked, 80.5, places=2)
+
+    def test_open_sheet_wins_over_a_submitted_one(self):
+        """With an open and a submitted sheet, the deposit goes to the open one."""
+        submitted = self._create_sheet()
+        submitted.action_seller_close()
+        current = self._create_sheet()
+        result = self._call()
+        self.assertEqual(result["sheet"]["id"], current.id)
+        self.assertAlmostEqual(current.cash_banked, 80.5, places=2)
+        self.assertFalse(submitted.cash_banked)
 
     def test_disabled_type_refused(self):
         """Disallowed seller_deposit MUST raise UserError with no write."""
@@ -398,7 +412,7 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         self.assertTrue(callable(method), f"muk_mcp.mixin must expose {TOOL_NAME}")
         method_code = inspect.getsource(method)
         self.assertNotIn(".sudo(", method_code)
-        self.assertNotIn("_open_sheets_for_seller", method_code)
+        self.assertIn("_open_sheets_for_seller", method_code)
         self.assertIn("_submitted_sheets_for_seller", method_code)
         self.assertNotIn("validated_collections", method_code)
         self.assertIn("sd-", method_code)

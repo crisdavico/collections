@@ -66,7 +66,7 @@ class TestCollectionReversibleStates(TransactionCase):
             }
         )
         self.cash.action_validate_seller()
-        self.sheet.action_seller_close()
+        self.sheet.action_seller_close(commission_withheld=0.0)
 
     def _commission(self):
         return self.sheet.voucher_ids.filtered(
@@ -244,7 +244,7 @@ class TestCollectionReversibleStates(TransactionCase):
                 self.sheet.action_reset_to_open()
                 self.assertEqual(self.sheet.state, "open")
                 self.assertFalse(self._commission())
-                self.sheet.action_seller_close()
+                self.sheet.action_seller_close(commission_withheld=0.0)
 
     def test_reset_is_refused_while_the_seller_has_another_open_sheet(self):
         other = self.env["collection.sheet"].create({"seller_id": self.seller.id})
@@ -277,7 +277,7 @@ class TestCollectionReversibleStates(TransactionCase):
     def test_reset_sheet_runs_the_forward_flow_again(self):
         self._confirm()
         self.sheet.action_reset_to_open()
-        self.sheet.action_seller_close()
+        self.sheet.action_seller_close(commission_withheld=0.0)
         self.sheet.action_declare_cash(commission_withheld=100.0)
         self.sheet.action_confirm()
         commission = self._commission()
