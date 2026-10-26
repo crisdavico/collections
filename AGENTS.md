@@ -510,9 +510,10 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
     `validated_seller` + explicit `sheet_id`. MUST NOT write `validated_collections`:
     the slip is designated proof, so the deposit enters `get_review_queue` and only
     Document Review Approve promotes it (and runs cash replacement). Success
-    `{sheet:{...}, voucher:{id,name,state,document_id}}` with sheet `submitted`. 0 or
-    `>1` submitted → `UserError`. Non-Collections-User caller → `AccessError`. Do
-    **not** add `seller_deposit` to allocation `_DOCUMENT_TYPES`. No `sudo()`.
+    `{sheet:{...}, voucher:{id,name,state,document_id}}` with sheet `open` or
+    `submitted`. No open and no submitted sheet, or `>1` candidate → `UserError`.
+    Non-Collections-User caller → `AccessError`. Do **not** add `seller_deposit` to
+    allocation `_DOCUMENT_TYPES`. No `sudo()`.
   - Method-discovered `@mcp_tool` `list_collection_customers` (`category=read`,
     `registry=mcp`) in `tools/customer_list.py`. Required integer `seller_id` (internal
     `res.users` id). Collections User caller; the seller must be on
