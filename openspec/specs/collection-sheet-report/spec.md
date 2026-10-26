@@ -432,15 +432,9 @@ the composition, with an "Entregado por el Vendedor" total, above the calculatio
 MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
 aclaración".
 
-The XLSX MUST add two flat worksheets after the Planilla, **Documentos** and
-**Comprobantes**, each one Excel table of the same name with a frozen header row (`A2`)
-and no merged cells, one row per payload row in payload order. Documentos columns:
-Código, Cliente, Tipo (Factura / Presupuesto), Documento, Vencimiento, Saldo, Aplicado,
-Comisión. Comprobantes columns: Código, Cliente, Medio de Pago (voucher block label),
-Fecha, Nº Comprobante, Banco, Tipo de Cheque, Fecha de Pago, Importe; they hold the
-voucher-block rows only (no `seller_deposit`, no `seller_commission`). An empty sheet
-MUST still produce both tables with their headers. The Planilla MUST stay the first and
-active worksheet; only it takes the template column widths.
+The XLSX MUST hold one worksheet, **Planilla de Cobranza**, active and with the template
+column widths. (Previously: two flat worksheets after it, **Documentos** and
+**Comprobantes**, each one filterable Excel table with one row per document or voucher.)
 
 #### Scenario: Verdict leads both reports
 
@@ -459,13 +453,11 @@ active worksheet; only it takes the template column widths.
 - THEN the warning MUST name 100.00, 140.00, and 40.00
 - AND a sheet without mismatch MUST print no warning
 
-#### Scenario: Flat sheets filter cleanly
+#### Scenario: Only the Planilla sheet
 
-- GIVEN a sheet with an invoice, a quotation, a transfer, and a check
+- GIVEN a sheet with allocations and vouchers
 - WHEN the XLSX renders
-- THEN the sheet names MUST be Planilla de Cobranza, Documentos, Comprobantes
-- AND each flat sheet MUST hold one table covering the header and every row, freeze
-  `A2`, and have no merged cells
+- THEN the only sheet name MUST be Planilla de Cobranza
 
 #### Scenario: Zip freeze and cached SUM
 
