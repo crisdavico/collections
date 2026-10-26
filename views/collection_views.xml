@@ -585,12 +585,14 @@
                 name="commission_percent"
                 readonly="state in ('closed', 'cancelled')"
               />
+                            <field name="commission_amount" />
                             <field name="cash_collected" />
                             <field name="cash_banked" />
                             <field
                 name="commission_withheld"
                 readonly="state != 'submitted'"
               />
+                            <field name="commission_owed" />
                             <field name="cash_on_hand" readonly="1" />
                             <field name="residual_cash_value_total" invisible="1" />
                         </group>

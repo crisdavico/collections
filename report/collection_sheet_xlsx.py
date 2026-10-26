@@ -884,6 +884,7 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
     net_row = withheld_row + 1
     tendered_row = net_row + 2
     diff_row = tendered_row + 1
+    owed_row = diff_row + 1
 
     def _recon_line(row, label, hint, formula, cached, total=False):
         label_fmt = fmt["recon_total_label"] if total else fmt["recon_label"]
@@ -934,12 +935,19 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
         recon.get("difference") or 0.0,
         total=True,
     )
+    _recon_line(
+        owed_row,
+        "Comisión a Pagar al Vendedor",
+        "Comisión Devengada − Comisión Retenida",
+        None,
+        recon.get("commission_owed") or 0.0,
+    )
     refs = {
         "net_due": _a1(net_row, 6),
         "tendered": _a1(tendered_row, 6),
         "difference": _a1(diff_row, 6),
     }
-    return diff_row, refs
+    return owed_row, refs
 
 
 def _write_table(workbook, fmt, name, columns, rows):

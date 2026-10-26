@@ -67,6 +67,19 @@ class CollectionSheetReport(models.Model):
         tracking=True,
         copy=False,
     )
+    commission_amount = fields.Monetary(
+        string="Seller Commission",
+        currency_field="currency_id",
+        compute="_compute_commission_amounts",
+        help="Computed from the allocations: each applied amount's untaxed "
+        "share times the seller commission %.",
+    )
+    commission_owed = fields.Monetary(
+        string="Commission Owed to Seller",
+        currency_field="currency_id",
+        compute="_compute_commission_amounts",
+        help="Seller commission minus the commission kept from cash.",
+    )
     cash_declared_at = fields.Datetime(copy=False, readonly=True)
     cash_declared_by = fields.Many2one(
         comodel_name="res.users",
@@ -226,6 +239,28 @@ class CollectionSheetReport(models.Model):
             currency = sheet.currency_id
             if currency.compare_amounts(sheet.commission_withheld or 0.0, 0.0) < 0:
                 raise ValidationError(_("The withheld commission cannot be negative."))
+
+    @api.depends(
+        "allocation_ids.line_ids.amount_applied",
+        "allocation_ids.line_ids.invoice_amount",
+        "allocation_ids.line_ids.invoice_amount_untaxed",
+        "allocation_ids.line_ids.document_kind",
+        "commission_percent",
+        "commission_withheld",
+    )
+    def _compute_commission_amounts(self):
+        """Sum the Planilla row commissions; owed is what was not kept from cash."""
+        for sheet in self:
+            currency = sheet._collection_report_currency()
+            percent = sheet.commission_percent or 0.0
+            amount = sum(
+                sheet._collection_line_commission(line, percent, currency)
+                for line in sheet.allocation_ids.line_ids
+                if (line.document_kind or "invoice") in _DOCUMENT_KIND_ORDER
+            )
+            owed = amount - (sheet.commission_withheld or 0.0)
+            sheet.commission_amount = amount
+            sheet.commission_owed = currency.round(owed) if currency else owed
 
     @api.depends("voucher_ids.document_type", "voucher_ids.amount")
     def _compute_cash_banked_totals(self):
@@ -436,6 +471,15 @@ class CollectionSheetReport(models.Model):
             return applied * untaxed / amount
         return applied
 
+    @api.model
+    @api.private
+    def _collection_line_commission(self, line, percent, currency):
+        """One Planilla row's commission: its base times ``percent``, rounded."""
+        applied = line.amount_applied or 0.0
+        return currency.round(
+            self._collection_commission_base(line, applied) * percent / 100.0
+        )
+
     @api.private
     def _collection_report_document_blocks(self, codes):
         """Split invoice then quotation blocks; drop empties; round then sum."""
@@ -450,9 +494,7 @@ class CollectionSheetReport(models.Model):
             partner = line.allocation_id.partner_id
             code = codes.get(partner.id, "") or ""
             applied = line.amount_applied or 0.0
-            commission = currency.round(
-                self._collection_commission_base(line, applied) * percent / 100.0
-            )
+            commission = self._collection_line_commission(line, percent, currency)
             grouped[kind].append(
                 (
                     self._collection_report_code_sort(code, partner.name)
@@ -617,6 +659,7 @@ class CollectionSheetReport(models.Model):
         self.ensure_one()
         currency = self._collection_report_currency()
         withheld = self.commission_withheld or 0.0
+        commission = self.commission_amount or 0.0
         net_due = collected - withheld
         tendered_total = tendered["total"]
         difference = tendered_total - net_due
@@ -629,7 +672,9 @@ class CollectionSheetReport(models.Model):
         }
         return {
             "collected": collected,
+            "commission": commission,
             "withheld": withheld,
+            "commission_owed": currency.round(commission - withheld),
             "net_due": net_due,
             "tendered": tendered_total,
             "difference": difference,

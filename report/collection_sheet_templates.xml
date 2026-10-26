@@ -542,6 +542,18 @@
                 />
                             </td>
                         </tr>
+                        <tr>
+                            <td>Comisión a Pagar al Vendedor</td>
+                            <td
+                class="o_cs_hint"
+              >Comisión Devengada − Comisión Retenida</td>
+                            <td class="o_cs_num">
+                                <span
+                  t-out="payload['recon']['commission_owed']"
+                  t-options="money"
+                />
+                            </td>
+                        </tr>
                     </table>
                     <h4>Composición de lo Rendido</h4>
                     <table class="o_cs_tendered o_cs_lines">

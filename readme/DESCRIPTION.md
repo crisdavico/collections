@@ -33,8 +33,12 @@ minus `commission_withheld`. Allocation lines carry required `document_kind` (`i
 `mismatch` flags when voucher totals disagree with allocation `total_vouchers`. Each
 row's seller commission is `commission_percent` of the untaxed share of what was applied
 (`amount_applied × invoice_amount_untaxed / invoice_amount`); the connector gives
-`amount_untaxed` per invoice (its total when it has none), lines keep it, and lines with
-none pay on `amount_applied`. `customer_debt` (MCP) does not return it.
+`amount_untaxed` per invoice (its total when it has none, and always for a quotation),
+lines keep it, and lines with none pay on `amount_applied`. `customer_debt` (MCP) does
+not return it. The sheet computes the seller's commission as the sum of those rows
+(Seller Commission, `commission_amount`); Commission Owed to Seller (`commission_owed`)
+is that commission minus the part kept from cash (`commission_withheld`), printed as
+Comisión a Pagar al Vendedor.
 
 Money rules. An allocation's collected money (`total_vouchers`) is the receipt values on
 its own receipts plus the full amount of each voucher pointing at it whose money was
@@ -46,10 +50,14 @@ non-cancelled sheets; a receipt cannot apply more than its values. An approved
 currency, and destination account: replacing its designated proof sends it back to
 Document Review (giving back any cash it replaced), and on closed or cancelled sheets
 the proof cannot change at all. A draft allocation can be deleted only while its sheet
-is open or submitted and it has no issued receipt. On a submitted sheet, the form's
-Declare Cash button declares the commission typed in Commission Withheld, as
-`declare_collection_cash` does for the agent. The commission voucher Confirm mints stays
-in step with the declared commission after a Cancel and Reinstate.
+is open or submitted and it has no issued receipt. The agent tells the seller their
+commission: `close_collection_sheet` returns it, and the seller then says how much of it
+they kept from the cash. `declare_collection_cash` records that amount in Commission
+Withheld and refuses more than the commission or than the cash collected minus seller
+deposits. On a submitted sheet, the form's Declare Cash button declares the amount typed
+in Commission Withheld without that cap, so Collections can correct it. The commission
+voucher Confirm mints stays in step with the declared commission after a Cancel and
+Reinstate.
 
 Per-company Collection Settings (`res.company` + related `res.config.settings`; XMLID
 `collection.action_collection_config_settings`) control enabled sellers (empty = none

@@ -1005,10 +1005,25 @@ msgid "Comisión"
 msgstr ""
 
 #. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Comisión Devengada − Comisión Retenida"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Comisión a Pagar al Vendedor"
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_connector_seller_binding__commission_percent
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_company_settings_form
 msgid "Commission %"
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_sheet__commission_owed
+msgid "Commission Owed to Seller"
 msgstr ""
 
 #. module: collection
@@ -1090,6 +1105,13 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Comprobantes"
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_sheet__commission_amount
+msgid ""
+"Computed from the allocations: each applied amount's untaxed share times the"
+" seller commission %."
 msgstr ""
 
 #. module: collection
@@ -3136,6 +3158,7 @@ msgstr ""
 
 #. module: collection
 #: model:collection.document.type,name:collection.document_type_seller_commission
+#: model:ir.model.fields,field_description:collection.field_collection_sheet__commission_amount
 msgid "Seller Commission"
 msgstr ""
 
@@ -3171,6 +3194,11 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "Seller commission exceeds replaceable cash."
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_sheet__commission_owed
+msgid "Seller commission minus the commission kept from cash."
 msgstr ""
 
 #. module: collection
@@ -3990,6 +4018,20 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/tools/collection_sheet_close.py:0
 msgid "close_collection_sheet"
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_cash_declare.py:0
+msgid ""
+"commission_withheld cannot exceed the cash collected minus seller deposits, "
+"%(amount)s."
+msgstr ""
+
+#. module: collection
+#. odoo-python
+#: code:addons/collection/tools/collection_cash_declare.py:0
+msgid "commission_withheld cannot exceed the seller commission of %(amount)s."
 msgstr ""
 
 #. module: collection

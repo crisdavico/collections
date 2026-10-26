@@ -156,8 +156,11 @@ Document blocks MUST split `allocation_ids.line_ids` by `document_kind` (`invoic
 applied: `applied * invoice_amount_untaxed / invoice_amount` when
 `0 < invoice_amount_untaxed < invoice_amount`, else `applied`. Block
 `subtotal_commission` MUST be the sum of those rounded rows (MUST NOT be
-`subtotal_applied × percent`). Percent 0 MUST yield zero commission.
-(Previously: `base` was always `applied`.)
+`subtotal_applied × percent`). Percent 0 MUST yield zero commission. A quotation's
+untaxed amount is its total, so it pays on `applied`. The sheet's computed
+`commission_amount` MUST equal the sum of every block's `subtotal_commission`, and
+`commission_owed` MUST be `commission_amount − commission_withheld`.
+(Previously: `base` was always `applied`. The sheet held no computed commission.)
 
 #### Scenario: Kind split drops empty
 
@@ -187,6 +190,15 @@ applied: `applied * invoice_amount_untaxed / invoice_amount` when
 - GIVEN `commission_percent` 0 and applied lines
 - WHEN document blocks are built
 - THEN every row commission and every block subtotal MUST be 0
+
+#### Scenario: The sheet computes the commission
+
+- GIVEN `commission_percent` 10, an invoice line applying 605 of 1210 (untaxed 1000)
+  and a quotation line applying 200 of 400
+- WHEN the sheet is read
+- THEN `commission_amount` MUST be 70.00, the sum of the block subtotals
+- AND after 30.00 of a 50.00 commission is kept from cash, `commission_owed` MUST be
+  20.00
 
 ### Requirement: Voucher blocks and tendered
 
@@ -267,15 +279,18 @@ and transfers — no echeck, retention, or `seller_deposit`.)
 
 ### Requirement: Reconciliation status and mismatch
 
-`recon` MUST set `collected`, `withheld`, `net_due`, `tendered`, `difference`, `status`,
-and `status_message`. Status MUST be `currency.compare_amounts(difference, 0.0)` →
+`recon` MUST set `collected`, `commission` (the computed `commission_amount`),
+`withheld`, `commission_owed`, `net_due`, `tendered`, `difference`, `status`, and
+`status_message`. PDF and XLSX MUST print "Comisión a Pagar al Vendedor" with
+`commission_owed` after the Diferencia line. Status MUST be `currency.compare_amounts(difference, 0.0)` →
 `balanced` / `in_favor` / `outstanding`. `mismatch` MUST be set when Σ allocation
 `total_vouchers` ≠ Σ printed collected voucher amounts (unallocated non-remittance sheet
 vouchers). `seller_deposit` MUST NOT set `mismatch` and MUST NOT inflate
 `collected_total`. When `mismatch` is set, PDF and XLSX MUST print one warning naming
 `allocated_collected`, `collected_total`, and their absolute gap. (Previously: Any
 unallocated sheet voucher, including a future remittance, set `mismatch` and was
-included in `collected_total`; the warning named no amounts and the XLSX showed none.)
+included in `collected_total`; the warning named no amounts and the XLSX showed none.
+`recon` carried no `commission` or `commission_owed`.)
 
 #### Scenario: Tri-state via compare_amounts
 

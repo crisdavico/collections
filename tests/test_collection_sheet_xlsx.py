@@ -543,6 +543,27 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIn("Retenciones", arch)
         self.assertIn("Depósitos del vendedor", arch)
 
+    def test_qweb_recon_shows_the_commission_owed_to_the_seller(self):
+        """QWeb recon MUST print the commission owed to the seller."""
+        arch = QWEB_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("payload['recon']['commission_owed']", arch)
+        self.assertIn("Comisión a Pagar al Vendedor", arch)
+
+    def test_xlsx_recon_shows_the_commission_owed_to_the_seller(self):
+        """XLSX recon MUST show the commission minus what was kept from cash."""
+        sheet, _partner = self._populated_sheet(
+            amount=200.0, commission_percent=10.0, commission_withheld=5.0
+        )
+        content, payload = self._render_xlsx(sheet)
+        self.assertEqual(payload["recon"]["commission_owed"], 15.0)
+        worksheet = self._load(content).active
+        cached = self._load(content, data_only=True).active
+        label = self._cell_with_value(worksheet, "Comisión a Pagar al Vendedor")
+        self.assertIsNotNone(label)
+        self.assertAlmostEqual(
+            float(cached.cell(label.row, label.column + 6).value), 15.0, places=2
+        )
+
     def test_action_print_xlsx_act_url_and_attachment(self):
         """action_print_xlsx MUST return act_url download and one xlsx attachment."""
         sheet, _partner = self._populated_sheet()
@@ -662,8 +683,10 @@ class TestCollectionSheetXlsx(TransactionCase):
         recon_names = [node.get("name") for node in inner[1].xpath("./field")]
         for field_name in (
             "commission_percent",
+            "commission_amount",
             "cash_on_hand",
             "commission_withheld",
+            "commission_owed",
         ):
             self.assertIn(field_name, recon_names, field_name)
 
