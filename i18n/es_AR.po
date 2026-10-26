@@ -40,12 +40,12 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "(=) Diferencia"
+msgid "(=) A entregar por el Vendedor"
 msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "(=) Neto a Rendir"
+msgid "(=) Diferencia"
 msgstr ""
 
 #. module: collection
@@ -78,6 +78,11 @@ msgid ""
 msgstr ""
 "Un cheque diferido debe tener una fecha de pago posterior a la fecha de "
 "emisión."
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "A entregar por el Vendedor"
+msgstr ""
 
 #. module: collection
 #. odoo-python
@@ -1173,7 +1178,7 @@ msgstr "Cuentas bancarias de la empresa"
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Composición de lo Rendido"
+msgid "Composición de lo Entregado"
 msgstr ""
 
 #. module: collection
@@ -1552,6 +1557,11 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Deuda sin cobrar"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Diferencia"
 msgstr ""
 
@@ -1868,6 +1878,16 @@ msgstr "Cargada en el ERP"
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__erp_entered_uid
 msgid "Entered in the ERP by"
 msgstr "Cargada en el ERP por"
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Entregado por el Vendedor"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Entregado − A entregar"
+msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
@@ -2356,11 +2376,6 @@ msgstr "Fecha límite de mi actividad"
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__name
 msgid "Name"
 msgstr "Nombre"
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Neto a Rendir"
-msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__activity_calendar_event_id
@@ -2870,7 +2885,7 @@ msgstr "Comprobante de pago aprobado."
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet_report.py:0
-msgid "Pendiente de rendir"
+msgid "Pendiente de entregar"
 msgstr ""
 
 #. module: collection
@@ -3086,11 +3101,6 @@ msgid "Reinstate"
 msgstr "Restablecer"
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Remanente"
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
 msgid "Remove from Sheet"
@@ -3124,11 +3134,6 @@ msgstr ""
 "¿Quitar este comprobante de la planilla y de su asignación? Deja de pagar "
 "los documentos del cliente; si hace falta, bajá los importes aplicados de la"
 " asignación."
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Rendido − Neto a Rendir"
-msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_voucher__replaced_amount
@@ -3878,11 +3883,6 @@ msgstr "Total de facturas"
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__total_quotations
 msgid "Total Quotations"
 msgstr "Total de presupuestos"
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Total Rendido"
-msgstr ""
 
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_receipt__total_values

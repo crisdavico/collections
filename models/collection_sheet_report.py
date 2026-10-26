@@ -668,7 +668,7 @@ class CollectionSheetReport(models.Model):
         messages = {
             "balanced": _("Cuadrada"),
             "in_favor": _("A favor del vendedor"),
-            "outstanding": _("Pendiente de rendir"),
+            "outstanding": _("Pendiente de entregar"),
         }
         return {
             "collected": collected,

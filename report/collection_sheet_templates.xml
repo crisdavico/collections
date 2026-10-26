@@ -129,8 +129,8 @@
                     <!-- The answer first: what was due, what was handed in. -->
                     <table class="o_cs_verdict">
                         <tr>
-                            <th>Neto a Rendir</th>
-                            <th>Total Rendido</th>
+                            <th>A entregar por el Vendedor</th>
+                            <th>Entregado por el Vendedor</th>
                             <th>Diferencia</th>
                         </tr>
                         <tr>
@@ -229,7 +229,7 @@
                             </td>
                         </tr>
                         <tr>
-                            <th>Remanente</th>
+                            <th>Deuda sin cobrar</th>
                             <td class="o_cs_num">
                                 <span
                   t-out="payload['customer_totals']['residual']"
@@ -255,7 +255,7 @@
                                 <th class="o_cs_num">Saldo Total</th>
                                 <th class="o_cs_num">Cobrado</th>
                                 <th class="o_cs_num">Aplicado</th>
-                                <th class="o_cs_num">Remanente</th>
+                                <th class="o_cs_num">Deuda sin cobrar</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -511,7 +511,7 @@
                             </td>
                         </tr>
                         <tr class="o_cs_strong">
-                            <td>(=) Neto a Rendir</td>
+                            <td>(=) A entregar por el Vendedor</td>
                             <td
                 class="o_cs_hint"
               >lo que tenía que entregar a la empresa</td>
@@ -523,7 +523,7 @@
                             </td>
                         </tr>
                         <tr>
-                            <td>Total Rendido</td>
+                            <td>Entregado por el Vendedor</td>
                             <td class="o_cs_hint">lo que entregó; detalle abajo</td>
                             <td class="o_cs_num">
                                 <span
@@ -534,7 +534,7 @@
                         </tr>
                         <tr class="o_cs_strong">
                             <td>(=) Diferencia</td>
-                            <td class="o_cs_hint">Rendido − Neto a Rendir</td>
+                            <td class="o_cs_hint">Entregado − A entregar</td>
                             <td class="o_cs_num">
                                 <span
                   t-out="payload['recon']['difference']"
@@ -555,7 +555,7 @@
                             </td>
                         </tr>
                     </table>
-                    <h4>Composición de lo Rendido</h4>
+                    <h4>Composición de lo Entregado</h4>
                     <table class="o_cs_tendered o_cs_lines">
                         <tr>
                             <td>Efectivo en Caja</td>

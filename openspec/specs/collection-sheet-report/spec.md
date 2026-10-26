@@ -3,7 +3,7 @@
 ## Purpose
 
 Operators MUST print a Planilla de Cobranza from `collection.sheet` as PDF and XLSX with
-identical Total Cobrado, Total Aplicado, Remanente, Total Comisión, and Diferencia.
+identical Total Cobrado, Total Aplicado, Deuda sin cobrar, Total Comisión, and Diferencia.
 
 ## Requirements
 
@@ -114,7 +114,7 @@ printed as Saldo Total before Cobrado). `customer_totals` MUST include `debt`. V
 `number` MUST be `voucher_number` for transfers/deposits and `check_number` (or blank)
 for checks — MUST NOT be the COL sequence name. Check rows MUST include `check_bank`,
 `check_type`, and `check_payment_date`. (Previously: Print-includes voucher keys were
-pending/approved/rejected. Clientes omitted Saldo Total so Remanente looked like Cobrado
+pending/approved/rejected. Clientes omitted Saldo Total so Deuda sin cobrar looked like Cobrado
 − Aplicado.)
 
 #### Scenario: Primitive nested values
@@ -389,10 +389,10 @@ printed date. Clientes **Saldo Total** and **Aplicado** MUST be
 `SUMIF` of Facturas/Presupuestos Saldo/Aplicado on a hidden per-customer key column right
 of the print area (one key per partner, from the payload `partner_id`; MUST NOT match on
 the customer name), **Cobrado** MUST be `SUMIF` of comprobante Importe on that key, and
-**Remanente** MUST be `Saldo Total − Aplicado` (cached payload values). The workbook MUST
+**Deuda sin cobrar** MUST be `Saldo Total − Aplicado` (cached payload values). The workbook MUST
 be created with `strings_to_formulas` and `strings_to_urls` off (shared
 `WORKBOOK_OPTIONS`), so free text starting with `=` or looking like a URL stays text;
-intentional formulas MUST go through `write_formula`. Totales Remanente MUST reference the
+intentional formulas MUST go through `write_formula`. Totales Deuda sin cobrar MUST reference the
 Clientes remanente total (MUST NOT `=C11-G11`). Odoo `commission_percent` 0–100 MUST be written as
 `percent / 100.0` into a `0.0%` cell. Banner text and fill MUST follow `recon.status`.
 Header **Export XLSX** MUST be last in `<header>` before `state`. Notebook MUST be the
@@ -405,32 +405,32 @@ aplicado.)
 
 ### Requirement: Verdict-first layout and shared vocabulary
 
-PDF and XLSX MUST open, right under the title, with the verdict: **Neto a Rendir**,
-**Total Rendido**, and **Diferencia** (`recon` `net_due`, `tendered`, `difference`)
+PDF and XLSX MUST open, right under the title, with the verdict: **A entregar por el Vendedor**,
+**Entregado por el Vendedor**, and **Diferencia** (`recon` `net_due`, `tendered`, `difference`)
 followed by the status banner and, when set, the mismatch warning. XLSX rows: section
 "Resultado" on row 6, labels on row 7, values on row 8 as formulas referencing the
 Conciliación cells (cached payload values), banner on row 9, mismatch on row 10; the
 banner MUST NOT repeat below the Conciliación. "Resumen" MUST be split into **Datos de la
 Planilla** (Referencia, Estado, Vendedor, Desde, Hasta, Moneda, Cantidad de Clientes,
 Cantidad de Comprobantes, % Comisión Vendedor) and **Totales** (Total Cobrado, Total
-Aplicado, Remanente, Total Comisión Devengada). Both formats MUST use the same labels:
+Aplicado, Deuda sin cobrar, Total Comisión Devengada). Both formats MUST use the same labels:
 Documento, Vencimiento, Fecha de Emisión, Fecha de Pago,
-Nº Comprobante, Conciliación del Vendedor, Composición de lo Rendido, (−) Comisión
-Retenida por el Vendedor, (=) Neto a Rendir, Total Rendido, (=) Diferencia, Depósitos de
+Nº Comprobante, Conciliación del Vendedor, Composición de lo Entregado, (−) Comisión
+Retenida por el Vendedor, (=) A entregar por el Vendedor, Entregado por el Vendedor, (=) Diferencia, Depósitos de
 clientes, Depósitos del vendedor. Customer deposits MUST be explained as "el cliente
 depositó en la cuenta de la empresa" and seller deposits as "el vendedor depositó en el
 banco el efectivo cobrado" (PDF hint column; XLSX note row under the composition).
 
-Clientes MUST end at Remanente in both formats; customer rows MUST NOT carry
+Clientes MUST end at Deuda sin cobrar in both formats; customer rows MUST NOT carry
 `residual_reason` (the field was dropped in 19.0.1.32.0). (Previously: an always-empty
 Motivo / Motivo del Remanente column.)
 
 The PDF MUST print grand totals: a Clientes **Total** row, a **Total Aplicado** row after
 the Facturas/Presupuestos blocks (applied and commission), and a **Total Cobrado** row
 after the Comprobantes blocks. Its Conciliación MUST read as a calculation, top to
-bottom: Total Cobrado, (−) Comisión Retenida por el Vendedor, (=) Neto a Rendir, Total
-Rendido, (=) Diferencia, each with a short hint, followed by **Composición de lo
-Rendido**. It MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
+bottom: Total Cobrado, (−) Comisión Retenida por el Vendedor, (=) A entregar por el
+Vendedor, Entregado por el Vendedor, (=) Diferencia, each with a short hint, followed by
+**Composición de lo Entregado**. It MUST end with signature lines "Firma del vendedor" and "Recibió — firma y
 aclaración".
 
 The XLSX MUST add two flat worksheets after the Planilla, **Documentos** and
@@ -447,7 +447,7 @@ active worksheet; only it takes the template column widths.
 
 - GIVEN a saved sheet with allocations and vouchers
 - WHEN the PDF HTML and the XLSX render
-- THEN Neto a Rendir, Total Rendido, Diferencia, and the banner MUST come before Datos
+- THEN A entregar por el Vendedor, Entregado por el Vendedor, Diferencia, and the banner MUST come before Datos
   de la Planilla, Totales, and Clientes
 - AND the XLSX verdict values MUST cache `recon` `net_due`, `tendered`, `difference`
 
@@ -476,7 +476,7 @@ active worksheet; only it takes the template column widths.
   `None`)
 - AND Clientes Saldo Total / Cobrado / Aplicado MUST be SUMIF formulas on the hidden
   customer-key column
-- AND Clientes Remanente MUST be Saldo Total minus Aplicado
+- AND Clientes Deuda sin cobrar MUST be Saldo Total minus Aplicado
 
 #### Scenario: Percent scale 0–100 to 0.0%
 

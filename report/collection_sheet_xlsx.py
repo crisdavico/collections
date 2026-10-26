@@ -404,7 +404,7 @@ def _write_verdict(ws, workbook, fmt, payload, refs):
     recon = payload.get("recon") or {}
     _write_section(ws, fmt, VERDICT_START, "Resultado")
     columns = ((0, 1), (2, 4), (5, 7))
-    labels = ("Neto a Rendir", "Total Rendido", "Diferencia")
+    labels = ("A entregar por el Vendedor", "Entregado por el Vendedor", "Diferencia")
     keys = ("net_due", "tendered", "difference")
     for (c1, c2), label in zip(columns, labels, strict=True):
         _merge(ws, VERDICT_START + 1, c1, c2, label, fmt["verdict_label"])
@@ -512,7 +512,7 @@ def _write_datos(
         )
     else:
         _merge(ws, totals + 1, 6, 7, applied, fmt["value_money"])
-    _merge(ws, totals + 2, 0, 1, "Remanente", fmt["label"])
+    _merge(ws, totals + 2, 0, 1, "Deuda sin cobrar", fmt["label"])
     if residual_ref:
         _merge_formula(
             ws, totals + 2, 2, 3, f"={residual_ref}", fmt["value_money"], residual
@@ -560,7 +560,7 @@ def _write_customers(ws, fmt, payload, start):
             ("Saldo Total", 2, 2),
             ("Cobrado", 3, 3),
             ("Aplicado", 4, 4),
-            ("Remanente", 5, 5),
+            ("Deuda sin cobrar", 5, 5),
         ),
     )
     for index, item in enumerate(rows):
@@ -841,7 +841,7 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
         fmt,
         start + 1,
         (
-            ("Composición de lo Rendido", 0, 2),
+            ("Composición de lo Entregado", 0, 2),
             ("Efectivo en Caja", 3, 3),
             ("Depósitos de clientes", 4, 4),
             ("Cheques", 5, 5),
@@ -849,7 +849,7 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
             ("Echeqs", 7, 7),
             ("Retenciones", 8, 8),
             ("Depósitos del vendedor", 9, 9),
-            ("Total Rendido", 10, 10),
+            ("Entregado por el Vendedor", 10, 10),
         ),
     )
     data_row = start + 2
@@ -914,7 +914,7 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
     )
     _recon_line(
         net_row,
-        "(=) Neto a Rendir",
+        "(=) A entregar por el Vendedor",
         "lo que tenía que entregar a la empresa",
         f"={_a1(collected_row, 6)}-{_a1(withheld_row, 6)}",
         recon.get("net_due") or 0.0,
@@ -922,7 +922,7 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
     )
     _recon_line(
         tendered_row,
-        "Total Rendido",
+        "Entregado por el Vendedor",
         "lo que entregó — efectivo, depósitos, cheques y transferencias",
         f"={_a1(data_row, 10)}",
         recon.get("tendered") or 0.0,
@@ -930,7 +930,7 @@ def _write_recon(ws, fmt, payload, start, voucher_subtotals):
     _recon_line(
         diff_row,
         "(=) Diferencia",
-        "Rendido − Neto a Rendir",
+        "Entregado − A entregar",
         f"={_a1(tendered_row, 6)}-{_a1(net_row, 6)}",
         recon.get("difference") or 0.0,
         total=True,

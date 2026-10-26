@@ -806,7 +806,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertAlmostEqual(
             float(cached.cell(remanente.row, remanente.column).value), 241.5, places=2
         )
-        resumen_rem = self._cell_with_value(worksheet, "Remanente")
+        resumen_rem = self._cell_with_value(worksheet, "Deuda sin cobrar")
         self.assertIsNotNone(resumen_rem)
         resumen_formula = str(
             worksheet.cell(resumen_rem.row, resumen_rem.column + 2).value or ""
@@ -1016,7 +1016,7 @@ class TestCollectionSheetXlsx(TransactionCase):
                     )
 
     def test_xlsx_verdict_comes_first(self):
-        """Neto a Rendir, Total Rendido, Diferencia and the banner MUST lead."""
+        """A entregar, Entregado, Diferencia and the banner MUST lead."""
         sheet, _partner = self._populated_sheet(amount=125.5)
         content, payload = self._render_xlsx(sheet)
         worksheet = self._load(content).active
@@ -1029,8 +1029,8 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIsNone(self._cell_with_value(worksheet, "Resumen"))
         recon = payload["recon"]
         for label, key in (
-            ("Neto a Rendir", "net_due"),
-            ("Total Rendido", "tendered"),
+            ("A entregar por el Vendedor", "net_due"),
+            ("Entregado por el Vendedor", "tendered"),
             ("Diferencia", "difference"),
         ):
             with self.subTest(label=label):
@@ -1099,7 +1099,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIn("el vendedor depositó en el banco el efectivo cobrado", note)
 
     def test_xlsx_clientes_has_no_motivo_column(self):
-        """Clientes MUST end at Remanente: no Motivo del Remanente column."""
+        """Clientes MUST end at Deuda sin cobrar: no Motivo del Remanente column."""
         sheet, _partner = self._populated_sheet()
         content, _payload = self._render_xlsx(sheet)
         worksheet = self._load(content).active
@@ -1114,7 +1114,7 @@ class TestCollectionSheetXlsx(TransactionCase):
                 "Saldo Total",
                 "Cobrado",
                 "Aplicado",
-                "Remanente",
+                "Deuda sin cobrar",
                 None,
                 None,
             ],

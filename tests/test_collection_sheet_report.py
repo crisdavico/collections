@@ -368,10 +368,10 @@ class TestCollectionSheetReport(TransactionCase):
             "Fecha de Emisión",
             "Fecha de Pago",
             "Nº Comprobante",
-            "Composición de lo Rendido",
+            "Composición de lo Entregado",
             "(−) Comisión Retenida por el Vendedor",
-            "(=) Neto a Rendir",
-            "Total Rendido",
+            "(=) A entregar por el Vendedor",
+            "Entregado por el Vendedor",
             "(=) Diferencia",
             "Depósitos de clientes",
             "Depósitos del vendedor",
@@ -412,12 +412,16 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertNotIn('class="header"', html)
 
     def test_html_verdict_comes_before_the_detail(self):
-        """Neto a Rendir, Total Rendido, Diferencia and the banner MUST lead."""
+        """A entregar, Entregado, Diferencia and the banner MUST lead."""
         sheet, _partner = self._populated_sheet()
         payload = sheet._collection_report_data()
         html = self._render_html(sheet)
         verdict = html.index('class="o_cs_verdict"')
-        for label in ("Neto a Rendir", "Total Rendido", "Diferencia"):
+        for label in (
+            "A entregar por el Vendedor",
+            "Entregado por el Vendedor",
+            "Diferencia",
+        ):
             with self.subTest(label=label):
                 self.assertLess(verdict, html.index(label, verdict))
         banner = html.index(payload["recon"]["status_message"])
@@ -467,7 +471,7 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn("340.00", customers[: customers.index("</tr>")])
 
     def test_html_reconciliation_reads_as_a_calculation(self):
-        """Recon MUST read Cobrado, (−) Retenida, (=) Neto, Rendido, (=) Diferencia."""
+        """Recon MUST read Cobrado, Retenida, A entregar, Entregado, Diferencia."""
         sheet, _partner = self._populated_sheet()
         html = self._render_html(sheet)
         recon = html[html.index("Conciliación del Vendedor") :]
@@ -476,10 +480,10 @@ class TestCollectionSheetReport(TransactionCase):
             for label in (
                 "Total Cobrado",
                 "(−) Comisión Retenida por el Vendedor",
-                "(=) Neto a Rendir",
-                "Total Rendido",
+                "(=) A entregar por el Vendedor",
+                "Entregado por el Vendedor",
                 "(=) Diferencia",
-                "Composición de lo Rendido",
+                "Composición de lo Entregado",
             )
         ]
         self.assertEqual(positions, sorted(positions))

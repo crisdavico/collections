@@ -657,14 +657,14 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   current only. `reviewed_by` / `reviewed_at` stay on the model and leave the form.
   Print → Planilla de Cobranza is bound `qweb-pdf` (`web.html_container` only: no
   company header; own footer with "Impreso el" and "Página X de Y"; `t-out`). Both
-  reports open with the verdict (Neto a Rendir / Total Rendido / Diferencia + banner)
-  and share one vocabulary. Header **Collection Sheet XLSX** is last object button
-  before `state` (`action_print_xlsx` → `/web/content/{id}?download=true`). Recon fields
-  sit in a second inner `<group>` on the Allocations page. Shared
-  `_collection_report_data()` feeds both writers in every sheet state; print includes
-  draft allocations/vouchers; `mismatch` when voucher SUM ≠ allocation `total_vouchers`
-  (`allocated_collected` carries the allocation side for the warning). MUST NOT
-  `sudo()`.
+  reports open with the verdict (A entregar por el Vendedor / Entregado por el Vendedor
+  / Diferencia + banner) and share one vocabulary. Header **Collection Sheet XLSX** is
+  last object button before `state` (`action_print_xlsx` →
+  `/web/content/{id}?download=true`). Recon fields sit in a second inner `<group>` on
+  the Allocations page. Shared `_collection_report_data()` feeds both writers in every
+  sheet state; print includes draft allocations/vouchers; `mismatch` when voucher SUM ≠
+  allocation `total_vouchers` (`allocated_collected` carries the allocation side for the
+  warning). MUST NOT `sudo()`.
 - **Odoo 19:** use `<list>` not `<tree>`; `models.Constraint` not `_sql_constraints`;
   `t-out` not `t-esc`; `@api.ondelete` for delete rules.
 

@@ -39,12 +39,12 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "(=) Diferencia"
+msgid "(=) A entregar por el Vendedor"
 msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "(=) Neto a Rendir"
+msgid "(=) Diferencia"
 msgstr ""
 
 #. module: collection
@@ -74,6 +74,11 @@ msgstr ""
 #: code:addons/collection/models/collection_voucher.py:0
 msgid ""
 "A deferred check must have a payment date strictly after the issue date."
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "A entregar por el Vendedor"
 msgstr ""
 
 #. module: collection
@@ -1093,7 +1098,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Composición de lo Rendido"
+msgid "Composición de lo Entregado"
 msgstr ""
 
 #. module: collection
@@ -1459,6 +1464,11 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Deuda sin cobrar"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
 msgid "Diferencia"
 msgstr ""
 
@@ -1761,6 +1771,16 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_sheet__erp_entered_uid
 msgid "Entered in the ERP by"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Entregado por el Vendedor"
+msgstr ""
+
+#. module: collection
+#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
+msgid "Entregado − A entregar"
 msgstr ""
 
 #. module: collection
@@ -2227,11 +2247,6 @@ msgstr ""
 #: model:ir.model.fields,field_description:collection.field_collection_connector__name
 #: model:ir.model.fields,field_description:collection.field_collection_document_type__name
 msgid "Name"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Neto a Rendir"
 msgstr ""
 
 #. module: collection
@@ -2703,7 +2718,7 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet_report.py:0
-msgid "Pendiente de rendir"
+msgid "Pendiente de entregar"
 msgstr ""
 
 #. module: collection
@@ -2905,11 +2920,6 @@ msgid "Reinstate"
 msgstr ""
 
 #. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Remanente"
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_voucher_form
 msgid "Remove from Sheet"
@@ -2934,11 +2944,6 @@ msgstr ""
 msgid ""
 "Remove this voucher from the sheet and its allocation? It stops paying the "
 "customer's documents; lower the allocation's applied amounts if needed."
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Rendido − Neto a Rendir"
 msgstr ""
 
 #. module: collection
@@ -3642,11 +3647,6 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,field_description:collection.field_collection_allocation__total_quotations
 msgid "Total Quotations"
-msgstr ""
-
-#. module: collection
-#: model_terms:ir.ui.view,arch_db:collection.report_collection_sheet_document
-msgid "Total Rendido"
 msgstr ""
 
 #. module: collection
