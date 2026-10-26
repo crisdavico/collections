@@ -357,7 +357,7 @@ Every type owns `amount`, which MUST be positive; there is no `unsupported` type
 any unknown code MUST be refused. `cash` MUST persist with
 `amount` and optional `voucher_date` and MUST NOT require designated proof.
 `seller_deposit` MUST persist with `amount`, `voucher_number`, and `voucher_date`, MAY
-have designated proof, and MUST use the sentinel partner.
+have designated proof, and MUST use the seller's own partner.
 
 | `document_type`         | Type-owned fields                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------------------- |
@@ -367,7 +367,7 @@ have designated proof, and MUST use the sentinel partner.
 | `cash_deposit`          | `amount`, `to_account`, `voucher_number`, `voucher_date`                                       |
 | `retention_certificate` | `amount`, `voucher_number`, `voucher_date`, `retention_kind`                                   |
 | `cash`                  | `amount`, `voucher_date`; no proof                                                             |
-| `seller_deposit`        | `amount`, `voucher_number`, `voucher_date`; sentinel partner                                   |
+| `seller_deposit`        | `amount`, `voucher_number`, `voucher_date`; seller's partner                                   |
 
 (Previously: an `unsupported` discriminator-only type existed; removed in
 `19.0.1.51.0`. Before that: Seven types only; no `seller_deposit`.)
@@ -409,10 +409,10 @@ have designated proof, and MUST use the sentinel partner.
 #### Scenario: Persist seller_deposit
 
 - GIVEN a `seller_deposit` voucher with `amount`, `voucher_number`, `voucher_date`, and
-  the sentinel partner
+  a seller
 - WHEN saved
 - THEN the voucher MUST persist those values
-- AND `partner_id` MUST remain the sentinel
+- AND `partner_id` MUST be the seller's partner
 
 ### Requirement: Payment Vouchers UI
 
@@ -1397,39 +1397,42 @@ union was `19.0.1.40.0`.)
 - THEN MUST raise `UserError`
 - AND no voucher MUST persist
 
-### Requirement: Sentinel partner for customerless vouchers
+### Requirement: Seller partner for customerless vouchers
 
-The system MUST seed two noupdate sentinel partners: XMLID
-`collection.partner_seller_deposit` (name `Seller Deposit`) and
-`collection.partner_seller_commission` (name `Seller Commission`), both with
-`company_id` unset, reachable through `_seller_deposit_partner()` and
-`_seller_commission_partner()`. Seeding MUST be idempotent. `partner_id` MUST remain
-required. Voucher create MUST stamp the sentinel matching `document_type` for every code
-in that type→sentinel map, MUST refuse a `customer_identification`, and MUST refuse a
-`partner_id` that is any partner other than that type's sentinel. Codes outside the map
-MUST keep requiring a real customer `partner_id`. (Previously: One sentinel for
-`seller_deposit`, stamped by a `seller_deposit`-only `_apply_seller_deposit_partner`.
-Before that: Every voucher required a real customer partner; no remittance sentinel.)
+`seller_deposit` and `seller_commission` (`_SELLER_PARTNER_TYPES`) are the seller's
+money, not a customer's payment: their `partner_id` MUST be the seller's own partner
+(`seller_id.partner_id`, else the sheet seller's). `partner_id` MUST remain required.
+Voucher create MUST stamp that partner, MUST refuse a `customer_identification`, MUST
+refuse a `partner_id` that is any other partner, and MUST refuse with `A seller is
+required.` when there is no seller. Changing `seller_id` MUST move the partner of those
+vouchers to the new seller's partner and MUST leave any other voucher's partner alone.
+Codes outside `_SELLER_PARTNER_TYPES` MUST keep requiring a real customer `partner_id`.
+The seller's partner sits in the seller's company (the seller import sets it), so a
+Collections User's company boundary can read it. A data update MUST move vouchers off
+the legacy shared partners `collection.partner_seller_deposit` and
+`collection.partner_seller_commission` to their seller's partner and archive those
+partners; it MUST be idempotent. (Previously: two seeded sentinel partners with no
+company, which the Collections company boundary could not read -- the Conciliación
+board's Restablecer raised `AccessError` on them. Before that: one sentinel for
+`seller_deposit` only. Before that: every voucher required a real customer partner.)
 
-#### Scenario: Deposit stamps sentinel
+#### Scenario: Deposit stamps the seller's partner
 
-- GIVEN a lawful `seller_deposit` create
+- GIVEN a lawful `seller_deposit` create with a seller
 - WHEN persist completes
-- THEN `partner_id` MUST be the sentinel
-- AND MUST NOT be empty
+- THEN `partner_id` MUST be the seller's partner
 
 #### Scenario: Customer identification refused
 
 - GIVEN `create_seller_deposit` or ORM create of `seller_deposit`
-- WHEN a customer identification or non-sentinel `partner_id` is supplied
+- WHEN a customer identification or another `partner_id` is supplied
 - THEN MUST refuse with no write
 
-#### Scenario: Commission stamps its own sentinel
+#### Scenario: Commission stamps the seller's partner
 
 - GIVEN a `seller_commission` voucher created with no `partner_id`
 - WHEN create completes
-- THEN `partner_id` MUST be `collection.partner_seller_commission`
-- AND MUST NOT be the `seller_deposit` sentinel
+- THEN `partner_id` MUST be the seller's partner
 
 #### Scenario: Customer partner refused on a commission
 
@@ -1438,11 +1441,27 @@ Before that: Every voucher required a real customer partner; no remittance senti
 - THEN MUST raise `UserError`
 - AND no voucher MUST persist
 
-#### Scenario: Sentinel seeding is idempotent
+#### Scenario: Seller change moves the partner
 
-- GIVEN both sentinels already exist
-- WHEN the seed functions run again
-- THEN no duplicate partner MUST be created
+- GIVEN a `seller_deposit` and a customer voucher without a sheet
+- WHEN both are written to a new `seller_id`
+- THEN the deposit's `partner_id` MUST be the new seller's partner
+- AND the customer voucher's `partner_id` MUST NOT change
+
+#### Scenario: A Collections User reads the deposit partner
+
+- GIVEN a `seller_deposit` whose seller's partner is in the user's company
+- WHEN a company-restricted Collections User reads its `partner_id.display_name`
+- THEN it MUST return the seller's name with no `AccessError`
+
+#### Scenario: Legacy shared partners are migrated
+
+- GIVEN seller vouchers still on `collection.partner_seller_deposit` or
+  `collection.partner_seller_commission`
+- WHEN the module updates
+- THEN each MUST carry its seller's partner, customer vouchers MUST NOT change, and
+  both legacy partners MUST be archived
+- AND running it again MUST change nothing
 
 ### Requirement: Receipt values reverse relation and replaced_amount
 
@@ -1520,7 +1539,7 @@ Calls MUST use the authenticated user and MUST NOT `sudo()` (except to read
 `seller_id`, amount, `voucher_number`, `voucher_date`, and MAY accept nested
 `attachment`. The tool MUST NOT accept `customer_identification` or `sheet_id` from the
 caller. It MUST resolve the seller's own `open` sheet, or the `submitted` sheet when
-none is open, so a deposit can be loaded before Seller Close; then stamp the sentinel partner
+none is open, so a deposit can be loaded before Seller Close; then stamp the seller's partner
 and `document_type` `seller_deposit`, stamp `validated_seller`, pass that `sheet_id`
 explicitly, and require new-work for that seller and `seller_deposit`. The tool MUST NOT
 write `validated_collections`: the deposit slip is a reviewable designated proof, so the
@@ -1541,7 +1560,7 @@ queue. Before that: No MCP path could create a no-customer remittance voucher.)
   sheet
 - WHEN `create_seller_deposit` runs with amount, number, date, and the deposit slip file
 - THEN one `seller_deposit` voucher MUST persist on that sheet
-- AND `partner_id` MUST be the sentinel
+- AND `partner_id` MUST be the seller's partner
 - AND `state` MUST be `validated_seller`
 - AND no `sudo()` MUST occur
 

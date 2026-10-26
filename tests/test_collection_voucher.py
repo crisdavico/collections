@@ -17,9 +17,11 @@ from odoo.tools.sql import make_index_name
 from odoo.addons.collection.models.collection_common import privileged
 
 from .common_connector import confirm_sheet
+from .test_collection_acl import TestCollectionAcl
 from .test_collection_payment import (
     PDF_B64,
     PNG_B64,
+    create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
     post_voucher_proof,
@@ -505,10 +507,7 @@ class TestCollectionVoucher(TransactionCase):
         self.assertAlmostEqual(voucher.amount, 500.0, places=2)
         self.assertEqual(voucher.voucher_number, "SD-1")
         self.assertEqual(voucher.voucher_date, date(2026, 9, 8))
-        self.assertEqual(
-            voucher.partner_id,
-            self.env.ref("collection.partner_seller_deposit"),
-        )
+        self.assertEqual(voucher.partner_id, self.env.ref("base.user_admin").partner_id)
 
     def _enable_seller_deposit_type(self):
         catalog = self.env.ref("collection.document_type_seller_deposit")
@@ -517,8 +516,8 @@ class TestCollectionVoucher(TransactionCase):
         )
         return catalog
 
-    def test_seller_deposit_stamps_sentinel_partner(self):
-        """NEW seller_deposit create MUST stamp the seeded sentinel partner."""
+    def test_seller_deposit_stamps_seller_partner(self):
+        """NEW seller_deposit create MUST stamp the seller's own partner."""
         self._enable_seller_deposit_type()
         seller = self._ensure_enabled_seller()
         voucher = self.env["collection.voucher"].create(
@@ -530,10 +529,8 @@ class TestCollectionVoucher(TransactionCase):
                 "voucher_date": date(2026, 9, 8),
             }
         )
-        sentinel = self.env.ref("collection.partner_seller_deposit")
-        self.assertEqual(voucher.partner_id, sentinel)
+        self.assertEqual(voucher.partner_id, seller.partner_id)
         self.assertTrue(voucher.partner_id)
-        self.assertTrue(sentinel.id)
 
     def test_seller_deposit_refuses_customer_partner(self):
         """ORM seller_deposit MUST refuse a customer partner with no write."""
@@ -577,8 +574,8 @@ class TestCollectionVoucher(TransactionCase):
         )
         return catalog
 
-    def test_seller_commission_stamps_sentinel_partner(self):
-        """NEW seller_commission create MUST stamp its own sentinel, not deposit."""
+    def test_seller_commission_stamps_seller_partner(self):
+        """NEW seller_commission create MUST stamp the seller's own partner."""
         self._enable_seller_commission_type()
         seller = self._ensure_enabled_seller()
         voucher = self.env["collection.voucher"].create(
@@ -588,10 +585,7 @@ class TestCollectionVoucher(TransactionCase):
                 "amount": 300.0,
             }
         )
-        commission = self.env.ref("collection.partner_seller_commission")
-        deposit = self.env.ref("collection.partner_seller_deposit")
-        self.assertEqual(voucher.partner_id, commission)
-        self.assertNotEqual(commission, deposit)
+        self.assertEqual(voucher.partner_id, seller.partner_id)
         self.assertEqual(voucher.document_type, "seller_commission")
         self.assertAlmostEqual(voucher.amount, 300.0, places=2)
 
@@ -634,41 +628,160 @@ class TestCollectionVoucher(TransactionCase):
         self.assertIn("commission", str(ctx.exception).lower())
         self.assertEqual(set(Voucher.search([]).ids), before_ids)
 
-    def test_seller_commission_sentinel_seeding_is_idempotent(self):
-        """Re-running the commission seed MUST not duplicate the partner."""
-        Company = self.env["res.company"]
-        self.assertTrue(Company._collection_ensure_seller_commission_partner())
-        sentinel = Company._seller_commission_partner()
-        self.assertEqual(sentinel.name, "Seller Commission")
-        self.assertFalse(sentinel.company_id)
-        xmlids_before = self.env["ir.model.data"].search_count(
-            [
-                ("module", "=", "collection"),
-                ("name", "=", "partner_seller_commission"),
-            ]
+    def test_seller_deposit_without_seller_is_refused(self):
+        """A seller_deposit with no seller MUST refuse: it has no partner."""
+        self._enable_seller_deposit_type()
+        Voucher = self.env["collection.voucher"]
+        before_ids = set(Voucher.search([]).ids)
+        with self.assertRaises(UserError) as ctx:
+            Voucher.create(
+                {
+                    "document_type": "seller_deposit",
+                    "amount": 100.0,
+                    "voucher_number": "SD-NOSELLER",
+                    "voucher_date": date(2026, 9, 8),
+                }
+            )
+        self.assertIn("seller is required", str(ctx.exception).lower())
+        self.assertEqual(set(Voucher.search([]).ids), before_ids)
+
+    def test_seller_change_moves_only_seller_voucher_partners(self):
+        """A new seller MUST move the seller voucher's partner, not a customer's."""
+        self._enable_seller_deposit_type()
+        # Off a sheet: a sheeted voucher must keep the sheet's seller.
+        self.env.company.auto_create_sheet = False
+        seller = self._ensure_enabled_seller(
+            create_internal_seller(self.env, "collection_voucher_first_seller")
         )
-        partner_ids_before = set(
-            self.env["res.partner"].search([("name", "=", "Seller Commission")]).ids
+        other = self._ensure_enabled_seller(
+            create_internal_seller(self.env, "collection_voucher_other_seller")
         )
-        self.assertEqual(xmlids_before, 1)
-        self.assertEqual(partner_ids_before, {sentinel.id})
-        self.assertTrue(Company._collection_ensure_seller_commission_partner())
-        self.assertEqual(Company._seller_commission_partner(), sentinel)
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": seller.id,
+                "amount": 100.0,
+                "voucher_number": "SD-MOVE",
+                "voucher_date": date(2026, 9, 8),
+            }
+        )
+        cash = self._create_voucher(
+            customer_identification="CUST-SD-MOVE",
+            document_type="cash",
+            amount=50.0,
+            seller_id=seller.id,
+        )
+        customer = cash.partner_id
+        (deposit | cash).write({"seller_id": other.id})
+        self.assertEqual(deposit.seller_id, other)
+        self.assertEqual(deposit.partner_id, other.partner_id)
+        self.assertEqual(cash.seller_id, other)
+        self.assertEqual(cash.partner_id, customer)
+
+    def test_company_restricted_user_reads_the_seller_deposit_partner(self):
+        """A Collections User MUST read a seller deposit's partner name.
+
+        The board's unassigned pool shows it. The partner is the seller's own
+        contact, which the seller import keeps in the seller's company --
+        inside the Collections company boundary.
+        """
+        self._enable_seller_deposit_type()
+        seller = self._ensure_enabled_seller(
+            create_internal_seller(self.env, "collection_voucher_restricted_seller")
+        )
+        seller.partner_id.company_id = self.env.company
+        user = TestCollectionAcl._create_user.__func__(
+            self,
+            "collection_voucher_restricted_user",
+            "collection.group_collection_user",
+        )
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": seller.id,
+                "amount": 100.0,
+                "voucher_number": "SD-RESTRICTED",
+                "voucher_date": date(2026, 9, 8),
+            }
+        )
+        self.env.invalidate_all()
         self.assertEqual(
-            self.env["ir.model.data"].search_count(
-                [
-                    ("module", "=", "collection"),
-                    ("name", "=", "partner_seller_commission"),
-                ]
-            ),
-            1,
+            deposit.with_user(user).partner_id.display_name, seller.partner_id.name
         )
-        self.assertEqual(
-            set(
-                self.env["res.partner"].search([("name", "=", "Seller Commission")]).ids
-            ),
-            partner_ids_before,
+
+    def _legacy_seller_partner(self, xmlid_name, name):
+        """Return the pre-migration shared partner, recreating its XMLID if gone."""
+        partner = self.env.ref(f"collection.{xmlid_name}", raise_if_not_found=False)
+        if partner:
+            return partner
+        partner = dummy_customer_partner(self.env, customer=name)
+        partner.write({"name": name, "company_id": False})
+        self.env["ir.model.data"].create(
+            {
+                "name": xmlid_name,
+                "module": "collection",
+                "model": "res.partner",
+                "res_id": partner.id,
+                "noupdate": True,
+            }
         )
+        return partner
+
+    def test_migration_moves_legacy_seller_vouchers_to_the_seller_partner(self):
+        """Legacy shared partners MUST give way to the seller's own partner."""
+        self._enable_seller_deposit_type()
+        self._enable_seller_commission_type()
+        seller = self._ensure_enabled_seller()
+        legacy_deposit = self._legacy_seller_partner(
+            "partner_seller_deposit", "Seller Deposit"
+        )
+        legacy_commission = self._legacy_seller_partner(
+            "partner_seller_commission", "Seller Commission"
+        )
+        Voucher = self.env["collection.voucher"]
+        deposit = Voucher.create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": seller.id,
+                "amount": 100.0,
+                "voucher_number": "SD-LEGACY",
+                "voucher_date": date(2026, 9, 8),
+            }
+        )
+        commission = Voucher.create(
+            {
+                "document_type": "seller_commission",
+                "seller_id": seller.id,
+                "amount": 30.0,
+            }
+        )
+        cash = self._create_voucher(
+            customer_identification="CUST-LEGACY",
+            document_type="cash",
+            amount=50.0,
+        )
+        customer = cash.partner_id
+        for voucher, legacy in (
+            (deposit, legacy_deposit),
+            (commission, legacy_commission),
+        ):
+            self.env.cr.execute(
+                "UPDATE collection_voucher SET partner_id = %s WHERE id = %s",
+                (legacy.id, voucher.id),
+            )
+        self.env.invalidate_all()
+
+        self.assertTrue(Voucher._collection_move_seller_vouchers_to_seller_partner())
+        self.assertEqual(deposit.partner_id, seller.partner_id)
+        self.assertEqual(commission.partner_id, seller.partner_id)
+        self.assertEqual(cash.partner_id, customer)
+        self.assertFalse(legacy_deposit.active)
+        self.assertFalse(legacy_commission.active)
+
+        # Idempotent: a second module update finds nothing left to move.
+        self.assertTrue(Voucher._collection_move_seller_vouchers_to_seller_partner())
+        self.assertEqual(deposit.partner_id, seller.partner_id)
+        self.assertEqual(cash.partner_id, customer)
 
     def test_cash_persists_without_proof(self):
         """Triangulation: cash with amount and no designated proof MUST persist."""

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- Seller deposits and commissions carry the seller's own partner. Move
+         vouchers off the legacy shared partners on every update (idempotent). -->
+    <function
+    model="collection.voucher"
+    name="_collection_move_seller_vouchers_to_seller_partner"
+  />
+</odoo>

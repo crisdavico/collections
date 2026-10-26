@@ -42,10 +42,9 @@ class CollectionVoucher(models.Model):
 
     _DOCUMENT_TYPE_SELECTION = DOCUMENT_TYPE_SELECTION
     _RETENTION_KIND_SELECTION = RETENTION_KIND_SELECTION
-    _SENTINEL_PARTNER_GETTERS = {
-        "seller_deposit": "_seller_deposit_partner",
-        "seller_commission": "_seller_commission_partner",
-    }
+    # Money the seller hands over or keeps, not a customer's payment: the
+    # partner is the seller's own contact, never a customer.
+    _SELLER_PARTNER_TYPES = frozenset({"seller_deposit", "seller_commission"})
     # Per-type duplicate-identity knowledge, kept as plain Python dicts/sets
     # here rather than as catalog behaviour flags (follows the
     # ``_TYPE_OWNED_FIELDS`` convention in ``tools/collection_voucher.py``).
@@ -340,7 +339,7 @@ class CollectionVoucher(models.Model):
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
-            self._apply_seller_deposit_partner(vals)
+            self._apply_seller_partner(vals)
             company = self.env["res.company"].browse(
                 vals.get("company_id") or self.env.company.id
             )
@@ -366,11 +365,10 @@ class CollectionVoucher(models.Model):
         return super().create(vals_list)
 
     @api.private
-    def _apply_seller_deposit_partner(self, vals):
-        """Stamp the type's sentinel partner; refuse a customer partner."""
+    def _apply_seller_partner(self, vals):
+        """Stamp the seller's own partner; refuse a customer partner."""
         document_type = vals.get("document_type")
-        getter_name = self._SENTINEL_PARTNER_GETTERS.get(document_type)
-        if not getter_name:
+        if document_type not in self._SELLER_PARTNER_TYPES:
             return
         if vals.get("customer_identification"):
             if document_type == "seller_deposit":
@@ -380,16 +378,75 @@ class CollectionVoucher(models.Model):
             raise UserError(
                 _("Seller commissions cannot use a customer identification.")
             )
-        company = self.env["res.company"].browse(
-            vals.get("company_id") or self.env.company.id
-        )
-        sentinel = getattr(company, getter_name)()
+        seller = self.env["res.users"].browse(record_id(vals.get("seller_id")))
+        if not seller and vals.get("sheet_id"):
+            seller = self.env["collection.sheet"].browse(vals["sheet_id"]).seller_id
+        if not seller:
+            raise UserError(_("A seller is required."))
         partner_id = record_id(vals.get("partner_id"))
-        if partner_id and partner_id != sentinel.id:
+        if partner_id and partner_id != seller.partner_id.id:
             if document_type == "seller_deposit":
                 raise UserError(_("Seller deposits cannot use a customer partner."))
             raise UserError(_("Seller commissions cannot use a customer partner."))
-        vals["partner_id"] = sentinel.id
+        vals["partner_id"] = seller.partner_id.id
+
+    @api.private
+    def _write_with_seller_partner(self, vals):
+        """Move seller-type vouchers to the new seller's partner with the seller.
+
+        Returns ``(vals, result)``: a mixed batch is written in two parts and
+        ``result`` is set; otherwise ``vals`` carries the partner to write.
+        """
+        if "seller_id" not in vals or "partner_id" in vals:
+            return vals, None
+        moving = self.filtered(
+            lambda voucher: voucher.document_type in self._SELLER_PARTNER_TYPES
+        )
+        if not moving:
+            return vals, None
+        if moving != self:
+            return vals, (self - moving).write(vals) and moving.write(vals)
+        seller = self.env["res.users"].browse(record_id(vals["seller_id"]))
+        if not seller:
+            # The seller check below refuses it with its own message.
+            return vals, None
+        return dict(vals, partner_id=seller.partner_id.id), None
+
+    @api.model
+    def _collection_move_seller_vouchers_to_seller_partner(self):
+        """Repoint legacy seller vouchers to the seller's partner (data update).
+
+        Seller deposits and commissions used to share two seeded partners with
+        no company, which a Collections User's company boundary cannot read.
+        Raw SQL on purpose: closed sheets and approvals lock ``partner_id``
+        against ORM writes, and this is a one-off data correction, not a
+        business edit. Idempotent: once moved, nothing matches again.
+        """
+        legacy = self.env["res.partner"]
+        for xmlid in (
+            "collection.partner_seller_deposit",
+            "collection.partner_seller_commission",
+        ):
+            legacy |= (
+                self.env.ref(xmlid, raise_if_not_found=False) or self.env["res.partner"]
+            )
+        if not legacy:
+            return True
+        self.env.flush_all()
+        self.env.cr.execute(
+            """
+            UPDATE collection_voucher AS voucher
+               SET partner_id = seller.partner_id
+              FROM res_users AS seller
+             WHERE seller.id = voucher.seller_id
+               AND voucher.partner_id IN %s
+               AND voucher.document_type IN %s
+            """,
+            (tuple(legacy.ids), tuple(self._SELLER_PARTNER_TYPES)),
+        )
+        self.env.invalidate_all()
+        legacy.filtered("active").write({"active": False})
+        return True
 
     def _selection_document_type(self):
         """Allowed company types, plus each record's current value if later dropped.
@@ -455,6 +512,9 @@ class CollectionVoucher(models.Model):
                 _("Replaced cash can only be changed by the cash replacement flow.")
             )
         self._ensure_sheet_business_fields_unlocked(vals)
+        vals, split_result = self._write_with_seller_partner(vals)
+        if split_result is not None:
+            return split_result
         vals, split_result = self._prepare_partner_reassign_write(vals)
         if split_result is not None:
             return split_result

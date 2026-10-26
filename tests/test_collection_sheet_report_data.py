@@ -159,7 +159,7 @@ class TestCollectionSheetReportData(TransactionCase):
         return receipt, cash_value
 
     def _create_seller_deposit(self, sheet, amount=80.0, **extra):
-        """Create an unallocated remittance voucher on ``sheet`` (sentinel partner)."""
+        """Create an unallocated remittance voucher on ``sheet`` (seller's partner)."""
         self._enable_seller_deposit_type(company=sheet.company_id)
         ensure_enabled_seller(self.env, sheet.seller_id, company=sheet.company_id)
         vals = {

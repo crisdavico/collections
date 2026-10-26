@@ -208,7 +208,6 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         """Internal caller MUST persist a remittance voucher on the submitted sheet."""
         sheet = self._create_sheet()
         sheet.action_seller_close()
-        sentinel = self.env.ref("collection.partner_seller_deposit")
         result = self._call()
         self.assertEqual(set(result), {"sheet", "voucher"})
         self.assertEqual(set(result["sheet"]), _SHEET_KEYS)
@@ -220,7 +219,7 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         self.assertTrue(voucher.exists())
         self.assertEqual(voucher.sheet_id, sheet)
         self.assertEqual(voucher.document_type, "seller_deposit")
-        self.assertEqual(voucher.partner_id, sentinel)
+        self.assertEqual(voucher.partner_id, self.seller.partner_id)
         self.assertTrue(voucher.partner_id)
         self.assertAlmostEqual(voucher.amount, 80.5, places=2)
         self.assertEqual(voucher.voucher_number, "SD-MCP-1")

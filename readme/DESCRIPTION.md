@@ -5,7 +5,7 @@ cash deposit, retention certificate, cash, seller deposit, or seller commission)
 voucher owns sequence, chatter, optional image/PDF designated proof
 (`message_main_attachment_id` on chatter `ir.attachment`; no Binary `attachment` field),
 a required Customer (`partner_id` on `res.partner`; Char identification is gone;
-`seller_deposit` and `seller_commission` stamp seeded sentinel partners), and a `draft`
+`seller_deposit` and `seller_commission` stamp the seller's own partner), and a `draft`
 → `validated_seller` → `validated_collections` lifecycle (ORM/UI default `draft`; MCP
 stamps `validated_seller`; Collections only via Document Review Approve; no Reject). A
 Collections User can send a voucher Back to Draft while its sheet is open or submitted:
