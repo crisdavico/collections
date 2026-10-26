@@ -416,7 +416,6 @@ class TestCollectionSheetXlsx(TransactionCase):
         _assert_cached(payload["customer_totals"]["debt"], "customer debt")
         _assert_cached(payload["customer_totals"]["collected"], "customer collected")
         _assert_cached(payload["recon"]["cash_due"], "recon cash due")
-        _assert_cached(payload["tendered"]["total"], "tendered total")
 
     def test_xlsx_percent_scale_4_5_is_excel_fraction(self):
         """Odoo commission_percent 4.5 MUST be stored as 0.045 with 0.0% format."""
@@ -471,6 +470,33 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertEqual(rows, sorted(rows))
         due = self._cell_with_value(worksheet, "(=) Efectivo a entregar")
         self.assertTrue(str(worksheet.cell(due.row, 7).value).startswith("="))
+
+    def test_xlsx_recon_follows_the_pdf_order(self):
+        """Cash calculation, then composition, then commission, as in the PDF."""
+        sheet, _partner = self._populated_sheet(document_type="cash")
+        content, payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        rows = []
+        for label in (
+            "Conciliación del Vendedor",
+            "(=) Efectivo a entregar",
+            "Cobrado por otros medios",
+            "Composición de lo Entregado",
+            "Comisión del Vendedor",
+            "(=) Comisión a Pagar al Vendedor",
+        ):
+            cell = next(
+                (c for (c,) in worksheet.iter_rows(max_col=1) if c.value == label),
+                None,
+            )
+            self.assertIsNotNone(cell, label)
+            rows.append(cell.row)
+        self.assertEqual(rows, sorted(rows))
+        # The PDF composition has no total; neither does the XLSX.
+        self.assertIsNone(self._cell_with_value(worksheet, "Entregado por el Vendedor"))
+        header = self._cell_with_value(worksheet, "Depósitos del vendedor")
+        self.assertIsNone(worksheet.cell(header.row, header.column + 1).value)
+        self.assertEqual(payload["tendered"]["cash"], payload["recon"]["cash_due"])
 
     def test_xlsx_has_no_banner_or_difference(self):
         """The always-zero Diferencia and its status banner MUST be gone."""
