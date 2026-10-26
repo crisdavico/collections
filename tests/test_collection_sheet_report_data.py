@@ -781,6 +781,64 @@ class TestCollectionSheetReportData(TransactionCase):
             commissions, {"U-1": 50.0, "U-2": 10.0, "U-3": 12.1, "Q-1": 38.4}
         )
 
+    def test_commission_amount_is_the_sum_of_the_row_commissions(self):
+        """The sheet MUST compute its commission as the Planilla rows add up.
+
+        Each line pays on the untaxed share of what was applied; a quotation
+        (untaxed = total) pays on its applied amount.
+        """
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 10.0})
+        partner = dummy_customer_partner(self.env, customer="RPT-COMM-AMOUNT")
+        voucher = self._create_voucher(partner, sheet, amount=1210.0)
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=605.0,
+                    invoice_balance=605.0,
+                    invoice_amount=1210.0,
+                    invoice_amount_untaxed=1000.0,
+                    invoice_number="U-1",
+                ),
+                self._line_vals(
+                    amount_applied=200.0,
+                    invoice_balance=200.0,
+                    invoice_amount=400.0,
+                    invoice_amount_untaxed=400.0,
+                    invoice_number="Q-1",
+                    document_kind="quotation",
+                ),
+            ],
+        )
+        payload = sheet._collection_report_data()
+        self.assertEqual(sheet.commission_amount, 70.0)
+        self.assertEqual(
+            sheet.commission_amount,
+            sum(block["subtotal_commission"] for block in payload["document_blocks"]),
+        )
+        sheet.write({"commission_percent": 0.0})
+        self.assertEqual(sheet.commission_amount, 0.0)
+
+    def test_commission_owed_is_the_commission_minus_the_cash_kept(self):
+        """What the seller did not keep from cash MUST be owed to them."""
+        _allocation, voucher, sheet, _partner = self._balanced(
+            amount=1000.0, voucher_extra={"document_type": "cash"}
+        )
+        voucher.action_validate_seller()
+        sheet.write({"commission_percent": 5.0})
+        self.assertEqual(sheet.commission_amount, 50.0)
+        self.assertEqual(sheet.commission_owed, 50.0)
+        sheet.action_seller_close()
+        sheet.action_declare_cash(commission_withheld=30.0)
+        self.assertEqual(sheet.commission_owed, 20.0)
+        recon = sheet._collection_report_data()["recon"]
+        self.assertEqual(recon["commission"], 50.0)
+        self.assertEqual(recon["withheld"], 30.0)
+        self.assertEqual(recon["commission_owed"], 20.0)
+
     def test_zero_percent(self):
         """Percent 0 MUST yield zero row and block commissions."""
         sheet = self._create_sheet()

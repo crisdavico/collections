@@ -39,10 +39,13 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
         name="declare_collection_cash",
         description=(
             "Declare Cash on the authenticated seller's submitted collection "
-            "sheet with commission_withheld. Cash to Administration is computed "
-            "from the sheet vouchers and MUST NOT be sent. Returns "
-            "{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}} "
-            "with state submitted. Collections Users only."
+            "sheet with commission_withheld: the cash the seller kept as "
+            "commission, at most the sheet's computed commission and at most "
+            "the cash collected minus seller deposits. Cash to Administration "
+            "is computed from the sheet vouchers and MUST NOT be sent. Returns "
+            "{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, "
+            "commission:{percent,amount,withheld,owed}} with state submitted; "
+            "owed is the commission not kept from cash. Collections Users only."
         ),
         input_schema=_DECLARE_COLLECTION_CASH_SCHEMA,
         category="write",
@@ -84,5 +87,33 @@ class CollectionCashDeclareMcpMixin(models.AbstractModel):
         if not submitted:
             raise UserError(_("This seller has no submitted collection sheet."))
         submitted.check_access("write")
+        commission = submitted.commission_amount or 0.0
+        if currency.compare_amounts(withheld, commission) > 0:
+            raise UserError(
+                _(
+                    "commission_withheld cannot exceed the seller commission "
+                    "of %(amount)s.",
+                    amount=commission,
+                )
+            )
+        cash = max(
+            (submitted.cash_collected or 0.0) - (submitted.cash_banked or 0.0), 0.0
+        )
+        if currency.compare_amounts(withheld, cash) > 0:
+            raise UserError(
+                _(
+                    "commission_withheld cannot exceed the cash collected minus "
+                    "seller deposits, %(amount)s.",
+                    amount=cash,
+                )
+            )
         submitted.action_declare_cash(commission_withheld=withheld)
-        return {"sheet": self._collection_sheet_identity(submitted)}
+        return {
+            "sheet": self._collection_sheet_identity(submitted),
+            "commission": {
+                "percent": submitted.commission_percent or 0.0,
+                "amount": submitted.commission_amount or 0.0,
+                "withheld": submitted.commission_withheld or 0.0,
+                "owed": submitted.commission_owed or 0.0,
+            },
+        }

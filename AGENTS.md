@@ -241,14 +241,18 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   Rendida). Default `open`. Seller Close (`action_seller_close` / MCP
   `close_collection_sheet`) writes `submitted` without declaration amounts. Declare Cash
   (`action_declare_cash(commission_withheld)` / MCP `declare_collection_cash`) runs only
-  from `submitted` and takes the withheld commission only (negative refused; zero
-  accepted). Confirm runs only from `submitted` and needs a Collections User;
-  Close/Cancel/Reinstate need a Collections Manager (`AccessError`). Existing
-  `open`/`closed` rows stay on upgrade (no remap). A raw `state` write is dispatched to
-  the matching action (same role checks) or refused, so it is never a shortcut. Sheets
-  inherit `mail.thread` + `mail.activity.mixin`; Seller Close, Declare Cash, Confirm,
-  Close/Cancel/Reinstate SHOULD be tracked in chatter. Confirm runs only from
-  `submitted` (every member `validated_collections`, except
+  from `submitted` and takes the commission kept from cash only (negative refused; zero
+  accepted). The sheet computes `commission_amount` (Σ Planilla row commissions) and
+  `commission_owed` (`commission_amount − commission_withheld`); the MCP tool also
+  refuses more than `commission_amount` or than cash collected minus seller deposits,
+  while the form button stays uncapped. `close_collection_sheet` and
+  `declare_collection_cash` return `commission`. Confirm runs only from `submitted` and
+  needs a Collections User; Close/Cancel/Reinstate need a Collections Manager
+  (`AccessError`). Existing `open`/`closed` rows stay on upgrade (no remap). A raw
+  `state` write is dispatched to the matching action (same role checks) or refused, so
+  it is never a shortcut. Sheets inherit `mail.thread` + `mail.activity.mixin`; Seller
+  Close, Declare Cash, Confirm, Close/Cancel/Reinstate SHOULD be tracked in chatter.
+  Confirm runs only from `submitted` (every member `validated_collections`, except
   `CONFIRM_REVIEW_EXEMPT_TYPES` — `cash` and `seller_commission`, neither of which
   carries a designated proof, so `validated_seller` is enough; `seller_deposit` is NOT
   exempt; `draft` always blocks; the `UserError` names the offending vouchers; empty

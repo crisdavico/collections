@@ -166,7 +166,7 @@ class TestCollectionMcpSheetClose(TransactionCase):
         before_cash = sheet.cash_on_hand
         before_withheld = sheet.commission_withheld
         result = self._call()
-        self.assertEqual(set(result), {"sheet", "cash"})
+        self.assertEqual(set(result), {"sheet", "cash", "commission"})
         payload = result["sheet"]
         self.assertEqual(set(payload), _SHEET_KEYS)
         self.assertEqual(payload["id"], sheet.id)
@@ -177,6 +177,7 @@ class TestCollectionMcpSheetClose(TransactionCase):
         self.assertIsNone(payload["date_from"])
         self.assertIsNone(payload["date_to"])
         self.assertEqual(result["cash"], {"collected": 0.0})
+        self.assertEqual(result["commission"], {"percent": 0.0, "amount": 0.0})
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.cash_on_hand, before_cash)
         self.assertEqual(sheet.commission_withheld, before_withheld)
@@ -205,6 +206,38 @@ class TestCollectionMcpSheetClose(TransactionCase):
         self.assertEqual(result["sheet"]["id"], sheet.id)
         self.assertEqual(result["cash"], {"collected": 40.0})
         self.assertEqual(sheet.state, "submitted")
+
+    def test_close_returns_the_seller_commission(self):
+        """commission MUST carry the sheet % and the commission it computes."""
+        from odoo.fields import Command
+
+        from .test_collection_payment import dummy_customer_partner
+
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 4.0})
+        self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="MCP-CLOSE-COMMISSION"
+                ).id,
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": f"INV-{self._testMethodName}",
+                            "invoice_number": "A-1",
+                            "invoice_amount": 1210.0,
+                            "invoice_balance": 1210.0,
+                            "invoice_amount_untaxed": 1000.0,
+                            "amount_applied": 605.0,
+                            "document_kind": "invoice",
+                        }
+                    )
+                ],
+            }
+        )
+        result = self._call()
+        self.assertEqual(result["commission"], {"percent": 4.0, "amount": 20.0})
 
     def test_disabled_seller_can_still_close(self):
         """A later-disabled seller MUST still close an existing open sheet."""

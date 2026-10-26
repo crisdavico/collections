@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from odoo.exceptions import AccessError, UserError
+from odoo.fields import Command
 from odoo.tests import TransactionCase
 
 from odoo.addons.muk_mcp.core.tool import get_tool_index
@@ -78,6 +79,31 @@ class TestCollectionMcpCashDeclare(TransactionCase):
             voucher.action_validate_seller()
         return sheet
 
+    def _add_commission(self, sheet, applied=100.0, percent=10.0):
+        """Allocate ``applied`` on one untaxed invoice so the sheet earns commission."""
+        sheet.write({"commission_percent": percent})
+        return self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": dummy_customer_partner(
+                    self.env, customer="MCP-DECLARE-COMMISSION"
+                ).id,
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": f"INV-{self._testMethodName}",
+                            "invoice_number": "A-1",
+                            "invoice_amount": applied,
+                            "invoice_balance": applied,
+                            "invoice_amount_untaxed": applied,
+                            "amount_applied": applied,
+                            "document_kind": "invoice",
+                        }
+                    )
+                ],
+            }
+        )
+
     def _args(self, **extra):
         payload = {
             "seller_id": self.seller.id,
@@ -132,19 +158,52 @@ class TestCollectionMcpCashDeclare(TransactionCase):
     def test_internal_seller_declares_on_submitted_sheet(self):
         """Internal caller MUST declare on the submitted sheet and return identity."""
         sheet = self._create_sheet(cash=12.75)
+        self._add_commission(sheet, applied=50.0, percent=10.0)
         sheet.action_seller_close()
         result = self._call()
-        self.assertEqual(set(result), {"sheet"})
+        self.assertEqual(set(result), {"sheet", "commission"})
         payload = result["sheet"]
         self.assertEqual(set(payload), _SHEET_KEYS)
         self.assertEqual(payload["id"], sheet.id)
         self.assertEqual(payload["state"], "submitted")
         self.assertEqual(payload["seller_id"], self.seller.id)
+        self.assertEqual(
+            result["commission"],
+            {"percent": 10.0, "amount": 5.0, "withheld": 2.25, "owed": 2.75},
+        )
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.commission_withheld, 2.25)
         self.assertEqual(sheet.cash_on_hand, 10.5)
         self.assertTrue(sheet.cash_declared_at)
         self.assertNotIn("content_base64", result)
+
+    def test_cash_kept_above_the_commission_is_refused(self):
+        """The seller MUST NOT keep more cash than the sheet's commission."""
+        sheet = self._create_sheet(cash=100.0)
+        self._add_commission(sheet, applied=50.0, percent=10.0)
+        sheet.action_seller_close()
+        with self.assertRaises(UserError) as ctx:
+            self._call(self._args(commission_withheld=5.01))
+        self.assertIn("commission_withheld", str(ctx.exception))
+        self.assertFalse(sheet.cash_declared_at)
+        self.assertFalse(sheet.commission_withheld)
+        self._call(self._args(commission_withheld=5.0))
+        self.assertEqual(sheet.commission_withheld, 5.0)
+
+    def test_cash_kept_above_the_cash_on_hand_is_refused(self):
+        """The seller MUST NOT keep more than the cash collected minus deposits."""
+        sheet = self._create_sheet(cash=3.0)
+        self._add_commission(sheet, applied=100.0, percent=10.0)
+        sheet.action_seller_close()
+        with self.assertRaises(UserError) as ctx:
+            self._call(self._args(commission_withheld=4.0))
+        self.assertIn("commission_withheld", str(ctx.exception))
+        self.assertFalse(sheet.cash_declared_at)
+        result = self._call(self._args(commission_withheld=3.0))
+        self.assertEqual(
+            result["commission"],
+            {"percent": 10.0, "amount": 10.0, "withheld": 3.0, "owed": 7.0},
+        )
 
     def test_cash_on_hand_argument_is_rejected(self):
         """cash_on_hand is computed: sending it MUST refuse the declaration."""

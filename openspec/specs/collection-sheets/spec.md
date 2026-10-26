@@ -853,14 +853,16 @@ the seller's own `open` sheet on `env.company` and MUST run Seller Close on that
 Callers that are not Collections Users (portal, public, plain internal) MUST receive
 `AccessError`. Errors MUST be raised, never
 returned as `{"error":...}`. On success the body MUST include
-`{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, cash:{collected}}`
-with `state` `submitted` and MUST NOT include report bytes. `cash.collected` MUST equal
-the sheet's collected cash total. Zero `open` sheets (including when only `submitted`
+`{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, cash:{collected},
+commission:{percent,amount}}` with `state` `submitted` and MUST NOT include report
+bytes. `cash.collected` MUST equal the sheet's collected cash total; `commission.percent`
+MUST be the sheet's `commission_percent` and `commission.amount` its computed
+`commission_amount`, so the agent tells the seller their commission. Zero `open` sheets (including when only `submitted`
 exists) MUST raise `UserError` and MUST NOT return `{sheet: null}`. More than one `open`
 sheet MUST raise the existing multi-open `UserError`. A later MCP allocation create for
 that seller MUST persist on a new `open` sheet. (Previously: Input required
 `cash_on_hand` and `commission_withheld`; success omitted `cash.collected` and persisted
-those amounts on close.)
+those amounts on close. Success omitted `commission`.)
 
 #### Scenario: Internal seller closes the open sheet
 
@@ -870,6 +872,7 @@ those amounts on close.)
 - THEN that sheet MUST be `submitted` without persisting declaration amounts
 - AND the response `sheet.state` MUST be `submitted`
 - AND the response MUST include `cash.collected`
+- AND the response MUST include `commission.percent` and `commission.amount`
 - AND no `sudo()` MUST occur
 
 #### Scenario: Amounts on close refused
@@ -999,14 +1002,20 @@ accepted). The tool MUST NOT accept `cash_on_hand`, `sheet_id`, `model`, `domain
 `fields`, `context`, or `order`. The tool MUST resolve the seller's own `submitted`
 sheet on `env.company` and MUST run Declare Cash on that sheet. It MUST NOT resolve via
 the open-sheet helper and MUST NOT declare against an `open` sheet. Callers that are not
-Collections Users (portal, public, plain internal) MUST receive `AccessError`. A negative
+Collections Users (portal, public, plain internal) MUST receive `AccessError`.
+`commission_withheld` is the cash the seller kept as commission. A negative
 `commission_withheld` MUST be refused with a generic `UserError`; numeric zero MUST be
-accepted. Errors MUST be raised, never returned as
+accepted. An amount above the sheet's `commission_amount`, or above its cash collected
+minus seller deposits, MUST be refused with a `UserError` naming `commission_withheld`
+and MUST NOT stamp the declaration. The back-office Declare Cash button is not capped,
+so Collections can correct a declaration. Errors MUST be raised, never returned as
 `{"error":...}`. On success the body MUST include
-`{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}}` with `state`
-`submitted` and MUST NOT include report bytes. Zero `submitted` sheets MUST raise
+`{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count},
+commission:{percent,amount,withheld,owed}}` with `state` `submitted` and MUST NOT
+include report bytes; `owed` is `commission_owed`. Zero `submitted` sheets MUST raise
 `UserError` and MUST NOT return `{sheet: null}`. More than one `submitted` sheet MUST
-raise `UserError`.
+raise `UserError`. (Previously: the seller typed the commission they withheld, with no
+upper bound, and success returned `{sheet}` only.)
 
 #### Scenario: Internal seller declares on the submitted sheet
 
@@ -1016,7 +1025,17 @@ raise `UserError`.
 - THEN that amount MUST persist on that sheet and `cash_on_hand` MUST follow by compute
 - AND `cash_declared_at` MUST be set
 - AND the response `sheet.state` MUST be `submitted`
+- AND the response `commission` MUST carry `percent`, `amount`, `withheld` and `owed`
 - AND no `sudo()` MUST occur
+
+#### Scenario: Cash kept above the commission or the cash is refused
+
+- GIVEN a submitted sheet whose `commission_amount` is 5.00 and cash collected 100.00
+- WHEN `declare_collection_cash` runs with `commission_withheld` 5.01
+- THEN MUST raise `UserError` naming `commission_withheld`
+- AND MUST NOT stamp `cash_declared_at`
+- AND with `commission_amount` 10.00 and cash collected 3.00, 4.00 MUST be refused and
+  3.00 accepted with `owed` 7.00
 
 #### Scenario: Zero submitted sheets raise not null
 

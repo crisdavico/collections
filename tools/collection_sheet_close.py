@@ -37,8 +37,9 @@ class CollectionSheetCloseMcpMixin(models.AbstractModel):
         description=(
             "Seller Close the authenticated seller's open collection sheet. "
             "Returns {sheet:{id,name,state,seller_id,date_from,date_to,"
-            "voucher_count}, cash:{collected}} with state submitted. "
-            "Collections Users only."
+            "voucher_count}, cash:{collected}, commission:{percent,amount}} "
+            "with state submitted; commission.amount is the seller's "
+            "commission computed by the sheet. Collections Users only."
         ),
         input_schema=_CLOSE_COLLECTION_SHEET_SCHEMA,
         category="write",
@@ -77,4 +78,8 @@ class CollectionSheetCloseMcpMixin(models.AbstractModel):
         return {
             "sheet": self._collection_sheet_identity(opens),
             "cash": {"collected": collected},
+            "commission": {
+                "percent": opens.commission_percent or 0.0,
+                "amount": opens.commission_amount or 0.0,
+            },
         }
