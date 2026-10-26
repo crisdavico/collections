@@ -60,3 +60,4 @@ from . import test_collection_partner_lookup
 from . import test_collection_seller_import
 from . import test_collection_untaxed_amount
 from . import test_collection_suggested_recipients
+from . import test_collection_sheet_close_cash

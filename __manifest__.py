@@ -21,6 +21,7 @@
         "views/collection_views.xml",
         "views/collection_allocation_views.xml",
         "wizard/collection_allocation_debt_picker_views.xml",
+        "wizard/collection_sheet_close_wizard_views.xml",
         "views/collection_receipt_views.xml",
         "views/collection_document_review_views.xml",
         "views/res_config_settings_views.xml",

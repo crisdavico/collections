@@ -69,7 +69,7 @@ class TestCollectionDepositProofSwap(TransactionCase):
         )
         post_voucher_proof(self.deposit, "slip.png", PNG_B64)
         (self.cash | self.deposit).action_validate_seller()
-        self.sheet.action_seller_close()
+        self.sheet.action_seller_close(commission_withheld=0.0)
 
     def _voucher(self, document_type, amount, **extra):
         vals = {

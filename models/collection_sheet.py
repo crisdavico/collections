@@ -301,6 +301,12 @@ class CollectionSheet(models.Model):
         self.allocation_ids.unlink()
 
     def action_seller_close(self, cash_on_hand=None, commission_withheld=None):
+        """Seller Close: open → submitted, declaring the cash in the same step.
+
+        A sheet with collected cash cannot close until the seller says how
+        much of it they kept as commission (``commission_withheld``, zero
+        included). ``cash_on_hand`` is computed and ignored.
+        """
         for sheet in self:
             self._lock_open_sheet_for_seller(sheet.seller_id, sheet.company_id)
             # Lock is worthless without a re-read: cached state/membership can
@@ -311,8 +317,76 @@ class CollectionSheet(models.Model):
                     _("Only open collection sheets can be closed by the seller.")
                 )
         self._raise_if_draft_vouchers_block_seller_close()
+        for sheet in self:
+            if commission_withheld is not None:
+                sheet._check_commission_withheld(commission_withheld)
+            elif sheet._has_collected_cash():
+                raise UserError(
+                    _(
+                        "This sheet has collected cash of %(cash)s and a seller "
+                        "commission of %(commission)s: Seller Close needs "
+                        "commission_withheld, the cash the seller kept as "
+                        "commission (zero if none).",
+                        cash=sheet.cash_collected or 0.0,
+                        commission=sheet.commission_amount or 0.0,
+                    )
+                )
         with privileged("collection_sheet_audited_state"):
-            return self.write({"state": "submitted"})
+            self.write({"state": "submitted"})
+        if commission_withheld is not None:
+            self.action_declare_cash(commission_withheld=commission_withheld)
+        return True
+
+    def action_open_seller_close(self):
+        """Form button: close at once, or ask the cash kept when there is cash."""
+        self.ensure_one()
+        if not self._has_collected_cash():
+            return self.action_seller_close()
+        wizard = self.env["collection.sheet.close.wizard"].create({"sheet_id": self.id})
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Seller Close"),
+            "res_model": "collection.sheet.close.wizard",
+            "res_id": wizard.id,
+            "view_mode": "form",
+            "target": "new",
+        }
+
+    @api.private
+    def _has_collected_cash(self):
+        self.ensure_one()
+        currency = self.company_id.currency_id
+        return currency.compare_amounts(self._cash_collected_total(), 0.0) > 0
+
+    @api.private
+    def _check_commission_withheld(self, withheld):
+        """Refuse a cash kept below zero, above the commission or the cash.
+
+        :raise UserError: when ``withheld`` is negative, above the sheet's
+            commission, or above the cash collected minus seller deposits.
+        """
+        self.ensure_one()
+        currency = self.company_id.currency_id
+        if currency.compare_amounts(withheld, 0.0) < 0:
+            raise UserError(_("commission_withheld must be zero or more."))
+        commission = self.commission_amount or 0.0
+        if currency.compare_amounts(withheld, commission) > 0:
+            raise UserError(
+                _(
+                    "commission_withheld cannot exceed the seller commission "
+                    "of %(amount)s.",
+                    amount=commission,
+                )
+            )
+        cash = max((self.cash_collected or 0.0) - (self.cash_banked or 0.0), 0.0)
+        if currency.compare_amounts(withheld, cash) > 0:
+            raise UserError(
+                _(
+                    "commission_withheld cannot exceed the cash collected minus "
+                    "seller deposits, %(amount)s.",
+                    amount=cash,
+                )
+            )
 
     @api.private
     def _cash_collected_total(self):

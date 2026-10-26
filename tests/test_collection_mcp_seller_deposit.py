@@ -271,7 +271,7 @@ class TestCollectionMcpSellerDeposit(TransactionCase):
         """Document Review Approve MUST be the promote path and MUST replace cash."""
         self._enable_document_review()
         sheet, cash, cash_value = self._sheet_with_replaceable_cash()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         result = self._call(self._args(amount=40.0, attachment=self._proof()))
         deposit = self.env["collection.voucher"].browse(result["voucher"]["id"])
         deposit.action_review_approve(sheet_id=sheet.id)

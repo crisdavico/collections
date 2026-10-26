@@ -95,18 +95,20 @@ class TestCollectionMcpSheetClose(TransactionCase):
             "close_collection_sheet must not have a DB muk_mcp.tool row",
         )
 
-    def test_input_schema_is_seller_id_only(self):
-        """Schema MUST require seller_id only and MUST omit amounts and sheet_id."""
+    def test_input_schema_takes_seller_and_cash_kept(self):
+        """Schema MUST require seller_id only and offer commission_withheld."""
         by_name = {
             entry["name"]: entry for entry in self.tool_model.get_tools(registry="mcp")
         }
         schema = by_name[TOOL_NAME]["inputSchema"]
         self.assertEqual(schema["type"], "object")
         self.assertEqual(set(schema["required"]), {"seller_id"})
-        self.assertEqual(set(schema["properties"]), {"seller_id"})
+        self.assertEqual(
+            set(schema["properties"]), {"seller_id", "commission_withheld"}
+        )
         self.assertEqual(schema["properties"]["seller_id"]["type"], "integer")
+        self.assertEqual(schema["properties"]["commission_withheld"]["type"], "number")
         self.assertNotIn("cash_on_hand", schema["properties"])
-        self.assertNotIn("commission_withheld", schema["properties"])
         for key in _FORBIDDEN_INPUT_KEYS:
             self.assertNotIn(key, schema["properties"])
 
@@ -142,23 +144,103 @@ class TestCollectionMcpSheetClose(TransactionCase):
             self._call(self._args(sheet_id=sheet.id))
         self.assertEqual(sheet.state, "open")
 
-    def test_amounts_on_close_refused(self):
-        """Passing cash_on_hand or commission_withheld MUST refuse close."""
+    def test_cash_on_hand_on_close_refused(self):
+        """cash_on_hand is computed: passing it MUST refuse close."""
         sheet = self._create_sheet()
-        before_cash = sheet.cash_on_hand
-        before_withheld = sheet.commission_withheld
         for extra in (
             {"cash_on_hand": 40.0},
-            {"commission_withheld": 5.5},
-            {"cash_on_hand": 40.0, "commission_withheld": 5.5},
-            {"cash_on_hand": "12.50", "commission_withheld": "1.25"},
+            {"cash_on_hand": 40.0, "commission_withheld": 0.0},
         ):
             with self.subTest(extra=extra):
                 with self.assertRaises(UserError):
                     self._call(self._args(**extra))
                 self.assertEqual(sheet.state, "open")
-                self.assertEqual(sheet.cash_on_hand, before_cash)
-                self.assertEqual(sheet.commission_withheld, before_withheld)
+                self.assertFalse(sheet.cash_declared_at)
+
+    def _create_cash_sheet(self, cash=40.0, applied=50.0, percent=10.0):
+        from odoo.fields import Command
+
+        from .test_collection_payment import dummy_customer_partner
+
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": percent})
+        partner = dummy_customer_partner(self.env, customer="MCP-CLOSE-KEPT")
+        voucher = self.env["collection.voucher"].create(
+            {
+                "partner_id": partner.id,
+                "document_type": "cash",
+                "document_id": f"CASH-{self._testMethodName}",
+                "seller_id": self.seller.id,
+                "sheet_id": sheet.id,
+                "company_id": sheet.company_id.id,
+                "amount": cash,
+            }
+        )
+        voucher.action_validate_seller()
+        self.env["collection.allocation"].create(
+            {
+                "sheet_id": sheet.id,
+                "partner_id": partner.id,
+                "line_ids": [
+                    Command.create(
+                        {
+                            "external_invoice_id": f"INV-{self._testMethodName}",
+                            "invoice_number": "A-1",
+                            "invoice_amount": applied,
+                            "invoice_balance": applied,
+                            "invoice_amount_untaxed": applied,
+                            "amount_applied": applied,
+                            "document_kind": "invoice",
+                        }
+                    )
+                ],
+            }
+        )
+        return sheet
+
+    def test_cash_without_commission_withheld_refuses_close(self):
+        """A sheet with cash MUST NOT close until the seller says what they kept."""
+        sheet = self._create_cash_sheet()
+        with self.assertRaises(UserError) as ctx:
+            self._call()
+        message = str(ctx.exception)
+        self.assertIn("commission_withheld", message)
+        self.assertIn("40.0", message)
+        self.assertIn("5.0", message)
+        self.assertEqual(sheet.state, "open")
+        self.assertFalse(sheet.cash_declared_at)
+
+    def test_close_declares_the_cash_kept(self):
+        """commission_withheld MUST be declared on close and returned with owed."""
+        sheet = self._create_cash_sheet(cash=40.0, applied=50.0, percent=10.0)
+        result = self._call(self._args(commission_withheld="2.25"))
+        self.assertEqual(result["sheet"]["state"], "submitted")
+        self.assertEqual(result["cash"], {"collected": 40.0})
+        self.assertEqual(
+            result["commission"],
+            {"percent": 10.0, "amount": 5.0, "withheld": 2.25, "owed": 2.75},
+        )
+        self.assertEqual(sheet.state, "submitted")
+        self.assertEqual(sheet.commission_withheld, 2.25)
+        self.assertTrue(sheet.cash_declared_at)
+
+    def test_close_keeping_more_than_the_commission_is_refused(self):
+        """The cash kept above the commission MUST refuse and leave the sheet open."""
+        sheet = self._create_cash_sheet(cash=40.0, applied=50.0, percent=10.0)
+        with self.assertRaises(UserError) as ctx:
+            self._call(self._args(commission_withheld=5.01))
+        self.assertIn("commission_withheld", str(ctx.exception))
+        self.assertEqual(sheet.state, "open")
+        self.assertFalse(sheet.cash_declared_at)
+
+    def test_commission_withheld_must_be_an_amount(self):
+        """A non-numeric or negative amount kept MUST refuse close."""
+        sheet = self._create_cash_sheet()
+        for value in ("abc", -1.0):
+            with self.subTest(value=value):
+                with self.assertRaises(UserError):
+                    self._call(self._args(commission_withheld=value))
+                self.assertEqual(sheet.state, "open")
 
     def test_internal_seller_closes_open_sheet(self):
         """Internal caller MUST close the seller's open sheet and return identity."""
@@ -177,7 +259,10 @@ class TestCollectionMcpSheetClose(TransactionCase):
         self.assertIsNone(payload["date_from"])
         self.assertIsNone(payload["date_to"])
         self.assertEqual(result["cash"], {"collected": 0.0})
-        self.assertEqual(result["commission"], {"percent": 0.0, "amount": 0.0})
+        self.assertEqual(
+            result["commission"],
+            {"percent": 0.0, "amount": 0.0, "withheld": 0.0, "owed": 0.0},
+        )
         self.assertEqual(sheet.state, "submitted")
         self.assertEqual(sheet.cash_on_hand, before_cash)
         self.assertEqual(sheet.commission_withheld, before_withheld)
@@ -202,7 +287,7 @@ class TestCollectionMcpSheetClose(TransactionCase):
             }
         )
         voucher.action_validate_seller()
-        result = self._call()
+        result = self._call(self._args(commission_withheld=0.0))
         self.assertEqual(result["sheet"]["id"], sheet.id)
         self.assertEqual(result["cash"], {"collected": 40.0})
         self.assertEqual(sheet.state, "submitted")
@@ -237,7 +322,10 @@ class TestCollectionMcpSheetClose(TransactionCase):
             }
         )
         result = self._call()
-        self.assertEqual(result["commission"], {"percent": 4.0, "amount": 20.0})
+        self.assertEqual(
+            result["commission"],
+            {"percent": 4.0, "amount": 20.0, "withheld": 0.0, "owed": 20.0},
+        )
 
     def test_disabled_seller_can_still_close(self):
         """A later-disabled seller MUST still close an existing open sheet."""

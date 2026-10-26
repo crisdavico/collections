@@ -446,7 +446,7 @@
             <form string="Collection Sheet">
                 <header>
                     <button
-            name="action_seller_close"
+            name="action_open_seller_close"
             string="Seller Close"
             type="object"
             class="oe_highlight"

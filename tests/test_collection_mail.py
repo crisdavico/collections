@@ -275,7 +275,7 @@ class TestCollectionMail(TransactionCase):
             amount=13.75,
         )
         cash.action_validate_seller()
-        sheet.action_seller_close()
+        sheet.action_seller_close(commission_withheld=0.0)
         self._flush_tracking()
         sheet.action_declare_cash(commission_withheld=1.25)
         self._flush_tracking()

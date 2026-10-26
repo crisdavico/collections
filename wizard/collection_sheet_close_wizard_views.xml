@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_collection_sheet_close_wizard_form" model="ir.ui.view">
+        <field name="name">collection.sheet.close.wizard.form</field>
+        <field name="model">collection.sheet.close.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Seller Close">
+                <group>
+                    <field name="sheet_id" readonly="1" />
+                    <field name="currency_id" invisible="1" />
+                    <field name="cash_collected" />
+                    <field name="commission_amount" />
+                    <field name="commission_withheld" />
+                </group>
+                <footer>
+                    <button
+            name="action_seller_close"
+            string="Seller Close"
+            type="object"
+            class="btn-primary"
+          />
+                    <button string="Cancel" class="btn-secondary" special="cancel" />
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

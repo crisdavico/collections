@@ -95,6 +95,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `models/collection_sheet_report.py`               | Second `_inherit`: recon fields, `_collection_report_data()`, `action_print_xlsx`; freeze Closed+Cancelled; Rendida label                                                                           |
 | `models/collection_allocation.py`                 | Allocation header; UNIQUE(sheet, partner); draft iff Open/Submitted/Proposal/Cancelled; freeze when sheet Closed/Cancelled; receipt-value `total_vouchers`; delete rule; Add Debt picker            |
 | `wizard/collection_allocation_debt_picker.py`     | Transient Add Debt picker + candidates; existing-only multi-select of missing connector debts                                                                                                       |
+| `wizard/collection_sheet_close_wizard.py`         | Transient Seller Close wizard: asks the commission kept from cash, then Seller Close declares it                                                                                                    |
 | `models/collection_allocation_line.py`            | Invoice snapshot lines; related stored `sheet_id`/`partner_id`; required `document_kind`; related stored currency/company; CHECK/UNIQUE; applied-amount caps                                        |
 | `models/collection_receipt.py`                    | Receipt header; UNIQUE(allocation, kind); `draft`/`closed`/`issued`; freeze create; `collection_receipt_issuing`                                                                                    |
 | `models/collection_receipt_value.py`              | Voucher amounts on a receipt; CHECK amount > 0; UNIQUE(receipt, voucher)                                                                                                                            |
@@ -106,8 +107,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `tools/customer_list.py`                          | `@mcp_tool` `list_collection_customers` (read) on `muk_mcp.mixin`                                                                                                                                   |
 | `tools/customer_debt.py`                          | `@mcp_tool` `customer_debt` (read) on `muk_mcp.mixin`                                                                                                                                               |
 | `tools/sheet_report.py`                           | `@mcp_tool` `get_collection_sheet_pdf` (read) on `muk_mcp.mixin`; base64 Planilla                                                                                                                   |
-| `tools/collection_sheet_close.py`                 | `@mcp_tool` `close_collection_sheet` (write) on `muk_mcp.mixin`; Seller Close by `seller_id`                                                                                                        |
-| `tools/collection_cash_declare.py`                | `@mcp_tool` `declare_collection_cash` (write) on `muk_mcp.mixin`; Declare Cash on submitted                                                                                                         |
+| `tools/collection_sheet_close.py`                 | `@mcp_tool` `close_collection_sheet` (write) on `muk_mcp.mixin`; Seller Close by `seller_id`, declaring `commission_withheld`                                                                       |
+| `tools/collection_cash_declare.py`                | `@mcp_tool` `declare_collection_cash` (write) on `muk_mcp.mixin`; corrects Declare Cash on submitted                                                                                                |
 | `tools/collection_seller_deposit.py`              | `@mcp_tool` `create_seller_deposit` (write) on `muk_mcp.mixin`; remittance on submitted                                                                                                             |
 | `views/collection_views.xml`                      | List/search/form + menus/actions; no stages kanban; three-page notebook; `<delete>` reassign kanban; XLSX last before `state`                                                                       |
 | `views/collection_allocation_views.xml`           | Allocation list/form/search; Customer Debt Add Debt + `create="false"`; Receipts page; parent-arch `document_kind`; menu sequence 30                                                                |
@@ -238,27 +239,33 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   `@api.constrains("partner_id", "allocation_id")`.
 - **Sheet lifecycle:** `collection.sheet` `state` Selection is
   `open`/`submitted`/`proposal`/`closed`/`cancelled` (English Submitted by Seller; PDF
-  Rendida). Default `open`. Seller Close (`action_seller_close` / MCP
-  `close_collection_sheet`) writes `submitted` without declaration amounts. Declare Cash
-  (`action_declare_cash(commission_withheld)` / MCP `declare_collection_cash`) runs only
-  from `submitted` and takes the commission kept from cash only (negative refused; zero
-  accepted). The sheet computes `commission_amount` (Σ Planilla row commissions) and
-  `commission_owed` (`commission_amount − commission_withheld`); the MCP tool also
-  refuses more than `commission_amount` or than cash collected minus seller deposits,
-  while the form button stays uncapped. `close_collection_sheet` and
-  `declare_collection_cash` return `commission`. Confirm runs only from `submitted` and
-  needs a Collections User; Close/Cancel/Reinstate need a Collections Manager
-  (`AccessError`). Existing `open`/`closed` rows stay on upgrade (no remap). A raw
-  `state` write is dispatched to the matching action (same role checks) or refused, so
-  it is never a shortcut. Sheets inherit `mail.thread` + `mail.activity.mixin`; Seller
-  Close, Declare Cash, Confirm, Close/Cancel/Reinstate SHOULD be tracked in chatter.
-  Confirm runs only from `submitted` (every member `validated_collections`, except
-  `CONFIRM_REVIEW_EXEMPT_TYPES` — `cash` and `seller_commission`, neither of which
-  carries a designated proof, so `validated_seller` is enough; `seller_deposit` is NOT
-  exempt; `draft` always blocks; the `UserError` names the offending vouchers; empty
-  members pass; collected cash > 0 requires `cash_declared_at`). After both Confirm
-  gates and before `submitted → proposal`, Confirm mints at most one `seller_commission`
-  via `_ensure_seller_commission_voucher()` (`document_id` `sc-<uuid4 hex>`, amount =
+  Rendida). Default `open`. Seller Close (`action_seller_close(commission_withheld)` /
+  MCP `close_collection_sheet`) refuses a sheet with collected cash until the seller
+  says how much commission they kept from it (`commission_withheld`, zero accepted; the
+  refusal names the cash and the commission), then writes `submitted` and declares it in
+  the same transaction; a sheet without cash closes with no amount. The form button
+  (`action_open_seller_close`) opens `collection.sheet.close.wizard` when there is cash.
+  Declare Cash (`action_declare_cash(commission_withheld)` / MCP
+  `declare_collection_cash`) runs only from `submitted` and corrects the commission kept
+  from cash (negative refused; zero accepted). The sheet computes `commission_amount` (Σ
+  Planilla row commissions) and `commission_owed`
+  (`commission_amount − commission_withheld`); Seller Close and the MCP declare tool
+  refuse more than `commission_amount` or than cash collected minus seller deposits
+  (`_check_commission_withheld`), while the Declare Cash form button stays uncapped.
+  `close_collection_sheet` and `declare_collection_cash` return `commission`. Confirm
+  runs only from `submitted` and needs a Collections User; Close/Cancel/Reinstate need a
+  Collections Manager (`AccessError`). Existing `open`/`closed` rows stay on upgrade (no
+  remap). A raw `state` write is dispatched to the matching action (same role checks) or
+  refused, so it is never a shortcut. Sheets inherit `mail.thread` +
+  `mail.activity.mixin`; Seller Close, Declare Cash, Confirm, Close/Cancel/Reinstate
+  SHOULD be tracked in chatter. Confirm runs only from `submitted` (every member
+  `validated_collections`, except `CONFIRM_REVIEW_EXEMPT_TYPES` — `cash` and
+  `seller_commission`, neither of which carries a designated proof, so
+  `validated_seller` is enough; `seller_deposit` is NOT exempt; `draft` always blocks;
+  the `UserError` names the offending vouchers; empty members pass; collected cash > 0
+  requires `cash_declared_at`). After both Confirm gates and before
+  `submitted → proposal`, Confirm mints at most one `seller_commission` via
+  `_ensure_seller_commission_voucher()` (`document_id` `sc-<uuid4 hex>`, amount =
   `commission_withheld`, ends `validated_collections`) inside the
   `collection_seller_commission_mint` scope. Zero withheld with no member is a no-op. An
   existing commission voucher is **re-synced** instead (also on Declare Cash): its

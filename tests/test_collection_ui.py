@@ -1112,7 +1112,7 @@ class TestCollectionUi(TransactionCase):
                 f'./header/button[@name="{name}" and @type="object"]'
             )
 
-        seller_close = _header_button("action_seller_close")
+        seller_close = _header_button("action_open_seller_close")
         confirm = _header_button("action_confirm")
         close = _header_button("action_close")
         cancel = _header_button("action_cancel")
@@ -1190,7 +1190,7 @@ class TestCollectionUi(TransactionCase):
             if "oe_highlight" in (node.get("class") or "")
         ]
         self.assertEqual(
-            highlighted, ["action_seller_close", "action_confirm", "action_close"]
+            highlighted, ["action_open_seller_close", "action_confirm", "action_close"]
         )
         self.assertTrue(
             cancel[0].get("confirm"), "Cancel must ask before it undoes the sheet"

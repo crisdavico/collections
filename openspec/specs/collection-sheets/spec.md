@@ -599,8 +599,7 @@ connector bindings MUST check their company against the records they link.
 
 Existing sheets MUST stay visible and operable if their seller is later disabled. The
 system MUST NOT hide or delete them for that reason. Seller Close from `open` and
-Confirm from `submitted` MUST still succeed when their gates are met. (Previously:
-Seller Close from `open` required declarations on the same write.)
+Confirm from `submitted` MUST still succeed when their gates are met.
 
 #### Scenario: Disabled-seller sheet stays visible and confirmable
 
@@ -613,9 +612,48 @@ Seller Close from `open` required declarations on the same write.)
 
 #### Scenario: Disabled-seller open sheet remains closeable
 
-- GIVEN an open sheet whose seller is later removed from the enabled list
+- GIVEN an open sheet with no collected cash whose seller is later removed from the
+  enabled list
 - WHEN Seller Close runs without declarations
 - THEN `state` MUST become `submitted`
+
+### Requirement: Seller Close declares the cash
+
+A sheet with collected cash MUST NOT leave `open` until the seller says how much of it
+they kept as commission. Seller Close (`action_seller_close(commission_withheld)`, MCP
+`close_collection_sheet`, the form button and a raw `state` write alike) MUST refuse
+with `UserError` when the sheet has collected cash and no `commission_withheld` is
+given; the message MUST name the cash collected and the seller commission. A given
+amount MUST be refused when negative, above `commission_amount`, or above the cash
+collected minus seller deposits; otherwise Seller Close MUST write `submitted` and
+declare it (`commission_withheld`, `cash_declared_at`, `cash_declared_by`) in the same
+transaction. Zero is a declaration. A sheet with no collected cash MUST close without
+one. Declare Cash on `submitted` MUST still correct the declaration before Confirm.
+The form's Seller Close button MUST close a sheet without cash at once and otherwise
+open a wizard showing the cash collected and the commission that asks the commission
+kept from cash. (Previously: Seller Close wrote `submitted` without declaration amounts
+and the seller declared cash afterwards.)
+
+#### Scenario: Cash without a declaration cannot close
+
+- GIVEN an open sheet with collected cash
+- WHEN Seller Close runs without `commission_withheld`
+- THEN it MUST raise `UserError`
+- AND `state` MUST stay `open` and `cash_declared_at` unset
+
+#### Scenario: Seller Close declares the cash kept
+
+- GIVEN an open sheet with cash 40 and a commission of 5
+- WHEN Seller Close runs with `commission_withheld` 2.25
+- THEN `state` MUST be `submitted`
+- AND `commission_withheld` MUST be 2.25, `commission_owed` 2.75 and `cash_declared_at`
+  set
+
+#### Scenario: Cash kept above the caps is refused
+
+- GIVEN an open sheet with collected cash
+- WHEN Seller Close runs with `commission_withheld` above the commission or the cash
+- THEN it MUST raise `UserError` and the sheet MUST stay `open` and undeclared
 
 ### Requirement: Upgrade stamps sheet company and sequences
 
