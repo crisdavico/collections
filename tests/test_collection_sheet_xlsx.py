@@ -797,13 +797,13 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIn("SUMIF", str(debt.value).upper())
         self.assertIn("SUMIF", str(cobrado.value).upper())
         self.assertIn("SUMIF", str(aplicado.value).upper())
-        self.assertRegex(str(remanente.value).replace("$", ""), r"^=C\d+-E\d+$")
+        self.assertRegex(str(remanente.value).replace("$", ""), r"^=E\d+-G\d+$")
         invoice_number = self._cell_with_value(worksheet, "FAC-SALDO")
         self.assertIsNotNone(invoice_number)
         self.assertIn(str(invoice_number.row), str(debt.value))
-        self.assertIn("$E$", str(debt.value).upper())
+        self.assertIn("$F$", str(debt.value).upper())
         self.assertIn("$H$", str(cobrado.value).upper())
-        self.assertIn("$F$", str(aplicado.value).upper())
+        self.assertIn("$G$", str(aplicado.value).upper())
         cached = self._load(content, data_only=True).active
         self.assertAlmostEqual(
             float(cached.cell(debt.row, debt.column).value), 321.5, places=2
@@ -820,9 +820,9 @@ class TestCollectionSheetXlsx(TransactionCase):
         resumen_rem = self._cell_with_value(worksheet, "Deuda sin cobrar")
         self.assertIsNotNone(resumen_rem)
         resumen_formula = str(
-            worksheet.cell(resumen_rem.row, resumen_rem.column + 2).value or ""
+            worksheet.cell(resumen_rem.row, resumen_rem.column + 4).value or ""
         )
-        self.assertNotIn("C11-G11", resumen_formula.replace("$", ""))
+        self.assertNotIn("E11-H11", resumen_formula.replace("$", ""))
         self.assertIn("=", resumen_formula)
 
     def test_xlsx_transfer_and_check_comprobante_fields(self):
@@ -1050,7 +1050,7 @@ class TestCollectionSheetXlsx(TransactionCase):
         for offset, expected in enumerate(customers):
             row = header.row + 1 + offset
             with self.subTest(customer=expected["name"], row=row):
-                for col, key in ((3, "debt"), (4, "collected"), (5, "applied")):
+                for col, key in ((5, "debt"), (6, "collected"), (7, "applied")):
                     formula = str(worksheet.cell(row, col).value)
                     self.assertTrue(formula.startswith("="), formula)
                     self.assertAlmostEqual(
@@ -1153,14 +1153,50 @@ class TestCollectionSheetXlsx(TransactionCase):
             [
                 "Código",
                 "Cliente",
+                None,
+                None,
                 "Saldo Total",
                 "Cobrado",
                 "Aplicado",
                 "Deuda sin cobrar",
-                None,
-                None,
             ],
         )
+
+    def test_xlsx_amount_columns_share_one_grid(self):
+        """Every table's last amount MUST sit in column H, one amount per column."""
+        sheet, _partner = self._populated_sheet()
+        content, _payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        merged = {str(item) for item in worksheet.merged_cells.ranges}
+
+        def header_row(title):
+            cell = self._cell_with_value(worksheet, title)
+            self.assertIsNotNone(cell, title)
+            return [worksheet.cell(cell.row, col).value for col in range(1, 9)]
+
+        self.assertEqual(
+            header_row("Saldo Total")[4:],
+            ["Saldo Total", "Cobrado", "Aplicado", "Deuda sin cobrar"],
+        )
+        self.assertEqual(
+            header_row("Vencimiento")[4:],
+            ["Vencimiento", "Saldo", "Aplicado", "Comisión"],
+        )
+        commission = self._cell_with_value(worksheet, "Comisión")
+        self.assertFalse(
+            any(item.startswith(commission.coordinate + ":") for item in merged),
+            "Comisión must not span two amount columns",
+        )
+        for label, value_col in (
+            ("Total Cobrado", 5),
+            ("Total Aplicado", 8),
+            ("Deuda sin cobrar", 5),
+            ("Total Comisión Devengada", 8),
+        ):
+            with self.subTest(label=label):
+                cell = self._cell_with_value(worksheet, label)
+                value = worksheet.cell(cell.row, value_col).value
+                self.assertTrue(str(value).startswith("="), value)
 
     def test_xlsx_has_only_the_planilla_sheet(self):
         """The Documentos and Comprobantes flat sheets MUST be gone."""

@@ -1,6 +1,7 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import re
 from datetime import date
 from html import escape
 from pathlib import Path
@@ -24,6 +25,41 @@ REPORT_XMLID = "collection.action_report_collection_sheet"
 RENDER_MODEL = "report.collection.report_collection_sheet"
 DOCUMENT_XMLID = "collection.report_collection_sheet_document"
 WRAPPER_XMLID = "collection.report_collection_sheet"
+
+
+# Money columns of every PDF table sit in these (left %, right %) lanes, so the
+# amounts of stacked tables line up on the same vertical borders.
+AMOUNT_LANES = ((38.67, 54.0), (54.0, 69.33), (69.33, 84.67), (84.67, 100.0))
+# table class -> (column count, 1-based money columns)
+AMOUNT_TABLES = {
+    "o_cs_totals": (4, (2, 4)),
+    "o_cs_customers": (6, (3, 4, 5, 6)),
+    "o_cs_docs": (7, (5, 6, 7)),
+    "o_cs_grand_applied": (3, (2, 3)),
+    "o_cs_checks": (8, (8,)),
+    "o_cs_vouchers": (5, (5,)),
+    "o_cs_grand_collected": (2, (2,)),
+    "o_cs_lines": (3, (3,)),
+}
+_WIDTH_RULE = re.compile(
+    r"\.(o_cs_\w+) t[hd]:nth-child\((n\+)?(\d+)\)[^{]*\{ width: ([\d.]+)%; \}"
+)
+
+
+def _column_edges(arch, table, count):
+    """Return each column's (left, right) % edges from the template's CSS."""
+    widths = [None] * count
+    for name, from_n, index, width in _WIDTH_RULE.findall(arch):
+        if name != table:
+            continue
+        start = int(index)
+        for col in range(start, count + 1) if from_n else (start,):
+            widths[col - 1] = float(width)
+    edges, left = [], 0.0
+    for width in widths:
+        edges.append((round(left, 2), round(left + width, 2)))
+        left += width
+    return edges
 
 
 class TestCollectionSheetReport(TransactionCase):
@@ -355,6 +391,24 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn("o_cs_title", document.arch)
         self.assertIn("table-layout: fixed", document.arch)
         self.assertIn("Total Comisión Devengada", document.arch)
+
+    def test_qweb_amount_columns_share_one_grid(self):
+        """Every money column MUST sit in a shared lane ending at the right edge."""
+        arch = self.env.ref(DOCUMENT_XMLID).arch
+        for table, (count, money_cols) in AMOUNT_TABLES.items():
+            with self.subTest(table=table):
+                edges = _column_edges(arch, table, count)
+                self.assertAlmostEqual(edges[-1][1], 100.0, places=1)
+                for col in money_cols:
+                    left, right = edges[col - 1]
+                    self.assertTrue(
+                        any(
+                            abs(left - lane_left) < 0.05
+                            and abs(right - lane_right) < 0.05
+                            for lane_left, lane_right in AMOUNT_LANES
+                        ),
+                        f"column {col} spans {left}-{right}%",
+                    )
 
     def test_qweb_arch_uses_the_xlsx_vocabulary(self):
         """PDF labels MUST match the XLSX names; the old short forms MUST go."""

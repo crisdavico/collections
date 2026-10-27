@@ -474,48 +474,41 @@ def _write_datos(
         block.get("subtotal_commission") or 0.0
         for block in payload.get("document_blocks") or ()
     )
-    _merge(ws, totals + 1, 0, 1, "Total Cobrado", fmt["label"])
+    # Values sit in the money columns E and H, in line with the tables below.
+    _merge(ws, totals + 1, 0, 3, "Total Cobrado", fmt["label"])
     if collected_ref:
-        _merge_formula(
-            ws, totals + 1, 2, 3, f"={collected_ref}", fmt["value_money"], collected
-        )
+        _formula(ws, totals + 1, 4, f"={collected_ref}", fmt["value_money"], collected)
     else:
-        _merge(ws, totals + 1, 2, 3, collected, fmt["value_money"])
-    _merge(ws, totals + 1, 4, 5, "Total Aplicado", fmt["label"])
+        _write(ws, totals + 1, 4, collected, fmt["value_money"])
+    _merge(ws, totals + 1, 5, 6, "Total Aplicado", fmt["label"])
     if applied_ref:
-        _merge_formula(
-            ws, totals + 1, 6, 7, f"={applied_ref}", fmt["value_money"], applied
-        )
+        _formula(ws, totals + 1, 7, f"={applied_ref}", fmt["value_money"], applied)
     else:
-        _merge(ws, totals + 1, 6, 7, applied, fmt["value_money"])
-    _merge(ws, totals + 2, 0, 1, "Deuda sin cobrar", fmt["label"])
+        _write(ws, totals + 1, 7, applied, fmt["value_money"])
+    _merge(ws, totals + 2, 0, 3, "Deuda sin cobrar", fmt["label"])
     if residual_ref:
-        _merge_formula(
-            ws, totals + 2, 2, 3, f"={residual_ref}", fmt["value_money"], residual
-        )
+        _formula(ws, totals + 2, 4, f"={residual_ref}", fmt["value_money"], residual)
     else:
-        _merge_formula(
+        _formula(
             ws,
             totals + 2,
-            2,
-            3,
-            f"={_a1(totals + 1, 2)}-{_a1(totals + 1, 6)}",
+            4,
+            f"={_a1(totals + 1, 4)}-{_a1(totals + 1, 7)}",
             fmt["value_money"],
             residual,
         )
-    _merge(ws, totals + 2, 4, 5, "Total Comisión Devengada", fmt["label"])
+    _merge(ws, totals + 2, 5, 6, "Total Comisión Devengada", fmt["label"])
     if commission_refs:
-        _merge_formula(
+        _formula(
             ws,
             totals + 2,
-            6,
             7,
             "=" + "+".join(commission_refs),
             fmt["value_money_bold"],
             commission,
         )
     else:
-        _merge(ws, totals + 2, 6, 7, commission, fmt["value_money_bold"])
+        _write(ws, totals + 2, 7, commission, fmt["value_money_bold"])
     ws.set_row(totals + 2, 8)
 
 
@@ -532,30 +525,30 @@ def _write_customers(ws, fmt, payload, start):
         start + 1,
         (
             ("Código", 0, 0),
-            ("Cliente", 1, 1),
-            ("Saldo Total", 2, 2),
-            ("Cobrado", 3, 3),
-            ("Aplicado", 4, 4),
-            ("Deuda sin cobrar", 5, 5),
+            ("Cliente", 1, 3),
+            ("Saldo Total", 4, 4),
+            ("Cobrado", 5, 5),
+            ("Aplicado", 6, 6),
+            ("Deuda sin cobrar", 7, 7),
         ),
     )
     for index, item in enumerate(rows):
         row = first + index
         _write(ws, row, 0, item.get("code") or "", fmt["data"])
-        _write(ws, row, 1, item.get("name") or "", fmt["data"])
+        _merge(ws, row, 1, 3, item.get("name") or "", fmt["data"])
         _write_key(ws, row, keys, item)
         _formula(
             ws,
             row,
-            2,
-            _sumif_formula(row, document_ranges, 4),
+            4,
+            _sumif_formula(row, document_ranges, 5),
             fmt["data_money"],
             item.get("debt") or 0.0,
         )
         _formula(
             ws,
             row,
-            3,
+            5,
             _sumif_formula(row, voucher_ranges, 7),
             fmt["data_money"],
             item.get("collected") or 0.0,
@@ -563,24 +556,24 @@ def _write_customers(ws, fmt, payload, start):
         _formula(
             ws,
             row,
-            4,
-            _sumif_formula(row, document_ranges, 5),
+            6,
+            _sumif_formula(row, document_ranges, 6),
             fmt["data_money"],
             item.get("applied") or 0.0,
         )
         _formula(
             ws,
             row,
-            5,
-            f"={_a1(row, 2)}-{_a1(row, 4)}",
+            7,
+            f"={_a1(row, 4)}-{_a1(row, 6)}",
             fmt["data_money"],
             item.get("residual") or 0.0,
         )
-    _merge(ws, total_row, 0, 1, "Total", fmt["total"])
+    _merge(ws, total_row, 0, 3, "Total", fmt["total"])
     _sum_or_zero(
         ws,
         total_row,
-        2,
+        4,
         first,
         last,
         fmt["total_money"],
@@ -589,7 +582,7 @@ def _write_customers(ws, fmt, payload, start):
     _sum_or_zero(
         ws,
         total_row,
-        3,
+        5,
         first,
         last,
         fmt["total_money"],
@@ -598,7 +591,7 @@ def _write_customers(ws, fmt, payload, start):
     _sum_or_zero(
         ws,
         total_row,
-        4,
+        6,
         first,
         last,
         fmt["total_money"],
@@ -607,13 +600,13 @@ def _write_customers(ws, fmt, payload, start):
     _sum_or_zero(
         ws,
         total_row,
-        5,
+        7,
         first,
         last,
         fmt["total_money"],
         totals.get("residual") or 0.0,
     )
-    return next_row, _a1(total_row, 5)
+    return next_row, _a1(total_row, 7)
 
 
 def _write_documents(ws, fmt, payload, start):
@@ -634,11 +627,11 @@ def _write_documents(ws, fmt, payload, start):
             (
                 ("Código", 0, 0),
                 ("Cliente", 1, 1),
-                ("Documento", 2, 2),
-                ("Vencimiento", 3, 3),
-                ("Saldo", 4, 4),
-                ("Aplicado", 5, 5),
-                ("Comisión", 6, 7),
+                ("Documento", 2, 3),
+                ("Vencimiento", 4, 4),
+                ("Saldo", 5, 5),
+                ("Aplicado", 6, 6),
+                ("Comisión", 7, 7),
             ),
         )
         for index, item in enumerate(rows):
@@ -646,76 +639,65 @@ def _write_documents(ws, fmt, payload, start):
             _write(ws, data_row, 0, item.get("code") or "", fmt["data"])
             _write(ws, data_row, 1, item.get("name") or "", fmt["data"])
             _write_key(ws, data_row, keys, item)
-            _write(ws, data_row, 2, item.get("invoice_number") or "", fmt["data"])
-            _write(ws, data_row, 3, _date_cell(item.get("due_date")), fmt["data_date"])
+            _merge(ws, data_row, 2, 3, item.get("invoice_number") or "", fmt["data"])
+            _write(ws, data_row, 4, _date_cell(item.get("due_date")), fmt["data_date"])
             _write(
                 ws,
                 data_row,
-                4,
+                5,
                 item.get("invoice_balance") or 0.0,
                 fmt["data_money"],
             )
             _write(
-                ws, data_row, 5, item.get("amount_applied") or 0.0, fmt["data_money"]
+                ws, data_row, 6, item.get("amount_applied") or 0.0, fmt["data_money"]
             )
-            _merge(
-                ws,
-                data_row,
-                6,
-                7,
-                item.get("commission") or 0.0,
-                fmt["data_money"],
-            )
-        _merge(ws, sub_row, 0, 4, "Subtotal", fmt["sub"])
+            _write(ws, data_row, 7, item.get("commission") or 0.0, fmt["data_money"])
+        _merge(ws, sub_row, 0, 5, "Subtotal", fmt["sub"])
         _sum_or_zero(
             ws,
             sub_row,
-            5,
+            6,
             first,
             last,
             fmt["sub_money"],
             block.get("subtotal_applied") or 0.0,
         )
-        if first is None:
-            _merge(ws, sub_row, 6, 7, 0, fmt["sub_money"])
-        else:
-            _merge_formula(
-                ws,
-                sub_row,
-                6,
-                7,
-                f"=SUM({_a1(first, 6)}:{_a1(last, 6)})",
-                fmt["sub_money"],
-                block.get("subtotal_commission") or 0.0,
-            )
-        applied_refs.append(_a1(sub_row, 5))
-        commission_refs.append(_a1(sub_row, 6))
+        _sum_or_zero(
+            ws,
+            sub_row,
+            7,
+            first,
+            last,
+            fmt["sub_money"],
+            block.get("subtotal_commission") or 0.0,
+        )
+        applied_refs.append(_a1(sub_row, 6))
+        commission_refs.append(_a1(sub_row, 7))
     total_row = cursor
     applied = payload.get("applied_total") or 0.0
     commission = sum(
         block.get("subtotal_commission") or 0.0
         for block in payload.get("document_blocks") or ()
     )
-    _merge(ws, total_row, 0, 4, "Total Aplicado", fmt["total"])
+    _merge(ws, total_row, 0, 5, "Total Aplicado", fmt["total"])
     if applied_refs:
         _formula(
-            ws, total_row, 5, "=" + "+".join(applied_refs), fmt["total_money"], applied
+            ws, total_row, 6, "=" + "+".join(applied_refs), fmt["total_money"], applied
         )
-        _merge_formula(
+        _formula(
             ws,
             total_row,
-            6,
             7,
             "=" + "+".join(commission_refs),
             fmt["total_money"],
             commission,
         )
     else:
-        _write(ws, total_row, 5, 0, fmt["total_money"])
-        _merge(ws, total_row, 6, 7, 0, fmt["total_money"])
+        _write(ws, total_row, 6, 0, fmt["total_money"])
+        _write(ws, total_row, 7, 0, fmt["total_money"])
     return (
         total_row + 2,
-        _a1(total_row, 5),
+        _a1(total_row, 6),
         commission_refs,
     )
 
