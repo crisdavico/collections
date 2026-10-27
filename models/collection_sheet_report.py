@@ -574,7 +574,7 @@ class CollectionSheetReport(models.Model):
     @api.private
     def _collection_report_voucher_row(self, voucher, partner_code):
         """Type-specific comprobante number and check details (never sequence name)."""
-        is_check = voucher.document_type == "check"
+        is_check = voucher.document_type in voucher._CHECK_DOCUMENT_TYPES
         if is_check:
             number = voucher.check_number or ""
             display_date = voucher.check_issue_date or False

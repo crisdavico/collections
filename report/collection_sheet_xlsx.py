@@ -41,20 +41,22 @@ _BANNER_FILL = {
     "in_favor": ("#FFEB9C", "#9C6500"),
     "outstanding": ("#FFC7CE", "#9C0006"),
 }
+_CHECK_VOUCHER_COLUMNS = {
+    "headers": (
+        ("Código", 0, 0),
+        ("Cliente", 1, 1),
+        ("Fecha de Emisión", 2, 2),
+        ("Nº Cheque", 3, 3),
+        ("Banco", 4, 4),
+        ("Tipo", 5, 5),
+        ("Fecha de Pago", 6, 6),
+        ("Importe", 7, 7),
+    ),
+    "merge_number": False,
+}
 _VOUCHER_BLOCK_COLUMNS = {
-    "check": {
-        "headers": (
-            ("Código", 0, 0),
-            ("Cliente", 1, 1),
-            ("Fecha de Emisión", 2, 2),
-            ("Nº Cheque", 3, 3),
-            ("Banco", 4, 4),
-            ("Tipo", 5, 5),
-            ("Fecha de Pago", 6, 6),
-            ("Importe", 7, 7),
-        ),
-        "merge_number": False,
-    },
+    "check": _CHECK_VOUCHER_COLUMNS,
+    "echeck": _CHECK_VOUCHER_COLUMNS,
 }
 _DEFAULT_VOUCHER_COLUMNS = {
     "headers": (

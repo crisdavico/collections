@@ -577,6 +577,36 @@ class TestCollectionSheetReport(TransactionCase):
         self.assertIn("o_cs_header_info", html)
         self.assertIn("o_cs_date", html)
 
+    def test_html_prints_echeck_check_fields(self):
+        """Echecks MUST render the check table with bank, type and pay date."""
+        partner = dummy_customer_partner(self.env, customer="PDF-ECHK")
+        sheet = self._create_sheet(seller=self.seller, force_new=True)
+        echeck = self._create_voucher(
+            partner,
+            sheet,
+            amount=20.0,
+            document_type="echeck",
+            check_number="ECHK-PDF",
+            check_bank="Banco Macro",
+            check_type="deferred",
+            check_issue_date=date(2026, 3, 2),
+            check_payment_date=date(2026, 5, 20),
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=echeck,
+            lines=[self._line_vals(amount_applied=20.0, invoice_balance=20.0)],
+        )
+        html = self._render_html(sheet)
+        self.assertIn("Nº Cheque", html)
+        self.assertIn("ECHK-PDF", html)
+        self.assertNotIn(echeck.name, html)
+        self.assertIn("Banco Macro", html)
+        self.assertIn("Diferido", html)
+        self.assertIn("02/03/2026", html)
+        self.assertIn("20/05/2026", html)
+
     def test_company_b_access_error_on_data_and_render(self):
         """Company-B users MUST get AccessError on payload data() and HTML render."""
         user_a = self._create_user("rpt_company_a", "collection.group_collection_user")
