@@ -2735,6 +2735,11 @@ msgid "Payment voucher approved."
 msgstr ""
 
 #. module: collection
+#: model:ir.ui.menu,name:collection.menu_collection_payments
+msgid "Payments"
+msgstr ""
+
+#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_search
 msgid "Pending ERP entry"
 msgstr ""
