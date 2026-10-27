@@ -1312,17 +1312,18 @@ class TestCollectionSheet(TransactionCase):
         self.assertEqual(current.state, "open")
         allocation._check_sheet_state_iff()
 
-    def test_submitted_returns_to_open_only_for_a_manager(self):
-        """A raw write of state open runs Reset to Open, with its manager check."""
+    def test_submitted_returns_to_open_only_for_a_collection_user(self):
+        """A raw write of state open runs Reset to Open, with its role check."""
         sheet = self._create_sheet()
         sheet.action_seller_close()
         self.assertEqual(sheet.state, "submitted")
         self.assertFalse(hasattr(type(sheet), "action_open"))
-        user = create_collection_user(self.env, "sheet_open_user")
+        plain = create_internal_seller(self.env, "sheet_open_plain")
         with self.assertRaises(AccessError):
-            sheet.with_user(user).write({"state": "open"})
+            sheet.with_user(plain).write({"state": "open"})
         self.assertEqual(sheet.state, "submitted")
-        sheet.write({"state": "open"})
+        user = create_collection_user(self.env, "sheet_open_user")
+        sheet.with_user(user).write({"state": "open"})
         self.assertEqual(sheet.state, "open")
 
     def test_cancelled_returns_to_open_only_through_reset(self):

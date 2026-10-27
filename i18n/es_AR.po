@@ -871,16 +871,6 @@ msgid "Close"
 msgstr "Cerrar"
 
 #. module: collection
-#: model:res.groups,comment:collection.group_collection_manager
-msgid ""
-"Close, cancel and reinstate collection sheets and manage collection "
-"configuration in allowed companies without system administration access."
-msgstr ""
-"Cerrar, cancelar y restablecer planillas de cobranza y administrar la "
-"configuración de cobranzas en las empresas permitidas, sin acceso de "
-"administración del sistema."
-
-#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_receipt__state__closed
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__closed
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_search
@@ -2556,10 +2546,11 @@ msgstr "No se encontraron uno o más documentos de pago."
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
 msgid ""
-"Only Collections Managers can close, cancel or reinstate collection sheets."
+"Only Collections Managers can cancel or reset to open a sheet marked as "
+"entered in the ERP."
 msgstr ""
-"Solo los administradores de Cobranzas pueden cerrar, cancelar o restablecer "
-"planillas de cobranza."
+"Solo los administradores de Cobranzas pueden cancelar o restablecer a "
+"abierta una planilla marcada como cargada en el ERP."
 
 #. module: collection
 #. odoo-python
@@ -2579,6 +2570,14 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Only Collections Managers can reinstate collection sheets."
+msgstr ""
+"Solo los administradores de Cobranzas pueden restablecer planillas de "
+"cobranza."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "Only Collections Users can remove vouchers from a sheet."
 msgstr ""
@@ -2587,10 +2586,11 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
-msgid "Only Collections Users can review documents or confirm sheets."
+msgid ""
+"Only Collections Users can review documents or work on collection sheets."
 msgstr ""
-"Solo los usuarios de Cobranzas pueden revisar documentos o confirmar "
-"planillas."
+"Solo los usuarios de Cobranzas pueden revisar documentos o trabajar en "
+"planillas de cobranza."
 
 #. module: collection
 #. odoo-python
@@ -2725,12 +2725,13 @@ msgstr "Facturas pendientes, neto de las notas de crédito pendientes."
 #: model:res.groups,comment:collection.group_collection_user
 msgid ""
 "Operate collections in allowed companies: Document Review, allocations, the "
-"receipt proposal board and Confirm. The MCP API user belongs here; sellers "
-"do not."
+"receipt proposal board, Confirm, Close, Cancel and Reset to Open. The MCP "
+"API user belongs here; sellers do not."
 msgstr ""
 "Operar cobranzas en las empresas permitidas: Revisión de Documentos, "
-"asignaciones, el tablero de propuesta de recibos y Confirmar. El usuario de "
-"la API MCP pertenece a este grupo; los vendedores no."
+"asignaciones, el tablero de propuesta de recibos, Confirmar, Cerrar, "
+"Cancelar y Restablecer a Abierta. El usuario de la API MCP pertenece a este "
+"grupo; los vendedores no."
 
 #. module: collection
 #: model:ir.model,name:collection.model_collection_allocation_debt_candidate
@@ -3112,6 +3113,18 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Reinstate"
 msgstr "Restablecer"
+
+#. module: collection
+#: model:res.groups,comment:collection.group_collection_manager
+msgid ""
+"Reinstate collection sheets, mark them as entered in the ERP, cancel or "
+"reset marked sheets and manage collection configuration in allowed companies"
+" without system administration access."
+msgstr ""
+"Restablecer planillas de cobranza, marcarlas como cargadas en el ERP, "
+"cancelar o restablecer a abierta las planillas marcadas y administrar la "
+"configuración de cobranzas en las empresas permitidas, sin acceso de "
+"administración del sistema."
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form

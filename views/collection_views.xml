@@ -472,13 +472,22 @@
             type="object"
             class="oe_highlight"
             invisible="state != 'proposal'"
-            groups="collection.group_collection_manager"
+            groups="collection.group_collection_user"
           />
                     <button
             name="action_cancel"
             string="Cancel"
             type="object"
-            invisible="state not in ('submitted', 'proposal', 'closed')"
+            invisible="state not in ('submitted', 'proposal', 'closed') or erp_entered_date"
+            groups="collection.group_collection_user"
+            confirm="Cancel this sheet? Closed receipts reopen, allocations go back to draft, and the ERP mark is cleared."
+          />
+                    <!-- Clearing the ERP mark stays with managers. -->
+                    <button
+            name="action_cancel"
+            string="Cancel"
+            type="object"
+            invisible="state not in ('submitted', 'proposal', 'closed') or not erp_entered_date"
             groups="collection.group_collection_manager"
             confirm="Cancel this sheet? Closed receipts reopen, allocations go back to draft, and the ERP mark is cleared."
           />
@@ -493,7 +502,15 @@
             name="action_reset_to_open"
             string="Reset to Open"
             type="object"
-            invisible="not id or state == 'open'"
+            invisible="not id or state == 'open' or erp_entered_date"
+            groups="collection.group_collection_user"
+            confirm="Reset this sheet to Open? The ERP mark is cleared, the seller commission is removed, and the seller must close and declare cash again."
+          />
+                    <button
+            name="action_reset_to_open"
+            string="Reset to Open"
+            type="object"
+            invisible="not id or state == 'open' or not erp_entered_date"
             groups="collection.group_collection_manager"
             confirm="Reset this sheet to Open? The ERP mark is cleared, the seller commission is removed, and the seller must close and declare cash again."
           />

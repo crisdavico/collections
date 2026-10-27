@@ -11,7 +11,7 @@
         <field name="implied_ids" eval="[(4, ref('base.group_user'))]" />
         <field
       name="comment"
-    >Operate collections in allowed companies: Document Review, allocations, the receipt proposal board and Confirm. The MCP API user belongs here; sellers do not.</field>
+    >Operate collections in allowed companies: Document Review, allocations, the receipt proposal board, Confirm, Close, Cancel and Reset to Open. The MCP API user belongs here; sellers do not.</field>
     </record>
     <record id="group_collection_manager" model="res.groups">
         <field name="name">Collections Manager</field>
@@ -24,7 +24,7 @@
     />
         <field
       name="comment"
-    >Close, cancel and reinstate collection sheets and manage collection configuration in allowed companies without system administration access.</field>
+    >Reinstate collection sheets, mark them as entered in the ERP, cancel or reset marked sheets and manage collection configuration in allowed companies without system administration access.</field>
     </record>
     <record id="collection_manager_company_bank_rule" model="ir.rule">
         <field name="name">Collections Manager: own company bank accounts</field>

@@ -34,7 +34,7 @@ COLLECTION_MODELS = (
     "collection.connector.customer.binding",
 )
 # Sheet buttons that only a Collections Manager may use.
-MANAGER_SHEET_ACTIONS = ("action_close", "action_cancel", "action_reinstate")
+MANAGER_SHEET_ACTIONS = ("action_reinstate",)
 
 
 @tagged("post_install", "-at_install")
@@ -149,16 +149,24 @@ class TestCollectionRoles(TransactionCase):
         with self.assertRaises(AccessError):
             connector.with_user(self.plain_user).read(["name"])
 
-    def test_collection_user_cannot_close_cancel_or_reinstate(self):
+    def test_collection_user_closes_cancels_and_resets_to_open(self):
+        sheet = self._sheet("proposal").with_user(self.collection_user)
+        sheet.action_close()
+        self.assertEqual(sheet.state, "closed")
+        sheet.action_cancel()
+        self.assertEqual(sheet.state, "cancelled")
+        sheet.action_reset_to_open()
+        self.assertEqual(sheet.state, "open")
+
+    def test_close_cancel_and_reset_refused_without_collection_role(self):
         proposal = self._sheet("proposal")
-        as_user = proposal.with_user(self.collection_user)
-        with self.assertRaises(AccessError):
-            as_user.action_close()
-        with self.assertRaises(AccessError):
-            as_user.write({"state": "closed"})
-        with self.assertRaises(AccessError):
-            as_user.action_cancel()
+        as_plain = proposal.with_user(self.plain_user)
+        for action in ("action_close", "action_cancel", "action_reset_to_open"):
+            with self.subTest(action=action), self.assertRaises(AccessError):
+                getattr(as_plain, action)()
         self.assertEqual(proposal.state, "proposal")
+
+    def test_collection_user_cannot_reinstate(self):
         cancelled = self._sheet("cancelled")
         with self.assertRaises(AccessError):
             cancelled.with_user(self.collection_user).action_reinstate()
@@ -227,7 +235,13 @@ class TestCollectionRoles(TransactionCase):
             with self.subTest(button=name):
                 self.assertNotIn(f'name="{name}"', arch_user)
                 self.assertIn(f'name="{name}"', arch_manager)
-        for name in ("action_confirm", "action_open_document_review"):
+        for name in (
+            "action_confirm",
+            "action_open_document_review",
+            "action_close",
+            "action_cancel",
+            "action_reset_to_open",
+        ):
             with self.subTest(button=name):
                 self.assertIn(f'name="{name}"', arch_user)
         root = self.env.ref("collection.menu_collection_root")

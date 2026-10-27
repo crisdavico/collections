@@ -805,13 +805,6 @@ msgid "Close"
 msgstr ""
 
 #. module: collection
-#: model:res.groups,comment:collection.group_collection_manager
-msgid ""
-"Close, cancel and reinstate collection sheets and manage collection "
-"configuration in allowed companies without system administration access."
-msgstr ""
-
-#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_receipt__state__closed
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__closed
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_search
@@ -2422,7 +2415,8 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
 msgid ""
-"Only Collections Managers can close, cancel or reinstate collection sheets."
+"Only Collections Managers can cancel or reset to open a sheet marked as "
+"entered in the ERP."
 msgstr ""
 
 #. module: collection
@@ -2440,6 +2434,12 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Only Collections Managers can reinstate collection sheets."
+msgstr ""
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_voucher.py:0
 msgid "Only Collections Users can remove vouchers from a sheet."
 msgstr ""
@@ -2447,7 +2447,8 @@ msgstr ""
 #. module: collection
 #. odoo-python
 #: code:addons/collection/models/collection_sheet.py:0
-msgid "Only Collections Users can review documents or confirm sheets."
+msgid ""
+"Only Collections Users can review documents or work on collection sheets."
 msgstr ""
 
 #. module: collection
@@ -2575,8 +2576,8 @@ msgstr ""
 #: model:res.groups,comment:collection.group_collection_user
 msgid ""
 "Operate collections in allowed companies: Document Review, allocations, the "
-"receipt proposal board and Confirm. The MCP API user belongs here; sellers "
-"do not."
+"receipt proposal board, Confirm, Close, Cancel and Reset to Open. The MCP "
+"API user belongs here; sellers do not."
 msgstr ""
 
 #. module: collection
@@ -2929,6 +2930,14 @@ msgstr ""
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
 msgid "Reinstate"
+msgstr ""
+
+#. module: collection
+#: model:res.groups,comment:collection.group_collection_manager
+msgid ""
+"Reinstate collection sheets, mark them as entered in the ERP, cancel or "
+"reset marked sheets and manage collection configuration in allowed companies"
+" without system administration access."
 msgstr ""
 
 #. module: collection
