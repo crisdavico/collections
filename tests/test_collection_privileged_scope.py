@@ -127,20 +127,27 @@ class TestCollectionPrivilegedScope(TransactionCase):
             )
         self.assertEqual(voucher.state, "validated_seller")
 
-    def test_forged_sheet_audited_state_cannot_close_cancel_or_reinstate(self):
-        proposal, *_rest = self._ledger("proposal")
-        forged = self._forged(proposal, "collection_sheet_audited_state")
-        for target in ("closed", "cancelled"):
-            with self.subTest(target=target):
-                with self.assertRaises(AccessError):
-                    forged.write({"state": target})
-                self.assertEqual(proposal.state, "proposal")
+    def test_forged_sheet_audited_state_cannot_skip_close_cancel_or_reinstate(self):
         cancelled, *_rest = self._ledger("cancelled")
         with self.assertRaises(AccessError):
             self._forged(cancelled, "collection_sheet_audited_state").write(
                 {"state": "submitted"}
             )
         self.assertEqual(cancelled.state, "cancelled")
+        # Collections Users may close and cancel, but only through the gates.
+        sheet, *_rest = self._ledger("open")
+        forged = self._forged(sheet, "collection_sheet_audited_state")
+        for target, message in (
+            ("closed", "Only proposal sheets can be closed."),
+            (
+                "cancelled",
+                "Only submitted, proposal, or closed sheets can be cancelled.",
+            ),
+        ):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(UserError, message):
+                    forged.write({"state": target})
+                self.assertEqual(sheet.state, "open")
 
     def test_forged_allocation_audited_state_cannot_change_allocation_state(self):
         _sheet, _voucher, allocation, _receipt, _value = self._ledger("open")
