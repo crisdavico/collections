@@ -208,9 +208,9 @@
     <menuitem
     id="menu_collection_allocation"
     name="Collection Allocations"
-    parent="menu_collection_root"
+    parent="menu_collection_payments"
     action="action_collection_allocation"
-    sequence="30"
+    sequence="20"
     groups="collection.group_collection_user"
   />
 </odoo>

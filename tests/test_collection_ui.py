@@ -261,28 +261,32 @@ class TestCollectionUi(TransactionCase):
         return (value or "").lower() in ("0", "false")
 
     def test_menu_and_action_xmlids(self):
-        """Collections → Payment Vouchers menu must wire the voucher act_window."""
+        """Collections → Payments → Payment Vouchers must wire the voucher action."""
         root_menu = self.env.ref("collection.menu_collection_root")
+        payments_menu = self.env.ref("collection.menu_collection_payments")
         voucher_menu = self.env.ref("collection.menu_collection_voucher")
         action = self.env.ref("collection.action_collection_voucher")
 
         self.assertEqual(root_menu.name, "Collections")
         self.assertFalse(root_menu.parent_id)
+        self.assertEqual(payments_menu.name, "Payments")
+        self.assertEqual(payments_menu.parent_id, root_menu)
         self.assertEqual(voucher_menu.name, "Payment Vouchers")
-        self.assertEqual(voucher_menu.parent_id, root_menu)
+        self.assertEqual(voucher_menu.parent_id, payments_menu)
         self.assertEqual(voucher_menu.action, action)
         self.assertEqual(action.res_model, "collection.voucher")
         self.assertEqual(action.view_mode, "list,form")
         self.assertNotIn("kanban", action.view_mode)
         self.assertEqual(voucher_menu.sequence, 10)
+        self.assertEqual(payments_menu.sequence, 20)
         self.assertEqual(
             self.env.ref("collection.menu_collection_config").sequence,
             100,
         )
         self.assertLess(
-            voucher_menu.sequence,
+            payments_menu.sequence,
             self.env.ref("collection.menu_collection_config").sequence,
-            "Payment Vouchers must appear before Configuration",
+            "Payments must appear before Configuration",
         )
         self.assertEqual(
             action.search_view_id,
@@ -1231,15 +1235,17 @@ class TestCollectionUi(TransactionCase):
         alloc_menu = self.env.ref("collection.menu_collection_allocation")
         action = self.env.ref("collection.action_collection_allocation")
 
+        payments_menu = self.env.ref("collection.menu_collection_payments")
         self.assertEqual(alloc_menu.name, "Collection Allocations")
-        self.assertEqual(alloc_menu.parent_id, root_menu)
+        self.assertEqual(alloc_menu.parent_id, payments_menu)
+        self.assertEqual(payments_menu.parent_id, root_menu)
         self.assertEqual(alloc_menu.action, action)
-        self.assertEqual(alloc_menu.sequence, 30)
-        self.assertEqual(sheet_menu.sequence, 20)
+        self.assertEqual(alloc_menu.sequence, 20)
+        self.assertEqual(sheet_menu.sequence, 10)
         self.assertGreater(
-            alloc_menu.sequence,
+            payments_menu.sequence,
             sheet_menu.sequence,
-            "Allocations menu must come after Collection Sheets",
+            "Payments menu must come after Collection Sheets",
         )
         self.assertEqual(action.res_model, "collection.allocation")
         self.assertEqual(action.type, "ir.actions.act_window")
@@ -2182,12 +2188,12 @@ class TestCollectionUi(TransactionCase):
         )
         action = self.env.ref("collection.action_collection_receipt")
         menu = self.env.ref("collection.menu_collection_receipt")
-        root_menu = self.env.ref("collection.menu_collection_root")
+        payments_menu = self.env.ref("collection.menu_collection_payments")
         alloc_menu = self.env.ref("collection.menu_collection_allocation")
         self.assertEqual(action.res_model, "collection.receipt")
         self.assertIn("list", action.view_mode)
         self.assertIn("form", action.view_mode)
-        self.assertEqual(menu.parent_id, root_menu)
+        self.assertEqual(menu.parent_id, payments_menu)
         self.assertEqual(menu.action, action)
         self.assertGreater(menu.sequence, alloc_menu.sequence)
 
