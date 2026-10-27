@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from lxml import etree
 
+from odoo import fields
 from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
@@ -29,9 +30,9 @@ _APPLIED = 40.0
 class TestCollectionErpEntry(TransactionCase):
     """A sheet marked "Entered in the ERP" stops reserving once the ERP shows it.
 
-    Receipts are typed into the ERP by hand and the operator marks the whole
-    sheet. Its applied amounts stay subtracted from the connector balances
-    until a snapshot refresh that STARTED after the mark succeeded.
+    Closing a sheet marks it; a manager may unmark it and mark it again. Its
+    applied amounts stay subtracted from the connector balances until a
+    snapshot refresh that STARTED after the mark succeeded.
     """
 
     def setUp(self):
@@ -106,6 +107,8 @@ class TestCollectionErpEntry(TransactionCase):
         ).get(_INVOICE, 0.0)
 
     def _mark(self, sheet):
+        """Mark a closed sheet again by hand; Close already marked it."""
+        sheet.with_user(self.manager).action_unmark_erp_entered()
         sheet.with_user(self.manager).action_mark_erp_entered()
         return sheet.erp_entered_date
 
@@ -118,9 +121,29 @@ class TestCollectionErpEntry(TransactionCase):
                 if state != "open":
                     sheet.action_cancel()
 
-    def test_closed_sheet_not_marked_is_subtracted(self):
-        self._sheet("closed")
+    def test_close_marks_the_sheet_as_entered_in_the_erp(self):
+        sheet = self._sheet("proposal")
+        self.assertFalse(sheet.erp_entered_date)
+        before = len(sheet.message_ids)
+        sheet.with_user(self.operator).action_close()
+        self.assertEqual(sheet.state, "closed")
+        self.assertTrue(sheet.erp_entered_date)
+        self.assertEqual(sheet.erp_entered_uid, self.operator)
+        self.assertEqual(len(sheet.message_ids), before + 1)
+        self.assertIn("entered in the ERP", sheet.message_ids[0].body)
+
+    def test_closed_sheet_is_subtracted_until_a_refresh_after_close(self):
+        sheet = self._sheet("closed")
+        closed_at = sheet.erp_entered_date
         self.assertEqual(self._reserved(), _APPLIED)
+        self.assertEqual(self._reserved(closed_at - timedelta(seconds=1)), _APPLIED)
+        self.assertEqual(self._reserved(closed_at + timedelta(seconds=1)), 0.0)
+
+    def test_unmarked_closed_sheet_is_subtracted(self):
+        sheet = self._sheet("closed")
+        sheet.with_user(self.manager).action_unmark_erp_entered()
+        self.assertEqual(self._reserved(), _APPLIED)
+        self.assertEqual(self._reserved(fields.Datetime.now()), _APPLIED)
 
     def test_marked_sheet_without_a_newer_refresh_is_subtracted(self):
         sheet = self._sheet("closed")
@@ -157,8 +180,14 @@ class TestCollectionErpEntry(TransactionCase):
         self.assertEqual(self._reserved(), 0.0)
 
     def test_mcp_allocatable_balance_follows_the_rule(self):
+        """A partial payment releases only its applied amount.
+
+        The open invoice owes 50 and the closed sheet applied 40: until a
+        refresh that started after the mark only the remaining 10 is
+        allocatable; after it, the ERP balance is trusted as it stands.
+        """
         sheet = self._sheet("closed")
-        marked_at = self._mark(sheet)
+        marked_at = sheet.erp_entered_date
         for since, allocatable in (
             (marked_at - timedelta(seconds=1), 10.0),
             (marked_at + timedelta(seconds=1), 50.0),
@@ -177,7 +206,7 @@ class TestCollectionErpEntry(TransactionCase):
         refresh that started after the mark, only 10 can be applied elsewhere.
         """
         sheet = self._sheet("closed")
-        marked_at = self._mark(sheet)
+        marked_at = sheet.erp_entered_date
         rows = [
             {
                 "external_invoice_id": _INVOICE,
@@ -210,22 +239,26 @@ class TestCollectionErpEntry(TransactionCase):
     def test_only_managers_mark_and_unmark(self):
         sheet = self._sheet("closed")
         for user in (self.plain, self.operator):
-            with self.subTest(user=user.login):
-                with self.assertRaises(AccessError):
-                    sheet.with_user(user).action_mark_erp_entered()
-        self._mark(sheet)
-        for user in (self.plain, self.operator):
             with self.subTest(user=user.login, action="unmark"):
                 with self.assertRaises(AccessError):
                     sheet.with_user(user).action_unmark_erp_entered()
         self.assertTrue(sheet.erp_entered_date)
+        sheet.with_user(self.manager).action_unmark_erp_entered()
+        for user in (self.plain, self.operator):
+            with self.subTest(user=user.login):
+                with self.assertRaises(AccessError):
+                    sheet.with_user(user).action_mark_erp_entered()
+        self.assertFalse(sheet.erp_entered_date)
 
     def test_only_closed_sheets_can_be_marked_once(self):
         sheet = self._sheet("closed")
+        with self.assertRaises(UserError):
+            sheet.with_user(self.manager).action_mark_erp_entered()
         self._mark(sheet)
         with self.assertRaises(UserError):
             sheet.with_user(self.manager).action_mark_erp_entered()
         unmarked = self._sheet("closed")
+        unmarked.with_user(self.manager).action_unmark_erp_entered()
         with self.assertRaises(UserError):
             unmarked.with_user(self.manager).action_unmark_erp_entered()
         # One open sheet per seller: the open one comes last.
@@ -238,6 +271,7 @@ class TestCollectionErpEntry(TransactionCase):
 
     def test_the_mark_cannot_be_written_directly(self):
         sheet = self._sheet("closed")
+        sheet.with_user(self.manager).action_unmark_erp_entered()
         for user in (self.manager, self.env.user):
             for vals in (
                 {"erp_entered_date": "2026-10-01 10:00:00"},
@@ -250,38 +284,33 @@ class TestCollectionErpEntry(TransactionCase):
 
     def test_cancel_clears_the_mark_and_reinstate_keeps_it_cleared(self):
         sheet = self._sheet("closed")
-        self._mark(sheet)
+        self.assertTrue(sheet.erp_entered_date)
         sheet.with_user(self.manager).action_cancel()
         self.assertFalse(sheet.erp_entered_date)
         self.assertFalse(sheet.erp_entered_uid)
         sheet.with_user(self.manager).action_reinstate()
         self.assertFalse(sheet.erp_entered_date)
 
-    def test_only_a_manager_cancels_or_resets_a_marked_sheet(self):
-        """Cancel and Reset to Open clear the mark, so they stay with managers."""
-        sheet = self._sheet("closed")
-        marked = self._mark(sheet)
-        as_operator = sheet.with_user(self.operator)
+    def test_operators_cancel_or_reset_a_marked_sheet(self):
+        """Every closed sheet is marked, so Cancel and Reset stay with operators."""
         for name, call in (
-            ("action_cancel", as_operator.action_cancel),
-            ("action_reset_to_open", as_operator.action_reset_to_open),
-            ("write cancelled", lambda: as_operator.write({"state": "cancelled"})),
-            ("write open", lambda: as_operator.write({"state": "open"})),
+            ("action_cancel", lambda sheet: sheet.action_cancel()),
+            ("action_reset_to_open", lambda sheet: sheet.action_reset_to_open()),
+            ("write cancelled", lambda sheet: sheet.write({"state": "cancelled"})),
+            ("write open", lambda sheet: sheet.write({"state": "open"})),
         ):
             with self.subTest(call=name):
-                with self.assertRaisesRegex(
-                    AccessError,
-                    "Only Collections Managers can cancel or reset to open a "
-                    "sheet marked as entered in the ERP.",
-                ):
-                    call()
-                self.assertEqual(sheet.state, "closed")
-                self.assertEqual(sheet.erp_entered_date, marked)
-        sheet.with_user(self.manager).action_reset_to_open()
-        self.assertEqual(sheet.state, "open")
-        self.assertFalse(sheet.erp_entered_date)
+                sheet = self._sheet("closed")
+                self.assertTrue(sheet.erp_entered_date)
+                call(sheet.with_user(self.operator))
+                self.assertIn(sheet.state, ("cancelled", "open"))
+                self.assertFalse(sheet.erp_entered_date)
+                self.assertFalse(sheet.erp_entered_uid)
+                if sheet.state == "cancelled":
+                    sheet.action_reset_to_open()
+                sheet.unlink()
 
-    def test_operators_see_cancel_and_reset_only_on_unmarked_sheets(self):
+    def test_operators_see_cancel_and_reset_on_marked_sheets(self):
         raw = etree.fromstring(
             self.env.ref("collection.view_collection_sheet_form").arch
         )
@@ -294,19 +323,18 @@ class TestCollectionErpEntry(TransactionCase):
             with self.subTest(button=name):
                 buttons = operator_form.xpath(f"//button[@name='{name}']")
                 self.assertEqual(len(buttons), 1)
-                self.assertIn("or erp_entered_date", buttons[0].get("invisible"))
-                managers = raw.xpath(
-                    f"//button[@name='{name}']"
-                    "[@groups='collection.group_collection_manager']"
+                self.assertNotIn("erp_entered_date", buttons[0].get("invisible"))
+                declared = raw.xpath(f"//button[@name='{name}']")
+                self.assertEqual(
+                    [node.get("groups") for node in declared],
+                    ["collection.group_collection_user"],
                 )
-                self.assertEqual(len(managers), 1)
-                self.assertIn("or not erp_entered_date", managers[0].get("invisible"))
 
     def test_mark_and_unmark_leave_a_chatter_note(self):
         sheet = self._sheet("closed")
         before = len(sheet.message_ids)
-        self._mark(sheet)
         sheet.with_user(self.manager).action_unmark_erp_entered()
+        sheet.with_user(self.manager).action_mark_erp_entered()
         self.assertEqual(len(sheet.message_ids), before + 2)
 
     def test_views_offer_the_mark_and_a_pending_filter(self):
@@ -332,8 +360,8 @@ class TestCollectionErpEntry(TransactionCase):
         self.assertTrue(pending)
         self.assertIn("erp_entered_date", pending[0].get("domain"))
         closed = self._sheet("closed")
+        closed.with_user(self.manager).action_unmark_erp_entered()
         marked = self._sheet("closed")
-        self._mark(marked)
         domain = [("state", "=", "closed"), ("erp_entered_date", "=", False)]
         found = Sheet.search(domain)
         self.assertIn(closed, found)

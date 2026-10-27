@@ -108,10 +108,10 @@ class CollectionSheet(models.Model):
         readonly=True,
         copy=False,
         index=True,
-        help="When a manager marked this closed sheet's receipts as typed into "
-        "the ERP. Its applied amounts stop being subtracted from the ERP "
-        "balances once a connector refresh that started after this time "
-        "succeeded.",
+        help="When this sheet's receipts were marked as typed into the ERP: set "
+        "on Close, or by a manager marking it again. Its applied amounts stop "
+        "being subtracted from the ERP balances once a connector refresh that "
+        "started after this time succeeded.",
     )
     erp_entered_uid = fields.Many2one(
         comodel_name="res.users",
@@ -631,6 +631,19 @@ class CollectionSheet(models.Model):
                 allocations.write({"state": "confirmed"})
         with privileged("collection_sheet_audited_state"):
             result = self.write({"state": "closed"})
+        # Closing counts as entering the receipts in the ERP; a manager may
+        # unmark a sheet that was not typed in yet.
+        with privileged(ERP_ENTRY_SCOPE):
+            self.write(
+                {
+                    "erp_entered_date": fields.Datetime.now(),
+                    "erp_entered_uid": self.env.uid,
+                }
+            )
+        for sheet in self:
+            sheet.message_post(
+                body=_("Close marked the receipts of this sheet as entered in the ERP.")
+            )
         if allocations:
             allocations._check_sheet_state_iff()
         return result
@@ -643,7 +656,6 @@ class CollectionSheet(models.Model):
             raise UserError(
                 _("Only submitted, proposal, or closed sheets can be cancelled.")
             )
-        self._check_erp_mark_manager()
         self._reopen_closed_receipts()
         allocations = self.mapped("allocation_ids")
         marked = self.filtered("erp_entered_date")
@@ -702,7 +714,6 @@ class CollectionSheet(models.Model):
                     "be reset to open."
                 )
             )
-        self._check_erp_mark_manager()
         for sheet in self:
             sheet._reset_one_to_open()
         return True
@@ -803,19 +814,6 @@ class CollectionSheet(models.Model):
             raise UserError(_("This sheet is not marked as entered in the ERP."))
         self._clear_erp_entry(_("The Entered in the ERP mark was removed."))
         return True
-
-    @api.private
-    def _check_erp_mark_manager(self):
-        """Cancel and Reset to Open clear the mark, which only managers remove."""
-        if self.filtered("erp_entered_date"):
-            check_collection_role(
-                self.env,
-                COLLECTION_MANAGER_GROUP,
-                _(
-                    "Only Collections Managers can cancel or reset to open a sheet "
-                    "marked as entered in the ERP."
-                ),
-            )
 
     @api.private
     def _clear_erp_entry(self, note):

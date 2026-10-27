@@ -805,6 +805,12 @@ msgid "Close"
 msgstr ""
 
 #. module: collection
+#. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid "Close marked the receipts of this sheet as entered in the ERP."
+msgstr ""
+
+#. module: collection
 #: model:ir.model.fields.selection,name:collection.selection__collection_receipt__state__closed
 #: model:ir.model.fields.selection,name:collection.selection__collection_sheet__state__closed
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_receipt_search
@@ -2413,14 +2419,6 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
-#: code:addons/collection/models/collection_sheet.py:0
-msgid ""
-"Only Collections Managers can cancel or reset to open a sheet marked as "
-"entered in the ERP."
-msgstr ""
-
-#. module: collection
-#. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
 #: code:addons/collection/wizard/collection_company_settings.py:0
 msgid "Only Collections Managers can configure collections."
@@ -3991,14 +3989,6 @@ msgid "Vouchers must share a single customer."
 msgstr ""
 
 #. module: collection
-#: model:ir.model.fields,help:collection.field_collection_sheet__erp_entered_date
-msgid ""
-"When a manager marked this closed sheet's receipts as typed into the ERP. "
-"Its applied amounts stop being subtracted from the ERP balances once a "
-"connector refresh that started after this time succeeded."
-msgstr ""
-
-#. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.res_config_settings_view_form
 msgid ""
 "When enabled, new vouchers with a seller and no sheet are auto-assigned."
@@ -4007,6 +3997,15 @@ msgstr ""
 #. module: collection
 #: model:ir.model.fields,help:collection.field_collection_allocation_debt_picker__debt_as_of
 msgid "When the connector's copy of the ERP debt was taken."
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,help:collection.field_collection_sheet__erp_entered_date
+msgid ""
+"When this sheet's receipts were marked as typed into the ERP: set on Close, "
+"or by a manager marking it again. Its applied amounts stop being subtracted "
+"from the ERP balances once a connector refresh that started after this time "
+"succeeded."
 msgstr ""
 
 #. module: collection

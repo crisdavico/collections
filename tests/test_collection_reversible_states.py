@@ -219,7 +219,7 @@ class TestCollectionReversibleStates(TransactionCase):
     def test_closed_marked_sheet_resets_to_open_and_can_be_deleted(self):
         commission = self._confirm()
         self.sheet.action_close()
-        self.sheet.action_mark_erp_entered()
+        self.assertTrue(self.sheet.erp_entered_date)
         self.sheet.action_reset_to_open()
         self.assertEqual(self.sheet.state, "open")
         self.assertFalse(self.sheet.erp_entered_date)
