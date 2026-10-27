@@ -247,6 +247,7 @@ class TestCollectionRoles(TransactionCase):
         root = self.env.ref("collection.menu_collection_root")
         operational = (
             root
+            | self.env.ref("collection.menu_collection_payments")
             | self.env.ref("collection.menu_collection_voucher")
             | self.env.ref("collection.menu_collection_sheet")
             | self.env.ref("collection.menu_collection_allocation")
@@ -259,6 +260,29 @@ class TestCollectionRoles(TransactionCase):
             with self.subTest(menu=menu.name):
                 self.assertNotIn(menu.id, plain_visible)
                 self.assertIn(menu.id, user_visible)
+
+    def test_sheets_open_first_and_payments_group_the_payment_documents(self):
+        """Sheets lead the app; Payments holds vouchers, allocations, receipts."""
+        root = self.env.ref("collection.menu_collection_root")
+        sheet = self.env.ref("collection.menu_collection_sheet")
+        payments = self.env.ref("collection.menu_collection_payments")
+        config = self.env.ref("collection.menu_collection_config")
+        top = root.child_id.sorted(lambda m: (m.sequence, m.id))
+        self.assertEqual(top[0], sheet)
+        self.assertEqual(top[1], payments)
+        self.assertEqual(top[-1], config)
+        self.assertFalse(payments.action)
+        self.assertEqual(
+            payments.child_id.sorted(lambda m: (m.sequence, m.id)),
+            self.env.ref("collection.menu_collection_voucher")
+            | self.env.ref("collection.menu_collection_allocation")
+            | self.env.ref("collection.menu_collection_receipt"),
+        )
+        # The app opens the first top-level menu that has an action.
+        first_action = next(m.action for m in top if m.action)
+        self.assertEqual(
+            first_action, self.env.ref("collection.action_collection_sheet")
+        )
 
     def test_imported_seller_identities_get_no_collection_group(self):
         """Sellers act through the agent: Import creates plain internal users."""

@@ -383,7 +383,7 @@
         </field>
     </record>
 
-    <!-- Menus: Collections → Payment Vouchers -->
+    <!-- Menus: Collections → Collection Sheets (landing) | Payments → Payment Vouchers -->
     <!-- Administrators reach Configuration even without a collection role. -->
     <menuitem
     id="menu_collection_root"
@@ -392,9 +392,16 @@
     groups="collection.group_collection_user,base.group_system"
   />
     <menuitem
+    id="menu_collection_payments"
+    name="Payments"
+    parent="menu_collection_root"
+    sequence="20"
+    groups="collection.group_collection_user"
+  />
+    <menuitem
     id="menu_collection_voucher"
     name="Payment Vouchers"
-    parent="menu_collection_root"
+    parent="menu_collection_payments"
     action="action_collection_voucher"
     sequence="10"
     groups="collection.group_collection_user"
@@ -714,7 +721,7 @@
     name="Collection Sheets"
     parent="menu_collection_root"
     action="action_collection_sheet"
-    sequence="20"
+    sequence="10"
     groups="collection.group_collection_user"
   />
 </odoo>

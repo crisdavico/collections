@@ -122,9 +122,9 @@
     <menuitem
     id="menu_collection_receipt"
     name="Collection Receipts"
-    parent="menu_collection_root"
+    parent="menu_collection_payments"
     action="action_collection_receipt"
-    sequence="40"
+    sequence="30"
     groups="collection.group_collection_user"
   />
 </odoo>
