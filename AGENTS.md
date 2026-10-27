@@ -325,12 +325,13 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   write of `cash_on_hand` raise `UserError` in every state, the MCP tool MUST NOT accept
   it. The reports print it as **Efectivo a entregar** (the cash calculation in the
   Conciliación). A sheet's company cannot change once it has vouchers or allocations.
-- **Entered in the ERP (D8):** receipts are typed into Bejerman by hand. A Collections
-  Manager marks a **closed** sheet with **Mark as Entered in the ERP**
-  (`action_mark_erp_entered` → `erp_entered_date` / `erp_entered_uid`, chatter note;
-  marking twice refused) and may undo it (`action_unmark_erp_entered`). Plain writes of
-  either field are refused; Cancel clears the mark. Search filter **Pending ERP entry**
-  lists closed, unmarked sheets. The mark drives the reserved-amount rule (see MCP
+- **Entered in the ERP (D8):** Close marks the sheet (`erp_entered_date` /
+  `erp_entered_uid` = now and the closing user, chatter note): debt on a closed sheet
+  counts as reconciled. A Collections Manager may undo it (`action_unmark_erp_entered`)
+  and mark it again (`action_mark_erp_entered`, **closed** sheets only; marking twice
+  refused). Plain writes of either field are refused; Cancel and Reset to Open clear the
+  mark and stay open to Collections Users. Search filter **Pending ERP entry** lists
+  closed, unmarked sheets. The mark drives the reserved-amount rule (see MCP
   `customer_debt`).
 - **Allocations:** `UNIQUE(sheet_id, partner_id)`. Selection `draft` | `confirmed`;
   default `draft` (`draft` iff sheet `open`/`submitted`/`proposal`/`cancelled`,

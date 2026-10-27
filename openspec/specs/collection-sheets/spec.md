@@ -1217,17 +1217,27 @@ voucher stale.)
 
 ### Requirement: Entered in the ERP mark
 
-Receipts are typed into the ERP by hand, so a closed sheet MUST carry readonly
-`erp_entered_date` and `erp_entered_uid`. They MUST be set only by the manager-only
-**Mark as Entered in the ERP** action (`closed` sheets only; a second mark refused) and
-cleared only by **Unmark Entered in the ERP** and by Cancel; Reinstate MUST keep them
-cleared. Each change MUST post a chatter note. A plain create or write of either field
-MUST be refused. Search MUST offer **Pending ERP entry** (closed and not marked). The
-connector's reserved amounts read the mark (see collection-allocations).
+A closed sheet MUST carry readonly `erp_entered_date` and `erp_entered_uid`. Close MUST
+set them (the closing user, now): debt on a closed sheet counts as reconciled. Only the
+amount each sheet applied is reserved, so a partial payment leaves the rest of the
+invoice open. A manager MAY undo it with **Unmark Entered in the ERP** and set it again with
+the manager-only **Mark as Entered in the ERP** action (`closed` sheets only; a second
+mark refused). Cancel and Reset to Open clear it, and Collections Users MAY run them on
+a marked sheet; Reinstate MUST keep it cleared. Each change MUST post a chatter note. A
+plain create or write of either field MUST be refused. Search MUST offer **Pending ERP
+entry** (closed and not marked). The connector's reserved amounts read the mark (see
+collection-allocations). (Previously: only the manager action set the mark, and only
+managers could cancel or reset a marked sheet.)
 
-#### Scenario: Manager marks a closed sheet
+#### Scenario: Close marks the sheet
 
-- GIVEN a closed sheet with no mark
+- GIVEN a proposal sheet
+- WHEN a Collections User closes it
+- THEN `erp_entered_date` and `erp_entered_uid` MUST be set and a chatter note posted
+
+#### Scenario: Manager marks an unmarked closed sheet
+
+- GIVEN a closed sheet a manager unmarked
 - WHEN a Collections Manager runs Mark as Entered in the ERP
 - THEN `erp_entered_date` and `erp_entered_uid` MUST be set and a chatter note posted
 - AND a Collections User running the same action MUST receive `AccessError`
