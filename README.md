@@ -53,11 +53,11 @@ this module cuts plain internal users off until they are given a Collections gro
 ## Agent tools (MCP)
 
 Read: `get_seller_id`, `list_collection_customers`, `customer_debt`,
-`get_collection_allocation`, `get_collection_sheet_pdf`. Write:
-`create_collection_allocation`, `close_collection_sheet`, `declare_collection_cash`,
-`create_seller_deposit`. The caller must be a Collections User. When the trusted seller
-header is configured, every tool acts for the seller whose verified phone the gateway
-sends, never for a seller the model chooses.
+`get_collection_allocation`, `get_collection_sheet_pdf`, `get_collection_summary`.
+Write: `create_collection_allocation`, `close_collection_sheet`,
+`declare_collection_cash`, `create_seller_deposit`. The caller must be a Collections
+User. When the trusted seller header is configured, every tool acts for the seller whose
+verified phone the gateway sends, never for a seller the model chooses.
 
 Production setup (API user, trusted header, which tools to expose to the model):
 [readme/CONFIGURE.md](readme/CONFIGURE.md).

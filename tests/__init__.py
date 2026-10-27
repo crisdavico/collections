@@ -34,6 +34,7 @@ from . import test_collection_mcp_replay_scope
 from . import test_collection_mcp_seller_deposit
 from . import test_collection_mcp_seller_identity
 from . import test_collection_mcp_seller_lookup
+from . import test_collection_mcp_sheet_summary
 from . import test_collection_mcp_sheet_close
 from . import test_collection_mcp_sheet_pdf
 from . import test_collection_mcp_tool

@@ -19,14 +19,15 @@ contacts default to the operator's company.
    and never need administrator rights.
 2. **Tools.** The agent needs only the collection tools: `get_seller_id`,
    `list_collection_customers`, `customer_debt`, `get_collection_allocation`,
-   `create_collection_allocation`, `get_collection_sheet_pdf`, `close_collection_sheet`,
-   `declare_collection_cash` and `create_seller_deposit`. The generic muk_mcp write
-   tools (`create_records`, `update_records`, `delete_records`, `call_method`) accept a
-   caller-supplied `context` and arbitrary writes on any model the API user can reach,
-   which skips every check the collection tools make. At the pinned muk_mcp version an
-   API key has no per-tool switch, only a `read` or `write` scope, and the collection
-   write tools need `write`. So expose only the collection tools to the model in the
-   gateway's MCP client, and keep the API user's rights to Collections User.
+   `create_collection_allocation`, `get_collection_sheet_pdf`, `get_collection_summary`,
+   `close_collection_sheet`, `declare_collection_cash` and `create_seller_deposit`. The
+   generic muk_mcp write tools (`create_records`, `update_records`, `delete_records`,
+   `call_method`) accept a caller-supplied `context` and arbitrary writes on any model
+   the API user can reach, which skips every check the collection tools make. At the
+   pinned muk_mcp version an API key has no per-tool switch, only a `read` or `write`
+   scope, and the collection write tools need `write`. So expose only the collection
+   tools to the model in the gateway's MCP client, and keep the API user's rights to
+   Collections User.
 3. **Seller identity.** Set the trusted seller header (below) and deploy the matching
    Nebula change, so the gateway, not the model, names the seller.
 4. **Upgrades.** Upgrading a database that already had `collection` installed cuts plain

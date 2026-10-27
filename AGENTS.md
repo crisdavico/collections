@@ -23,8 +23,8 @@ Ground truth order: source under this directory →
   `muk_mcp.mixin`: write `create_collection_allocation` plus `close_collection_sheet`
   plus `declare_collection_cash` plus `create_seller_deposit`; read `get_seller_id` plus
   `list_collection_customers` plus `customer_debt` plus `get_collection_allocation` plus
-  `get_collection_sheet_pdf`. Coordinated Nebula first-party tool
-  `register_latest_collection_voucher` lives in
+  `get_collection_sheet_pdf` plus `get_collection_summary`. Coordinated Nebula
+  first-party tool `register_latest_collection_voucher` lives in
   `/home/crisd/projects/nebula/nebula-agent`.
 - **Attachments (in scope):** each `collection.voucher` MAY have one optional image or
   PDF designated proof (`message_main_attachment_id` via chatter / `ir.attachment`).
@@ -107,6 +107,7 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
 | `tools/customer_list.py`                          | `@mcp_tool` `list_collection_customers` (read) on `muk_mcp.mixin`                                                                                                                                   |
 | `tools/customer_debt.py`                          | `@mcp_tool` `customer_debt` (read) on `muk_mcp.mixin`                                                                                                                                               |
 | `tools/sheet_report.py`                           | `@mcp_tool` `get_collection_sheet_pdf` (read) on `muk_mcp.mixin`; base64 Planilla                                                                                                                   |
+| `tools/collection_sheet_summary.py`               | `@mcp_tool` `get_collection_summary` (read) on `muk_mcp.mixin`; open sheet's Planilla totals (by voucher type, cash, commission) before close                                                       |
 | `tools/collection_sheet_close.py`                 | `@mcp_tool` `close_collection_sheet` (write) on `muk_mcp.mixin`; Seller Close by `seller_id`, declaring `commission_withheld`                                                                       |
 | `tools/collection_cash_declare.py`                | `@mcp_tool` `declare_collection_cash` (write) on `muk_mcp.mixin`; corrects Declare Cash on submitted                                                                                                |
 | `tools/collection_seller_deposit.py`              | `@mcp_tool` `create_seller_deposit` (write) on `muk_mcp.mixin`; remittance on the open sheet, else submitted                                                                                        |
@@ -257,20 +258,23 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   (`_check_commission_withheld`), while the Declare Cash form button stays uncapped.
   `close_collection_sheet` and `declare_collection_cash` return `commission`;
   `close_collection_sheet` also returns `cash.collected`, `cash.banked` and
-  `cash.to_administration` (Cash to Administration, what the seller hands in). Whether
-  the rest is deposited or handed in is not stored. Confirm runs only from `submitted`
-  and needs a Collections User; Close/Cancel/Reinstate need a Collections Manager
-  (`AccessError`). Existing `open`/`closed` rows stay on upgrade (no remap). A raw
-  `state` write is dispatched to the matching action (same role checks) or refused, so
-  it is never a shortcut. Sheets inherit `mail.thread` + `mail.activity.mixin`; Seller
-  Close, Declare Cash, Confirm, Close/Cancel/Reinstate SHOULD be tracked in chatter.
-  Confirm runs only from `submitted` (every member `validated_collections`, except
-  `CONFIRM_REVIEW_EXEMPT_TYPES` — `cash` and `seller_commission`, neither of which
-  carries a designated proof, so `validated_seller` is enough; `seller_deposit` is NOT
-  exempt; `draft` always blocks; the `UserError` names the offending vouchers; empty
-  members pass; collected cash > 0 requires `cash_declared_at`). After both Confirm
-  gates and before `submitted → proposal`, Confirm mints at most one `seller_commission`
-  via `_ensure_seller_commission_voucher()` (`document_id` `sc-<uuid4 hex>`, amount =
+  `cash.to_administration` (Cash to Administration, what the seller hands in).
+  `get_collection_summary` returns the open sheet's Planilla totals, including
+  `cash.collected`, `cash.banked` and `commission`, before the close, so the agent knows
+  whether to ask. Whether the rest is deposited or handed in is not stored. Confirm runs
+  only from `submitted` and needs a Collections User; Close/Cancel/Reinstate need a
+  Collections Manager (`AccessError`). Existing `open`/`closed` rows stay on upgrade (no
+  remap). A raw `state` write is dispatched to the matching action (same role checks) or
+  refused, so it is never a shortcut. Sheets inherit `mail.thread` +
+  `mail.activity.mixin`; Seller Close, Declare Cash, Confirm, Close/Cancel/Reinstate
+  SHOULD be tracked in chatter. Confirm runs only from `submitted` (every member
+  `validated_collections`, except `CONFIRM_REVIEW_EXEMPT_TYPES` — `cash` and
+  `seller_commission`, neither of which carries a designated proof, so
+  `validated_seller` is enough; `seller_deposit` is NOT exempt; `draft` always blocks;
+  the `UserError` names the offending vouchers; empty members pass; collected cash > 0
+  requires `cash_declared_at`). After both Confirm gates and before
+  `submitted → proposal`, Confirm mints at most one `seller_commission` via
+  `_ensure_seller_commission_voucher()` (`document_id` `sc-<uuid4 hex>`, amount =
   `commission_withheld`, ends `validated_collections`) inside the
   `collection_seller_commission_mint` scope. Zero withheld with no member is a no-op. An
   existing commission voucher is **re-synced** instead (also on Declare Cash): its
@@ -481,6 +485,16 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
     one submitted sheet → same `UserError` as `get_collection_allocation`. Open
     preferred over submitted. No connector, no `sudo()`, no attachment written. MUST NOT
     expose the XLSX or accept a `sheet_id`, report ref, or any generic report argument.
+  - Method-discovered `@mcp_tool` `get_collection_summary` (`category=read`,
+    `registry=mcp`) in `tools/collection_sheet_summary.py`. Required integer `seller_id`
+    only. Collections User caller; `_collection_mcp_seller`, `_open_sheets_for_seller`,
+    `check_access("read")`, then projects `_collection_report_data()` so the totals
+    match the Planilla. Returns
+    `{sheet:{id,name,state,seller_id,date_from,date_to,voucher_count}, collected:{cash,cash_deposits,checks,transfers,echecks,retentions,total}, cash:{collected,banked}, commission:{percent,amount}}`
+    for the single open sheet; `collected.total` is the Planilla's collected total
+    (seller deposits and commission excluded); no open sheet → `{sheet: null}`; more
+    than one open sheet → same `UserError` as `get_collection_allocation`. Writes
+    nothing; no `sudo()`.
   - Method-discovered `@mcp_tool` `close_collection_sheet` (`category=write`,
     `registry=mcp`) in `tools/collection_sheet_close.py`. Required integer `seller_id`
     only. MUST NOT accept `cash_on_hand` or `commission_withheld`. Collections User
@@ -715,6 +729,7 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_mcp_allocation.py`           | MCP `create_collection_allocation` persist draft, amend iff draft, replay, gates, UniqueViolation                                                                                                                                                   |
 | `tests/test_collection_mcp_allocation_lookup.py`    | MCP `get_collection_allocation` discovery, auth, null, found, `receipts[]`, current `check_number`, no-write                                                                                                                                        |
 | `tests/test_collection_mcp_sheet_pdf.py`            | MCP `get_collection_sheet_pdf` discovery, seller-only schema, auth, null branches, base64 envelope, company scoping, no sudo                                                                                                                        |
+| `tests/test_collection_mcp_sheet_summary.py`        | MCP `get_collection_summary` discovery, seller-only schema, auth, null branch, totals by type, cash/deposit/commission, no write, no sudo                                                                                                           |
 | `tests/test_collection_mcp_sheet_close.py`          | MCP `close_collection_sheet` discovery, seller-only schema, 0-open UserError, cash.collected, no sudo                                                                                                                                               |
 | `tests/test_collection_mcp_cash_declare.py`         | MCP `declare_collection_cash` discovery, submitted-only, 0-submitted UserError, no sudo                                                                                                                                                             |
 | `tests/test_collection_mcp_seller_deposit.py`       | MCP `create_seller_deposit` discovery, open sheet then submitted, seller partner, `validated_seller` outcome, review-queue membership, Approve promote plus cash replacement, unreviewed deposit blocks Confirm, allocation still customer-required |

@@ -9,6 +9,7 @@ from . import customer_list
 from . import seller_lookup
 from . import seller_identity
 from . import sheet_report
+from . import collection_sheet_summary
 from . import collection_sheet_close
 from . import collection_cash_declare
 from . import collection_seller_deposit
