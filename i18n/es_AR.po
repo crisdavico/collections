@@ -2544,6 +2544,16 @@ msgstr "No se encontraron uno o más documentos de pago."
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid ""
+"Only Collections Managers can cancel or reset to open a sheet marked as "
+"entered in the ERP."
+msgstr ""
+"Solo los administradores de Cobranzas pueden cancelar o restablecer a "
+"abierta una planilla marcada como cargada en el ERP."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
 #: code:addons/collection/wizard/collection_company_settings.py:0
 msgid "Only Collections Managers can configure collections."
@@ -3107,13 +3117,14 @@ msgstr "Restablecer"
 #. module: collection
 #: model:res.groups,comment:collection.group_collection_manager
 msgid ""
-"Reinstate collection sheets, mark them as entered in the ERP and manage "
-"collection configuration in allowed companies without system administration "
-"access."
+"Reinstate collection sheets, mark them as entered in the ERP, cancel or "
+"reset marked sheets and manage collection configuration in allowed companies"
+" without system administration access."
 msgstr ""
-"Restablecer planillas de cobranza, marcarlas como cargadas en el ERP y "
-"administrar la configuración de cobranzas en las empresas permitidas, sin "
-"acceso de administración del sistema."
+"Restablecer planillas de cobranza, marcarlas como cargadas en el ERP, "
+"cancelar o restablecer a abierta las planillas marcadas y administrar la "
+"configuración de cobranzas en las empresas permitidas, sin acceso de "
+"administración del sistema."
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form

@@ -2413,6 +2413,14 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/models/collection_sheet.py:0
+msgid ""
+"Only Collections Managers can cancel or reset to open a sheet marked as "
+"entered in the ERP."
+msgstr ""
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/collection_connector.py:0
 #: code:addons/collection/wizard/collection_company_settings.py:0
 msgid "Only Collections Managers can configure collections."
@@ -2927,9 +2935,9 @@ msgstr ""
 #. module: collection
 #: model:res.groups,comment:collection.group_collection_manager
 msgid ""
-"Reinstate collection sheets, mark them as entered in the ERP and manage "
-"collection configuration in allowed companies without system administration "
-"access."
+"Reinstate collection sheets, mark them as entered in the ERP, cancel or "
+"reset marked sheets and manage collection configuration in allowed companies"
+" without system administration access."
 msgstr ""
 
 #. module: collection

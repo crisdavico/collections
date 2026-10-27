@@ -24,7 +24,7 @@
     />
         <field
       name="comment"
-    >Reinstate collection sheets, mark them as entered in the ERP and manage collection configuration in allowed companies without system administration access.</field>
+    >Reinstate collection sheets, mark them as entered in the ERP, cancel or reset marked sheets and manage collection configuration in allowed companies without system administration access.</field>
     </record>
     <record id="collection_manager_company_bank_rule" model="ir.rule">
         <field name="name">Collections Manager: own company bank accounts</field>

@@ -30,7 +30,7 @@ cannot be deleted.
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Plain internal users (CRM users, seller identities)      | Nothing in Collections. Sellers act only through the agent.                                                                                                      |
 | **Collections User** (operators, the MCP API user)       | Vouchers, Document Review, allocations, the receipt-proposal board, Confirm, Close, Cancel, Reset to Open; read-only connector data; create (not edit) contacts. |
-| **Collections Manager** (implies User; admin on install) | Reinstate, Entered in the ERP, connectors, seller import and enablement, company settings.                                                                       |
+| **Collections Manager** (implies User; admin on install) | Reinstate, Entered in the ERP (and Cancel or Reset to Open on a marked sheet), connectors, seller import and enablement, company settings.                       |
 | Administrators                                           | Connector credentials and system fields (user, password, WS URL, TLS, CA bundle, SQLite path) and the trusted seller header setting.                             |
 
 Workflow guards cannot be bypassed with request context: server code opens guarded paths

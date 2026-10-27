@@ -257,6 +257,51 @@ class TestCollectionErpEntry(TransactionCase):
         sheet.with_user(self.manager).action_reinstate()
         self.assertFalse(sheet.erp_entered_date)
 
+    def test_only_a_manager_cancels_or_resets_a_marked_sheet(self):
+        """Cancel and Reset to Open clear the mark, so they stay with managers."""
+        sheet = self._sheet("closed")
+        marked = self._mark(sheet)
+        as_operator = sheet.with_user(self.operator)
+        for name, call in (
+            ("action_cancel", as_operator.action_cancel),
+            ("action_reset_to_open", as_operator.action_reset_to_open),
+            ("write cancelled", lambda: as_operator.write({"state": "cancelled"})),
+            ("write open", lambda: as_operator.write({"state": "open"})),
+        ):
+            with self.subTest(call=name):
+                with self.assertRaisesRegex(
+                    AccessError,
+                    "Only Collections Managers can cancel or reset to open a "
+                    "sheet marked as entered in the ERP.",
+                ):
+                    call()
+                self.assertEqual(sheet.state, "closed")
+                self.assertEqual(sheet.erp_entered_date, marked)
+        sheet.with_user(self.manager).action_reset_to_open()
+        self.assertEqual(sheet.state, "open")
+        self.assertFalse(sheet.erp_entered_date)
+
+    def test_operators_see_cancel_and_reset_only_on_unmarked_sheets(self):
+        raw = etree.fromstring(
+            self.env.ref("collection.view_collection_sheet_form").arch
+        )
+        operator_form = etree.fromstring(
+            self.env["collection.sheet"]
+            .with_user(self.operator)
+            .get_view(view_type="form")["arch"]
+        )
+        for name in ("action_cancel", "action_reset_to_open"):
+            with self.subTest(button=name):
+                buttons = operator_form.xpath(f"//button[@name='{name}']")
+                self.assertEqual(len(buttons), 1)
+                self.assertIn("or erp_entered_date", buttons[0].get("invisible"))
+                managers = raw.xpath(
+                    f"//button[@name='{name}']"
+                    "[@groups='collection.group_collection_manager']"
+                )
+                self.assertEqual(len(managers), 1)
+                self.assertIn("or not erp_entered_date", managers[0].get("invisible"))
+
     def test_mark_and_unmark_leave_a_chatter_note(self):
         sheet = self._sheet("closed")
         before = len(sheet.message_ids)
