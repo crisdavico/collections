@@ -382,7 +382,10 @@
                     <h3>Comprobantes</h3>
                     <t t-foreach="payload['voucher_blocks']" t-as="block">
                         <h4 t-out="block['label']" />
-                        <table class="o_cs_checks" t-if="block['code'] == 'check'">
+                        <table
+              class="o_cs_checks"
+              t-if="block['code'] in ('check', 'echeck')"
+            >
                             <thead>
                                 <tr>
                                     <th>Código</th>

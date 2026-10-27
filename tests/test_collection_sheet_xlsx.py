@@ -863,6 +863,40 @@ class TestCollectionSheetXlsx(TransactionCase):
         self.assertIsNotNone(self._cell_with_value(worksheet, "Común"))
         self.assertIsNotNone(self._cell_with_date(worksheet, date(2026, 4, 15)))
 
+    def test_xlsx_echeck_block_prints_check_columns(self):
+        """XLSX echeck block MUST use the check columns, not the merged number."""
+        partner = dummy_customer_partner(self.env, customer="XLSX-ECHK")
+        sheet = self._create_sheet(force_new=True)
+        echeck = self._create_voucher(
+            partner,
+            sheet,
+            amount=20.0,
+            document_type="echeck",
+            check_number="ECHK-XLSX",
+            check_bank="Banco Macro",
+            check_type="deferred",
+            check_issue_date=date(2026, 3, 2),
+            check_payment_date=date(2026, 5, 20),
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=echeck,
+            lines=[self._line_vals(amount_applied=20.0, invoice_balance=20.0)],
+        )
+        content, _payload = self._render_xlsx(sheet)
+        worksheet = self._load(content).active
+        number = self._cell_with_value(worksheet, "ECHK-XLSX")
+        self.assertIsNotNone(number)
+        self.assertIsNone(self._cell_with_value(worksheet, echeck.name))
+        self.assertFalse(
+            any(number.coordinate in merged for merged in worksheet.merged_cells.ranges)
+        )
+        self.assertIsNotNone(self._cell_with_value(worksheet, "Banco Macro"))
+        self.assertIsNotNone(self._cell_with_value(worksheet, "Diferido"))
+        self.assertIsNotNone(self._cell_with_date(worksheet, date(2026, 5, 20)))
+        self.assertIsNotNone(self._cell_with_value(worksheet, "Nº Cheque"))
+
     def test_xlsx_header_values_right_and_table_dates_centered(self):
         """Header field values MUST be right-aligned; table dates centered."""
         partner = dummy_customer_partner(self.env, customer="XLSX-ALIGN")

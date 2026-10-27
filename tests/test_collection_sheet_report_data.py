@@ -1409,6 +1409,36 @@ class TestCollectionSheetReportData(TransactionCase):
         self.assertFalse(blank["date"])
         self.assertFalse(blank["check_payment_date"])
 
+    def test_payload_echeck_rows_carry_check_details(self):
+        """Echecks MUST print the same check fields as paper checks."""
+        sheet = self._create_sheet()
+        partner = dummy_customer_partner(self.env, customer="RPT-ECHK")
+        echeck = self._create_voucher(
+            partner,
+            sheet,
+            amount=20.0,
+            document_type="echeck",
+            check_number="ECHK-456",
+            check_bank="Banco Galicia",
+            check_type="deferred",
+            check_issue_date=date(2026, 3, 2),
+            check_payment_date=date(2026, 5, 20),
+        )
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=echeck,
+            lines=[self._line_vals(amount_applied=20.0, invoice_balance=20.0)],
+        )
+        payload = sheet._collection_report_data()
+        by_code = {block["code"]: block["rows"] for block in payload["voucher_blocks"]}
+        row = by_code["echeck"][0]
+        self.assertEqual(row["number"], "ECHK-456")
+        self.assertEqual(row["check_bank"], "Banco Galicia")
+        self.assertEqual(row["check_type"], "Diferido")
+        self.assertEqual(row["date"], date(2026, 3, 2))
+        self.assertEqual(row["check_payment_date"], date(2026, 5, 20))
+
     def test_payload_spanish_argentina_labels(self):
         """Report labels and recon copy MUST be Spanish Argentina, not English."""
         sheet = self._create_sheet()
