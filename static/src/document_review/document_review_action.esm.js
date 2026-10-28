@@ -7,6 +7,7 @@ import {
   applyWheelZoom,
   attachmentViewerKind,
   buildApproveVals,
+  formatReviewAmount,
   identityViewerZoom,
   initDraftFromOcr,
   initialViewerStatus,
@@ -324,6 +325,15 @@ export class DocumentReviewAction extends Component {
       return;
     }
     current.draft[fieldName] = ev.target.value;
+  }
+
+  onAmountBlur(ev) {
+    const current = this.current;
+    if (!current || !current.draft) {
+      return;
+    }
+    current.draft.amount = formatReviewAmount(ev.target.value);
+    ev.target.value = current.draft.amount;
   }
 
   async approve() {
