@@ -224,11 +224,12 @@
                                 <div class="slot">
                                     <input
                     id="collection_review_amount"
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputmode="decimal"
                     aria-label="Monto"
                     t-att-value="current.draft.amount"
                     t-on-input="(ev) => this.onFieldInput(ev, 'amount')"
+                    t-on-blur="onAmountBlur"
                   />
                                 </div>
                             </div>

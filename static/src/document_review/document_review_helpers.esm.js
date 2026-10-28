@@ -61,6 +61,47 @@ export function isEmptyReviewValue(name, value) {
   return false;
 }
 
+/**
+ * Parse an amount typed with "." as thousands and "," as decimal separator.
+ * Without a comma, a single dot followed by 1-2 digits is read as decimal.
+ * Returns null when the text is not a number.
+ */
+export function parseReviewAmount(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const text = String(value ?? "").replace(/\s/g, "");
+  if (!text) {
+    return null;
+  }
+  let normalized = text;
+  if (text.includes(",")) {
+    normalized = text.replace(/\./g, "").replace(",", ".");
+  } else if (!/^-?\d+\.\d{1,2}$/.test(text)) {
+    normalized = text.replace(/\./g, "");
+  }
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
+    return null;
+  }
+  return Number(normalized);
+}
+
+/** Format an amount as 1.234.567,89. Unparseable text is returned unchanged. */
+export function formatReviewAmount(value) {
+  if (value === false || value === null || value === undefined || value === "") {
+    return "";
+  }
+  const number = parseReviewAmount(value);
+  if (number === null) {
+    return String(value);
+  }
+  const fixed = Math.abs(number).toFixed(2);
+  const [integer, decimals] = fixed.split(".");
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const sign = number < 0 && Number(fixed) !== 0 ? "-" : "";
+  return `${sign}${grouped},${decimals}`;
+}
+
 export function initDraftFromOcr(item) {
   const source = item || {};
   const draft = {};
@@ -68,6 +109,7 @@ export function initDraftFromOcr(item) {
     const ocrValue = source[`ocr_${name}`];
     draft[name] = isEmptyReviewValue(name, ocrValue) ? source[name] ?? "" : ocrValue;
   }
+  draft.amount = formatReviewAmount(draft.amount);
   return draft;
 }
 
@@ -79,6 +121,9 @@ export function buildApproveVals(draft) {
       continue;
     }
     vals[name] = source[name];
+  }
+  if (Object.prototype.hasOwnProperty.call(vals, "amount")) {
+    vals.amount = parseReviewAmount(vals.amount) ?? "";
   }
   return vals;
 }
@@ -120,7 +165,7 @@ export function formatSellerChangedValue(changedFields, fieldName) {
     return "";
   }
   if (fieldName === "amount") {
-    return Number(value).toFixed(2);
+    return formatReviewAmount(value);
   }
   if (SELLER_CHANGED_DATE_FIELDS.has(fieldName)) {
     return formatIsoDate(value);
