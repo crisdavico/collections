@@ -766,17 +766,10 @@ class TestCollectionMcpAllocation(TransactionCase):
 
     def test_payload_kind_prevents_hash_replay(self):
         """Different receipt document_kind MUST not replay as unchanged content."""
+        # On account: no application, so either receipt kind is valid.
         payment = self._payment(100.0)
-        invoice_receipts = [
-            self._receipt([payment], [self._application(INVOICE_OVERDUE, 100.0)])
-        ]
-        quotation_receipts = [
-            self._receipt(
-                [payment],
-                [self._application(INVOICE_OVERDUE, 100.0)],
-                document_kind="quotation",
-            )
-        ]
+        invoice_receipts = [self._receipt([payment], [])]
+        quotation_receipts = [self._receipt([payment], [], document_kind="quotation")]
         first = self._call(
             self._payload([payment], invoice_receipts, request_id="req-kind-1")
         )

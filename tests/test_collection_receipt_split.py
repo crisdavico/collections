@@ -18,7 +18,6 @@ from .common_connector import (
 from .test_collection_acl import TestCollectionAcl
 from .test_collection_mcp_allocation import (
     IDENT,
-    INVOICE_OPEN,
     INVOICE_OVERDUE,
     TOOL_NAME,
 )
@@ -410,7 +409,8 @@ class TestCollectionReceiptSplit(TransactionCase):
                     {
                         "document_kind": "quotation",
                         "values": [{"document_id": extra.document_id, "amount": 50.0}],
-                        "applications": [self._application(INVOICE_OPEN, 50.0)],
+                        # On account: the connector reports no quotation here.
+                        "applications": [],
                     },
                 ],
                 request_id=f"req-{self._testMethodName}-2",

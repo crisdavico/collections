@@ -14,6 +14,7 @@ from odoo.tests import TransactionCase
 from odoo.addons.collection.tools.collection_allocation import _RECEIPT_ITEM_SCHEMA
 
 from .common_connector import (
+    TEST_INVOICES,
     install_bound_test_connector,
     install_test_connector_type,
     mcp_env_with_listable_customers,
@@ -36,6 +37,24 @@ INHERIT_VIEW = (
 PARENT_VIEW = (
     Path(__file__).resolve().parents[1] / "views" / "collection_allocation_views.xml"
 )
+# A connector debt row the ERP classifies as a quotation (e.g. Bejerman `PRE`).
+QUOTATION_ROW = {
+    "id": "quo-bound-open",
+    "customer_id": "cust-bound-active",
+    "number": "PRE-0001",
+    "issue_date": "2026-04-01",
+    "due_date": "2026-08-18",
+    "amount": 100.0,
+    "balance": 100.0,
+    "state": "open",
+    "document_kind": "quotation",
+}
+QUOTATION_OPEN = {
+    "external_invoice_id": QUOTATION_ROW["id"],
+    "number": QUOTATION_ROW["number"],
+    "balance": QUOTATION_ROW["balance"],
+}
+WITH_QUOTATION = {"collection_test_invoices": [*TEST_INVOICES, QUOTATION_ROW]}
 
 
 class TestCollectionAllocationDocumentKind(TransactionCase):
@@ -140,7 +159,13 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
             }
         )
 
-    def _mcp_receipt(self, payments, document_kind="invoice", amount_applied=100.0):
+    def _mcp_receipt(
+        self,
+        payments,
+        document_kind="invoice",
+        amount_applied=100.0,
+        document=INVOICE_OVERDUE,
+    ):
         return {
             "document_kind": document_kind,
             "values": [
@@ -152,15 +177,20 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
             ],
             "applications": [
                 {
-                    "external_document_id": INVOICE_OVERDUE["external_invoice_id"],
-                    "number": INVOICE_OVERDUE.get("number"),
-                    "balance_seen": INVOICE_OVERDUE["balance"],
+                    "external_document_id": document["external_invoice_id"],
+                    "number": document.get("number"),
+                    "balance_seen": document["balance"],
                     "amount_applied": amount_applied,
                 }
             ],
         }
 
-    def _mcp_call(self, arguments, user=None):
+    def _line(self, allocation, document):
+        return allocation.line_ids.filtered(
+            lambda line: line.external_invoice_id == document["external_invoice_id"]
+        )
+
+    def _mcp_call(self, arguments, user=None, context=None):
         uid = user or self.internal_user
         arguments = dict(arguments)
         arguments["payments"] = [
@@ -177,6 +207,8 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
                 echoed.append(item)
             echo_args = {**arguments, "payments": echoed}
         env = mcp_env_with_listable_customers(self.env, echo_args, uid, uid)
+        if context:
+            env = env(context={**env.context, **context})
         text, _info = self.tool_model._call(
             TOOL_NAME, with_voucher_files(arguments), env
         )
@@ -348,8 +380,56 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
         }
         self.assertEqual(kinds[INVOICE_OVERDUE["external_invoice_id"]], "invoice")
 
-    def test_mcp_create_may_send_quotation_kind(self):
-        """MCP create receipts[] MAY send document_kind quotation and persist it."""
+    def test_mcp_create_quotation_receipt_persists_quotation_kind(self):
+        """A connector quotation applied on the quotation receipt MUST persist."""
+        document_id = self._next_document_id()
+        payments = [self._mcp_payment(document_id)]
+        arguments = {
+            "seller_id": self.seller.id,
+            "customer_identification": IDENT,
+            "request_id": f"req-{self._testMethodName}",
+            "payments": payments,
+            "receipts": [
+                self._mcp_receipt(
+                    payments, document_kind="quotation", document=QUOTATION_OPEN
+                )
+            ],
+        }
+        result = self._mcp_call(arguments, context=WITH_QUOTATION)
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        quotation = self._line(allocation, QUOTATION_OPEN)
+        self.assertEqual(len(quotation), 1)
+        self.assertEqual(quotation.document_kind, "quotation")
+        self.assertEqual(quotation.amount_applied, 100.0)
+
+    def test_mcp_create_unapplied_quotation_keeps_connector_kind(self):
+        """A connector quotation the payload does not apply MUST stay quotation."""
+        document_id = self._next_document_id()
+        payments = [self._mcp_payment(document_id)]
+        arguments = {
+            "seller_id": self.seller.id,
+            "customer_identification": IDENT,
+            "request_id": f"req-{self._testMethodName}",
+            "payments": payments,
+            "receipts": [self._mcp_receipt(payments)],
+        }
+        result = self._mcp_call(arguments, context=WITH_QUOTATION)
+        allocation = self.env["collection.allocation"].browse(
+            result["allocation"]["id"]
+        )
+        quotation = self._line(allocation, QUOTATION_OPEN)
+        self.assertEqual(len(quotation), 1)
+        self.assertEqual(quotation.document_kind, "quotation")
+        self.assertEqual(quotation.amount_applied, 0.0)
+        self.assertEqual(
+            self._line(allocation, INVOICE_OVERDUE).document_kind, "invoice"
+        )
+
+    def test_mcp_create_kind_mismatch_refused(self):
+        """A document applied on the other circuit's receipt MUST raise, no persist."""
+        before = self.env["collection.allocation"].search_count([])
         document_id = self._next_document_id()
         payments = [self._mcp_payment(document_id)]
         arguments = {
@@ -359,25 +439,12 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
             "payments": payments,
             "receipts": [self._mcp_receipt(payments, document_kind="quotation")],
         }
-        result = self._mcp_call(arguments)
-        allocation = self.env["collection.allocation"].browse(
-            result["allocation"]["id"]
-        )
-        overdue = allocation.line_ids.filtered(
-            lambda line: line.external_invoice_id
-            == INVOICE_OVERDUE["external_invoice_id"]
-        )
-        self.assertEqual(len(overdue), 1)
-        self.assertEqual(overdue.document_kind, "quotation")
-        found = self._mcp_get()
-        kinds = {
-            row["external_invoice_id"]: row["document_kind"]
-            for row in found["invoices"]
-        }
-        self.assertEqual(kinds[INVOICE_OVERDUE["external_invoice_id"]], "quotation")
+        with self.assertRaisesRegex(UserError, "wrong receipt"):
+            self._mcp_call(arguments, context=WITH_QUOTATION)
+        self.assertEqual(self.env["collection.allocation"].search_count([]), before)
 
-    def test_mcp_amend_omits_kind_keeps_stored_quotation(self):
-        """Amend that does not re-apply an invoice MUST keep stored quotation."""
+    def test_mcp_amend_omits_quotation_keeps_connector_kind(self):
+        """Amend that does not re-apply a quotation MUST keep it quotation."""
         first_doc = self._next_document_id()
         first_payments = [self._mcp_payment(first_doc)]
         first = self._mcp_call(
@@ -387,9 +454,14 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
                 "request_id": f"req-{self._testMethodName}-1",
                 "payments": first_payments,
                 "receipts": [
-                    self._mcp_receipt(first_payments, document_kind="quotation")
+                    self._mcp_receipt(
+                        first_payments,
+                        document_kind="quotation",
+                        document=QUOTATION_OPEN,
+                    )
                 ],
-            }
+            },
+            context=WITH_QUOTATION,
         )
         allocation = self.env["collection.allocation"].browse(first["allocation"]["id"])
         extra = self._create_voucher(
@@ -429,19 +501,17 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
                         "applications": [],
                     }
                 ],
-            }
+            },
+            context=WITH_QUOTATION,
         )
         self.assertEqual(second["allocation"]["id"], first["allocation"]["id"])
         allocation.invalidate_recordset()
-        overdue = allocation.line_ids.filtered(
-            lambda line: line.external_invoice_id
-            == INVOICE_OVERDUE["external_invoice_id"]
-        )
-        self.assertEqual(len(overdue), 1)
-        self.assertEqual(overdue.document_kind, "quotation")
+        quotation = self._line(allocation, QUOTATION_OPEN)
+        self.assertEqual(len(quotation), 1)
+        self.assertEqual(quotation.document_kind, "quotation")
 
-    def test_mcp_amend_payload_kind_wins(self):
-        """Amend receipt document_kind MUST replace the stored kind."""
+    def test_mcp_amend_kind_mismatch_refused(self):
+        """Amend that re-files a document on the other receipt MUST raise."""
         first_doc = self._next_document_id()
         first_payments = [self._mcp_payment(first_doc)]
         first = self._mcp_call(
@@ -472,43 +542,43 @@ class TestCollectionAllocationDocumentKind(TransactionCase):
             }
             for voucher in combined
         ]
-        self._mcp_call(
-            {
-                "seller_id": self.seller.id,
-                "customer_identification": IDENT,
-                "request_id": f"req-{self._testMethodName}-2",
-                "payments": payments,
-                "receipts": [
-                    {
-                        "document_kind": "quotation",
-                        "values": [
-                            {
-                                "document_id": payment["document_id"],
-                                "amount": payment["amount"],
-                            }
-                            for payment in payments
-                        ],
-                        "applications": [
-                            {
-                                "external_document_id": INVOICE_OVERDUE[
-                                    "external_invoice_id"
-                                ],
-                                "number": INVOICE_OVERDUE.get("number"),
-                                "balance_seen": INVOICE_OVERDUE["balance"],
-                                "amount_applied": 100.0,
-                            }
-                        ],
-                    }
-                ],
-            }
-        )
+        revision = allocation.revision
+        with self.assertRaisesRegex(UserError, "wrong receipt"):
+            self._mcp_call(
+                {
+                    "seller_id": self.seller.id,
+                    "customer_identification": IDENT,
+                    "request_id": f"req-{self._testMethodName}-2",
+                    "payments": payments,
+                    "receipts": [
+                        {
+                            "document_kind": "quotation",
+                            "values": [
+                                {
+                                    "document_id": payment["document_id"],
+                                    "amount": payment["amount"],
+                                }
+                                for payment in payments
+                            ],
+                            "applications": [
+                                {
+                                    "external_document_id": INVOICE_OVERDUE[
+                                        "external_invoice_id"
+                                    ],
+                                    "number": INVOICE_OVERDUE.get("number"),
+                                    "balance_seen": INVOICE_OVERDUE["balance"],
+                                    "amount_applied": 100.0,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
         allocation.invalidate_recordset()
-        overdue = allocation.line_ids.filtered(
-            lambda line: line.external_invoice_id
-            == INVOICE_OVERDUE["external_invoice_id"]
-        )
+        self.assertEqual(allocation.revision, revision)
+        overdue = self._line(allocation, INVOICE_OVERDUE)
         self.assertEqual(len(overdue), 1)
-        self.assertEqual(overdue.document_kind, "quotation")
+        self.assertEqual(overdue.document_kind, "invoice")
 
     def test_mcp_create_invalid_kind_refused(self):
         """document_kind other than invoice/quotation MUST raise with no persist."""

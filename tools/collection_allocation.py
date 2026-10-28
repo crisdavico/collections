@@ -77,7 +77,10 @@ _RECEIPT_ITEM_SCHEMA = {
         "document_kind": {
             "type": "string",
             "enum": list(_DOCUMENT_KINDS),
-            "description": "Invoice or quotation receipt.",
+            "description": (
+                "Invoice or quotation receipt. Its applications must match the "
+                "document_kind the customer debt reports for each document."
+            ),
         },
         "values": {
             "type": "array",
@@ -914,12 +917,6 @@ class CollectionAllocationMixin(models.AbstractModel):
             for row in invoice_rows
             if "balance_seen" in row
         }
-        stored_kinds = {}
-        if destination:
-            stored_kinds = {
-                line.external_invoice_id: line.document_kind
-                for line in destination.line_ids
-            }
         dest_id = destination.id if destination else False
         for external_id, applied in applied_by_id.items():
             if (
@@ -933,6 +930,14 @@ class CollectionAllocationMixin(models.AbstractModel):
                     balance_seen_by_id[external_id], fresh_balance
                 ):
                     raise UserError(_("An invoice balance has changed."))
+            # The connector owns the circuit: a receipt only pays its own kind.
+            if (
+                external_id in payload_kinds
+                and external_id in fresh_invoices
+                and payload_kinds[external_id]
+                != (fresh_invoices[external_id].get("document_kind") or "invoice")
+            ):
+                raise UserError(_("A document was applied on the wrong receipt kind."))
         reserved = self._collection_reserved_amounts(
             list(fresh_invoices),
             exclude_allocation_id=dest_id,
@@ -945,10 +950,7 @@ class CollectionAllocationMixin(models.AbstractModel):
             available = (fresh.get("balance") or 0.0) - elsewhere
             if currency.compare_amounts(applied, available) > 0:
                 raise UserError(_("Applied amount exceeds available invoice balance."))
-            if external_id in payload_kinds:
-                kind = payload_kinds[external_id]
-            else:
-                kind = stored_kinds.get(external_id, "invoice")
+            kind = fresh.get("document_kind") or "invoice"
             line_vals.append(
                 {
                     "external_invoice_id": external_id,

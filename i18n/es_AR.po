@@ -91,6 +91,12 @@ msgstr ""
 
 #. module: collection
 #. odoo-python
+#: code:addons/collection/tools/collection_allocation.py:0
+msgid "A document was applied on the wrong receipt kind."
+msgstr "Se imputó un documento en el recibo del tipo equivocado."
+
+#. module: collection
+#. odoo-python
 #: code:addons/collection/models/res_company.py:0
 msgid "A seller binding belongs to another company."
 msgstr "Un vínculo de vendedor pertenece a otra empresa."
