@@ -402,6 +402,35 @@ class TestCollectionMcpCustomerList(TransactionCase):
         result = self._search("gonzales hnos")
         self.assertEqual(self._found(result), [("NS0160", "similar")])
 
+    def test_query_ignores_filler_words_in_names(self):
+        """Articles, prepositions and company types MUST NOT block a name match."""
+        for query in (
+            "La Distribuidora del Sur",
+            "Distribuidora de Sur",
+            "Distribuidora Sur SRL",
+        ):
+            with self.subTest(query=query):
+                self.assertEqual(
+                    self._found(self._search(query)), [("AB0900", "partial")]
+                )
+
+    def test_query_of_only_filler_words_still_searches(self):
+        """A query made only of filler words MUST still match on those words."""
+        self.assertEqual(self._found(self._search("SA")), [("AB0900", "partial")])
+
+    def test_query_with_a_typo_in_a_short_word(self):
+        """One wrong letter in a short word MUST still suggest the customer."""
+        for query, code in (
+            ("Distribuidora del Sul", "AB0900"),
+            ("Gonzalez Hnas", "NS0160"),
+        ):
+            with self.subTest(query=query):
+                self.assertEqual(self._found(self._search(query)), [(code, "similar")])
+
+    def test_query_with_two_wrong_letters_in_a_short_word(self):
+        """Two wrong letters in a short word MUST NOT suggest the customer."""
+        self.assertEqual(self._found(self._search("Distribuidora Sxl")), [])
+
     def test_exact_matches_rank_before_partial_matches(self):
         """Exact identifier matches MUST come first, whatever the name."""
         rows = (

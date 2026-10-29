@@ -82,6 +82,12 @@ def matches_customer_query(
 
 CUSTOMER_SEARCH_LIMIT = 10
 _SIMILAR_RATIO = 0.8
+# Folded words a seller may add or drop from a name without meaning another customer.
+_FILLER_WORDS = frozenset(
+    {"de", "del", "el", "la", "las", "los", "y", "sa", "srl", "sas"}
+)
+# Shortest word one wrong letter still finds: shorter words fall under the ratio.
+_ONE_EDIT_MIN_LENGTH = 3
 
 
 def _fold(value: object) -> str:
@@ -94,10 +100,16 @@ def _fold(value: object) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", text).split())
 
 
-def _is_partial_match(customer: dict, words: list[str]) -> bool:
-    """Every word is inside the name, or the query is inside the code or CUIT."""
+def _name_words(words: list[str]) -> list[str]:
+    """The query words a name must hold: filler words go, unless that is all."""
+    kept = [word for word in words if word not in _FILLER_WORDS]
+    return kept or words
+
+
+def _is_partial_match(customer: dict, words: list[str], name_words: list[str]) -> bool:
+    """Every name word is inside the name, or the query is inside the code or CUIT."""
     name = _fold(customer.get("name"))
-    if all(word in name for word in words):
+    if all(word in name for word in name_words):
         return True
     compact = "".join(words)
     if compact in _fold(customer.get("customer_code")).replace(" ", ""):
@@ -106,15 +118,36 @@ def _is_partial_match(customer: dict, words: list[str]) -> bool:
     return compact.isdigit() and compact in identification
 
 
+def _one_edit_apart(word: str, other: str) -> bool:
+    """Whether one wrong, missing or extra letter turns ``word`` into ``other``."""
+    if abs(len(word) - len(other)) > 1:
+        return False
+    if len(word) == len(other):
+        return sum(a != b for a, b in zip(word, other, strict=True)) <= 1
+    shorter, longer = sorted((word, other), key=len)
+    return any(
+        longer[:index] + longer[index + 1 :] == shorter for index in range(len(longer))
+    )
+
+
+def _word_similarity(word: str, name: str) -> float:
+    """Ratio of two words; one wrong letter in a short word still reaches the bar."""
+    ratio = difflib.SequenceMatcher(None, word, name).ratio()
+    if (
+        ratio < _SIMILAR_RATIO
+        and len(word) >= _ONE_EDIT_MIN_LENGTH
+        and _one_edit_apart(word, name)
+    ):
+        return _SIMILAR_RATIO
+    return ratio
+
+
 def _similarity(customer: dict, words: list[str]) -> float:
     """How close the furthest query word is to its nearest name word."""
     names = _fold(customer.get("name")).split()
     if not names:
         return 0.0
-    return min(
-        max(difflib.SequenceMatcher(None, word, name).ratio() for name in names)
-        for word in words
-    )
+    return min(max(_word_similarity(word, name) for name in names) for word in words)
 
 
 def search_customers(
@@ -126,22 +159,25 @@ def search_customers(
     ``partial`` has every query word inside the name, or the query inside the
     code or the CUIT digits; case, accents and punctuation are ignored.
     ``similar`` is only tried when nothing else matched: every query word is
-    close to a name word, so a typo still finds the customer. Each row gains
-    ``match``; at most ``limit`` rows come back, with ``total_matches`` and
-    ``truncated``.
+    close to a name word, so a typo still finds the customer; one wrong,
+    missing or extra letter is enough in a word of three letters or more.
+    Name matches skip filler words (``de``, ``la``, ``SA``...) unless the query
+    has nothing else. Each row gains ``match``; at most ``limit`` rows come
+    back, with ``total_matches`` and ``truncated``.
     """
     words = _fold(query).split()
+    name_words = _name_words(words)
     ranked = []
     for customer in customers:
         if matches_customer_query(
             customer.get("identification"), customer.get("customer_code"), query
         ):
             ranked.append((0, 0.0, customer, "exact"))
-        elif words and _is_partial_match(customer, words):
+        elif words and _is_partial_match(customer, words, name_words):
             ranked.append((1, 0.0, customer, "partial"))
     if not ranked and words:
         for customer in customers:
-            score = _similarity(customer, words)
+            score = _similarity(customer, name_words)
             if score >= _SIMILAR_RATIO:
                 ranked.append((2, -score, customer, "similar"))
     ranked.sort(key=lambda item: (item[0], item[1], _fold(item[2].get("name"))))
