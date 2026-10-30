@@ -9,10 +9,8 @@
                 <field name="name" />
                 <field name="create_date" readonly="1" />
                 <field name="sheet_id" />
-                <field
-          name="seller_id"
-          domain="[('id', 'in', company_id.enabled_seller_ids)]"
-        />
+                <field name="allowed_seller_ids" column_invisible="1" />
+                <field name="seller_id" domain="[('id', 'in', allowed_seller_ids)]" />
                 <field name="document_type" />
                 <field name="amount" />
                 <field name="state" />
@@ -159,10 +157,11 @@
                 readonly="state == 'validated_collections'"
               />
                             <field name="company_id" invisible="1" />
+                            <field name="allowed_seller_ids" invisible="1" />
                             <field
                 name="seller_id"
                 required="1"
-                domain="[('id', 'in', company_id.enabled_seller_ids)]"
+                domain="[('id', 'in', allowed_seller_ids)]"
               />
                             <field name="sheet_id" />
                             <field name="sheet_state" invisible="1" />
@@ -414,10 +413,8 @@
         <field name="arch" type="xml">
             <list string="Collection Sheets">
                 <field name="name" />
-                <field
-          name="seller_id"
-          domain="[('id', 'in', company_id.enabled_seller_ids)]"
-        />
+                <field name="allowed_seller_ids" column_invisible="1" />
+                <field name="seller_id" domain="[('id', 'in', allowed_seller_ids)]" />
                 <field name="company_id" optional="hide" />
                 <field name="date_from" />
                 <field name="date_to" />
@@ -567,11 +564,12 @@
                     <group>
                         <group>
                             <field name="company_id" invisible="1" />
+                            <field name="allowed_seller_ids" invisible="1" />
                             <field
                 name="seller_id"
                 required="1"
                 readonly="id"
-                domain="[('id', 'in', company_id.enabled_seller_ids)]"
+                domain="[('id', 'in', allowed_seller_ids)]"
               />
                             <field name="date_from" readonly="1" />
                             <field name="date_to" readonly="1" />

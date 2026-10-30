@@ -47,6 +47,7 @@ class CollectionAllocation(models.Model):
         ondelete="restrict",
         index=True,
     )
+    sheet_state = fields.Selection(related="sheet_id.state", string="Sheet Status")
     partner_id = fields.Many2one(
         comodel_name="res.partner",
         string="Customer",

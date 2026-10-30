@@ -9,6 +9,7 @@ from lxml import etree
 from odoo.tests import TransactionCase
 
 from .test_collection_payment import (
+    create_collection_user,
     create_internal_seller,
     dummy_customer_partner,
     ensure_enabled_seller,
@@ -948,36 +949,115 @@ class TestCollectionUi(TransactionCase):
             f"form seller_id must be required (got {required!r})",
         )
 
-    def _assert_enabled_seller_domain(self, node, context):
+    def _assert_enabled_seller_domain(self, root, context):
+        """The seller domain reads a field of the same view, never a dotted path.
+
+        The web client evaluates a many2one as its bare id, so a domain such as
+        ``company_id.enabled_seller_ids`` evaluates to ``('id', 'in', undefined)``
+        and the seller autocomplete raises ``InvalidDomainError``.
+        """
+        node = self._field_nodes(root, "seller_id")[0]
         domain = node.get("domain") or ""
-        self.assertIn(
-            "enabled_seller_ids",
+        self.assertEqual(
             domain,
-            f"{context} seller_id domain must use company enabled "
-            f"sellers (got {domain!r})",
+            "[('id', 'in', allowed_seller_ids)]",
+            f"{context} seller_id domain must use allowed_seller_ids (got {domain!r})",
+        )
+        self.assertFalse(
+            any(
+                isinstance(expr, ast.Attribute)
+                for expr in ast.walk(ast.parse(domain, mode="eval"))
+            ),
+            f"{context} seller_id domain must not use a dotted path",
         )
         self.assertIn(
-            "company_id",
-            domain,
-            f"{context} seller_id domain must be scoped to company_id (got {domain!r})",
+            "allowed_seller_ids",
+            self._field_names(root),
+            f"{context} must load allowed_seller_ids for the seller domain",
         )
 
     def test_voucher_form_seller_domain_is_company_enabled_list(self):
         form_root = self._arch_root("collection.view_collection_voucher_form")
-        seller = self._field_nodes(form_root, "seller_id")[0]
-        self._assert_enabled_seller_domain(seller, "voucher form")
+        self._assert_enabled_seller_domain(form_root, "voucher form")
 
     def test_voucher_list_seller_domain_is_company_enabled_list(self):
         """Triangulation: list seller_id uses the same enabled-seller domain."""
         list_root = self._arch_root("collection.view_collection_voucher_list")
         self.assertEqual(list_root.tag, "list")
-        seller = self._field_nodes(list_root, "seller_id")[0]
-        self._assert_enabled_seller_domain(seller, "voucher list")
+        self._assert_enabled_seller_domain(list_root, "voucher list")
 
     def test_sheet_form_seller_domain_is_company_enabled_list(self):
         form_root = self._arch_root("collection.view_collection_sheet_form")
-        seller = self._field_nodes(form_root, "seller_id")[0]
-        self._assert_enabled_seller_domain(seller, "sheet form")
+        self._assert_enabled_seller_domain(form_root, "sheet form")
+
+    def test_sheet_list_seller_domain_is_company_enabled_list(self):
+        list_root = self._arch_root("collection.view_collection_sheet_list")
+        self._assert_enabled_seller_domain(list_root, "sheet list")
+
+    def test_allowed_seller_ids_are_company_enabled_sellers(self):
+        """A Collections User reads the company's enabled sellers on both models."""
+        seller = create_internal_seller(self.env, "ui-allowed-seller")
+        ensure_enabled_seller(self.env, seller)
+        operator = create_collection_user(self.env, "ui-allowed-operator")
+        enabled = self.env.company.enabled_seller_ids
+        voucher = self.env["collection.voucher"].create(
+            {
+                "partner_id": dummy_customer_partner(self.env).id,
+                "seller_id": seller.id,
+                "document_type": "bank_transfer",
+                "amount": 10.0,
+            }
+        )
+        for record in (voucher, voucher.sheet_id):
+            values = record.with_user(operator).web_read({"allowed_seller_ids": {}})
+            self.assertEqual(
+                values[0]["allowed_seller_ids"],
+                enabled.ids,
+                f"{record._name} allowed_seller_ids must match enabled sellers",
+            )
+            self.assertIn(seller.id, values[0]["allowed_seller_ids"])
+
+    def test_collection_views_use_no_dotted_relational_paths(self):
+        """Modifiers and domains read fields of the view, never ``x_id.field``.
+
+        The web client evaluates a many2one as its bare id, so ``sheet_id.state``
+        is undefined there: a readonly built on it never matches (or always
+        does), and a domain built on it raises ``InvalidDomainError``.
+        """
+        allowed_names = {"parent", "context", "datetime", "relativedelta", "time"}
+        attributes = (
+            "readonly",
+            "invisible",
+            "required",
+            "column_invisible",
+            "domain",
+        )
+        offenders = []
+        views = self.env["ir.ui.view"].search([("model", "=like", "collection.%")])
+        for view in views:
+            root = etree.fromstring(view.arch)
+            for node in root.iter():
+                for attribute in attributes:
+                    expression = node.get(attribute)
+                    if not expression:
+                        continue
+                    try:
+                        tree = ast.parse(expression.strip(), mode="eval")
+                    except SyntaxError:
+                        continue
+                    for expr in ast.walk(tree):
+                        if (
+                            isinstance(expr, ast.Attribute)
+                            and isinstance(expr.value, ast.Name)
+                            and expr.value.id not in allowed_names
+                        ):
+                            offenders.append(
+                                f"{view.xml_id or view.name} "
+                                f"{node.get('name')} {attribute}={expression!r}"
+                            )
+        self.assertFalse(
+            offenders, "dotted relational paths in views:\n" + "\n".join(offenders)
+        )
 
     def test_voucher_views_keep_list_tag(self):
         list_root = self._arch_root("collection.view_collection_voucher_list")
@@ -1316,15 +1396,15 @@ class TestCollectionUi(TransactionCase):
         )
         partner_readonly = partner.get("readonly") or ""
         self.assertIn(
-            "sheet_id.state",
+            "sheet_state",
             partner_readonly,
-            "allocation form partner_id must freeze from sheet_id.state",
+            "allocation form partner_id must freeze from sheet_state",
         )
         self.assertIn("closed", partner_readonly)
         self.assertIn("cancelled", partner_readonly)
         sheet = self._field_nodes(form_root, "sheet_id")[0]
         sheet_readonly = sheet.get("readonly") or ""
-        self.assertIn("sheet_id.state", sheet_readonly)
+        self.assertIn("sheet_state", sheet_readonly)
         self.assertIn("closed", sheet_readonly)
         self.assertIn("cancelled", sheet_readonly)
         line_fields = [
@@ -1334,7 +1414,7 @@ class TestCollectionUi(TransactionCase):
         ]
         self.assertTrue(line_fields, "allocation form must expose line_ids")
         line_readonly = line_fields[0].get("readonly") or ""
-        self.assertIn("sheet_id.state", line_readonly)
+        self.assertIn("sheet_state", line_readonly)
         self.assertIn("closed", line_readonly)
         self.assertIn("cancelled", line_readonly)
         statusbar = form_root.xpath(
@@ -1388,9 +1468,9 @@ class TestCollectionUi(TransactionCase):
         )
         voucher_readonly = voucher_field.get("readonly") or ""
         self.assertIn(
-            "sheet_id.state",
+            "sheet_state",
             voucher_readonly,
-            "allocation voucher M2M must freeze from sheet_id.state",
+            "allocation voucher M2M must freeze from sheet_state",
         )
         self.assertIn("not in", voucher_readonly)
         self.assertIn("open", voucher_readonly)

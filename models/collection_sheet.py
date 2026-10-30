@@ -62,6 +62,12 @@ class CollectionSheet(models.Model):
         domain=[("share", "=", False)],
         ondelete="restrict",
     )
+    # The seller domain in views: the web client evaluates a many2one as its
+    # bare id, so ``company_id.enabled_seller_ids`` cannot be read there.
+    allowed_seller_ids = fields.Many2many(
+        related="company_id.enabled_seller_ids",
+        string="Allowed Sellers",
+    )
     company_id = fields.Many2one(
         comodel_name="res.company",
         string="Company",
