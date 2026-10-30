@@ -1493,7 +1493,11 @@ Confirm-time commission promotion). It MUST NOT require `document_review_enabled
 MUST NOT hook only `action_review_approve`. Companies with Document Review OFF MUST
 still replace. Vouchers already at `validated_collections` MUST NOT re-trigger.
 Replacement MUST be skipped when the sheet is missing or frozen. Replacement MUST NOT
-run for any other code. (Previously: The trigger matched `seller_deposit` only.)
+run for any other code. The one other trigger is Confirm, which MUST run it again for
+the sheet's `validated_collections` `seller_deposit` vouchers after it funds receipts
+from allocation vouchers (Requirement: Confirm funds receipts from allocation vouchers);
+that run MUST only replace what each deposit does not hold yet. (Previously: The write
+was the only trigger. Before that: The trigger matched `seller_deposit` only.)
 
 #### Scenario: Deposit validation replaces cash
 
@@ -1529,6 +1533,49 @@ run for any other code. (Previously: The trigger matched `seller_deposit` only.)
 - GIVEN a `seller_commission` already at `validated_collections`
 - WHEN `validated_collections` is written again
 - THEN no additional replacement row MUST be created
+
+### Requirement: Confirm funds receipts from allocation vouchers
+
+When Confirm is about to mint a seller commission (a declared `commission_withheld`
+above zero and no commission voucher yet), it MUST first fund receipts for every
+allocation of the sheet that holds no receipt value and applies money: for each document kind, the
+receipt of that kind (created when missing) MUST get values from the allocation's
+vouchers up to the amount that kind applies, `cash` vouchers first and then by voucher
+id, never above a voucher's free amount (its amount minus its receipt values and its
+replaced cash). Voucher money beyond the applied amount MUST stay unassigned for the
+receipt proposal board. Allocations that already hold receipt values, or apply nothing,
+MUST be left unchanged. When it funded any receipt, Confirm MUST then run cash
+replacement for the sheet's `validated_collections` `seller_deposit` vouchers, so the
+commission it mints replaces the cash left. Without a commission to mint, Confirm MUST
+NOT create receipts: the receipt proposal board builds them. Confirm MUST refuse an
+over-applied allocation before funding. A Reset to Open followed by Confirm MUST NOT
+fund again. (Previously: Only the agent's allocation tools and the receipt proposal
+board placed money on receipts, so a back-office allocation reached Confirm with no
+receipt value and a declared commission raised "Seller commission exceeds replaceable
+cash.")
+
+#### Scenario: Back-office allocation with cash, deposit and commission
+
+- GIVEN a submitted sheet whose allocation applies 600 and lists a `cash` voucher of 400
+  and a `bank_transfer` of 200, an approved `seller_deposit` of 300 that replaced
+  nothing, and a declared commission of 100
+- WHEN Confirm runs
+- THEN the sheet MUST reach `proposal` with one invoice receipt holding 200 from the
+  transfer, 300 from the deposit and 100 from the commission
+- AND the cash MUST have 400 replaced
+
+#### Scenario: Reset and Confirm again does not fund twice
+
+- GIVEN that sheet reset to open, closed by the seller and declared again
+- WHEN Confirm runs
+- THEN the receipt MUST hold the same values, with a new commission instead of the cash
+
+#### Scenario: Without a commission the board builds the receipts
+
+- GIVEN a submitted sheet with no declared commission whose allocation applies 200 and
+  lists a voucher of 200
+- WHEN Confirm runs
+- THEN the allocation MUST have no receipt
 
 ### Requirement: MCP write create_seller_deposit
 

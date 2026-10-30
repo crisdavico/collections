@@ -14,6 +14,7 @@ from .collection_common import (
     COLLECTION_USER_GROUP,
     CONFIRM_REVIEW_EXEMPT_TYPES,
     CONFIRMED_SHEET_STATE,
+    DOCUMENT_KIND_SELECTION,
     SELLER_DECLARATION_STATES,
     SELLER_SHEET_STATES,
     check_collection_role,
@@ -485,10 +486,74 @@ class CollectionSheet(models.Model):
                         "collected cash."
                     )
                 )
-            sheet._ensure_seller_commission_voucher()
             sheet._raise_if_allocations_over_applied()
+            sheet._build_receipts_from_allocations()
+            sheet._ensure_seller_commission_voucher()
         with privileged("collection_sheet_audited_state"):
             return self.write({"state": "proposal"})
+
+    @api.private
+    def _build_receipts_from_allocations(self):
+        """Fund receipts from each allocation's vouchers for the commission.
+
+        The agent and the receipt proposal board place the money on receipts;
+        an allocation made in the back office only applies debt and lists its
+        vouchers, so the commission Confirm mints would find no cash to
+        replace. When Confirm is about to mint one, each document kind's
+        receipt is funded up to what that kind applies, cash first so deposits
+        and the commission can replace it, and the approved deposits' cash
+        replacement runs again over the new values (it only replaces what they
+        do not hold yet). Without a commission to mint, and for allocations
+        that already hold receipt values or apply nothing, the receipts stay
+        with the board, as does any voucher money beyond the applied amount.
+        """
+        self.ensure_one()
+        currency = self.company_id.currency_id
+        if (
+            currency.compare_amounts(self.commission_withheld or 0.0, 0.0) <= 0
+            or self._seller_commission_voucher()
+        ):
+            return
+        Value = self.env["collection.receipt.value"]
+        built = False
+        for allocation in self.allocation_ids:
+            if allocation.receipt_ids.value_ids:
+                continue
+            vouchers = allocation.voucher_ids.sorted(
+                lambda voucher: (voucher.document_type != "cash", voucher.id)
+            )
+            free = {
+                voucher: currency.round(
+                    (voucher.amount or 0.0)
+                    - sum(voucher.receipt_value_ids.mapped("amount"))
+                    - (voucher.replaced_amount or 0.0)
+                )
+                for voucher in vouchers
+            }
+            for kind, _label in DOCUMENT_KIND_SELECTION:
+                applied = currency.round(
+                    sum(
+                        allocation.line_ids.filtered(
+                            lambda line, current=kind: line.document_kind == current
+                        ).mapped("amount_applied")
+                    )
+                )
+                for voucher in vouchers:
+                    if currency.compare_amounts(applied, 0.0) <= 0:
+                        break
+                    amount = min(applied, free[voucher])
+                    if currency.compare_amounts(amount, 0.0) <= 0:
+                        continue
+                    receipt = allocation._receipt_get_or_create(kind)
+                    Value._grow_voucher_amount(receipt, voucher, amount)
+                    free[voucher] = currency.round(free[voucher] - amount)
+                    applied = currency.round(applied - amount)
+                    built = True
+        if built:
+            self.voucher_ids.filtered(
+                lambda voucher: voucher.document_type == "seller_deposit"
+                and voucher.state == "validated_collections"
+            )._run_cash_replacement()
 
     @api.private
     def _seller_commission_voucher(self):
