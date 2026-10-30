@@ -5,6 +5,7 @@ from datetime import date
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools.misc import formatLang
 from odoo.tools.translate import _
 
 from .collection_common import (
@@ -15,6 +16,9 @@ from .collection_common import (
 
 _VOUCHER_BLOCK_ORDER = ("bank_transfer", "check", "cash_deposit")
 _DOCUMENT_KIND_ORDER = ("invoice", "quotation")
+# A Factura advance has no invoice to take its untaxed share from: it pays on
+# the amount without the 21% VAT.
+_INVOICE_ADVANCE_VAT_FACTOR = 1.21
 _VOUCHER_BLOCK_LABELS = {
     "bank_transfer": "Transferencia bancaria",
     "check": "Cheque",
@@ -67,7 +71,8 @@ class CollectionSheetReport(models.Model):
         currency_field="currency_id",
         compute="_compute_commission_amounts",
         help="Computed from the allocations: each applied amount's untaxed "
-        "share times the seller commission %.",
+        "share, plus the money left on account (a Factura advance without its "
+        "21% VAT, a Pre advance in full), times the seller commission %.",
     )
     commission_owed = fields.Monetary(
         string="Commission Owed to Seller",
@@ -240,6 +245,9 @@ class CollectionSheetReport(models.Model):
         "allocation_ids.line_ids.invoice_amount",
         "allocation_ids.line_ids.invoice_amount_untaxed",
         "allocation_ids.line_ids.document_kind",
+        "allocation_ids.total_vouchers",
+        "allocation_ids.receipt_ids.document_kind",
+        "allocation_ids.receipt_ids.value_ids.amount",
         "commission_percent",
         "commission_withheld",
     )
@@ -252,6 +260,13 @@ class CollectionSheetReport(models.Model):
                 sheet._collection_line_commission(line, percent, currency)
                 for line in sheet.allocation_ids.line_ids
                 if (line.document_kind or "invoice") in _DOCUMENT_KIND_ORDER
+            )
+            amount += sum(
+                sheet._collection_advance_commission(kind, advance, percent, currency)
+                for allocation in sheet.allocation_ids
+                for kind, advance in sheet._collection_allocation_advances(
+                    allocation
+                ).items()
             )
             owed = amount - (sheet.commission_withheld or 0.0)
             sheet.commission_amount = amount
@@ -475,6 +490,34 @@ class CollectionSheetReport(models.Model):
             self._collection_commission_base(line, applied) * percent / 100.0
         )
 
+    @api.model
+    @api.private
+    def _collection_allocation_advances(self, allocation):
+        """``{kind: amount}`` an allocation keeps on account, by document kind.
+
+        A quotation receipt's on-account money is a Pre advance. Everything
+        else collected and not applied is a Factura advance, the receipt's
+        default kind, which covers an allocation with no receipt at all.
+        """
+        on_account = max(
+            (allocation.total_vouchers or 0.0) - (allocation.total_applied or 0.0),
+            0.0,
+        )
+        quotation = sum(
+            max(receipt.amount_on_account or 0.0, 0.0)
+            for receipt in allocation.receipt_ids
+            if receipt.document_kind == "quotation"
+        )
+        quotation = min(quotation, on_account)
+        return {"invoice": on_account - quotation, "quotation": quotation}
+
+    @api.model
+    @api.private
+    def _collection_advance_commission(self, kind, advance, percent, currency):
+        """An advance's commission: a Factura without its VAT, a Pre in full."""
+        base = advance / _INVOICE_ADVANCE_VAT_FACTOR if kind == "invoice" else advance
+        return currency.round(base * percent / 100.0)
+
     @api.private
     def _collection_report_document_blocks(self, codes):
         """Split invoice then quotation blocks; drop empties; round then sum."""
@@ -504,9 +547,41 @@ class CollectionSheetReport(models.Model):
                         "invoice_balance": line.invoice_balance or 0.0,
                         "amount_applied": applied,
                         "commission": commission,
+                        "on_account": 0.0,
                     },
                 )
             )
+        for allocation in self.allocation_ids:
+            partner = allocation.partner_id
+            code = codes.get(partner.id, "") or ""
+            advances = self._collection_allocation_advances(allocation)
+            for kind, advance in advances.items():
+                if currency.is_zero(advance):
+                    continue
+                label = formatLang(self.env, advance, currency_obj=currency)
+                grouped[kind].append(
+                    (
+                        self._collection_report_code_sort(code, partner.name)
+                        + (date.max, ""),
+                        {
+                            "partner_id": partner.id,
+                            "code": code,
+                            "name": partner.name or "",
+                            # The amount rides in the label: the Aplicado
+                            # column (and the XLSX SUMs over it) stays applied
+                            # money only.
+                            "invoice_number": f"A cuenta ({label})",
+                            "due_date": False,
+                            "issue_date": False,
+                            "invoice_balance": 0.0,
+                            "amount_applied": 0.0,
+                            "commission": self._collection_advance_commission(
+                                kind, advance, percent, currency
+                            ),
+                            "on_account": advance,
+                        },
+                    )
+                )
         blocks = []
         for kind in _DOCUMENT_KIND_ORDER:
             entries = grouped[kind]
@@ -519,6 +594,7 @@ class CollectionSheetReport(models.Model):
                     "kind": kind,
                     "rows": rows,
                     "subtotal_applied": sum(row["amount_applied"] for row in rows),
+                    "subtotal_on_account": sum(row["on_account"] for row in rows),
                     "subtotal_commission": sum(row["commission"] for row in rows),
                 }
             )

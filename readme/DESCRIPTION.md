@@ -36,10 +36,14 @@ totals disagree with allocation `total_vouchers`. Each row's seller commission i
 (`amount_applied × invoice_amount_untaxed / invoice_amount`); the connector gives
 `amount_untaxed` per invoice (its total when it has none, and always for a quotation),
 lines keep it, and lines with none pay on `amount_applied`. `customer_debt` (MCP) does
-not return it. The sheet computes the seller's commission as the sum of those rows
-(Seller Commission, `commission_amount`); Commission Owed to Seller (`commission_owed`)
-is that commission minus the part kept from cash (`commission_withheld`), printed as
-Comisión a Pagar al Vendedor.
+not return it. Money a customer keeps on account also pays commission: a quotation
+receipt's on-account money (a Pre advance) on its full amount, every other unapplied
+collected amount (a Factura advance) on that amount / 1.21; the Planilla shows each as
+an "A cuenta" row with only its commission, so the Aplicado totals stay applied money.
+The sheet computes the seller's commission as the sum of those rows (Seller Commission,
+`commission_amount`); Commission Owed to Seller (`commission_owed`) is that commission
+minus the part kept from cash (`commission_withheld`), printed as Comisión a Pagar al
+Vendedor.
 
 Money rules. An allocation's collected money (`total_vouchers`) is the receipt values on
 its own receipts plus the full amount of each voucher pointing at it whose money was

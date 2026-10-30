@@ -4,6 +4,7 @@
 import inspect
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 from psycopg2 import IntegrityError
@@ -790,7 +791,7 @@ class TestCollectionSheetReportData(TransactionCase):
         sheet = self._create_sheet()
         sheet.write({"commission_percent": 10.0})
         partner = dummy_customer_partner(self.env, customer="RPT-COMM-AMOUNT")
-        voucher = self._create_voucher(partner, sheet, amount=1210.0)
+        voucher = self._create_voucher(partner, sheet, amount=805.0)
         self._create_allocation(
             sheet,
             partner,
@@ -821,6 +822,118 @@ class TestCollectionSheetReportData(TransactionCase):
         )
         sheet.write({"commission_percent": 0.0})
         self.assertEqual(sheet.commission_amount, 0.0)
+
+    def _advance(self, amount, *, document_kind=None, percent=5.0, **voucher_extra):
+        """A customer whose ``amount`` stays on account (no applied document).
+
+        With ``document_kind`` the money sits on a receipt of that kind; without
+        one the allocation has no receipt at all.
+        """
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": percent})
+        partner = dummy_customer_partner(self.env, customer="RPT-ADVANCE")
+        voucher = self._create_voucher(partner, sheet, amount=amount, **voucher_extra)
+        allocation = self._create_allocation(sheet, partner, vouchers=voucher)
+        if document_kind:
+            receipt = self.env["collection.receipt"].create(
+                {"allocation_id": allocation.id, "document_kind": document_kind}
+            )
+            self.env["collection.receipt.value"].create(
+                {"receipt_id": receipt.id, "voucher_id": voucher.id, "amount": amount}
+            )
+        return sheet, voucher
+
+    def test_invoice_advance_pays_on_the_amount_without_vat(self):
+        """Money on account of a Factura receipt MUST pay on amount / 1.21."""
+        sheet, _voucher = self._advance(12100.0, document_kind="invoice")
+        self.assertEqual(sheet.commission_amount, 500.0)
+        self.assertEqual(sheet.commission_owed, 500.0)
+
+    def test_quotation_advance_pays_on_the_full_amount(self):
+        """Money on account of a Pre receipt MUST pay on its full amount."""
+        sheet, _voucher = self._advance(12100.0, document_kind="quotation")
+        self.assertEqual(sheet.commission_amount, 605.0)
+
+    def test_advance_without_a_receipt_pays_as_an_invoice(self):
+        """On-account money with no receipt MUST pay as a Factura advance."""
+        sheet, _voucher = self._advance(12100.0)
+        self.assertEqual(sheet.commission_amount, 500.0)
+
+    def test_overpayment_pays_on_the_applied_amount_and_the_advance(self):
+        """Money above the debt MUST add its advance commission."""
+        sheet = self._create_sheet()
+        sheet.write({"commission_percent": 10.0})
+        partner = dummy_customer_partner(self.env, customer="RPT-OVERPAID")
+        voucher = self._create_voucher(partner, sheet, amount=1210.0)
+        self._create_allocation(
+            sheet,
+            partner,
+            vouchers=voucher,
+            lines=[
+                self._line_vals(
+                    amount_applied=605.0,
+                    invoice_balance=605.0,
+                    invoice_amount=1210.0,
+                    invoice_amount_untaxed=1000.0,
+                    invoice_number="U-1",
+                ),
+            ],
+        )
+        # 605 applied pays 50 (untaxed share); 605 on account pays 605 / 1.21.
+        self.assertEqual(sheet.commission_amount, 100.0)
+
+    def test_planilla_lists_the_advance_with_its_commission(self):
+        """Each kind's block MUST show an "A cuenta" row; applied stays applied.
+
+        The advance rides in the row label, never in the Aplicado column the
+        XLSX sums per block and per customer.
+        """
+        sheet, _voucher = self._advance(12100.0, document_kind="quotation")
+        payload = sheet._collection_report_data()
+        self.assertEqual(
+            [block["kind"] for block in payload["document_blocks"]], ["quotation"]
+        )
+        block = payload["document_blocks"][0]
+        self.assertEqual(len(block["rows"]), 1)
+        row = block["rows"][0]
+        self.assertTrue(row["invoice_number"].startswith("A cuenta ("))
+        self.assertEqual(row["on_account"], 12100.0)
+        self.assertEqual(row["amount_applied"], 0.0)
+        self.assertEqual(row["commission"], 605.0)
+        self.assertEqual(block["subtotal_on_account"], 12100.0)
+        self.assertEqual(block["subtotal_applied"], 0.0)
+        self.assertEqual(payload["applied_total"], 0.0)
+        self.assertEqual(block["subtotal_commission"], sheet.commission_amount)
+
+    def test_planilla_renders_the_advance_row(self):
+        """The PDF and the XLSX MUST render a sheet holding an advance."""
+        sheet, _voucher = self._advance(12100.0, document_kind="invoice")
+        # devel's report assets list website SCSS without website installed.
+        with patch.object(
+            type(self.env["ir.qweb"]), "_get_asset_nodes", return_value=[]
+        ):
+            html, _format = (
+                self.env["ir.actions.report"]
+                .with_context(discard_logo_check=True)
+                ._render_qweb_html(
+                    "collection.action_report_collection_sheet", sheet.ids
+                )
+            )
+        self.assertIn("A cuenta (", html.decode())
+        content = self.env["collection.sheet.xlsx"]._render_xlsx(
+            sheet._collection_report_data()
+        )
+        self.assertTrue(content)
+
+    def test_cash_close_keeps_the_advance_commission(self):
+        """The seller MUST be able to keep the advance commission from cash."""
+        sheet, voucher = self._advance(
+            1000.0, document_kind="quotation", document_type="cash"
+        )
+        voucher.action_validate_seller()
+        self.assertEqual(sheet.commission_amount, 50.0)
+        sheet.action_seller_close(commission_withheld=50.0)
+        self.assertEqual(sheet.commission_owed, 0.0)
 
     def test_commission_owed_is_the_commission_minus_the_cash_kept(self):
         """What the seller did not keep from cash MUST be owed to them."""
