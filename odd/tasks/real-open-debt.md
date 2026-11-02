@@ -23,7 +23,7 @@ Kept as is: the "Entered in the ERP" mark (informational, back-office tracking).
 | T1 | S1, S2, S3, S5 (field, init backfill, rule, MCP, tests) | inline (one behavior; no writer trigger) | done: 14 tests RED (10 failed, 8 errors), then GREEN; upgrade backfills a NULL base from invoice_balance | `2efe793` |
 | T2 | S4 (sheet report Saldo, tests) | inline | done: `test_planilla_balance_is_what_earlier_sheets_left_open` RED then GREEN | `2efe793` |
 | T3 | S6 (addon docs, KRAS test, release hook removed) | inline | done: kras/bejerman tests updated; pre-commit converges (manifest author lint pre-existing) | `0955bcf` (bejerman), `add792f` (kras) |
-| T4 | S6, S7 (agent docs, prompt diff) | inline | docs done on `docs/real-open-debt`; prompt diff (total by default, list on request) awaiting the user's approval | `fe46615` (agent repo) |
+| T4 | S6, S7 (agent docs, prompt diff) | inline | docs done on `docs/real-open-debt`; prompt pushed after approval: LangSmith commit `bf8bd15e` (total by default, list on request), read back identical | `fe46615` (agent repo) |
 
 ## Log
 
@@ -31,3 +31,4 @@ Kept as is: the "Entered in the ERP" mark (informational, back-office tracking).
 - **L2** Review: Close marks the sheet "Entered in the ERP" (`16b638a`), so the first snapshot refresh after a close released its applied amounts even when the receipts were not typed in yet; `customer_debt` described the gross `total_balance` as what the customer owes; the Planilla printed gross balances. Engram mirror: pending (no memory tools in this session).
 - **L3** Baseline on scratch DB `opendebt_scratch` (collection, collection_receipt_proposal, collection_connector_bejerman, collection_connector_bejerman_kras): 0 failed, 0 errors of 1874. After the change: 0 failed, 0 errors of 1874 (14 tests added, 14 tests of the old release rule removed). A computed field with no dependency was not filled on create, so the base became a plain field defaulted in `create` and backfilled in `init()`. The kras `service/mapping.py` reformat by ruff (pre-existing) was reverted as unrelated.
 - **L4** (2026-11-02) "will the response of the agent have a detailed information of each debt?" / "only when the seller asks for it". Review assessment: all four commits medium, `under_budget`, no review due (agent repo assessed with untracked `data/` excluded).
+- **L5** (2026-11-02) "yes, push it": pushed `seedian-collection-agent` `e01bb8e5` → `bf8bd15e`; the hosted template read back equals the approved one.
