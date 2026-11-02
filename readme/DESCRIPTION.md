@@ -25,25 +25,26 @@ ERP it needs a Collections Manager. Sheets have their own chatter and activities
 sheet form notebook is Allocations, Vouchers, and Debt. Operators print a Planilla de
 Cobranza from a sheet: bound Print PDF (`qweb-pdf`, A4 portrait, no company letterhead
 or printed date) and header Collection Sheet XLSX share `_collection_report_data()`; the
-workbook never turns typed text into a formula or a link. Sheet recon inputs are
-`commission_percent` (0–100) and `commission_withheld` (frozen while closed or
-cancelled; never negative); `cash_on_hand` (Cash to Administration) is derived, not
-typed: cash vouchers minus `seller_deposit` vouchers minus `commission_withheld`.
-Allocation lines carry required `document_kind` (`invoice` / `quotation`, default
-`invoice`). Print includes draft allocations and vouchers; `mismatch` flags when voucher
-totals disagree with allocation `total_vouchers`. Each row's seller commission is
-`commission_percent` of the untaxed share of what was applied
-(`amount_applied × invoice_amount_untaxed / invoice_amount`); the connector gives
-`amount_untaxed` per invoice (its total when it has none, and always for a quotation),
-lines keep it, and lines with none pay on `amount_applied`. `customer_debt` (MCP) does
-not return it. Money a customer keeps on account also pays commission: a quotation
-receipt's on-account money (a Pre advance) on its full amount, every other unapplied
-collected amount (a Factura advance) on that amount / 1.21; the Planilla shows each as
-an "A cuenta" row with only its commission, so the Aplicado totals stay applied money.
-The sheet computes the seller's commission as the sum of those rows (Seller Commission,
-`commission_amount`); Commission Owed to Seller (`commission_owed`) is that commission
-minus the part kept from cash (`commission_withheld`), printed as Comisión a Pagar al
-Vendedor.
+workbook never turns typed text into a formula or a link. Its Saldo column is what
+earlier sheets left open on each document (the real open amount below, over sheets with
+a lower id), not the gross ERP balance. Sheet recon inputs are `commission_percent`
+(0–100) and `commission_withheld` (frozen while closed or cancelled; never negative);
+`cash_on_hand` (Cash to Administration) is derived, not typed: cash vouchers minus
+`seller_deposit` vouchers minus `commission_withheld`. Allocation lines carry required
+`document_kind` (`invoice` / `quotation`, default `invoice`). Print includes draft
+allocations and vouchers; `mismatch` flags when voucher totals disagree with allocation
+`total_vouchers`. Each row's seller commission is `commission_percent` of the untaxed
+share of what was applied (`amount_applied × invoice_amount_untaxed / invoice_amount`);
+the connector gives `amount_untaxed` per invoice (its total when it has none, and always
+for a quotation), lines keep it, and lines with none pay on `amount_applied`.
+`customer_debt` (MCP) does not return it. Money a customer keeps on account also pays
+commission: a quotation receipt's on-account money (a Pre advance) on its full amount,
+every other unapplied collected amount (a Factura advance) on that amount / 1.21; the
+Planilla shows each as an "A cuenta" row with only its commission, so the Aplicado
+totals stay applied money. The sheet computes the seller's commission as the sum of
+those rows (Seller Commission, `commission_amount`); Commission Owed to Seller
+(`commission_owed`) is that commission minus the part kept from cash
+(`commission_withheld`), printed as Comisión a Pagar al Vendedor.
 
 Money rules. An allocation's collected money (`total_vouchers`) is the receipt values on
 its own receipts plus the full amount of each voucher pointing at it whose money was
@@ -115,12 +116,16 @@ server-side scopes: a context key sent over RPC or by an MCP tool cannot open th
 Creating a company or user is an explicit database setup step, so installing the module
 does not create business companies or login credentials.
 
-Receipts are typed into the ERP by hand. Once that is done for a closed sheet, a
-Collections Manager marks it **Entered in the ERP** (undo allowed; Cancel clears it),
-and the filter **Pending ERP entry** lists closed sheets still waiting. Until a sheet is
-marked and a connector refresh that started after the mark has succeeded, its applied
-amounts keep being subtracted from the ERP balances the agent sees; cancelled sheets are
-never subtracted.
+Receipts are typed into the ERP by hand. Close marks a sheet **Entered in the ERP**; a
+Collections Manager may undo the mark and set it again (Cancel clears it), and the
+filter **Pending ERP entry** lists closed sheets still unmarked. The mark is back-office
+tracking only. A document applied on a sheet that is not cancelled shows its real open
+amount, whether or not its receipt is in the ERP yet and whenever the connector last
+refreshed: `max(0, min(ERP balance, base - applied))`, where `base` is the ERP balance
+when a sheet first applied the document (`erp_balance_base` on the allocation line) and
+`applied` is what the non-cancelled sheets applied. A payment typed into the ERP outside
+the sheets while a sheet's receipt is pending makes it higher than the truth by the
+smaller of the two.
 
 MCP `create_collection_allocation` takes a top-level `customer_identification`, the
 payments, and the receipts that split them, and returns the sheet, the vouchers, and the
@@ -140,11 +145,12 @@ CUIT, or customer code, whole or in part) it returns at most 10 matches as
 when the connector's copy of the ERP was taken, and a copy older than the connector
 allows is refused. The summary's `total_balance` is net of open credit notes
 (`gross_total`, `credit_total`, `net_total`), with `overdue_balance` and `open_balance`;
-invoice rows keep their gross `balance` and add `allocatable_balance`, with summary
-`total_allocatable_balance`, `open_allocatable_balance`, and
-`overdue_allocatable_balance` (gross minus the reservations described above, clamped at
-zero). MCP `get_collection_sheet_pdf` takes only `seller_id` and returns the seller's
-open (else submitted) Planilla de Cobranza as
-`{sheet, filename, mimetype, content_base64}`, or `{sheet: null}` when there is neither.
-Every tool requires a Collections User caller and can be bound to a trusted seller
-header (see Configure).
+invoice rows keep their gross `balance` and add `allocatable_balance` (the real open
+amount described above) and `in_collection` (`balance - allocatable_balance`), with
+summary `total_allocatable_balance`, `open_allocatable_balance`,
+`overdue_allocatable_balance`, `in_collection_total`, and `pending_total`
+(`net_total - in_collection_total`: what the customer still owes). MCP
+`get_collection_sheet_pdf` takes only `seller_id` and returns the seller's open (else
+submitted) Planilla de Cobranza as `{sheet, filename, mimetype, content_base64}`, or
+`{sheet: null}` when there is neither. Every tool requires a Collections User caller and
+can be bound to a trusted seller header (see Configure).

@@ -841,55 +841,6 @@ class CollectionAllocationMixin(models.AbstractModel):
 
     @api.model
     @api.private
-    def _collection_reserved_amounts(
-        self,
-        external_invoice_ids: list[str],
-        exclude_allocation_id: int | bool = False,
-        connector=None,
-    ) -> dict[str, float]:
-        """Applied amounts the ERP balances do not show yet, per external invoice.
-
-        Receipts are typed into the ERP by hand and a manager marks the whole
-        sheet "Entered in the ERP". An allocation's applied amount is
-        subtracted while its sheet is not cancelled AND (the sheet is not
-        marked OR the ``connector`` has not yet taken ERP entries in since the
-        mark, i.e. no successful refresh STARTED after it). Cancelled sheets
-        never reserve. Without a connector, nothing marked is released.
-        Optionally exclude the destination allocation (amendments).
-        """
-        invoice_ids = [eid for eid in external_invoice_ids if eid]
-        if not invoice_ids:
-            return {}
-        domain = [
-            ("external_invoice_id", "in", invoice_ids),
-            ("company_id", "=", self.env.company.id),
-            ("allocation_id.state", "in", ("draft", "confirmed")),
-            ("sheet_id.state", "!=", "cancelled"),
-        ]
-        reflected_since = (
-            connector._collection_erp_reflected_since() if connector else False
-        )
-        if reflected_since:
-            domain += [
-                "|",
-                ("sheet_id.erp_entered_date", "=", False),
-                ("sheet_id.erp_entered_date", ">=", reflected_since),
-            ]
-        if exclude_allocation_id:
-            domain.append(("allocation_id", "!=", exclude_allocation_id))
-        grouped = self.env["collection.allocation.line"]._read_group(
-            domain,
-            groupby=["external_invoice_id"],
-            aggregates=["amount_applied:sum"],
-        )
-        return {
-            external_id: float(reserved or 0.0)
-            for external_id, reserved in grouped
-            if external_id
-        }
-
-    @api.model
-    @api.private
     def _collection_allocation_revalidate(
         self,
         connector,
@@ -938,16 +889,23 @@ class CollectionAllocationMixin(models.AbstractModel):
                 != (fresh_invoices[external_id].get("document_kind") or "invoice")
             ):
                 raise UserError(_("A document was applied on the wrong receipt kind."))
-        reserved = self._collection_reserved_amounts(
-            list(fresh_invoices),
-            exclude_allocation_id=dest_id,
-            connector=connector,
+        open_amounts = self.env["collection.allocation.line"]._open_amounts(
+            {
+                external_id: fresh.get("balance") or 0.0
+                for external_id, fresh in fresh_invoices.items()
+            },
+            exclude_allocation=dest_id,
         )
+        # The amended allocation keeps the base of what it already applied.
+        kept_bases = {
+            line.external_invoice_id: line.erp_balance_base
+            for line in (destination.line_ids if destination else [])
+            if currency.compare_amounts(line.amount_applied, 0.0) > 0
+        }
         line_vals: list[dict[str, Any]] = []
         for external_id, fresh in fresh_invoices.items():
             applied = applied_by_id.get(external_id, 0.0)
-            elsewhere = reserved.get(external_id, 0.0)
-            available = (fresh.get("balance") or 0.0) - elsewhere
+            available = open_amounts.get(external_id, 0.0)
             if currency.compare_amounts(applied, available) > 0:
                 raise UserError(_("Applied amount exceeds available invoice balance."))
             kind = fresh.get("document_kind") or "invoice"
@@ -959,6 +917,9 @@ class CollectionAllocationMixin(models.AbstractModel):
                     "due_date": fresh.get("due_date") or False,
                     "invoice_amount": fresh.get("amount") or 0.0,
                     "invoice_balance": fresh.get("balance") or 0.0,
+                    "erp_balance_base": kept_bases.get(
+                        external_id, fresh.get("balance") or 0.0
+                    ),
                     "invoice_amount_untaxed": fresh.get("amount_untaxed") or 0.0,
                     "invoice_state": fresh.get("state") or False,
                     "amount_applied": applied,

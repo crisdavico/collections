@@ -525,6 +525,16 @@ class CollectionSheetReport(models.Model):
         currency = self._collection_report_currency()
         percent = self.commission_percent or 0.0
         grouped = {kind: [] for kind in _DOCUMENT_KIND_ORDER}
+        # Saldo: what earlier sheets left open on the document, not the gross
+        # ERP balance (the real open amount, collection.allocation.line).
+        open_before = self.env["collection.allocation.line"]._open_amounts(
+            {
+                line.external_invoice_id: line.invoice_balance or 0.0
+                for line in self.allocation_ids.line_ids
+            },
+            company=self.company_id,
+            before_sheet=self.id,
+        )
         for line in self.allocation_ids.line_ids:
             kind = line.document_kind or "invoice"
             if kind not in grouped:
@@ -544,7 +554,9 @@ class CollectionSheetReport(models.Model):
                         "invoice_number": line.invoice_number or "",
                         "due_date": line.due_date or False,
                         "issue_date": line.issue_date or False,
-                        "invoice_balance": line.invoice_balance or 0.0,
+                        "invoice_balance": open_before.get(
+                            line.external_invoice_id, line.invoice_balance or 0.0
+                        ),
                         "amount_applied": applied,
                         "commission": commission,
                         "on_account": 0.0,

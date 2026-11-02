@@ -265,6 +265,7 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
                     "amount",
                     "balance",
                     "allocatable_balance",
+                    "in_collection",
                     "state",
                     "document_kind",
                 },
@@ -281,6 +282,8 @@ class TestCollectionMcpCustomerDebt(TransactionCase):
         self.assertEqual(result["summary"]["total_allocatable_balance"], 150.0)
         self.assertEqual(result["summary"]["overdue_allocatable_balance"], 100.0)
         self.assertEqual(result["summary"]["open_allocatable_balance"], 50.0)
+        self.assertEqual(result["summary"]["in_collection_total"], 0.0)
+        self.assertEqual(result["summary"]["pending_total"], 150.0)
         self.assertEqual(self.env["res.partner"].search_count([]), before_partners)
 
     def test_quotation_debt_rows_include_kind_and_omit_source(self):

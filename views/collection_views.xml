@@ -507,7 +507,7 @@
             type="object"
             invisible="state != 'closed' or erp_entered_date"
             groups="collection.group_collection_manager"
-            confirm="Confirm that every receipt of this sheet was entered in the ERP. Its amounts stop being subtracted from the ERP balances after the next refresh."
+            confirm="Confirm that every receipt of this sheet was entered in the ERP."
           />
                     <button
             name="action_unmark_erp_entered"
@@ -515,7 +515,7 @@
             type="object"
             invisible="not erp_entered_date"
             groups="collection.group_collection_manager"
-            confirm="Remove the Entered in the ERP mark? The amounts of this sheet are subtracted from the ERP balances again after the next refresh."
+            confirm="Remove the Entered in the ERP mark?"
           />
                     <button
             name="action_open_document_review"

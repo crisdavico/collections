@@ -57,6 +57,7 @@ from . import test_collection_deposit_proof_swap
 from . import test_collection_debt_freshness
 from . import test_collection_credit_notes
 from . import test_collection_erp_entry
+from . import test_collection_open_debt
 from . import test_collection_partner_lookup
 from . import test_collection_seller_import
 from . import test_collection_untaxed_amount
