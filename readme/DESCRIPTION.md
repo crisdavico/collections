@@ -67,7 +67,13 @@ sheet before closing; the rest is handed in, and the close reply returns both
 (`cash.banked`, `cash.to_administration`). On a submitted sheet, the form's Declare Cash
 button declares the amount typed in Commission Withheld without that cap, so Collections
 can correct it. The commission voucher Confirm mints stays in step with the declared
-commission after a Cancel and Reinstate.
+commission after a Cancel and Reinstate. An allocation made in the back office, without
+the agent, only applies debt and lists its vouchers. When the seller kept commission
+from the cash, Confirm funds those receipts from the vouchers up to the applied amount,
+cash first, and runs the approved seller deposits' cash replacement again before it
+mints the commission, so a seller who cannot use the agent can still deposit cash and
+keep their commission. Otherwise, and for allocations that already hold receipt values,
+the receipt proposal board builds the receipts.
 
 Per-company Collection Settings (`res.company` + related `res.config.settings`; XMLID
 `collection.action_collection_config_settings`) control enabled sellers (empty = none

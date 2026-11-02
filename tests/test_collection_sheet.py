@@ -808,6 +808,116 @@ class TestCollectionSheet(TransactionCase):
         sheet.action_declare_cash(commission_withheld=withheld)
         return sheet
 
+    def _values_by_voucher(self, allocation):
+        values = allocation.receipt_ids.value_ids
+        return {value.voucher_id: value.amount for value in values}
+
+    def test_confirm_builds_receipts_from_allocation_vouchers(self):
+        """A back-office allocation gets its receipt at Confirm.
+
+        Without the WhatsApp agent nobody places the money on receipts before
+        Confirm, so the deposit and the commission had no cash to replace and
+        Confirm raised "Seller commission exceeds replaceable cash."
+        """
+        sheet = self._create_sheet()
+        self._enable_seller_commission_type()
+        self._enable_document_type("seller_deposit")
+        cash = self._create_voucher(
+            customer_identification="CUST-SC-BUILD",
+            sheet_id=sheet.id,
+            document_type="cash",
+            amount=400.0,
+        )
+        transfer = self._create_voucher(
+            partner_id=cash.partner_id.id,
+            sheet_id=sheet.id,
+            document_type="bank_transfer",
+            amount=200.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, cash, invoice_id="INV-SC-BUILD"
+        )
+        allocation.write(
+            {
+                "voucher_ids": [Command.link(transfer.id)],
+                "line_ids": [
+                    Command.update(
+                        allocation.line_ids.id,
+                        {"invoice_balance": 600.0, "amount_applied": 600.0},
+                    )
+                ],
+            }
+        )
+        deposit = self.env["collection.voucher"].create(
+            {
+                "document_type": "seller_deposit",
+                "seller_id": sheet.seller_id.id,
+                "sheet_id": sheet.id,
+                "amount": 300.0,
+                "voucher_number": "SD-SC-BUILD",
+                "voucher_date": date(2026, 10, 30),
+            }
+        )
+        transfer.action_validate_seller()
+        deposit.action_validate_seller()
+        with privileged("collection_audited_state"):
+            (transfer | deposit).write({"state": "validated_collections"})
+        self.assertFalse(allocation.receipt_ids)
+        self.assertAlmostEqual(deposit.replacing_amount, 0.0, places=2)
+        self._submit_declared_cash(sheet, cash, 100.0)
+
+        sheet.action_confirm()
+
+        self.assertEqual(sheet.state, "proposal")
+        commission = self._commission_vouchers(sheet)
+        self.assertEqual(len(commission), 1)
+        self.assertEqual(allocation.receipt_ids.mapped("document_kind"), ["invoice"])
+        self.assertEqual(
+            self._values_by_voucher(allocation),
+            {transfer: 200.0, deposit: 300.0, commission: 100.0},
+        )
+        self.assertAlmostEqual(cash.replaced_amount, 400.0, places=2)
+        self.assertAlmostEqual(deposit.replacing_amount, 300.0, places=2)
+        self.assertAlmostEqual(commission.replacing_amount, 100.0, places=2)
+
+        sheet.action_reset_to_open()
+        self.assertEqual(
+            self._values_by_voucher(allocation),
+            {transfer: 200.0, deposit: 300.0, cash: 100.0},
+        )
+        sheet.action_seller_close(commission_withheld=0.0)
+        sheet.action_declare_cash(commission_withheld=100.0)
+        sheet.action_confirm()
+
+        commission = self._commission_vouchers(sheet)
+        self.assertEqual(sheet.state, "proposal")
+        self.assertEqual(
+            self._values_by_voucher(allocation),
+            {transfer: 200.0, deposit: 300.0, commission: 100.0},
+        )
+
+    def test_confirm_without_commission_leaves_receipts_to_the_board(self):
+        """Without a commission to mint, the board still builds the receipts."""
+        sheet = self._create_sheet()
+        transfer = self._create_voucher(
+            customer_identification="CUST-SC-POOL",
+            sheet_id=sheet.id,
+            document_type="bank_transfer",
+            amount=200.0,
+        )
+        allocation = self._create_balanced_allocation(
+            sheet, transfer, invoice_id="INV-SC-POOL"
+        )
+        transfer.action_validate_seller()
+        with privileged("collection_audited_state"):
+            transfer.write({"state": "validated_collections"})
+        sheet.action_seller_close()
+
+        sheet.action_confirm()
+
+        self.assertEqual(sheet.state, "proposal")
+        self.assertFalse(allocation.receipt_ids)
+
     def test_confirm_mints_one_seller_commission_and_replaces_cash(self):
         """Confirm MUST mint one sc-<uuid> commission and replace that cash."""
         sheet = self._create_sheet()
