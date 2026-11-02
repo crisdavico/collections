@@ -69,6 +69,14 @@ class CollectionAllocationLine(models.Model):
     # base); 0 on lines stored before the connector gave it.
     invoice_amount_untaxed = fields.Monetary(currency_field="currency_id")
     invoice_state = fields.Char()
+    # ERP balance when this line was created (create defaults it to
+    # invoice_balance); an MCP amendment keeps it for a document the
+    # allocation already applied. The base of the real open amount
+    # (_open_amounts); never refreshed.
+    erp_balance_base = fields.Monetary(
+        string="ERP Balance Base",
+        currency_field="currency_id",
+    )
     amount_applied = fields.Monetary(
         required=True,
         default=0.0,
@@ -84,6 +92,66 @@ class CollectionAllocationLine(models.Model):
         "Each external invoice can appear only once per allocation.",
     )
 
+    def init(self):
+        """Lines stored before the base existed take their snapshot balance."""
+        self.env.cr.execute(
+            "UPDATE collection_allocation_line SET erp_balance_base = invoice_balance"
+            " WHERE erp_balance_base IS NULL"
+        )
+
+    @api.model
+    @api.private
+    def _open_amounts(
+        self, balances, company=None, exclude_allocation=False, before_sheet=False
+    ):
+        """Real open amount per external document, given its ERP balance now.
+
+        ``open = max(0, min(balance, base - applied))`` over the applied lines
+        of non-cancelled sheets of ``company``: ``base`` is the largest
+        ``erp_balance_base`` among them, ``applied`` their sum. While the ERP
+        does not show those applications its balance is still ``base``; once
+        it does, it is ``base - applied``. Either way the answer is the same,
+        so the "Entered in the ERP" mark and the snapshot refresh time never
+        change it. A payment typed into the ERP outside the sheets while a
+        sheet's receipt is pending makes it higher than the truth by the
+        smaller of the two (accepted limit).
+
+        :param balances: ``{external_invoice_id: ERP balance}``.
+        :param exclude_allocation: an allocation id left out (the one amended).
+        :param before_sheet: count only sheets with a lower id (the Planilla).
+        """
+        ids = [external_id for external_id in balances if external_id]
+        if not ids:
+            return {}
+        company = company or self.env.company
+        domain = [
+            ("external_invoice_id", "in", ids),
+            ("company_id", "=", company.id),
+            ("sheet_id.state", "!=", "cancelled"),
+            ("amount_applied", ">", 0.0),
+        ]
+        if exclude_allocation:
+            domain.append(("allocation_id", "!=", exclude_allocation))
+        if before_sheet:
+            domain.append(("sheet_id", "<", before_sheet))
+        applied = {
+            external_id: (total or 0.0, base or 0.0)
+            for external_id, total, base in self._read_group(
+                domain,
+                groupby=["external_invoice_id"],
+                aggregates=["amount_applied:sum", "erp_balance_base:max"],
+            )
+        }
+        currency = company.currency_id
+        result = {}
+        for external_id in ids:
+            balance = balances[external_id] or 0.0
+            if external_id in applied:
+                total, base = applied[external_id]
+                balance = min(balance, base - total)
+            result[external_id] = currency.round(max(balance, 0.0))
+        return result
+
     @api.model_create_multi
     def create(self, vals_list):
         raise_if_create_vals_frozen(
@@ -93,6 +161,9 @@ class CollectionAllocationLine(models.Model):
             field="allocation_id",
             comodel="collection.allocation",
         )
+        for vals in vals_list:
+            if "erp_balance_base" not in vals:
+                vals["erp_balance_base"] = vals.get("invoice_balance") or 0.0
         if is_privileged(LINE_BATCH_SCOPE):
             return super().create(vals_list)
         allocations = self.env["collection.allocation"].browse(

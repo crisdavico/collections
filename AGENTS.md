@@ -331,8 +331,8 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
   and mark it again (`action_mark_erp_entered`, **closed** sheets only; marking twice
   refused). Plain writes of either field are refused; Cancel and Reset to Open clear the
   mark and stay open to Collections Users. Search filter **Pending ERP entry** lists
-  closed, unmarked sheets. The mark drives the reserved-amount rule (see MCP
-  `customer_debt`).
+  closed, unmarked sheets. The mark is back-office tracking only: the real open amount
+  (`collection.allocation.line._open_amounts`) does not depend on it.
 - **Allocations:** `UNIQUE(sheet_id, partner_id)`. Selection `draft` | `confirmed`;
   default `draft` (`draft` iff sheet `open`/`submitted`/`proposal`/`cancelled`,
   `confirmed` iff sheet `closed`). Drop Validate/Reject. Freeze `line_ids` /
@@ -558,12 +558,15 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
     invoices); invoice rows and their gross `balance` are unchanged, so allocations
     still target invoices. `as_of` is when the connector's copy of the ERP was taken
     (ISO 8601, company timezone); a too-old copy raises `ConnectorDataStaleError`.
-    `allocatable_balance` is gross minus the same-company draft+confirmed
-    `amount_applied` still **reserved**, clamped at 0: an applied amount is subtracted
-    while its sheet is not cancelled AND (the sheet is not marked Entered in the ERP OR
-    no successful connector refresh started after the mark, per
-    `_collection_erp_reflected_since()`; connectors that do not report it keep
-    subtracting). Hidden proposal/closed sheets count. Outstanding invoices only
+    `allocatable_balance` is the document's real open amount
+    (`collection.allocation.line._open_amounts`): `max(0, min(balance, base - applied))`
+    over the same-company lines with `amount_applied > 0` of non-cancelled sheets,
+    `base` being their largest `erp_balance_base` (the ERP balance when the line was
+    created; an MCP amend keeps it for a document the allocation already applied).
+    Neither the Entered in the ERP mark nor the connector refresh time changes it.
+    `in_collection` is `balance - allocatable_balance`; summary `in_collection_total`
+    and `pending_total` (`net_total - in_collection_total`, what the customer still
+    owes). Hidden proposal/closed sheets count. Outstanding invoices only
     (`balance > 0`, state `open`/`overdue`). MUST NOT create `res.partner` or customer
     bindings. MUST NOT import or open SQLite in this addon.
   - Method-discovered `@mcp_tool` `create_collection_allocation` (`category=write`,
@@ -581,16 +584,17 @@ docker exec -i seedian-odoo-1 odoo -d devel -u collection --stop-after-init
     generic conflict) → voucher-set gates (all voucher states may allocate) → lock →
     hash (vouchers plus receipt values, applications, and `document_kind`; MUST NOT
     include `residual_reason`) → ERP revalidate (`balance_seen` vs fresh
-    `currency.compare_amounts`; expand outstanding zeros; subtract the other reserved
-    **draft and confirmed** applications, same rule as `customer_debt`) → persist
-    (`state` omitted so default `draft`; revision 1). The amend drops the old receipts
-    before replacing the lines. Advisory lock on create `(sheet, partner)`; `FOR UPDATE`
-    on amend; amend only while **draft**; PUT voucher set MUST be a superset. **Replays
-    are seller- and content-scoped:** a reused `request_id` replays (zero writes) only
-    for the seller that wrote it, the same customer binding and the same `content_hash`
-    (bodies are parsed first so content can be compared); anything else is the generic
-    conflict, never another seller's data. `UniqueViolation` → `invalidate_all()` →
-    replay or generic conflict (no ids). Success:
+    `currency.compare_amounts`; expand outstanding zeros; cap each application at the
+    open amount without the amended allocation, same rule as `customer_debt`; keep the
+    amended lines' `erp_balance_base`) → persist (`state` omitted so default `draft`;
+    revision 1). The amend drops the old receipts before replacing the lines. Advisory
+    lock on create `(sheet, partner)`; `FOR UPDATE` on amend; amend only while
+    **draft**; PUT voucher set MUST be a superset. **Replays are seller- and
+    content-scoped:** a reused `request_id` replays (zero writes) only for the seller
+    that wrote it, the same customer binding and the same `content_hash` (bodies are
+    parsed first so content can be compared); anything else is the generic conflict,
+    never another seller's data. `UniqueViolation` → `invalidate_all()` → replay or
+    generic conflict (no ids). Success:
     `{sheet_id, vouchers:[{id,name,state,document_id}] in submit order, allocation:{id,name,state,revision:int,total_vouchers,total_applied,residual}}`.
     MUST NOT `sudo()`. `_DISPATCH_OPS` includes `create_receipt` (unused from Close;
     Import still calls `list_sellers()` only). Errors are raised, never `{"error":...}`.
@@ -754,7 +758,8 @@ invoke test -m collection --mode=update -d devel
 | `tests/test_collection_deposit_proof_swap.py`       | Proof swap reverses replaced cash; closed/past-Submitted refusals; delete-then-upload                                                                                                                                                               |
 | `tests/test_collection_debt_freshness.py`           | `as_of`, stale-data refusal in the picker and allocations                                                                                                                                                                                           |
 | `tests/test_collection_credit_notes.py`             | Net `total_balance` with `gross_total` / `credit_total` / `net_total`                                                                                                                                                                               |
-| `tests/test_collection_erp_entry.py`                | Entered in the ERP mark and the reserved-amount release                                                                                                                                                                                             |
+| `tests/test_collection_erp_entry.py`                | Entered in the ERP mark: Close sets it, manager mark/unmark, Cancel/Reset clear it                                                                                                                                                                  |
+| `tests/test_collection_open_debt.py`                | Real open amount: mark/refresh-independent, several sheets, cancelled, known limit, `customer_debt` totals, write cap, amend keeps base, Planilla Saldo                                                                                             |
 | `tests/test_collection_partner_lookup.py`           | CUIT-digit match among commercial partners                                                                                                                                                                                                          |
 | `tests/test_collection_seller_import.py`            | Partial-safe Import: empty answer refused, missing sellers kept and reported, same-company users only                                                                                                                                               |
 

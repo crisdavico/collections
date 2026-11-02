@@ -116,9 +116,8 @@ class CollectionSheet(models.Model):
         copy=False,
         index=True,
         help="When this sheet's receipts were marked as typed into the ERP: set "
-        "on Close, or by a manager marking it again. Its applied amounts stop "
-        "being subtracted from the ERP balances once a connector refresh that "
-        "started after this time succeeded.",
+        "on Close, or by a manager marking it again. Back-office tracking only: "
+        "the open debt the agent shows does not depend on it.",
     )
     erp_entered_uid = fields.Many2one(
         comodel_name="res.users",
@@ -733,7 +732,7 @@ class CollectionSheet(models.Model):
         with privileged("collection_sheet_audited_state"):
             result = self.write({"state": "cancelled"})
         if marked:
-            # A cancelled sheet reserves nothing; Reinstate starts unmarked.
+            # A cancelled sheet counts nothing; Reinstate starts unmarked.
             marked._clear_erp_entry(
                 _("Cancel removed the Entered in the ERP mark of this sheet.")
             )
@@ -854,9 +853,8 @@ class CollectionSheet(models.Model):
     def action_mark_erp_entered(self):
         """Record that this closed sheet's receipts were typed into the ERP.
 
-        From then on its applied amounts stop being subtracted from the ERP
-        balances once a connector refresh that started after the mark
-        succeeded (the ERP shows them by then).
+        Back-office tracking only: the real open amount of a document
+        (``collection.allocation.line._open_amounts``) does not depend on it.
         """
         self._check_erp_entry_manager()
         if any(sheet.state != CONFIRMED_SHEET_STATE for sheet in self):
@@ -879,7 +877,7 @@ class CollectionSheet(models.Model):
         return True
 
     def action_unmark_erp_entered(self):
-        """Undo a mistaken mark: the applied amounts are subtracted again."""
+        """Undo a mistaken mark (back-office tracking only)."""
         self._check_erp_entry_manager()
         if any(not sheet.erp_entered_date for sheet in self):
             raise UserError(_("This sheet is not marked as entered in the ERP."))

@@ -1192,9 +1192,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid ""
-"Confirm that every receipt of this sheet was entered in the ERP. Its amounts"
-" stop being subtracted from the ERP balances after the next refresh."
+msgid "Confirm that every receipt of this sheet was entered in the ERP."
 msgstr ""
 
 #. module: collection
@@ -1698,6 +1696,11 @@ msgstr ""
 #. odoo-python
 #: code:addons/collection/tools/collection_allocation.py:0
 msgid "Duplicate split for the same payment and document kind."
+msgstr ""
+
+#. module: collection
+#: model:ir.model.fields,field_description:collection.field_collection_allocation_line__erp_balance_base
+msgid "ERP Balance Base"
 msgstr ""
 
 #. module: collection
@@ -2957,9 +2960,7 @@ msgstr ""
 
 #. module: collection
 #: model_terms:ir.ui.view,arch_db:collection.view_collection_sheet_form
-msgid ""
-"Remove the Entered in the ERP mark? The amounts of this sheet are subtracted"
-" from the ERP balances again after the next refresh."
+msgid "Remove the Entered in the ERP mark?"
 msgstr ""
 
 #. module: collection
@@ -4009,9 +4010,8 @@ msgstr ""
 #: model:ir.model.fields,help:collection.field_collection_sheet__erp_entered_date
 msgid ""
 "When this sheet's receipts were marked as typed into the ERP: set on Close, "
-"or by a manager marking it again. Its applied amounts stop being subtracted "
-"from the ERP balances once a connector refresh that started after this time "
-"succeeded."
+"or by a manager marking it again. Back-office tracking only: the open debt "
+"the agent shows does not depend on it."
 msgstr ""
 
 #. module: collection

@@ -1,11 +1,8 @@
 # Copyright 2026 Seedian
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from datetime import timedelta
-
 from lxml import etree
 
-from odoo import fields
 from odoo.exceptions import AccessError, UserError
 from odoo.fields import Command
 from odoo.tests import TransactionCase
@@ -28,11 +25,11 @@ _APPLIED = 40.0
 
 
 class TestCollectionErpEntry(TransactionCase):
-    """A sheet marked "Entered in the ERP" stops reserving once the ERP shows it.
+    """The "Entered in the ERP" mark: back-office tracking only.
 
-    Closing a sheet marks it; a manager may unmark it and mark it again. Its
-    applied amounts stay subtracted from the connector balances until a
-    snapshot refresh that STARTED after the mark succeeded.
+    Closing a sheet marks it; a manager may unmark it and mark it again. The
+    real open amount of a document does not depend on it
+    (test_collection_open_debt).
     """
 
     def setUp(self):
@@ -43,7 +40,6 @@ class TestCollectionErpEntry(TransactionCase):
         self.manager = create_collection_user(self.env, "erp_entry_mgr", manager=True)
         self.operator = create_collection_user(self.env, "erp_entry_operator")
         self.plain = create_internal_seller(self.env, "erp_entry_plain")
-        self.mixin = self.env["muk_mcp.mixin"]
 
     def _sheet(self, state="open"):
         """A sheet applying 40 to the open invoice, driven to ``state``."""
@@ -96,30 +92,11 @@ class TestCollectionErpEntry(TransactionCase):
             sheet.action_cancel()
         return sheet
 
-    def _reserved(self, reflected_since=None):
-        connector = self.connector
-        if reflected_since is not None:
-            connector = connector.with_context(
-                collection_test_reflected_since=reflected_since
-            )
-        return self.mixin._collection_reserved_amounts(
-            [_INVOICE], connector=connector
-        ).get(_INVOICE, 0.0)
-
     def _mark(self, sheet):
         """Mark a closed sheet again by hand; Close already marked it."""
         sheet.with_user(self.manager).action_unmark_erp_entered()
         sheet.with_user(self.manager).action_mark_erp_entered()
         return sheet.erp_entered_date
-
-    def test_sheets_not_yet_closed_are_subtracted(self):
-        # One open sheet per seller: the open one comes last.
-        for state in ("submitted", "proposal", "open"):
-            with self.subTest(state=state):
-                sheet = self._sheet(state)
-                self.assertEqual(self._reserved(), _APPLIED)
-                if state != "open":
-                    sheet.action_cancel()
 
     def test_close_marks_the_sheet_as_entered_in_the_erp(self):
         sheet = self._sheet("proposal")
@@ -131,110 +108,6 @@ class TestCollectionErpEntry(TransactionCase):
         self.assertEqual(sheet.erp_entered_uid, self.operator)
         self.assertEqual(len(sheet.message_ids), before + 1)
         self.assertIn("entered in the ERP", sheet.message_ids[0].body)
-
-    def test_closed_sheet_is_subtracted_until_a_refresh_after_close(self):
-        sheet = self._sheet("closed")
-        closed_at = sheet.erp_entered_date
-        self.assertEqual(self._reserved(), _APPLIED)
-        self.assertEqual(self._reserved(closed_at - timedelta(seconds=1)), _APPLIED)
-        self.assertEqual(self._reserved(closed_at + timedelta(seconds=1)), 0.0)
-
-    def test_unmarked_closed_sheet_is_subtracted(self):
-        sheet = self._sheet("closed")
-        sheet.with_user(self.manager).action_unmark_erp_entered()
-        self.assertEqual(self._reserved(), _APPLIED)
-        self.assertEqual(self._reserved(fields.Datetime.now()), _APPLIED)
-
-    def test_marked_sheet_without_a_newer_refresh_is_subtracted(self):
-        sheet = self._sheet("closed")
-        marked_at = self._mark(sheet)
-        self.assertTrue(marked_at)
-        self.assertEqual(sheet.erp_entered_uid, self.manager)
-        self.assertEqual(self._reserved(), _APPLIED)
-        self.assertEqual(self._reserved(marked_at - timedelta(hours=1)), _APPLIED)
-
-    def test_refresh_started_after_the_mark_stops_the_subtraction(self):
-        sheet = self._sheet("closed")
-        marked_at = self._mark(sheet)
-        self.assertEqual(self._reserved(marked_at + timedelta(seconds=1)), 0.0)
-
-    def test_refresh_started_before_the_mark_still_subtracts(self):
-        """A refresh that began before the mark may predate the ERP entry."""
-        sheet = self._sheet("closed")
-        marked_at = self._mark(sheet)
-        self.assertEqual(self._reserved(marked_at - timedelta(seconds=1)), _APPLIED)
-        self.assertEqual(self._reserved(marked_at), _APPLIED)
-
-    def test_unmarking_subtracts_again(self):
-        sheet = self._sheet("closed")
-        marked_at = self._mark(sheet)
-        later = marked_at + timedelta(seconds=1)
-        self.assertEqual(self._reserved(later), 0.0)
-        sheet.with_user(self.manager).action_unmark_erp_entered()
-        self.assertFalse(sheet.erp_entered_date)
-        self.assertFalse(sheet.erp_entered_uid)
-        self.assertEqual(self._reserved(later), _APPLIED)
-
-    def test_cancelled_sheets_never_reserve(self):
-        self._sheet("cancelled")
-        self.assertEqual(self._reserved(), 0.0)
-
-    def test_mcp_allocatable_balance_follows_the_rule(self):
-        """A partial payment releases only its applied amount.
-
-        The open invoice owes 50 and the closed sheet applied 40: until a
-        refresh that started after the mark only the remaining 10 is
-        allocatable; after it, the ERP balance is trusted as it stands.
-        """
-        sheet = self._sheet("closed")
-        marked_at = sheet.erp_entered_date
-        for since, allocatable in (
-            (marked_at - timedelta(seconds=1), 10.0),
-            (marked_at + timedelta(seconds=1), 50.0),
-        ):
-            with self.subTest(since=since):
-                payload = self.mixin.with_context(
-                    collection_test_reflected_since=since
-                ).customer_debt(self.seller.id, "20-11111111-1")
-                by_id = {row["external_invoice_id"]: row for row in payload["invoices"]}
-                self.assertEqual(by_id[_INVOICE]["allocatable_balance"], allocatable)
-
-    def test_mcp_allocation_write_follows_the_rule(self):
-        """The allocation write revalidates against the same released balance.
-
-        The open invoice owes 50 and the marked sheet applied 40 to it: until a
-        refresh that started after the mark, only 10 can be applied elsewhere.
-        """
-        sheet = self._sheet("closed")
-        marked_at = sheet.erp_entered_date
-        rows = [
-            {
-                "external_invoice_id": _INVOICE,
-                "amount_applied": 50.0,
-                "document_kind": "invoice",
-            }
-        ]
-
-        def revalidate(since):
-            connector = self.connector.with_context(
-                collection_test_reflected_since=since
-            )
-            return self.mixin._collection_allocation_revalidate(
-                connector,
-                self.seller,
-                "20-11111111-1",
-                rows,
-                self.env["collection.allocation"],
-                self.env.company.currency_id,
-            )
-
-        with self.assertRaisesRegex(UserError, "exceeds available invoice balance"):
-            revalidate(marked_at - timedelta(seconds=1))
-        line_vals = revalidate(marked_at + timedelta(seconds=1))
-        applied = {
-            vals["external_invoice_id"]: vals["amount_applied"] for vals in line_vals
-        }
-        self.assertEqual(applied[_INVOICE], 50.0)
 
     def test_only_managers_mark_and_unmark(self):
         sheet = self._sheet("closed")
