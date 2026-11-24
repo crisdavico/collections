@@ -13,6 +13,10 @@ from .collection_common import is_company_restricted
 # This state is server-owned, never a caller-supplied RPC context flag.
 _COMPUTING_NATIVE_RULES = ContextVar("collection_computing_native_rules", default=False)
 
+# Shared site infrastructure, not business records: the public website is owned
+# by one company but every page needs to read it, so the boundary must not hide it.
+_COMPANY_BOUNDARY_EXEMPT_MODELS = frozenset({"website"})
+
 
 class IrRule(models.Model):
     _inherit = "ir.rule"
@@ -26,6 +30,8 @@ class IrRule(models.Model):
             domain = super()._compute_domain(model_name, mode=mode)
         finally:
             _COMPUTING_NATIVE_RULES.reset(token)
+        if model_name in _COMPANY_BOUNDARY_EXEMPT_MODELS:
+            return domain
         field = self.env[model_name]._fields.get("company_id")
         if (
             field

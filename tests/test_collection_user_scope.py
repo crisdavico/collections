@@ -79,6 +79,20 @@ class TestCollectionUserScope(TransactionCase):
         )
         self._assert_company_scope(accounts, ["acc_number"])
 
+    def test_websites_of_other_companies_stay_readable(self):
+        # The public website is shared site infrastructure, not a business
+        # record: hiding it breaks every frontend page for the operator.
+        if "website" not in self.env:
+            self.skipTest("website is not installed")
+        website = self.env["website"].create(
+            {"name": "Scope other website", "company_id": self.other.id}
+        )
+        Website = self.env["website"].with_user(self.user)
+        self.assertIn(website, Website.search([("id", "=", website.id)]))
+        self.assertEqual(Website.browse(website.id).name, "Scope other website")
+        # The exemption is limited to the website model.
+        self._assert_company_scope(self.contacts, ["name"])
+
     def test_collection_records_use_profile_company(self):
         connectors = self.env["collection.connector"].create(
             [
